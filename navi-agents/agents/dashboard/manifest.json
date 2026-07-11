@@ -1,0 +1,14 @@
+{
+  "id": "dashboard",
+  "name": "Dashboard Builder",
+  "icon": "\ud83d\udcca",
+  "order": 1,
+  "category": "Explore",
+  "summary": "Describe any view in plain English and the model writes a read-only navi.db query, then renders it in the project style as KPI tiles, a bar chart, or a table. Visualize something we didn't build a page for \u2014 without leaving the app.",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": [
+    "build"
+  ],
+  "codename": "Daedalus Hound"
+}

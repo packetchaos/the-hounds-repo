@@ -1,0 +1,12 @@
+{
+  "id": "argos",
+  "name": "Asset Deep-Dive",
+  "icon": "🔦",
+  "order": 19,
+  "category": "Explore",
+  "codename": "Argos Hound",
+  "summary": "Give it one asset UUID or IP and it returns the whole story: risk band, the pack's tags deciphered (what each one means + which Hound raised it), severity breakdown, top CVEs, software and certs — plus live navi explore uuid views.",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": ["run", "lookup", "live"]
+}

@@ -1,0 +1,12 @@
+{
+  "id": "agentgroup",
+  "name": "Agent Group Tagging",
+  "icon": "🛰️",
+  "order": 11,
+  "category": "Tagging",
+  "summary": "Sirius — tags every asset in a Tenable agent group with Agent Group:<name>. Three ways: give a list of group names (NL), tick groups in a widget, or tag every group at once (navi enrich tag --group).",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": ["run", "tag", "tag_all"],
+  "codename": "Sirius Hound"
+}

@@ -1,0 +1,15 @@
+{
+  "id": "eol",
+  "name": "EOL / Unsupported Tagging",
+  "icon": "\u23cf\ufe0f",
+  "order": 6,
+  "category": "Tagging",
+  "summary": "Tags assets running Unsupported or End-of-Life software by matching lifecycle text in the plugin name (navi tag-by-name) \u2014 expands automatically as new EOL plugins appear.",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": [
+    "run",
+    "apply"
+  ],
+  "codename": "Charon Hound"
+}

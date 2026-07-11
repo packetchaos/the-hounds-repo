@@ -1,0 +1,16 @@
+{
+  "id": "identity",
+  "name": "Identity Inventory",
+  "icon": "\ud83c\udd94",
+  "order": 7,
+  "category": "Tagging",
+  "summary": "Finds NHI and human identities via local-user enumeration plugins, then tags the hosting assets via navi tag-by-query. Per-identity rename, tag-by-class, and a natural-language tagging box.",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": [
+    "run",
+    "tag",
+    "interpret"
+  ],
+  "codename": "Janus Hound"
+}

@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Custom Dashboard · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>
+.barrow{display:grid;grid-template-columns:190px 1fr 64px;gap:10px;align-items:center;margin:7px 0}
+.barrow .bl{font-size:12.5px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.barrow .bv{font-family:var(--mono);font-size:12px;color:var(--ink-3);text-align:right}
+.h2bar{height:24px;display:flex;align-items:center;padding:0 10px;font-weight:700;font-size:13px;min-width:28px;border-radius:5px}
+.sqlbox{font-family:var(--mono);font-size:11.5px;white-space:pre-wrap;color:var(--ink-2)}
+</style>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+  <section class="card">
+    <div class="toolbar"><div><h2 style="margin:0">🗂 Custom Dashboard</h2>
+      <p class="sub" style="margin:2px 0 0">Components promoted from the <a href="/agents/dashboard/page.html">Dashboard builder</a>. <b>↻ Refresh data</b> re-runs each component's navi.db query so the board reflects the current snapshot.</p></div>
+      <span style="margin-left:auto;display:flex;gap:6px;align-items:center"><span class="chip" id="count"></span><button class="btn run sm" id="refresh">↻ Refresh data</button><a class="btn ghost sm" href="/agents/dashboard/page.html">✏️ Edit in builder</a></span></div>
+    <div id="flash" class="flash"></div>
+  </section>
+  <div id="grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:16px;margin-top:12px"></div>
+  <footer>Custom Dashboard · pinned components saved in this browser · reads navi.db read-only</footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const DPAL=['#d6f84c','#3ea6ff','#34d399','#e0607e','#a78bfa','#fbbf24','#22d3ee','#f97362','#84cc16','#c084fc','#2dd4bf','#fb923c'];
+const _num=v=>v!==null&&v!==''&&!isNaN(parseFloat(v))&&isFinite(v);
+const _isDate=v=>typeof v==='string'&&/^\d{4}(-\d{2}(-\d{2})?)?([ T]\d|$)/.test(v.trim());
+function dPickViz(r,cols,rows){
+  const numCols=cols.filter(c=>rows.slice(0,30).filter(x=>x[c]!=null&&x[c]!=='').every(x=>_num(x[c]))&&rows.some(x=>_num(x[c])));
+  const lc=cols.includes(r.label_col)?r.label_col:(cols.find(c=>!numCols.includes(c))||cols[0]);
+  const vc=(cols.includes(r.value_col)&&numCols.includes(r.value_col))?r.value_col:(numCols.find(c=>c!==lc)||numCols[0]);
+  let viz=['kpi','bar','line','pie','table'].includes(r.viz)?r.viz:'';
+  if(!viz){ if(rows.length===1&&numCols.length)viz='kpi'; else if(vc&&lc&&rows.every(x=>_isDate(x[lc])))viz='line'; else if(vc&&lc&&rows.length<=8&&rows.every(x=>(parseFloat(x[vc])||0)>=0))viz='pie'; else if(vc&&lc)viz='bar'; else viz='table'; }
+  if(viz==='pie'&&(!vc||rows.length>12||rows.some(x=>(parseFloat(x[vc])||0)<0)))viz='bar';
+  if((viz==='line'||viz==='bar')&&!vc)viz='table';
+  return {viz,lc,vc};
+}
+function svgPie(rows,lc,vc){
+  const d=rows.map((r,i)=>({l:String(r[lc]==null?'':r[lc]),v:Math.max(0,parseFloat(r[vc])||0),c:DPAL[i%DPAL.length]})).filter(x=>x.v>0);
+  const tot=d.reduce((s,x)=>s+x.v,0)||1; const R=120,CX=140,CY=140; let a=-Math.PI/2; const seg=[];
+  d.forEach(x=>{const f=x.v/tot,a2=a+f*2*Math.PI,x1=CX+R*Math.cos(a),y1=CY+R*Math.sin(a),x2=CX+R*Math.cos(a2),y2=CY+R*Math.sin(a2),lg=f>0.5?1:0;
+    seg.push(f>0.999?`<circle cx="${CX}" cy="${CY}" r="${R}" fill="${x.c}"/>`:`<path d="M${CX},${CY} L${x1.toFixed(1)},${y1.toFixed(1)} A${R},${R} 0 ${lg} 1 ${x2.toFixed(1)},${y2.toFixed(1)} Z" fill="${x.c}"/>`);a=a2;});
+  const leg=d.map(x=>`<div style="display:flex;align-items:center;gap:7px;margin:3px 0;font-size:12.5px"><span style="width:12px;height:12px;border-radius:3px;background:${x.c};flex:0 0 auto"></span><span style="color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(x.l)}">${esc(x.l)}</span><span style="margin-left:auto;font-family:var(--mono);color:var(--ink-3)">${x.v} · ${Math.round(x.v/tot*100)}%</span></div>`).join('');
+  return `<div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center"><svg viewBox="0 0 280 280" style="width:260px;height:260px;flex:0 0 auto">${seg.join('')}</svg><div style="flex:1;min-width:200px">${leg}</div></div>`;
+}
+function svgLine(rows,lc,vc){
+  const p=rows.map(r=>({x:String(r[lc]==null?'':r[lc]),y:parseFloat(r[vc])||0})); const W=720,H=240,PL=46,PB=34,PT=12,PR=12;
+  const max=Math.max(1,...p.map(o=>o.y)),min=Math.min(0,...p.map(o=>o.y)); const sx=i=>PL+(p.length<2?0:i*(W-PL-PR)/(p.length-1)),sy=y=>PT+(H-PT-PB)*(1-(y-min)/((max-min)||1));
+  const poly=p.map((o,i)=>sx(i).toFixed(1)+','+sy(o.y).toFixed(1)).join(' '); const dots=p.map((o,i)=>`<circle cx="${sx(i).toFixed(1)}" cy="${sy(o.y).toFixed(1)}" r="3" fill="var(--accent)"><title>${esc(o.x)}: ${o.y}</title></circle>`).join('');
+  const step=Math.ceil(p.length/8),xl=p.map((o,i)=>i%step?'':`<text x="${sx(i).toFixed(1)}" y="${H-12}" font-size="10" fill="var(--ink-3)" text-anchor="middle">${esc(String(o.x).slice(0,10))}</text>`).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto"><line x1="${PL}" y1="${H-PB}" x2="${W-PR}" y2="${H-PB}" stroke="var(--line)"/><line x1="${PL}" y1="${PT}" x2="${PL}" y2="${H-PB}" stroke="var(--line)"/><text x="${PL-6}" y="${sy(max)+4}" font-size="10" fill="var(--ink-3)" text-anchor="end">${max}</text><polyline points="${poly}" fill="none" stroke="var(--accent)" stroke-width="2"/>${dots}${xl}</svg>`;
+}
+function tableHtml(r){ const cols=r.columns||[],rows=r.rows||[];
+  return '<div style="overflow-x:auto"><table><thead><tr>'+cols.map(c=>'<th>'+esc(c)+'</th>').join('')+'</tr></thead><tbody>'+rows.map(x=>'<tr>'+cols.map(c=>'<td>'+esc(String(x[c]==null?'':x[c]))+'</td>').join('')+'</tr>').join('')+'</tbody></table></div>'; }
+function vizHTML(r){
+  const rows=r.rows||[], cols=r.columns||[];
+  if(!rows.length) return '<p class="sub">No rows. Re-run the query in the builder, or the navi.db snapshot may be stale.</p>';
+  const {viz,lc,vc}=dPickViz(r,cols,rows);
+  if(viz==='kpi'){ const row=rows[0]; return '<div class="kpi">'+cols.map(c=>`<div class="k"><div class="v">${esc(String(row[c]))}</div><div class="l">${esc(c)}</div></div>`).join('')+'</div>'+(rows.length>1?tableHtml(r):''); }
+  if(viz==='pie') return svgPie(rows,lc,vc)+`<details style="margin-top:12px"><summary class="sub" style="cursor:pointer">Show data table</summary>${tableHtml(r)}</details>`;
+  if(viz==='line') return svgLine(rows,lc,vc)+`<details style="margin-top:12px"><summary class="sub" style="cursor:pointer">Show data table</summary>${tableHtml(r)}</details>`;
+  if(viz==='bar'){ const max=Math.max(1,...rows.map(x=>parseFloat(x[vc])||0));
+    return rows.map((x,i)=>{const val=parseFloat(x[vc])||0;const w=Math.max(3,Math.round(val/max*100));
+      return `<div class="barrow"><div class="bl" title="${esc(String(x[lc]))}">${esc(String(x[lc]))}</div><div class="h2bar" style="width:${w}%;background:${DPAL[i%DPAL.length]};color:#10131a">${val}</div><div class="bv">${esc(String(x[vc]))}</div></div>`;}).join('')+
+      `<details style="margin-top:12px"><summary class="sub" style="cursor:pointer">Show data table</summary>${tableHtml(r)}</details>`; }
+  return tableHtml(r);
+}
+let DASHBOARD=[]; try{ DASHBOARD=JSON.parse(localStorage.getItem('navi-dashboard')||'[]')||[]; }catch(e){ DASHBOARD=[]; }
+function save(){ try{ localStorage.setItem('navi-dashboard',JSON.stringify(DASHBOARD)); }catch(e){} }
+function render(){
+  const g=document.getElementById('grid'); const c=document.getElementById('count');
+  if(c)c.textContent=DASHBOARD.length+' component'+(DASHBOARD.length===1?'':'s');
+  document.getElementById('refresh').disabled=!DASHBOARD.length;
+  if(!DASHBOARD.length){ g.innerHTML='<div class="sub" style="grid-column:1/-1;text-align:center;padding:40px 0">No components yet. Build views in the <a href="/agents/dashboard/page.html">Dashboard builder</a>, pin them with <b>Add to dashboard</b>, then <b>🚀 Promote to dashboard</b>.</div>'; return; }
+  g.innerHTML=DASHBOARD.map((d,i)=>`<section class="card" style="margin:0"><div class="toolbar"><div><h3 style="margin:0">${esc(d.title||'Component')}</h3>${d.note?'<p class="sub" style="margin:2px 0 0">'+esc(d.note)+'</p>':''}</div><span style="margin-left:auto;display:flex;gap:6px"><button class="btn ghost sm" data-csv="${i}">⤓ CSV</button><button class="btn ghost sm" data-sql="${i}">SQL</button><button class="btn ghost sm" data-rm="${i}" title="Remove">✕</button></span></div><div class="callbox" data-sqlw="${i}" style="display:none;margin-bottom:10px"><div class="sqlbox">${esc(d.sql||'')}</div></div><div>${vizHTML(d.r||{})}</div></section>`).join('');
+  g.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{DASHBOARD.splice(+b.dataset.rm,1);save();render();});
+  g.querySelectorAll('[data-sql]').forEach(b=>b.onclick=()=>{const w=g.querySelector('[data-sqlw="'+b.dataset.sql+'"]');if(w)w.style.display=w.style.display==='none'?'block':'none';});
+  g.querySelectorAll('[data-csv]').forEach(b=>b.onclick=()=>{const d=DASHBOARD[+b.dataset.csv];downloadCSV((d.title||'component')+'.csv',(d.r&&d.r.columns)||[],(d.r&&d.r.rows)||[]);});
+}
+async function refreshAll(){
+  if(!DASHBOARD.length)return; const rb=document.getElementById('refresh'); rb.disabled=true;
+  flash('flash','<span class="spin"></span> refreshing components from navi.db…','run');
+  let ok=0,skip=0;
+  for(const d of DASHBOARD){ const sql=(d.sql||'').trim();
+    if(/^\s*(select|with)\b/i.test(sql)){ try{ const o=await runSql(sql); if(o&&o.ok){ d.r=Object.assign(d.r||{},{columns:o.columns,rows:o.rows,row_count:(o.rows||[]).length}); ok++; } }catch(e){} } else skip++; }
+  save(); render(); rb.disabled=false;
+  flash('flash','✓ refreshed '+ok+' component(s)'+(skip?' · '+skip+' had no SQL to re-run':'')+'.','ok');
+}
+document.getElementById('refresh').onclick=refreshAll;
+mountAgentHeader({icon:'🗂',name:'Custom Dashboard',sub:'promoted components · live refresh'});
+render();
+</script>
+</body></html>

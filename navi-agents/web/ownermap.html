@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Ownership Map · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>
+  .kpi{display:flex;gap:12px;flex-wrap:wrap;margin-top:10px}
+  .k{border:1px solid var(--line);border-radius:10px;padding:9px 13px;min-width:104px}
+  .k .v{font-size:24px;font-weight:800} .k .l{color:var(--mut);font-size:11.5px}
+  .chip{display:inline-block;font-size:11px;background:var(--panel-2);border:1px solid var(--line);border-radius:99px;padding:2px 8px;margin:0 4px 4px 0}
+  .legend span{display:inline-flex;align-items:center;gap:5px;margin-right:14px;font-size:12px;color:var(--ink-2)}
+  .dot{width:11px;height:11px;border-radius:3px;display:inline-block}
+  #graph{width:100%;overflow-x:auto}
+  .gapgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
+  .loadbar .track{height:11px;border-radius:99px;background:var(--panel-2);overflow:hidden;flex:1}
+  .loadbar .fill{height:100%;border-radius:99px}
+  table.ownt td,table.ownt th{font-size:13px}
+</style>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+  <section class="card" style="background:radial-gradient(120% 140% at 90% -20%,var(--amber-glow),transparent 60%),var(--panel)">
+    <div class="toolbar"><div><div class="acode">Atlas Hound</div><h2 style="margin:0">🗺 Ownership Map</h2>
+      <p class="sub" style="margin:2px 0 0">Who owns what across the attack surface — every <b>route</b> and <b>path</b> threaded to the <b>owners</b> assigned to it, with the gaps called out: what has <b>no owner</b>, what's only <b>partially</b> owned (too few owners for all its assets), and which <b>assets have no owner</b> at all. Reads <span class="mono">Owner</span> tags in navi.db.</p></div>
+      <button class="btn run sm" id="run" style="margin-left:auto">↻ Refresh</button></div>
+    <div id="flash" class="flash"></div>
+    <div class="kpi" id="kpi"></div>
+  </section>
+
+  <section class="card" id="graphCard" style="display:none">
+    <div class="toolbar" style="margin:0;flex-wrap:wrap;gap:8px"><h3 style="margin:0">Ownership graph</h3>
+      <span style="display:flex;gap:6px;margin-left:auto"><button class="btn ghost sm gmode active" data-m="threads">🧵 Threads</button><button class="btn ghost sm gmode" data-m="sankey">🔀 Sankey</button></span>
+      <span style="display:flex;gap:6px"><button class="btn ghost sm gfilt active" data-g="both">Both</button><button class="btn ghost sm gfilt" data-g="route">Routes</button><button class="btn ghost sm gfilt" data-g="path">Paths</button></span>
+      <span id="flowCtrls" style="display:flex;gap:8px;align-items:center"><span class="sub">Top</span><select id="flowTop" class="fld" style="font-size:12px"><option>10</option><option selected>15</option><option>20</option><option>25</option><option value="9999">All</option></select></span></div>
+    <div id="legendT" class="legend" style="margin:8px 0 4px"><span><i class="dot" style="background:#34d399"></i> fully owned</span><span><i class="dot" style="background:#e7c66b"></i> partial (too few owners)</span><span><i class="dot" style="background:#f43f5e"></i> no owner</span><span><i class="dot" style="background:var(--accent)"></i> owner</span></div>
+    <p class="sub" id="graphHint" style="margin:0 0 6px">Only routes/paths with an owner draw a thread. Un-owned ones are listed as gaps below. Hover a node to trace its threads.</p>
+    <div id="graph"></div>
+  </section>
+
+  <section class="card" id="loadCard" style="display:none">
+    <h3 style="margin:0 0 4px">Owner workload</h3>
+    <p class="sub" style="margin:0 0 8px">How much each owner carries — routes + paths assigned and the distinct assets behind them. Balance the load: a single owner on a large slice of the surface is a bottleneck.</p>
+    <div style="overflow-x:auto"><table class="ownt" id="loadTbl"><thead><tr><th>Owner</th><th>Routes</th><th>Paths</th><th>Assets</th><th>Load</th></tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <section class="card" id="linkCard" style="display:none">
+    <h3 style="margin:0 0 4px">📉 The reduction — CVE → Plugin → App → Path</h3>
+    <p class="sub" style="margin:0 0 8px">Most teams track <b>CVEs</b> — the most duplicated unit of work. But multiple CVEs roll up into one <b>plugin</b> (a single detection &amp; fix), multiple plugins into one <b>app / route</b> (the owner-actionable unit), and each app spreads across many <b>paths</b> (where it lives). Climb the ladder and the backlog collapses: own a handful of apps instead of tens of thousands of CVEs.</p>
+    <div id="funnel" style="margin:6px 0 2px"></div>
+    <div id="champion" style="margin:8px 0"></div>
+    <div class="kpi" id="linkKpi" style="margin-top:6px"></div>
+    <h4 style="margin:18px 0 2px">🔎 Double-filter — pick an app, see its paths</h4>
+    <p class="sub" style="margin:0 0 8px">A route (app/device) links to a path when one of its plugins was found there — so one app can cover many paths. Filter by app on the left, then its unique paths on the right. Paths belonging to no route are listed below as <b>orphans</b> — they need a direct owner.</p>
+    <div style="display:grid;grid-template-columns:1.1fr 1.4fr;gap:14px;align-items:start">
+      <div><div style="font-size:11px;color:var(--mut);margin-bottom:4px">APPS / ROUTES · sorted by paths covered</div><div id="routeList" style="max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:10px"></div></div>
+      <div><div id="pathHdr" style="font-size:11px;color:var(--mut);margin-bottom:4px">PATHS · pick an app on the left</div><div id="pathList" style="max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:2px"></div></div>
+    </div>
+    <div id="pathDetail" style="margin-top:12px"></div>
+    <div id="orphanBox" style="margin-top:12px"></div>
+  </section>
+
+  <section class="card" id="gapCard" style="display:none">
+    <h3 style="margin:0 0 4px">Coverage gaps — <span style="color:var(--crit)">Ownerless Risk</span></h3>
+    <p class="sub" style="margin:0 0 8px"><b>Ownerless Risk</b> is exposure with nobody assigned to it — routes and paths hiding risk because no one is on the hook to fix them. Plus the under-owned surface (too few owners for all its assets). Assign these on the <a href="/agents/exproute/page.html">Ownership Assignment</a> page.</p>
+    <div class="gapgrid" id="gaps"></div>
+  </section>
+  <footer>Ownership Map · Atlas · reads navi.db Owner tags read-only</footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('exproute');
+let DATA=null, GF='both', MODE='threads';
+const SC={owned:'#34d399',partial:'#e7c66b',unowned:'#f43f5e'};
+const OMPAL=['#d6f84c','#fb923c','#a97fd6','#34d399','#6ea8ff','#f43f5e','#e7c66b','#3fb0c9','#b48ead','#e78ba0','#7ec8a0','#c9a26b','#8ec6ff','#d78ac0','#9ccf5a'];
+async function run(){
+  document.getElementById('run').disabled=true; flash('flash','<span class="spin"></span> building the ownership map from navi.db…','run');
+  let o; try{ o=await API.post('map'); }catch(e){ o={ok:false,error:e.message}; }
+  document.getElementById('run').disabled=false;
+  if(!o||!o.ok||!o.result){ flash('flash','✗ '+esc((o&&(o.error||o.message))||'failed'),'crit'); return; }
+  DATA=o.result; if(DATA.note){ flash('flash','ℹ '+esc(DATA.note),'warn'); } else flashClear('flash');
+  render();
+}
+function render(){
+  const k=DATA.kpi||{};
+  document.getElementById('kpi').innerHTML=
+    kbox(k.routes,'routes',SC.owned,k.routes_owned,k.routes_partial,k.routes_unowned)
+    +kbox(k.paths,'paths',SC.owned,k.paths_owned,k.paths_partial,k.paths_unowned)
+    +'<div class="k"><div class="v">'+(k.owners||0)+'</div><div class="l">owners assigned</div></div>'
+    +'<div class="k" style="border-color:var(--crit)"><div class="v" style="color:var(--crit)">'+(k.unowned_assets||0)+'</div><div class="l">Ownerless Risk (assets)</div></div>'
+    +'<div class="k"><div class="v">'+(k.asset_scope||0)+'</div><div class="l">assets in scope</div></div>';
+  document.getElementById('graphCard').style.display='';
+  document.getElementById('loadCard').style.display=(DATA.owner_load||[]).length?'':'none';
+  document.getElementById('linkCard').style.display='';
+  document.getElementById('gapCard').style.display='';
+  drawViz(); drawLoad(); drawLinkage(); drawGaps();
+}
+function _fmt(n){ return (n||0).toLocaleString(); }
+/* floor to 1 decimal — never round 99.7% up to 100% (that gap matters in cyber) */
+function _pctDown(a,b){ return b>0?Math.floor((1-a/b)*1000)/10:0; }
+function drawLinkage(){ drawFunnel(); drawChampion(); drawLinkKpi(); drawRoutes(); drawOrphan(); }
+function drawFunnel(){
+  const F=DATA.funnel||{}, wrap=document.getElementById('funnel');
+  const stages=[
+    {k:'CVE line-items',v:F.cves||0,c:'#f43f5e',note:'what most teams track — the most duplicated work'},
+    {k:'Findings (asset × plugin)',v:F.findings||0,c:'#fb923c',note:'the raw ticket backlog'},
+    {k:'Plugins — unique fixes',v:F.plugins||0,c:'#e7c66b',note:'one patch clears many CVEs'},
+    {k:'Apps / routes — own here',v:F.routes||0,c:'#34d399',note:'owner-actionable units'}
+  ];
+  if(!stages[0].v && !stages[2].v){ wrap.innerHTML='<p class="sub" style="padding:8px">No CVE/plugin data to chart (needs the <span class="mono">plugins</span> table + populated <span class="mono">plugin_list</span>).</p>'; return; }
+  const mx=Math.max(1,...stages.map(s=>s.v)), W=760, h=52, gap=12, padT=14, labelW=190, cx=(W-labelW)/2;
+  const sc=v=>70+Math.sqrt(v/mx)*((W-labelW)-80), H=padT+stages.length*(h+gap)+8;
+  let svg='<svg viewBox="0 0 '+W+' '+H+'" width="100%" style="min-width:560px;font-family:inherit;overflow:visible;display:block">';
+  stages.forEach((s,i)=>{
+    const y=padT+i*(h+gap), wTop=sc(s.v), wBot=sc(i<stages.length-1?stages[i+1].v:s.v);
+    const x1=cx-wTop/2,x2=cx+wTop/2,x3=cx+wBot/2,x4=cx-wBot/2;
+    svg+='<polygon points="'+x1+','+y+' '+x2+','+y+' '+x3+','+(y+h)+' '+x4+','+(y+h)+'" fill="'+s.c+'" fill-opacity="0.85" stroke="'+s.c+'" stroke-width="1"/>';
+    svg+='<text x="'+cx+'" y="'+(y+h/2-2)+'" text-anchor="middle" font-size="16" font-weight="700" fill="#0d0f08">'+_fmt(s.v)+'</text>';
+    svg+='<text x="'+cx+'" y="'+(y+h/2+14)+'" text-anchor="middle" font-size="10.5" fill="#0d0f08" fill-opacity="0.8">'+esc(s.k)+'</text>';
+    svg+='<text x="'+(W-labelW+8)+'" y="'+(y+h/2-2)+'" font-size="11.5" fill="var(--ink)">'+esc(s.k)+'</text>';
+    svg+='<text x="'+(W-labelW+8)+'" y="'+(y+h/2+13)+'" font-size="10.5" fill="var(--mut)">'+esc(s.note)+'</text>';
+    if(i>0){ const prev=stages[i-1].v, drop=_pctDown(s.v,prev); svg+='<text x="'+cx+'" y="'+(y-1)+'" text-anchor="middle" font-size="10" fill="var(--mut)">▼ '+drop+'% fewer</text>'; }
+  });
+  svg+='</svg>';
+  const top=stages[0].v, end=stages[stages.length-1].v, cut=_pctDown(end,top);
+  wrap.innerHTML=svg+'<div style="text-align:center;margin-top:4px;font-size:13px"><b style="color:var(--accent)">'+_fmt(top)+' CVEs → '+_fmt(end)+' apps</b> — <b>'+cut+'% fewer things to track</b> if you own at the app level. Those '+_fmt(end)+' apps span <b>'+_fmt(F.paths||0)+' paths</b>.</div>';
+}
+function drawChampion(){ const c=DATA.champion, el=document.getElementById('champion'); if(!c){ el.innerHTML=''; return; }
+  el.innerHTML='<div class="callbox" style="border-left:3px solid var(--accent);background:rgba(214,248,76,.06)"><b>🏆 One fix, '+_fmt(c.cve_count)+' CVEs</b>'
+    +'<p class="sub" style="margin:4px 0 0">Patching <b>'+esc(c.name)+'</b> <span class="mono">(plugin '+esc(String(c.plugin_id))+')</span> clears <b>'+_fmt(c.cve_count)+' CVEs</b> in a single action — on just '+c.assets+' asset'+(c.assets===1?'':'s')+'. Not the riskiest finding, but the biggest <b>workload collapse per fix</b>.</p></div>';
+}
+function drawLinkKpi(){ const k=DATA.kpi||{};
+  document.getElementById('linkKpi').innerHTML=
+    '<div class="k"><div class="v">'+(k.routes_with_paths||0)+'</div><div class="l">apps covering paths</div></div>'
+    +'<div class="k"><div class="v">'+(k.paths_covered||0)+'</div><div class="l">paths mapped to an app</div></div>'
+    +'<div class="k" style="border-color:#e7c66b"><div class="v" style="color:#e7c66b">'+(k.routes_no_paths||0)+'</div><div class="l">apps with no path detail</div></div>'
+    +'<div class="k" style="border-color:var(--crit)"><div class="v" style="color:var(--crit)">'+(k.paths_orphan||0)+'</div><div class="l">orphan paths (no app)</div></div>';
+}
+function drawRoutes(){ const wrap=document.getElementById('routeList');
+  const list=(DATA.routes||[]).map(r=>({name:r.name,n:r.paths_on_route||0})).filter(r=>r.n>0).sort((a,b)=>b.n-a.n);
+  if(!list.length){ wrap.innerHTML='<p class="sub" style="padding:12px">No app→path links found.</p>'; document.getElementById('pathList').innerHTML=''; return; }
+  wrap.innerHTML=list.map(r=>'<div class="omrp" data-app="'+esc(r.name)+'" style="display:flex;justify-content:space-between;gap:8px;padding:7px 10px;border-bottom:1px solid var(--line);cursor:pointer"><span style="font-size:12.5px">'+esc(r.name.trim())+'</span><span class="chip">'+r.n+' path'+(r.n===1?'':'s')+'</span></div>').join('');
+  wrap.querySelectorAll('.omrp').forEach(el=>el.onclick=()=>{ wrap.querySelectorAll('.omrp').forEach(x=>x.style.background=''); el.style.background='var(--panel2)'; showPaths(el.dataset.app); });
+  showPaths(list[0].name); const first=wrap.querySelector('.omrp'); if(first)first.style.background='var(--panel2)';
+}
+function showPaths(app){ const paths=(DATA.route_paths||{})[app]||[];
+  document.getElementById('pathHdr').innerHTML='PATHS under <b style="color:var(--accent)">'+esc(app.trim())+'</b> · '+paths.length+' unique <span class="sub">— click a path to see its assets</span>';
+  document.getElementById('pathList').innerHTML=paths.length?paths.map(p=>'<div class="ompath" data-path="'+esc(p)+'" data-app="'+esc(app)+'" title="Click to see assets on this path" style="padding:5px 8px;border-bottom:1px solid var(--line);font-size:12px;word-break:break-all;cursor:pointer"><span class="mono">'+esc(p)+'</span></div>').join(''):'<p class="sub" style="padding:10px">No paths.</p>';
+  document.querySelectorAll('#pathList .ompath').forEach(el=>el.onclick=()=>{ document.querySelectorAll('#pathList .ompath').forEach(x=>x.style.background=''); el.style.background='var(--panel2)'; pathDetail(el.dataset.path,el.dataset.app); });
+  document.getElementById('pathDetail').innerHTML='';
+}
+async function pathDetail(path,app){ const el=document.getElementById('pathDetail');
+  el.innerHTML='<div class="callbox"><span class="spin"></span> finding assets on <span class="mono">'+esc(path)+'</span>…</div>';
+  let o; try{ o=await API.post('path_detail',{path}); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o||!o.ok||!o.result){ el.innerHTML='<div class="callbox" style="border-left:3px solid var(--crit)">Lookup failed: '+esc((o&&(o.error||o.message))||'?')+'</div>'; return; }
+  const d=o.result; window.__GAP=Object.assign({app},d);
+  const rowsH=(d.assets||[]).map(a=>'<tr><td><b>'+esc(a.hostname||a.ip||a.uuid)+'</b> <span class="sub">'+esc(a.ip||'')+'</span></td><td class="mono">'+(a.acr||'—')+'</td><td class="mono">'+(a.plugins||0)+'</td><td>'+(a.url?'<a href="'+esc(a.url)+'" target="_blank">open ↗</a>':'<span class="sub">—</span>')+'</td></tr>').join('');
+  el.innerHTML='<div class="card" style="margin:0;border:1px solid var(--accent)">'
+    +'<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><div><b>🕳 Newly-found gap:</b> <span class="mono">'+esc(d.path)+'</span><div class="sub">under <b>'+esc(app.trim())+'</b> · '+(d.asset_count||0)+' asset(s) · '+(d.plugins||[]).length+' plugin(s) · '+(d.findings||[]).length+' finding(s)'+((d.owners||[]).length?(' · owner: '+esc(d.owners.join(', '))):'')+'</div></div>'
+    +'<button class="btn" id="gapEmail" style="white-space:nowrap">📧 Email this gap → Gabriel</button></div>'
+    +((d.assets||[]).length?'<div style="overflow:auto;margin-top:8px"><table style="width:100%"><thead><tr><th>Asset</th><th>ACR</th><th>Plugins here</th><th>Tenable</th></tr></thead><tbody>'+rowsH+'</tbody></table></div>':'<p class="sub" style="margin-top:8px">No assets resolved for this path.</p>')
+    +(d.findings&&d.findings.length?'<p class="sub" style="margin-top:8px">Finding IDs ('+d.findings.length+'): <span class="mono">'+esc(d.findings.slice(0,60).join(', '))+(d.findings.length>60?' …':'')+'</span></p>':'')
+    +'</div>';
+  const b=document.getElementById('gapEmail'); if(b)b.onclick=emailGap;
+}
+function emailGap(){ const g=window.__GAP; if(!g)return;
+  const uuids=(g.assets||[]).map(a=>a.uuid).filter(Boolean);
+  const ho={report:'agent_findings',source_hound:'Atlas — Ownership Map',headline:'Newly-found gap: '+g.path+' ('+String(g.app||'').trim()+')',asset_uuids:uuids,finding_ids:g.findings||[],owner:(g.owners||[])[0]||''};
+  try{ sessionStorage.setItem('gabriel_handoff',JSON.stringify(ho)); }catch(e){}
+  location.href='/agents/email/page.html';
+}
+function drawOrphan(){ const el=document.getElementById('orphanBox'), o=DATA.orphan_paths||[];
+  el.innerHTML='<div class="callbox" style="border-left:3px solid '+(o.length?'#f43f5e':'#34d399')+'"><b>Orphan paths — no covering app</b> <span class="chip">'+o.length+'</span>'
+    +'<p class="sub" style="margin:4px 0 0">Paths whose plugin belongs to no app/route. Owning an app won\'t clear them — they need a direct owner.</p>'
+    +(o.length?'<div style="margin-top:6px;max-height:180px;overflow:auto">'+o.slice(0,300).map(p=>'<div class="mono" style="font-size:12px;padding:3px 0;border-bottom:1px solid var(--line);word-break:break-all">'+esc(p)+'</div>').join('')+'</div>':'<p class="sub" style="margin:6px 0 0">None — every path rolls up to an app. ✔</p>')+'</div>';
+}
+function drawViz(){
+  const sankey=MODE==='sankey';
+  document.getElementById('flowCtrls').style.display='flex';
+  document.getElementById('legendT').style.display='block';
+  document.getElementById('graphHint').textContent=sankey
+    ? 'A Sankey of the surface flowing to its owners — each route/path streams into the owner(s) assigned to it, band thickness ∝ assets. The red ⛔ Unassigned node is Ownerless Risk. Click a route to drill into its paths & assets (then email the owner via Gabriel).'
+    : 'Only routes/paths with an owner draw a thread. Un-owned ones are listed as gaps below. Hover a node to trace its threads.';
+  if(sankey) drawSankey(); else drawGraph();
+}
+/* Sankey: routes/paths → owners. Owned assets split across a route's owners; the un-owned
+   remainder flows to a red ⛔ Unassigned node (Ownerless Risk). Built from DATA (no query).
+   Click a route node/band → drill into its paths + assets (then email the owner via Gabriel). */
+function drawSankey(){ const wrap=document.getElementById('graph');
+  const N=parseInt((document.getElementById('flowTop')||{}).value||'15',10);
+  const items=(DATA.routes||[]).concat(DATA.paths||[]).filter(it=>GF==='both'||it.type===GF).filter(it=>it.assets>0).sort((a,b)=>b.assets-a.assets).slice(0,N);
+  if(!items.length){ wrap.innerHTML='<p class="sub" style="padding:14px">No routes/paths with assets to chart.</p>'; return; }
+  const links=[], ownerTot={}, UN='⛔ Unassigned';
+  items.forEach(it=>{ const owned=Math.max(0,it.owned_assets||0), un=Math.max(0,(it.assets||0)-owned), ow=(it.owners&&it.owners.length)?it.owners:[];
+    if(ow.length&&owned>0){ const per=owned/ow.length; ow.forEach(o=>{ links.push({fi:items.indexOf(it),to:o,v:per,kind:'owned'}); ownerTot[o]=(ownerTot[o]||0)+per; }); }
+    if(un>0){ links.push({fi:items.indexOf(it),to:UN,v:un,kind:'un'}); ownerTot[UN]=(ownerTot[UN]||0)+un; } });
+  const owners=Object.keys(ownerTot).sort((a,b)=> a===UN?1 : b===UN?-1 : (ownerTot[b]-ownerTot[a]));
+  const sumL=items.reduce((s,it)=>s+it.assets,0), sumR=owners.reduce((s,o)=>s+ownerTot[o],0);
+  const gap=8, maxNodes=Math.max(items.length,owners.length), bandH=Math.max(340,maxNodes*26);
+  const scale=(bandH-Math.max(items.length-1,owners.length-1)*gap)/Math.max(sumL,sumR,1);
+  const top=24, leftX=250, rightX=560, W=810, nodeW=11;
+  const lY={},lH={}; let yy=top; items.forEach((it,i)=>{ const h=Math.max(3,it.assets*scale); lY[i]=yy; lH[i]=h; yy+=h+gap; });
+  const rY={},rH={}; let ry=top; owners.forEach(o=>{ const h=Math.max(3,ownerTot[o]*scale); rY[o]=ry; rH[o]=h; ry+=h+gap; });
+  const H=Math.max(yy,ry)+14, lOff={},rOff={}; let ribbons='';
+  links.forEach(lk=>{ const th=Math.max(1,lk.v*scale), sy=lY[lk.fi]+(lOff[lk.fi]||0)+th/2; lOff[lk.fi]=(lOff[lk.fi]||0)+th;
+    const dy=rY[lk.to]+(rOff[lk.to]||0)+th/2; rOff[lk.to]=(rOff[lk.to]||0)+th; const mx=(leftX+nodeW+rightX)/2, c=lk.kind==='un'?'#f43f5e':'#34d399';
+    ribbons+='<path d="M'+(leftX+nodeW)+' '+sy.toFixed(1)+' C '+mx+' '+sy.toFixed(1)+', '+mx+' '+dy.toFixed(1)+', '+rightX+' '+dy.toFixed(1)+'" fill="none" stroke="'+c+'" stroke-opacity="0.42" stroke-width="'+th.toFixed(1)+'" data-i="'+lk.fi+'" data-o="'+esc(lk.to)+'"/>'; });
+  const short=s=>{s=String(s);return s.length>30?('…'+s.slice(-29)):s;}; let ln='',rn='';
+  items.forEach((it,i)=>{ const c=SC[it.status]||'#888'; ln+='<g class="skl" data-i="'+i+'" style="cursor:pointer"><rect x="'+leftX+'" y="'+lY[i].toFixed(1)+'" width="'+nodeW+'" height="'+lH[i].toFixed(1)+'" rx="2" fill="'+c+'"/><text x="'+(leftX-8)+'" y="'+(lY[i]+lH[i]/2+4).toFixed(1)+'" text-anchor="end" font-size="12" fill="var(--ink)">'+esc(short(it.name))+'</text><text x="'+(leftX-8)+'" y="'+(lY[i]+lH[i]/2+16).toFixed(1)+'" text-anchor="end" font-size="9.5" fill="var(--mut)">'+it.owned_assets+'/'+it.assets+'</text></g>'; });
+  owners.forEach(o=>{ const un=o===UN; rn+='<g class="sko" data-o="'+esc(o)+'" style="cursor:pointer"><rect x="'+rightX+'" y="'+rY[o].toFixed(1)+'" width="'+nodeW+'" height="'+rH[o].toFixed(1)+'" rx="2" fill="'+(un?'#f43f5e':'var(--accent)')+'"/><text x="'+(rightX+nodeW+8)+'" y="'+(rY[o]+rH[o]/2+4).toFixed(1)+'" font-size="12" font-weight="600" fill="'+(un?'#f43f5e':'var(--accent)')+'">'+esc(o)+' <tspan font-weight="400" fill="var(--mut)">'+Math.round(ownerTot[o])+'</tspan></text></g>'; });
+  wrap.innerHTML='<svg viewBox="0 0 '+W+' '+H+'" width="100%" style="min-width:700px"><text x="'+leftX+'" y="14" text-anchor="end" font-size="10.5" fill="var(--mut)">ROUTES / PATHS →</text><text x="'+(rightX+nodeW)+'" y="14" font-size="10.5" fill="var(--mut)">OWNERS</text>'+ribbons+ln+rn+'</svg>';
+  const svg=wrap.querySelector('svg'), pth=svg.querySelectorAll('path');
+  const hi=pred=>pth.forEach(p=>p.setAttribute('stroke-opacity',pred(p)?0.9:0.05)), reset=()=>pth.forEach(p=>p.setAttribute('stroke-opacity','0.42'));
+  svg.querySelectorAll('.skl').forEach(g=>{ g.onmouseenter=()=>hi(p=>p.dataset.i===g.dataset.i); g.onmouseleave=reset;
+    g.onclick=()=>{ const it=items[+g.dataset.i]; if(it&&it.type==='route'){ try{showPaths(it.name);}catch(e){} const el=document.getElementById('pathDetail')||document.getElementById('linkCard'); if(el)el.scrollIntoView({behavior:'smooth',block:'center'}); } }; });
+  svg.querySelectorAll('.sko').forEach(g=>{ g.onmouseenter=()=>hi(p=>p.dataset.o===g.dataset.o); g.onmouseleave=reset;
+    g.onclick=()=>{ if((g.dataset.o||'').indexOf('Unassigned')>=0){ const gc=document.getElementById('gapCard'); if(gc)gc.scrollIntoView({behavior:'smooth'}); } }; });
+}
+/* ===== flow / slopegraph: rank a selected group left(exposure) vs right(coverage) ===== */
+function omFlow(){
+  const wrap=document.getElementById('graph');
+  const N=parseInt((document.getElementById('flowTop')||{}).value||'15',10);
+  const rightKey=(document.getElementById('flowRight')||{}).value||'owned_assets';
+  let items=(DATA.routes||[]).concat(DATA.paths||[]).filter(it=>GF==='both'||it.type===GF);
+  items=items.filter(it=>it.assets>0).sort((a,b)=>b.assets-a.assets).slice(0,N);
+  if(items.length<2){ wrap.innerHTML='<p class="sub" style="padding:14px">Not enough '+(GF==='both'?'routes/paths':GF+'s')+' with assets to chart. Pick a broader filter or refresh.</p>'; return; }
+  items.forEach((it,i)=>it._c=OMPAL[i%OMPAL.length]);
+  const left=items.slice().sort((a,b)=>b.assets-a.assets);
+  const right=items.slice().sort((a,b)=>(b[rightKey]-a[rightKey])||(b.assets-a.assets));
+  const rowH=34, top=30, leftX=250, rightX=560, W=810, H=top+items.length*rowH+10;
+  const ly={}, ry={}; left.forEach((it,i)=>ly[it.name+'|'+it.type]=top+i*rowH+rowH/2); right.forEach((it,i)=>ry[it.name+'|'+it.type]=top+i*rowH+rowH/2);
+  const mxA=Math.max(...items.map(it=>it.assets)); const sw=v=>1.5+ (mxA>0?(v/mxA):0)*13;
+  const short=s=>{s=String(s);return s.length>26?('…'+s.slice(-25)):s;};
+  const rlabel=rightKey==='owner_count'?'owners':'owned';
+  let paths='',labels='';
+  items.forEach(it=>{ const y1=ly[it.name+'|'+it.type], y2=ry[it.name+'|'+it.type], mx=(leftX+rightX)/2;
+    paths+='<path d="M'+leftX+' '+y1+' C '+mx+' '+y1+', '+mx+' '+y2+', '+rightX+' '+y2+'" fill="none" stroke="'+it._c+'" stroke-opacity="0.8" stroke-width="'+sw(it.assets).toFixed(1)+'" stroke-linecap="round" data-k="'+esc(it.name+'|'+it.type)+'"/>'; });
+  left.forEach(it=>{ const y=ly[it.name+'|'+it.type]; labels+='<g class="omrow" data-k="'+esc(it.name+'|'+it.type)+'" style="cursor:pointer"><text x="6" y="'+(y+4)+'" font-size="12.5" fill="var(--ink)">'+esc(short(it.name))+'</text><text x="'+(leftX-10)+'" y="'+(y+4)+'" text-anchor="end" font-size="12" fill="var(--mut)" class="mono">'+it.assets+'</text></g>'; });
+  right.forEach(it=>{ const y=ry[it.name+'|'+it.type]; labels+='<g class="omrow" data-k="'+esc(it.name+'|'+it.type)+'" style="cursor:pointer"><text x="'+(rightX+10)+'" y="'+(y+4)+'" font-size="12" fill="var(--mut)" class="mono">'+it[rightKey]+'</text><text x="'+(W-6)+'" y="'+(y+4)+'" text-anchor="end" font-size="12.5" fill="var(--ink)">'+esc(short(it.name))+'</text></g>'; });
+  wrap.innerHTML='<svg viewBox="0 0 '+W+' '+H+'" width="100%" style="min-width:680px"><text x="'+(leftX/2)+'" y="16" text-anchor="middle" font-size="11" fill="var(--mut)">EXPOSURE (assets) ↓</text><text x="'+((rightX+W)/2)+'" y="16" text-anchor="middle" font-size="11" fill="var(--mut)">COVERAGE ('+rlabel+') ↓</text>'+paths+labels+'</svg>';
+  const svg=wrap.querySelector('svg');
+  const hi=k=>svg.querySelectorAll('path').forEach(p=>{const on=p.dataset.k===k;p.setAttribute('stroke-opacity',on?1:0.12);});
+  const reset=()=>svg.querySelectorAll('path').forEach(p=>p.setAttribute('stroke-opacity','0.8'));
+  svg.querySelectorAll('.omrow').forEach(g=>{g.onmouseenter=()=>hi(g.dataset.k);g.onmouseleave=reset;});
+}
+function kbox(total,label,c,owned,partial,unowned){
+  return '<div class="k"><div class="v">'+(total||0)+'</div><div class="l">'+label+'</div>'
+    +'<div style="font-size:10.5px;margin-top:3px">'
+    +'<span style="color:#34d399">'+(owned||0)+' owned</span> · <span style="color:#e7c66b">'+(partial||0)+' partial</span> · <span style="color:#f43f5e">'+(unowned||0)+' none</span></div></div>';
+}
+/* ===== the bipartite network-thread graph ===== */
+function drawGraph(){
+  const wrap=document.getElementById('graph');
+  let items=(DATA.routes||[]).concat(DATA.paths||[]).filter(it=>GF==='both'||it.type===GF);
+  const N=parseInt((document.getElementById('flowTop')||{}).value||'15',10);
+  const withOwners=items.filter(it=>it.owner_count>0).sort((a,b)=>b.assets-a.assets).slice(0,N);
+  if(!withOwners.length){ wrap.innerHTML='<p class="sub" style="padding:14px">No '+(GF==='both'?'routes/paths':GF+'s')+' have an owner yet — assign owners on the <a href="/agents/exproute/page.html">Ownership Assignment</a> page, then refresh.</p>'; return; }
+  const owners=[...new Set(withOwners.flatMap(it=>it.owners))].sort();
+  const rowH=30, top=14, leftX=250, rightX=560, W=760;
+  const H=top+Math.max(withOwners.length,owners.length)*rowH+14;
+  const iy={}, oy={};
+  withOwners.forEach((it,i)=>iy[it.type+'|'+it.name]=top+i*rowH+rowH/2);
+  owners.forEach((o,i)=>oy[o]=top+i*rowH+rowH/2);
+  const short=s=>{ s=String(s); return s.length>30?('…'+s.slice(-29)):s; };
+  let threads='',nodes='';
+  withOwners.forEach(it=>{ const y1=iy[it.type+'|'+it.name], c=SC[it.status]||'#888';
+    it.owners.forEach(o=>{ const y2=oy[o]; const mx=(leftX+rightX)/2;
+      threads+=`<path d="M${leftX} ${y1} C ${mx} ${y1}, ${mx} ${y2}, ${rightX} ${y2}" fill="none" stroke="${c}" stroke-opacity="0.5" stroke-width="1.6" data-i="${esc(it.type+'|'+it.name)}" data-o="${esc(o)}"/>`; }); });
+  withOwners.forEach(it=>{ const y=iy[it.type+'|'+it.name], c=SC[it.status]||'#888';
+    nodes+=`<g class="inode" data-i="${esc(it.type+'|'+it.name)}" style="cursor:pointer">
+      <rect x="6" y="${y-11}" width="${leftX-14}" height="22" rx="6" fill="var(--panel-2)" stroke="${c}" stroke-width="1.4"/>
+      <circle cx="18" cy="${y}" r="4" fill="${c}"/>
+      <text x="30" y="${y+4}" font-size="12" fill="var(--ink)">${esc(short(it.name))}</text>
+      <text x="${leftX-20}" y="${y+4}" text-anchor="end" font-size="10.5" fill="var(--mut)">${it.owned_assets}/${it.assets}</text></g>`; });
+  owners.forEach(o=>{ const y=oy[o];
+    nodes+=`<g class="onode" data-o="${esc(o)}" style="cursor:pointer">
+      <rect x="${rightX}" y="${y-11}" width="${W-rightX-6}" height="22" rx="11" fill="rgba(214,248,76,.10)" stroke="var(--accent)" stroke-width="1.3"/>
+      <text x="${rightX+14}" y="${y+4}" font-size="12" font-weight="600" fill="var(--accent)">${esc(o)}</text></g>`; });
+  wrap.innerHTML=`<svg viewBox="0 0 ${W} ${H}" width="100%" style="min-width:640px;font-family:inherit">
+    <text x="6" y="10" font-size="10.5" fill="var(--mut)">ROUTES / PATHS</text>
+    <text x="${rightX}" y="10" font-size="10.5" fill="var(--mut)">OWNERS</text>
+    ${threads}${nodes}</svg>`;
+  const svg=wrap.querySelector('svg');
+  const hi=(pred)=>{ svg.querySelectorAll('path').forEach(p=>{ const on=pred(p); p.setAttribute('stroke-opacity',on?'0.95':'0.06'); p.setAttribute('stroke-width',on?'2.4':'1.2'); }); };
+  const reset=()=>svg.querySelectorAll('path').forEach(p=>{p.setAttribute('stroke-opacity','0.5');p.setAttribute('stroke-width','1.6');});
+  svg.querySelectorAll('.inode').forEach(g=>{ g.onmouseenter=()=>hi(p=>p.dataset.i===g.dataset.i); g.onmouseleave=reset; });
+  svg.querySelectorAll('.onode').forEach(g=>{ g.onmouseenter=()=>hi(p=>p.dataset.o===g.dataset.o); g.onmouseleave=reset; });
+}
+function drawLoad(){
+  const rows=DATA.owner_load||[]; const mx=Math.max(1,...rows.map(r=>r.routes+r.paths));
+  document.querySelector('#loadTbl tbody').innerHTML=rows.length?rows.map(r=>{
+    const load=r.routes+r.paths, w=Math.round(load/mx*100);
+    return `<tr><td><b>${esc(r.owner)}</b></td><td class="mono">${r.routes}</td><td class="mono">${r.paths}</td><td class="mono">${r.assets}</td>
+      <td><div class="loadbar" style="display:flex;align-items:center;gap:8px"><div class="track"><div class="fill" style="width:${w}%;background:${load>=Math.max(3,mx*0.6)?'var(--crit)':'var(--accent)'}"></div></div><span class="sub">${load}</span></div></td></tr>`;
+  }).join(''):'<tr><td colspan="5" class="sub">No owners assigned yet.</td></tr>';
+}
+function drawGaps(){
+  const un=arr=>arr.filter(x=>x.status==='unowned'), pa=arr=>arr.filter(x=>x.status==='partial');
+  const box=(title,items,color,fmt)=>`<div class="callbox" style="border-left:3px solid ${color}"><b>${title}</b> <span class="chip">${items.length}</span>`
+    +(items.length?'<div style="margin-top:6px;max-height:230px;overflow:auto">'+items.slice(0,200).map(fmt).join('')+'</div>':'<p class="sub" style="margin:6px 0 0">None — all covered. ✔</p>')+'</div>';
+  const li=(x)=>`<div style="padding:3px 0;border-bottom:1px solid var(--line);font-size:12.5px"><span class="mono">${esc(x.name.length>44?('…'+x.name.slice(-43)):x.name)}</span> <span class="sub">· ${x.assets} asset(s)${x.status==='partial'?(' · '+x.owned_assets+'/'+x.assets+' owned · '+x.owner_count+' owner(s)'):''}</span></div>`;
+  document.getElementById('gaps').innerHTML=
+    box('🚫 Ownerless Risk — routes',un(DATA.routes||[]),'#f43f5e',li)
+    +box('🚫 Ownerless Risk — paths',un(DATA.paths||[]),'#f43f5e',li)
+    +box('⚠ Under-owned routes (partial)',pa(DATA.routes||[]),'#e7c66b',li)
+    +box('⚠ Under-owned paths (partial)',pa(DATA.paths||[]),'#e7c66b',li);
+}
+document.querySelectorAll('.gfilt').forEach(b=>b.onclick=()=>{ document.querySelectorAll('.gfilt').forEach(x=>x.classList.remove('active')); b.classList.add('active'); GF=b.dataset.g; if(DATA)drawViz(); });
+document.querySelectorAll('.gmode').forEach(b=>b.onclick=()=>{ document.querySelectorAll('.gmode').forEach(x=>x.classList.remove('active')); b.classList.add('active'); MODE=b.dataset.m; if(DATA)drawViz(); });
+document.getElementById('flowTop').onchange=()=>{ if(DATA)drawViz(); };
+document.getElementById('run').onclick=run;
+mountAgentHeader({id:'exproute',icon:'🗺',name:'Ownership Map',sub:'Atlas · routes/paths ↔ owners'});
+/* no auto-run — user clicks Run (protects a busy navi.db) */
+</script>
+</body></html>

@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Scan Evaluations · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>
+.plink{color:var(--accent);text-decoration:none;font-weight:600}.plink:hover{text-decoration:underline}
+.barwrap{display:flex;height:22px;border-radius:100px;overflow:hidden;border:1px solid var(--line);margin:8px 0}
+.barwrap .ok{background:linear-gradient(90deg,#2e7d57,#3fae74)}.barwrap .bad{background:linear-gradient(90deg,#b9791a,#f5a623)}
+.prob{color:var(--crit);font-weight:700}
+</style>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+  <section class="card">
+    <div class="toolbar"><div><h2 style="margin:0">Scan Evaluations</h2>
+      <p class="sub" style="margin:2px 0 0">Reproduces <span class="mono">navi scan evaluate</span> — average scan time per asset by <b>scanner</b>, <b>policy</b>, and <b>scan</b> (plugin 19506) — plus credential-failure coverage (plugin 104410). Tag problem areas via navi (gated).</p></div>
+      <button class="btn run sm" id="run" style="margin-left:auto">▶ Run evaluation</button></div>
+    <div id="flash" class="flash"></div>
+  </section>
+
+  <section class="card" id="credCard" style="display:none">
+    <h2>Credential coverage</h2>
+    <div class="kpi" id="credKpi"></div>
+    <div class="barwrap" id="credBar" title="green = credentialed OK · amber = credential failures"></div>
+    <div class="toolbar"><button class="btn run sm" id="credTag">▶ Tag credential failures (gated)</button><span class="chip" id="credTagHint">Scan Health : Cred Failure · plugin 104410</span></div>
+    <div id="credRes"></div>
+    <h2 style="margin:14px 0 0;font-size:14px">⚠ Assets WITH a credential failure <span class="sub" id="credCount"></span></h2>
+    <p class="sub" style="margin:2px 0 6px">These returned plugin <span class="mono">104410</span> — Nessus could not authenticate, so their scans are uncredentialed (results incomplete).</p>
+    <table id="credTbl" style="margin-top:6px"><thead><tr><th>Host (cred-fail)</th><th>IP</th><th>Platform</th></tr></thead><tbody></tbody></table>
+  </section>
+
+  <section class="card" id="dimCard" style="display:none">
+    <div class="toolbar" style="margin:0"><h2 style="margin:0">By scanner <span class="sub" id="scnCount"></span></h2><button class="btn ghost sm" id="scnCsv" style="margin-left:auto">⬇ CSV</button></div>
+    <p class="sub">Uneven load is the signal — a scanner far above the average is a bottleneck. Tag a problematic scanner (navi <span class="mono">--plugin 19506 --output "&lt;ip&gt;"</span>).</p>
+    <table id="scnTbl" class="nocsv"><thead><tr><th>Scanner IP</th><th>Assets</th><th>Avg / asset</th><th>Max</th><th></th></tr></thead><tbody></tbody></table>
+    <div class="toolbar" style="margin:18px 0 0"><h2 style="margin:0">By policy <span class="sub" id="polCount"></span></h2><button class="btn ghost sm" id="polCsv" style="margin-left:auto">⬇ CSV</button></div>
+    <p class="sub">Heavy policies cost time per asset. Tag a problematic policy (navi <span class="mono">--plugin 19506 --output "&lt;policy&gt;"</span>).</p>
+    <table id="polTbl" class="nocsv"><thead><tr><th>Policy</th><th>Assets</th><th>Avg / asset</th><th>Max</th><th></th></tr></thead><tbody></tbody></table>
+    <div class="toolbar" style="margin:18px 0 0"><h2 style="margin:0">By scan <span class="sub" id="scaCount"></span></h2><button class="btn ghost sm" id="scaCsv" style="margin-left:auto">⬇ CSV</button></div>
+    <p class="sub">Tag a problematic scan (navi <span class="mono">--scanid</span> when known, else by scan name in 19506 output).</p>
+    <table id="scaTbl" class="nocsv"><thead><tr><th>Scan name</th><th>Assets</th><th>Avg / asset</th><th>Max</th><th></th></tr></thead><tbody></tbody></table>
+    <div id="dimRes"></div>
+  </section>
+  <footer>Scan Evaluations · read-only navi.db (plugin 19506 / 104410) · gated navi tags</footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('scan_eval');
+const plat=(u,l)=>u?` <a href="${String(u).replace(/&/g,'&amp;').replace(/"/g,'&quot;')}" target="_blank" rel="noopener" class="plink" title="Open in Tenable platform">${l||'↗'}</a>`:'<span class="sub">—</span>';
+const dur=s=>{s=Math.round(s||0);return s<60?s+'s':Math.floor(s/60)+'m '+(s%60)+'s';};
+let DATA=null;
+async function run(){
+  document.getElementById('run').disabled=true;
+  flash('flash','<span class="spin"></span> evaluating scans from navi.db (plugin 19506)…','run');
+  let o; try{ o=await API.post('run'); }catch(e){ o={ok:false,error:e.message}; }
+  document.getElementById('run').disabled=false;
+  if(!o.ok){ flash('flash','✗ '+(o.error||'failed'),'crit'); return; }
+  DATA=o.result; flashClear('flash'); render();
+}
+function dimRows(list,kind){
+  return list.length?list.map(x=>`<tr><td class="${x.problematic?'prob':''}">${esc(x.key)}${x.problematic?' ⚠':''}</td><td>${x.assets}</td><td class="${x.problematic?'prob':''}">${dur(x.avg_sec)}</td><td class="mono">${dur(x.max_sec)}</td><td><button class="btn sm" data-kind="${kind}" data-val="${esc(x.key)}">Tag</button></td></tr>`).join(''):'<tr><td colspan="5" class="sub">None found.</td></tr>';
+}
+function render(){
+  const c=DATA.credential||{};
+  document.getElementById('credCard').style.display='block';
+  document.getElementById('dimCard').style.display='block';
+  document.getElementById('credKpi').innerHTML=
+    `<div class="k"><div class="v">${c.total_assets||0}</div><div class="l">total assets</div></div>`+
+    `<div class="k"><div class="v" style="color:var(--crit)">${c.cred_fail_assets||0}</div><div class="l">credential failures (104410)</div></div>`+
+    `<div class="k"><div class="v" style="color:#3fae74">${c.ok_assets||0}</div><div class="l">credentialed OK</div></div>`;
+  const t=c.total_assets||1, bad=c.cred_fail_assets||0, ok=c.ok_assets||0;
+  document.getElementById('credBar').innerHTML=`<div class="ok" style="width:${(ok/t*100).toFixed(1)}%"></div><div class="bad" style="width:${(bad/t*100).toFixed(1)}%"></div>`;
+  const _cc=document.getElementById('credCount'); if(_cc)_cc.textContent='('+(c.assets||[]).length+')';
+  document.querySelector('#credTbl tbody').innerHTML=(c.assets||[]).length?c.assets.map(a=>`<tr><td><a class="plink" href="/web/asset.html?asset=${encodeURIComponent(a.asset_uuid)}">${esc(a.host)}</a></td><td class="mono">${esc(a.ip||'')}</td><td>${plat(a.url,'Open ↗')}</td></tr>`).join(''):'<tr><td colspan="3" class="sub">No credential failures. ✔</td></tr>';
+  document.getElementById('scnCount').textContent=`(${DATA.scanners.length})`;
+  document.getElementById('polCount').textContent=`(${DATA.policies.length})`;
+  document.getElementById('scaCount').textContent=`(${DATA.scans.length})`;
+  document.querySelector('#scnTbl tbody').innerHTML=dimRows(DATA.scanners,'scanner');
+  document.querySelector('#polTbl tbody').innerHTML=dimRows(DATA.policies,'policy');
+  document.querySelector('#scaTbl tbody').innerHTML=dimRows(DATA.scans,'scan');
+  document.querySelectorAll('#dimCard button[data-kind]').forEach(b=>b.onclick=()=>tagDim(b.dataset.kind,b.dataset.val));
+  wireCsv('scnCsv','scanners','scan-eval-by-scanner',{key:'scanner_ip'});
+  wireCsv('polCsv','policies','scan-eval-by-policy',{key:'policy'});
+  wireCsv('scaCsv','scans','scan-eval-by-scan',{key:'scan_name'});
+}
+// per-category CSV export, sitting next to its own table
+function wireCsv(btnId, listKey, fname, hdr){
+  const b=document.getElementById(btnId); if(!b)return;
+  b.onclick=()=>{
+    const rows=(DATA&&DATA[listKey]||[]).map(x=>({
+      [hdr.key]:x.key, assets:x.assets, avg_sec:Math.round(x.avg_sec||0),
+      max_sec:Math.round(x.max_sec||0), problematic:x.problematic?'yes':'no'}));
+    downloadCSV(fname+'.csv',[hdr.key,'assets','avg_sec','max_sec','problematic'],rows);
+  };
+}
+async function tagDim(kind,val){
+  const labels={scanner:'Problematic Scanner',policy:'Problematic Policy',scan:'Problematic Scan'};
+  const value=prompt('Tag value for this '+kind+' (editable):',labels[kind]||'Scan Issue'); if(value===null)return;
+  let scanid='';
+  if(kind==='scan'){ scanid=(prompt('navi scan ID (leave blank to match by scan name in plugin 19506 output):','')||'').trim(); }
+  const res=document.getElementById('dimRes'); res.innerHTML='<div class="callbox"><span class="spin"></span> tagging via navi…</div>';
+  let o; try{ o=await API.post('tag',{kind,value:value.trim()||labels[kind],output:val,scanid,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+  reportTag(res,o,'Tagged '+kind+' "'+val+'"');
+}
+document.getElementById('credTag').onclick=async()=>{
+  const value=prompt('Tag value for credential failures (editable):','Cred Failure'); if(value===null)return;
+  const res=document.getElementById('credRes'); res.innerHTML='<div class="callbox"><span class="spin"></span> tagging via navi tag --plugin 104410…</div>';
+  let o; try{ o=await API.post('tag',{kind:'cred',value:value.trim()||'Cred Failure',confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+  reportTag(res,o,'Tagged credential failures');
+};
+function reportTag(res,o,okmsg){
+  if(!o.ok){ res.innerHTML='<div class="callbox" style="color:#ffb4c6">✗ '+(o.error||'failed')+'</div>'; return; }
+  const r=o.result||{}; const okk=r.ok||/job_uuid|not subscriptable/.test(JSON.stringify(r));
+  res.innerHTML='<div class="callbox" style="color:'+(okk?'#7ee2a8':'#ffb4c6')+'">'+(okk?(okmsg+'.'+(o.writes_enabled?' Allow ~30 min for Tenable.':' (gated — set NAVI_ALLOW_WRITES=1 and put navi on PATH)')):('✗ '+(r.message||'tag failed')))+'</div>';
+}
+document.getElementById('run').onclick=run;
+mountAgentHeader({icon:'📈',name:'Scan Evaluations',sub:'scanner / policy / scan averages · credential coverage'});
+</script>
+</body></html>

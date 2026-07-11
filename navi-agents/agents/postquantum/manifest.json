@@ -1,0 +1,12 @@
+{
+  "id": "postquantum",
+  "name": "Post-Quantum Cipher Analysis",
+  "icon": "⚛️",
+  "order": 13,
+  "category": "Tagging",
+  "summary": "Heimdall — finds assets in Tenable's Post-Quantum Cipher Analysis plugins (277650 not-PQ / 277652 cipher inventory / 277653 PQ-ready) and tags them Post-Quantum:Cipher Analysis. Also correlates cert crypto + transport + crypto-agility, weighted by ACR + CISA-KEV, into a ranked crown-jewel migration roadmap.",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": ["run", "tag", "tag_uuids", "cert", "transport", "roadmap", "roadmap_tag"],
+  "codename": "Heimdall Hound"
+}

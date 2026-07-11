@@ -1,0 +1,13 @@
+{
+  "id": "hub",
+  "name": "Release the Hounds",
+  "icon": "🐾",
+  "order": 0,
+  "category": "Orchestration",
+  "codename": "The Pack",
+  "summary": "Pack orchestration used by the Release the Hounds page: run every tagging agent's discovery, or 'I trust you' to run them all and auto-apply the proposed tags (gated). ACR, Ownership and Software are never auto-run.",
+  "hidden": true,
+  "needs_backend": true,
+  "page": "",
+  "actions": ["roster", "run_all", "trust"]
+}

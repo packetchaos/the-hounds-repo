@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Tags — Tenable ⇄ navi.db · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>
+.filterbtns{display:inline-flex;gap:0;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.filterbtns button{background:var(--bg-2);border:0;border-right:1px solid var(--line);color:var(--ink-2);padding:6px 11px;font-size:12px;cursor:pointer}
+.filterbtns button:last-child{border-right:0}
+.filterbtns button.on{background:var(--accent);color:#1a1206;font-weight:700}
+.tagcat{border:1px solid var(--line);border-radius:11px;background:var(--panel);margin-top:12px;overflow:hidden}
+.tagcat>summary{cursor:pointer;list-style:none;padding:11px 15px;display:flex;align-items:center;gap:10px;font-weight:700}
+.tagcat>summary::-webkit-details-marker{display:none}
+.tagcat>summary .arw{color:var(--ink-3);transition:transform .15s}
+.tagcat[open]>summary .arw{transform:rotate(90deg)}
+.trow .tv{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tagl{cursor:pointer;color:inherit;text-decoration:none}
+.drill{background:var(--bg-2);border:1px solid var(--line);border-radius:8px;margin:4px 0 8px;padding:8px 10px}
+</style>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+  <section class="card" style="background:radial-gradient(120% 140% at 90% -20%,var(--amber-glow),transparent 60%),var(--panel)">
+    <div class="toolbar"><div><h2 style="margin:0">🏷 Tags — Tenable ⇄ navi.db</h2>
+      <p class="sub" style="margin:2px 0 0">Every tag in the <b>Tenable platform</b> (live <span class="mono">navi explore info tags</span>) and in <span class="mono">navi.db</span>'s <span class="mono">tags</span> table, side by side. The <b>delta</b> shows what's in one but not the other — i.e. what hasn't synced.</p></div>
+      <span style="margin-left:auto;display:flex;gap:6px"><button class="btn ghost sm" id="csv" style="display:none">⤓ CSV</button><button class="btn run sm" id="cmp">▶ Compare</button></span></div>
+    <div id="flash" class="flash"></div>
+    <div class="kpi" id="kpi"></div>
+    <div class="toolbar" id="filterRow" style="display:none;margin-top:6px"><span class="sub">Show:</span>
+      <div class="filterbtns" id="fb"><button data-f="all" class="on">All</button><button data-f="delta">Delta only</button><button data-f="both">In both</button><button data-f="ten">Tenable only</button><button data-f="navi">navi.db only</button></div>
+      <input id="q" placeholder="filter category / value…" style="flex:1;min-width:180px;padding:7px 9px;border-radius:8px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink)"></div>
+  </section>
+  <section class="card" id="card" style="display:none">
+    <div class="toolbar" style="margin:0 0 8px"><span class="sub" id="groupCount"></span><span style="margin-left:auto;display:flex;gap:6px"><button class="btn ghost sm" id="expand">Expand all</button><button class="btn ghost sm" id="collapse">Collapse all</button></span></div>
+    <div id="groups"></div>
+  </section>
+  <footer>Tags · Tenable (live navi tag list) ⇄ navi.db tags table · read-only</footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('explore'); let DATA=null, filter='all';
+// _SEP is a global from console.js — do NOT redeclare (dupe const = SyntaxError that kills this script + the Compare button)
+const sqlLit=s=>String(s==null?'':s).replace(/'/g,"''");
+let MAP={}, TEN_OK=false, TEN_MSG='', TEN_PENDING=false;
+const keyOf=(c,v)=>String(c||'').toLowerCase()+_SEP+String(v||'').toLowerCase();
+function build(){
+  const rows=Object.values(MAP).sort((a,b)=>String(a.cat+a.val).toLowerCase().localeCompare(String(b.cat+b.val).toLowerCase()));
+  DATA={rows,tenPending:TEN_PENDING,tenOk:TEN_OK,tenMsg:TEN_MSG,counts:{
+    ten:rows.filter(r=>r.ten).length, navi:rows.filter(r=>r.navi).length,
+    both:rows.filter(r=>r.navi&&r.ten).length,
+    tenOnly:rows.filter(r=>r.ten&&!r.navi).length,
+    naviOnly:rows.filter(r=>r.navi&&!r.ten).length}};
+}
+async function compare(){
+  const b=document.getElementById('cmp'); b.disabled=true;
+  MAP={}; TEN_OK=false; TEN_MSG=''; TEN_PENDING=true;
+  flash('flash','<span class="spin"></span> reading navi.db tags…','run');
+  let n; try{ n=await API.post('tags_compare',{side:'navi'}); }catch(e){ n={ok:false,error:e.message}; }
+  if(!n||!n.ok||n.navi_error){ b.disabled=false; TEN_PENDING=false; flash('flash','✗ navi.db read failed: '+esc((n&&(n.navi_error||n.error||n.message))||'failed'),'crit'); return; }
+  (n.navi||[]).forEach(r=>{ MAP[keyOf(r.cat,r.val)]={cat:r.cat,val:r.val,navi:true,ten:false,c:r.c||0}; });
+  document.getElementById('csv').style.display=''; build(); render();
+  flash('flash','<span class="spin"></span> navi.db loaded ('+(n.navi||[]).length+' tags). Querying the Tenable platform (<span class="mono">navi explore info tags</span>)… this can take a moment on a live tenant.','run');
+  let t; try{ t=await API.post('tags_compare',{side:'tenable'}); }catch(e){ t={ok:false,ten_message:e.message}; }
+  TEN_PENDING=false;
+  if(t&&t.ok&&t.ten_ok){ TEN_OK=true; (t.ten||[]).forEach(r=>{ const k=keyOf(r.cat,r.val); (MAP[k]=MAP[k]||{cat:r.cat,val:r.val,navi:false,ten:false,c:0}).ten=true; }); flashClear('flash'); }
+  else { TEN_OK=false; TEN_MSG=(t&&(t.ten_message||t.error))||'navi could not reach the Tenable platform'; flash('flash','Showing navi.db tags. Tenable side unavailable — '+esc(TEN_MSG)+'. Ensure navi has API keys and is on PATH to compare live.','warn'); }
+  b.disabled=false; build(); render();
+}
+function render(){
+  if(!DATA)return; const C=DATA.counts;
+  document.getElementById('filterRow').style.display='flex';
+  document.getElementById('card').style.display='block';
+  document.getElementById('kpi').innerHTML=
+    `<div class="k"><div class="v">${DATA.tenPending?'…':C.ten}</div><div class="l">in Tenable${DATA.tenPending?' (loading…)':(DATA.tenOk?'':' (offline)')}</div></div>`+
+    `<div class="k"><div class="v">${C.navi}</div><div class="l">in navi.db</div></div>`+
+    `<div class="k"><div class="v" style="color:var(--ok)">${DATA.tenPending?'…':C.both}</div><div class="l">in both</div></div>`+
+    `<div class="k"><div class="v" style="color:var(--crit)">${DATA.tenPending?'…':(C.tenOnly+C.naviOnly)}</div><div class="l">delta (one side only)</div></div>`;
+  const q=(document.getElementById('q').value||'').toLowerCase().trim();
+  const rows=DATA.rows.filter(r=>{
+    if(filter==='delta'&&r.navi&&r.ten)return false;
+    if(filter==='both'&&!(r.navi&&r.ten))return false;
+    if(filter==='ten'&&!(r.ten&&!r.navi))return false;
+    if(filter==='navi'&&!(r.navi&&!r.ten))return false;
+    if(q&&!((r.cat+' '+r.val).toLowerCase().includes(q)))return false; return true; });
+  const yes='<span style="color:var(--ok)">✓</span>', no='<span class="sub">—</span>';
+  const statusOf=r=>DATA.tenPending?'<span class="badge b-pending">checking Tenable…</span>':r.navi&&r.ten?'<span class="badge b-applied">In both ✔</span>'
+    :r.ten?'<span class="badge b-appr" style="color:var(--warn)">Tenable only — not synced to navi.db</span>'
+    :'<span class="badge b-appr">navi.db only — not in Tenable</span>';
+  const byCat={}; rows.forEach(r=>{(byCat[r.cat]=byCat[r.cat]||[]).push(r);});
+  const cats=Object.keys(byCat).sort((a,b)=>String(a).toLowerCase().localeCompare(String(b).toLowerCase()));
+  document.getElementById('groupCount').textContent=cats.length+' categor'+(cats.length===1?'y':'ies')+' · '+rows.length+' tag(s)';
+  const openAll=!!q;
+  const g=document.getElementById('groups');
+  g.innerHTML=cats.length?cats.map(cat=>{
+    const vs=byCat[cat]; const both=vs.filter(r=>r.navi&&r.ten).length, delta=vs.length-both;
+    const body='<div style="overflow-x:auto"><table style="margin-top:2px"><thead><tr><th>Value</th><th>Tenable</th><th>navi.db</th><th>Status</th></tr></thead><tbody>'+
+      vs.map(r=>`<tr data-k="${esc(r.cat)}${_SEP}${esc(r.val)}"><td><span class="tagl" data-tc="${esc(r.cat)}" data-tv="${esc(r.val)}" title="${r.navi?'Show assets in this tag':'no assets in navi.db'}"><span class="tagval">${esc(r.val)}</span>${r.navi?' →':''}</span></td><td>${DATA.tenPending?'<span class="sub">…</span>':(r.ten?yes:no)}</td><td>${r.navi?yes+(r.c?' <span class="sub">('+r.c+')</span>':''):no}</td><td>${statusOf(r)}</td></tr>`).join('')+
+      '</tbody></table></div>';
+    return `<details class="tagcat"${openAll?' open':''}><summary><span class="arw">▸</span><span class="tagval" style="font-size:15px">${esc(cat)}</span><span class="chip">${vs.length} value${vs.length===1?'':'s'}</span>${both?'<span class="chip" style="color:var(--ok)">'+both+' both</span>':''}${delta?'<span class="chip" style="color:var(--crit)">'+delta+' delta</span>':''}</summary><div style="padding:0 14px 12px">${body}</div></details>`;
+  }).join(''):'<p class="sub" style="padding:8px 2px">No tags match this filter.</p>';
+  g.querySelectorAll('.tagl[data-tc]').forEach(a=>a.onclick=()=>drill(a));
+}
+async function drill(a){
+  const cat=a.dataset.tc, val=a.dataset.tv, tr=a.closest('tr'); if(!tr)return;
+  let d=tr.nextElementSibling; if(d&&d.classList.contains('drillrow')){ d.remove(); return; }
+  d=document.createElement('tr'); d.className='drillrow'; const td=document.createElement('td'); td.colSpan=4;
+  td.innerHTML='<div class="drill"><span class="spin"></span> loading assets…</div>'; d.appendChild(td); tr.after(d);
+  const sql="SELECT a.hostname, a.ip_address, a.uuid FROM tags t JOIN assets a ON a.uuid=t.asset_uuid "
+    +"WHERE t.tag_key='"+sqlLit(cat)+"' AND t.tag_value='"+sqlLit(val)+"' LIMIT 200";
+  let o; try{ o=await runSql(sql); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o||!o.ok){ td.innerHTML='<div class="drill" style="color:var(--crit)">✗ '+esc((o&&(o.error||o.message))||'failed')+'</div>'; return; }
+  const rows=o.rows||[];
+  td.innerHTML='<div class="drill"><b>'+esc(cat)+' : '+esc(val)+'</b> — '+rows.length+' asset(s)'+
+    (rows.length?'<div style="overflow-x:auto;margin-top:6px"><table><thead><tr><th>Host</th><th>IP</th></tr></thead><tbody>'+
+      rows.map(r=>'<tr><td>'+(r.uuid?'<a class="tagl" href="/web/asset.html?asset='+encodeURIComponent(r.uuid)+'">'+esc(r.hostname||r.uuid)+'</a>':esc(r.hostname||''))+'</td><td class="mono">'+esc(r.ip_address||'')+'</td></tr>').join('')+
+      '</tbody></table></div>':' (none in navi.db)')+'</div>';
+}
+document.getElementById('cmp').onclick=compare;
+document.getElementById('q').addEventListener('input',render);
+document.querySelectorAll('#fb button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#fb button').forEach(x=>x.classList.remove('on'));b.classList.add('on');filter=b.dataset.f;render();});
+document.getElementById('expand').onclick=()=>document.querySelectorAll('#groups details').forEach(d=>d.open=true);
+document.getElementById('collapse').onclick=()=>document.querySelectorAll('#groups details').forEach(d=>d.open=false);
+document.getElementById('csv').onclick=()=>{ if(!DATA)return; downloadCSV('tags-compare.csv',['category','value','in_tenable','in_navidb','navidb_assets'],
+  DATA.rows.map(r=>({category:r.cat,value:r.val,in_tenable:r.ten?'yes':'no',in_navidb:r.navi?'yes':'no',navidb_assets:r.c}))); };
+mountAgentHeader({icon:'🏷',name:'Tags — Tenable ⇄ navi.db',sub:'sync delta'});
+</script>
+</body></html>

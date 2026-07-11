@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Vulnerability Explorer · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>.plink{color:var(--accent);text-decoration:none;font-weight:600}.plink:hover{text-decoration:underline}
+#tbl{table-layout:fixed;width:100%}#tbl th,#tbl td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}</style>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+  <section class="card">
+    <h2 style="margin:0">🔎 Vulnerability Explorer</h2>
+    <p class="sub" style="margin:2px 0 8px">Search the <b>vulns</b> table — one row per <b>finding</b> — by plugin, ID, CVE, severity, or finding ID. 500 rows/page. Click a <b>Finding ID</b> to open it in the <b>Tenable platform</b>; click the asset for its deep-dive.</p>
+    <div class="toolbar needs-llm"><input id="nlq" placeholder="Ask in plain English → SQL on the vulns table…" style="flex:1;min-width:240px;padding:9px;border-radius:8px;border:1px solid var(--accent);background:var(--bg-2);color:var(--ink)"><button class="btn sm" id="nlgo">✨ Ask (NL→SQL)</button></div>
+    <div id="nlout" class="needs-llm"></div>
+    <div class="toolbar"><input id="q" placeholder="plugin name / id / CVE / severity…" style="flex:1;min-width:220px;padding:9px;border-radius:8px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink)"><button class="btn run sm" id="go">▶ Search</button><span class="chip" id="count"></span></div>
+    <div id="flash" class="flash"></div>
+    <table id="tbl" style="table-layout:fixed;width:100%"><colgroup><col style="width:104px"><col style="width:150px"><col style="width:64px"><col><col style="width:78px"><col style="width:48px"></colgroup><thead><tr><th>Finding</th><th>Asset</th><th>Plugin</th><th>Name</th><th>Sev</th><th>VPR</th></tr></thead><tbody><tr><td colspan="6" class="sub">Search to load…</td></tr></tbody></table>
+    <div class="toolbar" id="pager"></div>
+  </section>
+  <footer>Vulnerability Explorer · read-only navi.db search (paginated 500/page)</footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('ex_vulns'); const PAGE=500;
+async function go(off){ off=off||0;
+  document.getElementById('go').disabled=true; flash('flash','<span class="spin"></span> querying navi.db…','run');
+  let o; try{ o=await API.post('search',{q:document.getElementById('q').value.trim(),offset:off}); }catch(e){ o={ok:false,error:e.message}; }
+  document.getElementById('go').disabled=false;
+  if(!o.ok){ flash('flash','✗ '+(o.error||'failed'),'crit'); return; }
+  flashClear('flash'); const res=o.result||{}; const rows=res.rows||[];
+  document.getElementById('count').textContent=rows.length+' shown';
+  document.querySelector('#tbl tbody').innerHTML=rows.length?rows.map(r=>{
+    const urlAttr=String(r.url||'').replace(/&/g,'&amp;').replace(/\"/g,'&quot;');
+    const fid=r.finding_id?String(r.finding_id):'';
+    const fidS=fid?(fid.length>10?fid.slice(0,8)+'…':fid):'';
+    const fcell=r.url?`<a class=\"plink\" href=\"${urlAttr}\" target=\"_blank\" rel=\"noopener\" title=\"${esc(fid)} — open in the Tenable platform\">${fidS||'Open'} ↗</a>`:(fidS?esc(fidS):'<span class=\"sub\">—</span>');
+    const host=(r.hostname||'').trim()||r.ip||'(none)';
+    const acell=r.asset_uuid?`<a class=\"plink\" href=\"/agents/argos/page.html?target=${encodeURIComponent(r.asset_uuid)}\" title=\"Open the Argos asset deep-dive\">${esc(host)}</a>`:esc(host);
+    return `<tr><td title=\"${esc(fid)}\">${fcell}</td><td title=\"${esc(host)}\">${acell}</td><td><a class=\"plink\" href=\"/web/vuln.html?plugin=${encodeURIComponent(r.plugin_id)}\">${esc(String(r.plugin_id))}</a></td><td title=\"${esc(r.name||'')}\">${esc(r.name||'')}</td><td>${esc(r.severity||'')}</td><td>${r.vpr!=null&&r.vpr!==''?esc(String(Math.round(r.vpr*10)/10)):'<span class=\"sub\">—</span>'}</td></tr>`;
+  }).join(''):'<tr><td colspan="6" class="sub">No matches.</td></tr>';
+  const pg=document.getElementById('pager'); const page=res.page||1;
+  pg.innerHTML='<button class="btn ghost sm" '+(off<=0?'disabled':'')+' id="pp">◀ Prev</button><span class="chip">page '+page+' · rows '+(rows.length?off+1:0)+'–'+(off+rows.length)+'</span><button class="btn ghost sm" '+(res.has_next?'':'disabled')+' id="pn">Next ▶</button>';
+  const pp=document.getElementById('pp'); if(pp)pp.onclick=()=>go(Math.max(0,off-PAGE));
+  const pn=document.getElementById('pn'); if(pn)pn.onclick=()=>go(off+PAGE);
+}
+document.getElementById('go').onclick=()=>go(0);
+document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter')go(0);});
+mountAgentHeader({icon:'🔎',name:'Vulnerability Explorer',sub:'navi.db search · 500/page'});
+wireNlBox('vulns');
+</script>
+</body></html>

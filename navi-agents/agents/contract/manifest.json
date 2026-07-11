@@ -1,0 +1,12 @@
+{
+  "id": "contract",
+  "name": "AI Navi Contract",
+  "icon": "📜",
+  "order": 0,
+  "category": "Orchestration",
+  "summary": "Turns the captured Tagging log + your plain-English policy into an autonomous workflow — tags, ACR changes, wait periods, and a scheduled loop that runs every few hours. Plans first, then executes when armed.",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": ["get", "set", "build_from_log", "plan", "export", "run_now", "arm", "disarm", "save", "load", "list", "status", "loop_log", "scheduler"],
+  "codename": "Covenant Hound"
+}

@@ -1,0 +1,3 @@
+{ "id":"explore","name":"Explore (data drill-down)","icon":"🔎","order":98,"category":"Data",
+  "summary":"Shared read-only drill-down service that backs the asset and vuln/plugin detail pages. Not a runnable agent.",
+  "hidden":true,"needs_backend":true,"actions":["asset","vuln","cert_month"] }

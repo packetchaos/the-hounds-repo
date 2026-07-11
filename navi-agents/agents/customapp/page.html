@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Custom App Name Agent · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>.fld{padding:8px;border-radius:7px;background:var(--panel2);color:var(--txt);border:1px solid var(--line)}</style>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+
+  <!-- Tag-by-sentence pinned to the TOP so it never gets buried under the routes/paths -->
+  <section class="card" style="background:radial-gradient(120% 140% at 90% -20%,var(--amber-glow),transparent 60%),var(--panel)">
+    <h2 style="margin:0">🏷 Tag a custom app — just say it</h2>
+    <p class="sub" style="margin:2px 0 8px">e.g. <span class="mono">Tag my custom app navi</span> → finds the name, searches <b>both</b> <span class="mono">vuln_route</span> (by app name) and <span class="mono">vuln_paths</span> (by path), shows matches, then gated-tags <span class="tagval">Custom App : &lt;name&gt;</span> — paths via <span class="mono">--query</span>, routes via <span class="mono">--route_id</span>.</p>
+    <div id="cappFlash" class="flash"></div>
+    <div class="toolbar" style="margin:0;gap:8px">
+      <textarea id="cappPrompt" rows="2" class="fld" style="flex:1;min-width:260px;font-size:13px" placeholder="Tag my custom app navi"></textarea>
+      <button class="btn run sm" id="cappFind">🔎 Find matches</button>
+    </div>
+    <div id="cappResult"></div>
+  </section>
+
+  <section class="card">
+    <div class="toolbar"><div><h2 style="margin:0">Discovered candidates</h2>
+      <p class="sub" style="margin:2px 0 0">Software the inventory misses, mined from vuln <b>routes</b> &amp; <b>paths</b> vs the <span class="mono">software</span> table. Click <b>Search &amp; tag</b> on any row (or use the box above).</p></div>
+      <button class="btn run sm" id="runCapp" style="margin-left:auto">▶ Run discovery</button></div>
+    <div class="toolbar" style="margin:0 0 6px"><span class="chip" id="cappShown"></span><span class="chip" id="cappHidden" style="display:none"></span></div>
+    <div style="overflow-x:auto"><table id="cappTbl" style="width:100%"><thead><tr><th style="width:1%;white-space:nowrap">Source</th><th>Candidate</th><th style="width:1%">Evidence</th><th>Example path</th><th style="width:1%"></th></tr></thead><tbody><tr><td colspan="5" class="sub">Run discovery…</td></tr></tbody></table></div>
+    <div id="cappPager" class="toolbar" style="margin-top:8px;display:none"></div>
+  </section>
+
+  <section class="card">
+    <div class="toolbar"><div><h2 style="margin:0">🚫 Ignore list <span class="sub" id="cappIgnoreCount"></span></h2>
+      <p class="sub" style="margin:2px 0 0">False positives — web pages &amp; noise that show up as “apps”. Ignored terms are hidden from discovery on every run and persisted server-side (<span class="mono">agents/customapp/ignore.json</span>). Match is by candidate name/keyword or substring.</p></div></div>
+    <div class="toolbar"><input id="cappIgnoreInput" class="fld" style="flex:1;min-width:240px" placeholder="add a term to ignore (e.g. wordpress, /healthcheck, login)"><button class="btn sm" id="cappIgnoreAdd">+ Ignore</button></div>
+    <div id="cappIgnoreList" style="margin-top:10px"></div>
+  </section>
+  <footer>Custom App Name Agent · gated <span class="mono">navi enrich tag</span></footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('customapp');
+function _shortPath(p,n){ p=String(p||''); n=n||46; return p.length>n?('…'+p.slice(-(n-1))):p; }
+let CAPP=null, CAPP_PAGE=0, CUR_ROUTES=[], CUR_MATCHES=[], CUR_RP=0, CUR_MP=0;
+const PER=50;   // paginate long lists to 50/page so you're not scrolling forever
+function renderCappMatchTables(){
+  const rtb=document.querySelector('#cRouteTbl tbody');
+  if(rtb){ const pages=Math.max(1,Math.ceil(CUR_ROUTES.length/PER)); if(CUR_RP>=pages)CUR_RP=pages-1;
+    const rc=document.getElementById('cRouteCount'); if(rc)rc.textContent='('+CUR_ROUTES.length+')';
+    rtb.innerHTML=CUR_ROUTES.slice(CUR_RP*PER,(CUR_RP+1)*PER).map(rt=>`<tr><td class="mono">${esc(String(rt.route_id))}</td><td><b>${esc(rt.app_name||'')}</b></td><td>${esc(rt.vuln_type||'')}</td><td>${esc(String(rt.total_vulns||''))}</td></tr>`).join('')||'<tr><td colspan="4" class="sub">No route matches.</td></tr>';
+    makePager(document.getElementById('cRoutePager'),CUR_ROUTES.length,CUR_RP,p=>{CUR_RP=p;renderCappMatchTables();}); }
+  const ptb=document.querySelector('#cPathTbl tbody');
+  if(ptb){ const pages=Math.max(1,Math.ceil(CUR_MATCHES.length/PER)); if(CUR_MP>=pages)CUR_MP=pages-1;
+    const pc=document.getElementById('cPathCount'); if(pc)pc.textContent='('+CUR_MATCHES.length+')';
+    ptb.innerHTML=CUR_MATCHES.length?CUR_MATCHES.slice(CUR_MP*PER,(CUR_MP+1)*PER).map(m=>`<tr><td class="mono" style="font-size:11px;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(m.path||'')}">${esc(_shortPath(m.path,52))}</td><td class="mono">${esc(m.plugin_id||'')}</td><td>${esc((m.hostname||'').trim()||'(none)')}</td><td class="mono">${esc(m.ip_address||'')}</td></tr>`).join(''):'<tr><td colspan="4" class="sub">No path matches.</td></tr>';
+    makePager(document.getElementById('cPathPager'),CUR_MATCHES.length,CUR_MP,p=>{CUR_MP=p;renderCappMatchTables();}); } }
+/* Generic pager: renders "‹ Prev  N–M of T  Next ›" into a container and calls onGo(page). */
+function makePager(el, total, page, onGo){
+  if(!el) return;
+  const pages=Math.max(1, Math.ceil(total/PER));
+  page=Math.max(0, Math.min(page, pages-1));
+  if(total<=PER){ el.style.display='none'; el.innerHTML=''; return; }
+  el.style.display='';
+  const from=page*PER+1, to=Math.min(total,(page+1)*PER);
+  el.innerHTML=`<button class="btn ghost sm" ${page<=0?'disabled':''} data-p="${page-1}">‹ Prev</button>`
+    +`<span class="sub" style="margin:0 8px">${from}–${to} of ${total}</span>`
+    +`<button class="btn ghost sm" ${page>=pages-1?'disabled':''} data-p="${page+1}">Next ›</button>`;
+  el.querySelectorAll('button[data-p]').forEach(b=>b.onclick=()=>onGo(+b.dataset.p));
+}
+async function runCapp(){document.getElementById('runCapp').disabled=true;
+  try{const o=await API.post('run');CAPP=o.result||{candidates:[]};CAPP_PAGE=0;renderCapp();}catch(e){}
+  document.getElementById('runCapp').disabled=false;}
+function renderCapp(){if(!CAPP)return;const tb=document.querySelector('#cappTbl tbody');
+  const cand=CAPP.candidates||[];
+  const shown=document.getElementById('cappShown'); if(shown)shown.textContent=cand.length+' candidate(s)';
+  const hid=document.getElementById('cappHidden'); if(hid){ if(CAPP.hidden>0){hid.style.display='';hid.textContent=CAPP.hidden+' hidden by ignore list';} else hid.style.display='none'; }
+  renderIgnore(CAPP.ignored||[]);
+  const emptyMsg=CAPP.needs_setup
+    ? '<tr><td colspan="5" class="sub" style="color:var(--warn)">⚠ '+esc(CAPP.setup_hint||'vuln_route / vuln_paths are empty — run <span class="mono">navi config update route</span> and <span class="mono">navi config update paths</span>, then re-sync navi.db.')+'</td></tr>'
+    : '<tr><td colspan="5" class="sub">Nothing outside inventory. ✔</td></tr>';
+  const pages=Math.max(1,Math.ceil(cand.length/PER)); if(CAPP_PAGE>=pages)CAPP_PAGE=pages-1;
+  const slice=cand.slice(CAPP_PAGE*PER,(CAPP_PAGE+1)*PER);
+  tb.innerHTML=cand.length?slice.map(c=>`<tr><td><span class="dtype ${c.source==='route'?'t-app':'t-iot'}">${c.source}</span></td><td><b>${esc(c.name)}</b></td><td class="mono">${c.evidence}</td><td class="mono" style="font-size:11px;color:var(--mut);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(c.example)}">${esc(_shortPath(c.example))}</td><td style="white-space:nowrap"><button class="btn sm" data-k="${esc(c.keyword)}" data-n="${esc(c.name)}">Search &amp; tag</button> <button class="btn ghost sm" data-ign="${esc(c.keyword||c.name)}" title="Hide from future runs">🚫 Ignore</button></td></tr>`).join(''):emptyMsg;
+  tb.querySelectorAll('button[data-n]').forEach(x=>x.onclick=()=>{document.getElementById('cappPrompt').value='Tag my custom app '+x.dataset.n;cappSearch(x.dataset.n,x.dataset.k);});
+  tb.querySelectorAll('button[data-ign]').forEach(x=>x.onclick=()=>ignAdd(x.dataset.ign));
+  makePager(document.getElementById('cappPager'), cand.length, CAPP_PAGE, p=>{CAPP_PAGE=p;renderCapp();document.getElementById('cappTbl').scrollIntoView({behavior:'smooth',block:'start'});});}
+function renderIgnore(list){const box=document.getElementById('cappIgnoreList'),cnt=document.getElementById('cappIgnoreCount');
+  if(cnt)cnt.textContent='('+list.length+')'; if(!box)return;
+  box.innerHTML=list.length?list.map(t=>`<span class="chip" style="margin:0 6px 6px 0;display:inline-flex;align-items:center;gap:6px">${esc(t)} <a data-rm="${esc(t)}" style="cursor:pointer;color:var(--crit);font-weight:700">✕</a></span>`).join(''):'<span class="sub">Nothing ignored yet.</span>';
+  box.querySelectorAll('a[data-rm]').forEach(a=>a.onclick=()=>ignRemove(a.dataset.rm));}
+async function ignAdd(term){term=(term||'').trim();if(!term)return;try{const o=await API.post('ignore_add',{term});if(o.ok&&CAPP){CAPP.ignored=o.ignored;}await runCapp();}catch(e){}}
+async function ignRemove(term){try{const o=await API.post('ignore_remove',{term});if(o.ok&&CAPP){CAPP.ignored=o.ignored;}await runCapp();}catch(e){}}
+async function cappFind(){const prompt=document.getElementById('cappPrompt').value.trim();if(!prompt)return flash('cappFlash','Type an instruction first.','crit');
+  flash('cappFlash','<span class="spin"></span> interpreting…','run');let o;try{o=await API.post('interpret',{prompt});}catch(e){o={ok:false,message:e.message};}
+  if(!o.ok)return flash('cappFlash','✗ '+(o.message||'could not parse'),'crit');
+  cappSearch(o.name,(o.keywords&&o.keywords[0])||o.name,o.fallback);}
+async function cappSearch(name,keyword,fb){flash('cappFlash',`<span class="spin"></span> searching routes + paths for “${keyword}”…`,'run');
+  let o;try{o=await API.post('search',{keyword});}catch(e){o={ok:false}}
+  const res=document.getElementById('cappResult');if(!o.ok){flashClear('cappFlash');res.innerHTML='<p class="sub">Search failed.</p>';return;}
+  const routes=o.routes||[]; const canTag=(o.asset_count||0)||routes.length;
+  if(o.needs_setup){ flash('cappFlash','⚠ '+esc(o.setup_hint||'vuln_route / vuln_paths are empty — run navi config update route + paths, then re-sync.'),'crit');
+    res.innerHTML='<div class="callbox" style="color:var(--warn)">This agent needs navi.db\'s <span class="mono">vuln_route</span> + <span class="mono">vuln_paths</span> tables. Populate them: <span class="mono">navi config update route</span> then <span class="mono">navi config update paths</span> (they are not part of a normal full sync).</div>'; return; }
+  flash('cappFlash',`Found <b>${o.path_count}</b> path(s) on <b>${o.asset_count}</b> asset(s) and <b>${o.route_count||0}</b> route(s) for “${keyword}”.`+(fb?' <span class="sub">(name parsed locally; set ANTHROPIC_API_KEY for NL)</span>':''),'ok');
+  // keep the full result sets and paginate the (potentially huge) match tables to 50/page
+  CUR_ROUTES=routes; CUR_MATCHES=o.matches||[]; CUR_RP=0; CUR_MP=0;
+  res.innerHTML=`<div style="display:flex;gap:10px;align-items:center;margin:12px 0;flex-wrap:wrap"><label class="sub">Tag value</label><input id="cN" class="fld" value="${name}"><label class="sub">keyword</label><input id="cK" class="fld" value="${keyword}"><button class="btn run sm" id="cT" title="Tag every matching route + path asset">▶ Tag Custom App:${name}</button>${canTag?'':'<span class="sub" style="color:var(--warn)">no matches for this keyword yet — edit it and click Tag to re-check</span>'}</div>
+    <div class="callbox">paths → navi_enrich_tag(category="Custom App", value="${name}", query="${o.tag_query}", confirm=True)${routes.length?`<br>routes → navi_enrich_tag(category="Custom App", value="${name}", route_id=&lt;each of ${routes.length}&gt;, confirm=True)`:''}</div>`
+    +(routes.length?`<h3 style="margin:14px 0 4px">Matching routes (tagged via --route_id) <span class="sub" id="cRouteCount"></span></h3><table id="cRouteTbl"><thead><tr><th>Route</th><th>App name</th><th>Type</th><th>Total vulns</th></tr></thead><tbody></tbody></table><div id="cRoutePager" class="toolbar" style="margin-top:8px;display:none"></div>`:'')
+    +`<h3 style="margin:14px 0 4px">Matching paths (tagged via --query) <span class="sub" id="cPathCount"></span></h3><table id="cPathTbl"><thead><tr><th>Path</th><th>Plugin</th><th>Host</th><th>IP</th></tr></thead><tbody></tbody></table><div id="cPathPager" class="toolbar" style="margin-top:8px;display:none"></div><div id="cR"></div>`;
+  renderCappMatchTables();
+  document.getElementById('cT').onclick=cappTag;
+  // jump to the results so it's obvious something happened (match table + Tag button)
+  try{ res.scrollIntoView({behavior:'smooth',block:'start'}); const t=document.getElementById('cT'); if(t) setTimeout(()=>{try{t.focus({preventScroll:true});}catch(e){}},300); }catch(e){}}
+async function cappTag(){
+  const r=document.getElementById('cR'); if(!r)return;
+  const nEl=document.getElementById('cN'), kEl=document.getElementById('cK');
+  const name=(nEl&&nEl.value.trim())||'', keyword=(kEl&&kEl.value.trim())||'';
+  if(!name||!keyword){ r.innerHTML='<div class="callbox" style="color:var(--warn)">Enter a tag value and a keyword first.</div>'; return; }
+  r.innerHTML='<div class="callbox"><span class="spin"></span> tagging paths (--query) + routes (--route_id)…</div>';
+  let o; try{ o=await API.post('tag',{name,keyword,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+  o=o||{ok:false,error:'no response from server'};
+  const detail=o.ok?` — ${o.path_tags||0} path-tag + ${o.route_tags||0} route-tag call(s)`+(o.writes_enabled?'. Allow ~30 min for Tenable.':' (gated — set NAVI_ALLOW_WRITES=1 and put navi on PATH).'):'';
+  const msg=o.message||o.error||o.stderr||'failed';
+  r.innerHTML='<div class="callbox" style="color:'+(o.ok?'#7ee2a8':'#ffb4c6')+'">'+(o.ok?`✓ Custom App:${name} tagged`+detail:'✗ '+esc(msg))+'</div>'
+    +((!o.ok&&o.needs_setup)?'<div class="sub" style="margin-top:6px;color:var(--warn)">Populate the routing tables first: <span class="mono">navi config update route</span> then <span class="mono">navi config update paths</span>, then re-sync navi.db.</div>':'');
+  try{ r.scrollIntoView({behavior:'smooth',block:'center'}); }catch(e){}
+}
+document.getElementById('runCapp').onclick=runCapp;document.getElementById('cappFind').onclick=cappFind;
+{const ia=document.getElementById('cappIgnoreAdd'),ii=document.getElementById('cappIgnoreInput');
+ if(ia&&ii){const go=()=>{ignAdd(ii.value);ii.value='';};ia.onclick=go;ii.addEventListener('keydown',e=>{if(e.key==='Enter')go();});}}
+mountAgentHeader({icon:'🧩',name:'Custom App Name Agent',sub:'routes/paths discovery · NL tagging'});
+(async()=>{
+  await runCapp();
+  const h=handoffParams();
+  if(h.focus){
+    document.getElementById('cappPrompt').value='Tag my custom app '+h.focus;
+    if(h.run) cappSearch(h.focus, h.focus);
+    flash('cappFlash','Handoff — searching paths for “'+h.focus+'”.','run');
+  }
+})();
+</script>
+</body></html>

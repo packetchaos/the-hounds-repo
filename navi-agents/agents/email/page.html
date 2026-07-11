@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Gabriel · Email &amp; Reports · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>
+  .grid2{display:grid;grid-template-columns:340px 1fr;gap:16px;margin-top:14px}
+  @media(max-width:900px){.grid2{grid-template-columns:1fr}}
+  .fld,select.fld{width:100%;padding:9px 12px;border-radius:8px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink);font-size:14px}
+  label.lbl{display:block;font-size:12px;color:var(--mut);margin:12px 0 5px;text-transform:uppercase;letter-spacing:.05em}
+  .gatebar{border:1px solid var(--line);border-left-width:4px;border-radius:9px;padding:10px 12px;margin:10px 0;font-size:13px}
+  .msg{border:1px solid var(--line);border-radius:11px;padding:12px 14px;margin:0 0 14px;background:var(--panel)}
+  .msg .subj{font-weight:800;font-size:14.5px}
+  .msg .to input{width:260px;max-width:60vw;padding:5px 9px;border-radius:7px;border:1px solid var(--accent);background:var(--bg-2);color:var(--ink);font-size:12.5px;font-family:var(--mono)}
+  .msg .prev{margin-top:10px;border:1px solid var(--line);border-radius:9px;padding:2px 6px;background:var(--bg-2);max-height:340px;overflow:auto}
+  .msg pre.txt{white-space:pre-wrap;font-family:var(--mono);font-size:11.5px;line-height:1.5;color:var(--ink-2);margin:10px 0 0;max-height:240px;overflow:auto;display:none}
+  .pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;border-radius:99px;padding:3px 10px;border:1px solid var(--line);margin-left:6px}
+  table.own th,table.own td{font-size:13px}
+  .warnbox{border:1px solid rgba(251,146,60,.4);background:rgba(251,146,60,.08);border-radius:9px;padding:9px 12px;font-size:13px;margin:8px 0}
+  .handoff{border:1px solid rgba(52,211,153,.4);background:rgba(52,211,153,.08);border-radius:9px;padding:10px 12px;font-size:13px;margin:8px 0}
+</style>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+
+  <section class="card">
+    <div class="toolbar"><div><h2 style="margin:0">📧 Email &amp; Reports</h2>
+      <p class="sub" style="margin:2px 0 0">Gabriel closes the loop — owner-routed remediation, KEV fire-alarms, cert countdowns and briefings, emailed to the right humans with <b>Tenable deep-links</b>. Owner routing reads <b>Atlas</b> <span class="mono">Owner:</span> tags. Preview first; sending is <b>double-gated</b> (writes + email + confirm).</p></div></div>
+    <div id="gate" class="gatebar"></div>
+    <div id="handoffBox"></div>
+
+    <div class="grid2">
+      <div>
+        <label class="lbl">Report</label>
+        <select id="report" class="fld">
+          <option value="owner_remediation">Owner-routed remediation (per owner)</option>
+          <option value="kev_alarm">🔥 CISA KEV fire-alarm</option>
+          <option value="cert_countdown">⏳ Certificate countdown</option>
+          <option value="briefing">🌅 Morning briefing (leadership)</option>
+          <option value="contract_summary">📜 AI Contract run summary</option>
+          <option value="agent_findings">🐾 Agent findings hand-off</option>
+          <option value="sphinx_digest">🐾 On the Scent — daily digest</option>
+        </select>
+
+        <label class="lbl">Template</label>
+        <select id="template" class="fld">
+          <option value="technical">Technical — per-asset findings + deep-links</option>
+          <option value="board">Board — summary counts</option>
+        </select>
+
+        <div id="ownerOpts">
+          <label class="lbl">Email domain (to guess owner addresses)</label>
+          <input id="domain" class="fld" placeholder="e.g. company.com">
+        </div>
+        <div id="certOpts" style="display:none">
+          <label class="lbl">Expiring within (days)</label>
+          <input id="days" class="fld" type="number" value="30" min="1">
+        </div>
+        <div id="toOpts" style="display:none">
+          <label class="lbl">Recipient</label>
+          <input id="to" class="fld" placeholder="security-team@company.com">
+        </div>
+
+        <div class="toolbar" style="margin-top:16px;gap:8px">
+          <button class="btn run" id="prevBtn">📝 Preview</button>
+          <button class="btn ghost sm" id="recipBtn">👥 Owner routing</button>
+        </div>
+        <div id="flash" class="flash"></div>
+      </div>
+
+      <div>
+        <section class="card" id="recipCard" style="display:none;margin:0 0 14px">
+          <div class="toolbar" style="margin:0"><h2 style="margin:0;font-size:15px">👥 Owner routing (from Atlas <span class="mono">Owner:</span> tags)</h2>
+            <span class="chip" id="recipCount" style="margin-left:auto"></span></div>
+          <p class="sub" style="margin:4px 0 8px">Each owner gets <b>only their</b> assets. Set an email domain to auto-guess addresses, or edit inline in the preview.</p>
+          <div style="overflow-x:auto"><table class="own"><thead><tr><th>Owner</th><th>Apps</th><th>Assets</th><th>KEV</th><th>Guessed email</th></tr></thead><tbody id="recipBody"></tbody></table></div>
+        </section>
+
+        <div id="msgHead" class="toolbar" style="margin:0;display:none">
+          <h2 style="margin:0;font-size:15px">✉️ Preview</h2>
+          <span class="chip" id="msgCount" style="margin-left:auto"></span>
+          <button class="btn ghost sm" id="txtToggle">Show raw text</button>
+          <button class="btn run sm" id="sendBtn">📤 Send all</button>
+        </div>
+        <div id="msgs"></div>
+      </div>
+    </div>
+  </section>
+  <footer>Gabriel · email &amp; reports · reads navi.db read-only · sends via navi action mail (double-gated: writes + email + confirm)</footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('email');
+let MSGS=[], SHOWTXT=false;
+
+function setGate(g){
+  const el=document.getElementById('gate');
+  if(g.email_enabled){ el.style.borderLeftColor='#34d399'; el.innerHTML='✅ <b>Email enabled</b> — writes + email opt-in are on. Preview, then Send.'; }
+  else { el.style.borderLeftColor='#fb923c'; el.innerHTML='⚠️ <b>Sending is disabled</b> — you can preview freely. To send: '+esc(g.reason||'set NAVI_ALLOW_WRITES=1 and NAVI_EMAIL=1, then restart.'); }
+}
+function optVis(){
+  const r=document.getElementById('report').value;
+  document.getElementById('ownerOpts').style.display=(r==='owner_remediation')?'':'none';
+  document.getElementById('certOpts').style.display=(r==='cert_countdown')?'':'none';
+  document.getElementById('toOpts').style.display=(r==='kev_alarm'||r==='cert_countdown'||r==='briefing'||r==='agent_findings'||r==='contract_summary'||r==='sphinx_digest')?'':'none';
+}
+function payload(){
+  return {report:document.getElementById('report').value,
+    template:document.getElementById('template').value,
+    domain:(document.getElementById('domain').value||'').trim(),
+    days:parseInt(document.getElementById('days').value||'30',10),
+    to:(document.getElementById('to').value||'').trim(),
+    payload:HANDOFF||undefined};
+}
+async function loadStatus(){ let o; try{o=await API.post('status',{});}catch(e){o={};} setGate(o||{}); }
+
+async function recips(){
+  const card=document.getElementById('recipCard'); card.style.display='';
+  flash('flash','<span class="spin"></span> reading Owner: tags…','run');
+  let o; try{ o=await API.post('recipients',{domain:(document.getElementById('domain').value||'').trim()}); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o||!o.ok){ flash('flash','✗ '+esc((o&&o.error)||'failed'),'crit'); return; }
+  flashClear('flash'); setGate(o);
+  document.getElementById('recipCount').textContent=(o.count||0)+' owners · '+(o.total_owned_assets||0)+' assets';
+  document.getElementById('recipBody').innerHTML=(o.owners||[]).map(x=>
+    `<tr><td><b>${esc(x.owner)}</b></td><td class="sub">${esc((x.apps||[]).join(', ')||'—')}</td>
+     <td class="mono">${x.assets}</td><td class="mono" style="color:${x.kev?'#f43f5e':'var(--mut)'}">${x.kev||''}</td>
+     <td class="mono">${x.email?esc(x.email):'<span class="sub">— set a domain —</span>'}</td></tr>`).join('')
+    || '<tr><td colspan="5" class="sub">No Owner: tags in navi.db yet. Run the Ownership (Atlas) agent to assign owners, then Gabriel can route to them.</td></tr>';
+}
+
+async function preview(){
+  flash('flash','<span class="spin"></span> composing…','run');
+  let o; try{ o=await API.post('preview',payload()); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o||!o.ok){ flash('flash','✗ '+esc((o&&o.error)||'preview failed'),'crit'); return; }
+  setGate(o); flashClear('flash');
+  MSGS=o.messages||[];
+  if(o.note){ document.getElementById('msgs').innerHTML='<div class="warnbox">'+esc(o.note)+'</div>'; document.getElementById('msgHead').style.display='none'; return; }
+  renderMsgs();
+}
+function renderMsgs(){
+  document.getElementById('msgHead').style.display=MSGS.length?'':'none';
+  const unaddr=MSGS.filter(m=>m.needs_address).length;
+  document.getElementById('msgCount').textContent=MSGS.length+' email'+(MSGS.length==1?'':'s')+(unaddr?(' · '+unaddr+' need an address'):'');
+  document.getElementById('msgs').innerHTML=MSGS.map((m,i)=>`
+    <div class="msg">
+      <div class="subj">${esc(m.subject||'')}</div>
+      <div class="to" style="margin:7px 0 2px"><span class="sub">To </span>
+        <input data-i="${i}" class="toIn" value="${esc(m.to||'')}" placeholder="recipient@company.com">
+        ${m.owner?`<span class="pill">${esc(m.owner)}</span>`:''}
+        ${m.asset_count!=null?`<span class="pill">${m.asset_count} asset${m.asset_count==1?'':'s'}</span>`:''}
+        ${m.kev_count?`<span class="pill" style="color:#f43f5e;border-color:rgba(244,63,94,.5)">🔥 ${m.kev_count} KEV</span>`:''}
+      </div>
+      <div class="prev">${m.body_html||''}</div>
+      <pre class="txt" ${SHOWTXT?'style="display:block"':''}>${esc(m.body_text||'')}</pre>
+    </div>`).join('');
+  document.querySelectorAll('.toIn').forEach(inp=>inp.addEventListener('input',e=>{ MSGS[+e.target.dataset.i].to=e.target.value.trim(); MSGS[+e.target.dataset.i].needs_address=!e.target.value.trim(); }));
+}
+async function sendAll(){
+  const ready=MSGS.filter(m=>(m.to||'').trim());
+  if(!ready.length){ flash('flash','No recipients set — add at least one email address.','warn'); return; }
+  if(!confirm('Send '+ready.length+' email'+(ready.length==1?'':'s')+' via navi action mail? This is a real send.')) return;
+  flash('flash','<span class="spin"></span> sending '+ready.length+'…','run');
+  let o; try{ o=await API.post('send',{confirm:true,messages:MSGS}); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o||(o.ok===false&&!o.results)){ flash('flash','✗ '+esc((o&&(o.reason||o.error))||'send failed'),'crit'); if(o) setGate(o); return; }
+  setGate(o);
+  const parts=[]; if(o.sent)parts.push('✓ '+o.sent+' sent'); if(o.failed)parts.push('✗ '+o.failed+' failed'); if(o.skipped)parts.push(o.skipped+' skipped (no address)');
+  flash('flash',parts.join(' · ')||'done', o.failed?'warn':'ok');
+}
+
+/* ---- cross-agent hand-off receiver ----
+   Another Hound calls emailFindings(payload) (console.js) which stashes JSON in
+   sessionStorage and opens this page; we pick it up, switch to the findings report
+   and auto-preview. */
+let HANDOFF=null;
+(function(){
+  let raw=sessionStorage.getItem('gabriel_handoff');
+  const q=new URLSearchParams(location.search).get('handoff');
+  if(q){ try{ raw=decodeURIComponent(q); }catch(e){} }
+  if(!raw) return;
+  try{ HANDOFF=JSON.parse(raw); }catch(e){ HANDOFF=null; }
+  sessionStorage.removeItem('gabriel_handoff');
+  if(!HANDOFF) return;
+  if(HANDOFF.report==='contract_summary'){
+    document.getElementById('handoffBox').innerHTML='<div class="handoff">📜 Hand-off from the <b>AI Contract</b> ('+(HANDOFF.armed?'armed · executed':'plan · preview')+') — composing the run summary (tags per category, assets, errors, what didn\'t run). Composed below.</div>';
+  } else if(HANDOFF.report==='sphinx_digest'){
+    document.getElementById('handoffBox').innerHTML='<div class="handoff">🐾 Hand-off from <b>Sphinx — On the Scent</b>: composing the daily unknown-unknowns digest (KEV, Ownerless Risk, coverage, the reduction, champion fix, severity + top apps). Composed below — set a recipient and send.</div>';
+  } else {
+    document.getElementById('handoffBox').innerHTML='<div class="handoff">🐾 Hand-off from <b>'+esc(HANDOFF.source_hound||'a Hound')+'</b>: '+esc(HANDOFF.headline||'findings')+' — '+((HANDOFF.asset_uuids||[]).length)+' assets, '+((HANDOFF.finding_ids||[]).length)+' detection signals. Composed below.</div>';
+  }
+})();
+
+document.getElementById('report').addEventListener('change',optVis);
+document.getElementById('prevBtn').onclick=preview;
+document.getElementById('recipBtn').onclick=recips;
+document.getElementById('sendBtn').onclick=sendAll;
+document.getElementById('txtToggle').onclick=()=>{ SHOWTXT=!SHOWTXT; document.getElementById('txtToggle').textContent=SHOWTXT?'Hide raw text':'Show raw text'; renderMsgs(); };
+mountAgentHeader({id:'email',icon:'📧',name:'Email & Reports',sub:'Gabriel · the loop-closer'});
+optVis(); loadStatus();
+if(HANDOFF){ document.getElementById('report').value=HANDOFF.report||'agent_findings'; optVis(); preview(); }
+</script>
+</body></html>

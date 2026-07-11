@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>AI Navi Contract · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>
+.arow{display:grid;grid-template-columns:150px 1fr;gap:10px;align-items:start;margin-bottom:8px}
+.arow textarea{width:100%;min-height:40px;padding:7px;border-radius:7px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink);font-size:12px;box-sizing:border-box}
+.fld{padding:7px;border-radius:7px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink)}
+.armed{background:rgba(52,211,153,.14);color:var(--ok);border:1px solid rgba(52,211,153,.4)}
+.disarmed{background:rgba(138,153,173,.16);color:var(--mut);border:1px solid var(--line)}
+.kpi .v{font-size:18px}
+</style>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+
+  <section class="card">
+    <div class="toolbar"><div><h2 style="margin:0">📜 AI Navi Contract</h2>
+      <p class="sub" style="margin:2px 0 0">Capture your policy once; the loop tags, sets ACR, waits, and re-runs every few hours — planning first, executing only when <b>armed</b>. With no per-agent policy it tags the <b>risk-weighted top-N</b> of everything.</p></div>
+      <span class="badge" id="armBadge" style="margin-left:auto">…</span></div>
+    <div class="kpi" id="kpi"></div>
+    <div class="toolbar" style="margin-top:8px">
+      <button class="btn sm" id="fromLog">⬇ Build from tag log</button>
+      <button class="btn sm" id="fromCsv">⬆ Build from tag-log CSV</button>
+      <input type="file" id="csvFile" accept=".csv,text/csv" style="display:none">
+      <button class="btn run sm" id="planBtn">🔍 Plan (no writes)</button>
+      <button class="btn sm" id="runBtn">▶ Run one cycle now</button>
+      <button class="btn sm" id="armBtn" style="margin-left:auto"></button>
+    </div>
+    <div class="toolbar">
+      <button class="btn ghost sm" id="exportJson">⬇ Export JSON</button>
+      <button class="btn ghost sm" id="importJson">⬆ Import JSON</button>
+      <button class="btn ghost sm" id="exportBtn">⬇ Export navi script</button>
+      <button class="btn ghost sm" id="emailSummaryBtn" title="Hand this run to Gabriel — email a summary: tags per category, assets, errors, and which agents didn't run / weren't enabled">📧 Email summary → Gabriel</button>
+      <button class="btn ghost sm" id="saveBtn">💾 Save contract</button>
+      <input type="file" id="cFile" accept="application/json" style="display:none">
+    </div>
+    <div id="flash" class="flash"></div>
+  </section>
+
+  <section class="card" id="planCard">
+    <div class="toolbar"><h3 style="margin:0">🔍 Plan preview</h3><span class="chip" id="planCount"></span></div>
+    <div id="planOut"><p class="sub">Click <b>🔍 Plan (no writes)</b> above to preview what the contract would tag — it appears right here.</p></div>
+  </section>
+
+  <section class="card">
+    <h3 style="margin:0 0 6px">Schedule &amp; defaults</h3>
+    <div class="toolbar">
+      <label class="sub">Every <input id="hours" type="number" min="1" class="fld" style="width:64px"> hours</label>
+      <label class="sub">Wait <input id="wait" type="number" min="0" class="fld" style="width:64px"> min between agents</label>
+      <label class="sub">Default top-N <input id="topn" type="number" min="1" class="fld" style="width:72px"></label>
+      <label class="sub"><input type="checkbox" id="naviupd"> run <span class="mono">navi update assets/vulns</span> each cycle</label>
+      <label class="sub"><input type="checkbox" id="optimizeChk"> run <span class="mono">navi config optimize</span> (fast tagging)</label>
+    </div>
+  </section>
+
+  <section class="card">
+    <h3 style="margin:0 0 6px">Per-agent policy</h3>
+    <p class="sub" style="margin:0 0 10px">Leave a policy blank to fall back to the risk-weighted top-N. Examples: IoT → <i>"tag all IoT but not Dell or Intel — those are laptops"</i>; Custom apps → <i>"only /opt apps and jenkins matter"</i>; Exposure routes → <i>"payment routes → VM Team; docker → Custom Apps"</i>.</p>
+    <div id="agents"></div>
+  </section>
+
+  <section class="card">
+    <div class="toolbar"><h3 style="margin:0">ACR changes</h3><button class="btn ghost sm" id="acrAdd" style="margin-left:auto">+ ACR rule</button></div>
+    <div class="needs-llm callbox" style="margin:0 0 12px">
+      <div class="sub" style="margin-bottom:6px"><b>✨ Author ACR rules with AI</b> — describe your criticality policy in plain English; the model maps it across your live tag list. Several rules in one sentence are fine (e.g. <i>"drop all IoT and lab gear by 5, set anything internet-facing to 9, bump production databases to 10"</i>).</div>
+      <textarea id="cAcrAi" rows="2" placeholder="e.g. set production to 10, internet-facing to 9, drop lab + IoT by 5" style="width:100%;box-sizing:border-box;font-size:13px;padding:8px;border-radius:7px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink)"></textarea>
+      <div class="toolbar" style="margin-top:6px">
+        <span class="sub">Change reason:</span>
+        <span id="cAcrReasons" class="sub" style="display:flex;gap:10px;flex-wrap:wrap">
+          <label><input type="checkbox" value="business" checked> business</label>
+          <label><input type="checkbox" value="compliance"> compliance</label>
+          <label><input type="checkbox" value="mitigation"> mitigation</label>
+          <label><input type="checkbox" value="development"> development</label>
+        </span>
+        <input id="cAcrAiNote" class="fld" placeholder="optional note appended to each change" style="flex:1;min-width:160px">
+      </div>
+      <div class="toolbar" style="margin-top:6px">
+        <button class="btn run sm" id="cAcrInterpret">✨ Interpret with AI</button>
+        <button class="btn sm" id="cAcrAddAll" disabled>➕ Add all to ACR rules</button>
+        <span class="chip" id="cAcrAiCount"></span>
+      </div>
+      <div id="cAcrAiFlash" class="flash"></div>
+      <div id="cAcrAiPreview"></div>
+    </div>
+    <div class="no-llm-note callbox" style="display:none;color:var(--warn,#e7c66b);margin:0 0 12px">AI ACR authoring needs a language model. Set <span class="mono">ANTHROPIC_API_KEY</span> on the server to enable it — you can still add ACR rules by hand below.</div>
+    <div id="acr"></div>
+  </section>
+
+  <section class="card">
+    <div class="toolbar"><h3 style="margin:0">🗑️ Tag removal (Garmr)</h3><span class="chip" id="remCount" style="margin-left:auto"></span></div>
+    <p class="sub" style="margin:2px 0 8px">When armed, the contract <b>removes these tags first</b>, forces a pause, runs <span class="mono">navi update</span>, then re-runs the tagging workflow. Add tags from the <a href="/agents/tagremoval/page.html">Tag Removal</a> agent, or type them below.</p>
+    <div class="toolbar">
+      <label class="sub"><input type="checkbox" id="remEnabled"> enable removal phase</label>
+      <label class="sub">pause <input id="remPause" type="number" min="0" class="fld" style="width:64px"> min before re-tagging</label>
+      <label class="sub"><input type="checkbox" id="remNaviupd"> run <span class="mono">navi update</span> after removal</label>
+      <span style="margin-left:auto;display:flex;gap:6px"><button class="btn ghost sm" id="remAdd">+ tag</button><button class="btn ghost sm" id="remClear">Clear list</button></span>
+    </div>
+    <div id="remList" style="margin-top:8px"></div>
+  </section>
+
+  <section class="card">
+    <div class="toolbar"><h3 style="margin:0">Loop log</h3></div>
+    <div id="loop"><p class="sub">No cycles yet.</p></div>
+  </section>
+  <footer>AI Navi Contract · plans first · executes when armed · writes gated by NAVI_ALLOW_WRITES</footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('contract'); let C=null, WRITES=false, LASTPLAN=null, LASTARMED=false;
+const AGENTS=[['iot_squad','IoT squad'],['customapp','Custom apps'],['exproute','Ownership (Atlas)'],['eol','EOL / unsupported'],['software','Software (Mimir)'],['ai','AI inventory'],['identity','Identity'],['mitre','MITRE ATT&CK'],['scan_eval','Scan eval'],['certificate','Certificates'],['cisakev','CISA KEV (Laelaps)'],['postquantum','Post-Quantum (Heimdall)'],['agentgroup','Agent Groups (Sirius)']];
+function gather(){ // pull edits from the form back into C
+  C.schedule_hours=+document.getElementById('hours').value||4;
+  C.wait_minutes=+document.getElementById('wait').value||0;
+  C.defaults.top_n=+document.getElementById('topn').value||50;
+  C.navi_update=document.getElementById('naviupd').checked;
+  C.optimize=document.getElementById('optimizeChk').checked;
+  AGENTS.forEach(([id])=>{ const en=document.getElementById('en_'+id), lg=document.getElementById('lg_'+id);
+    if(en) C.agents[id]={enabled:en.checked, logic:(lg?lg.value:'')}; });
+  C.acr=[...document.querySelectorAll('#acr .acrrow')].map(r=>({category:r.querySelector('.ac').value.trim(),value:r.querySelector('.av').value.trim(),score:+r.querySelector('.as').value||0,mod:r.querySelector('.am').value,reasons:[r.querySelector('.ar').value],note:'contract'})).filter(x=>x.category&&x.value);
+  C.removal=C.removal||{tags:[]};
+  C.removal.enabled=document.getElementById('remEnabled').checked;
+  C.removal.pause_minutes=+document.getElementById('remPause').value||0;
+  C.removal.navi_update=document.getElementById('remNaviupd').checked;
+  C.removal.tags=[...document.querySelectorAll('#remList .remrow')].map(r=>({category:r.querySelector('.rc').value.trim(),value:r.querySelector('.rv').value.trim()})).filter(x=>x.category&&x.value);
+  return C;
+}
+function remRow(t){ t=t||{category:'',value:''};
+  return `<div class="arow remrow"><span></span><div class="toolbar" style="margin:0">
+    <input class="fld rc" placeholder="tag category" value="${esc(t.category||'')}" style="flex:1">
+    <input class="fld rv" placeholder="tag value" value="${esc(t.value||'')}" style="flex:1">
+    <button class="btn ghost sm remdel">✕</button></div></div>`; }
+function renderRemoval(){ const r=C.removal||{enabled:false,tags:[],pause_minutes:30,navi_update:true};
+  document.getElementById('remEnabled').checked=!!r.enabled;
+  document.getElementById('remPause').value=(r.pause_minutes!=null?r.pause_minutes:30);
+  document.getElementById('remNaviupd').checked=(r.navi_update!==false);
+  const box=document.getElementById('remList');
+  box.innerHTML=(r.tags&&r.tags.length?r.tags:[]).map(remRow).join('')||'<p class="sub">No tags to remove. Pick tags in the Tag Removal (Garmr) agent and "Add to AI Contract", or click <b>+ tag</b>.</p>';
+  box.querySelectorAll('.remdel').forEach(b=>b.onclick=()=>b.closest('.remrow').remove());
+  const c=document.getElementById('remCount'); if(c)c.textContent=((r.tags||[]).length)+' tag(s)'+(r.enabled?' · armed-cycle removes first':'');
+}
+async function push(){ await API.post('set',{contract:gather()}); }
+function renderArm(){ const b=document.getElementById('armBadge'), btn=document.getElementById('armBtn');
+  if(C.armed){ b.className='badge armed'; b.textContent='● ARMED — autonomous'; btn.textContent='■ Disarm'; btn.className='btn ghost sm'; }
+  else { b.className='badge disarmed'; b.textContent='○ Disarmed — plan only'; btn.textContent='⚡ Arm contract'; btn.className='btn run sm'; } }
+function renderAgents(){ document.getElementById('agents').innerHTML=AGENTS.map(([id,nm])=>{const a=C.agents[id]||{enabled:true,logic:''};
+  return `<div class="arow"><label class="sub"><input type="checkbox" id="en_${id}" ${a.enabled?'checked':''}> <b>${esc(nm)}</b></label>
+    <textarea id="lg_${id}" placeholder="policy (blank = risk-weighted top-N)">${esc(a.logic||'')}</textarea></div>`;}).join(''); }
+function acrRow(r){ r=r||{category:'',value:'',score:8,mod:'set',reasons:['business']};
+  return `<div class="arow acrrow"><span></span><div class="toolbar" style="margin:0">
+    <input class="fld ac" placeholder="tag category (e.g. Business Tier)" value="${esc(r.category||'')}" style="flex:1">
+    <input class="fld av" placeholder="tag value (e.g. Production)" value="${esc(r.value||'')}" style="flex:1">
+    <input class="fld as" type="number" value="${r.score!=null?r.score:8}" style="width:64px" title="score">
+    <select class="fld am"><option ${r.mod==='set'?'selected':''}>set</option><option ${r.mod==='inc'?'selected':''}>inc</option><option ${r.mod==='dec'?'selected':''}>dec</option></select>
+    <select class="fld ar"><option ${(!r.reasons||r.reasons[0]==='business')?'selected':''}>business</option><option ${r.reasons&&r.reasons[0]==='compliance'?'selected':''}>compliance</option><option ${r.reasons&&r.reasons[0]==='mitigation'?'selected':''}>mitigation</option><option ${r.reasons&&r.reasons[0]==='development'?'selected':''}>development</option></select>
+    <button class="btn ghost sm acrdel">✕</button></div></div>`; }
+function renderAcr(){ const box=document.getElementById('acr'); box.innerHTML=(C.acr&&C.acr.length?C.acr:[]).map(acrRow).join('')||'<p class="sub">No ACR rules. ACR is never auto-ranked — add explicit rules here.</p>';
+  box.querySelectorAll('.acrdel').forEach(b=>b.onclick=()=>{b.closest('.acrrow').remove();}); }
+function renderForm(){ document.getElementById('hours').value=C.schedule_hours; document.getElementById('wait').value=C.wait_minutes; document.getElementById('topn').value=C.defaults.top_n; document.getElementById('naviupd').checked=!!C.navi_update; document.getElementById('optimizeChk').checked=(C.optimize!==false);
+  renderAgents(); renderAcr(); renderRemoval(); renderArm();
+  document.getElementById('kpi').innerHTML=`<div class="k"><div class="v">${AGENTS.filter(([id])=>C.agents[id]&&C.agents[id].enabled).length}</div><div class="l">agents enabled</div></div><div class="k"><div class="v">${C.defaults.top_n}</div><div class="l">default top-N (risk)</div></div><div class="k"><div class="v">${C.schedule_hours}h</div><div class="l">cadence</div></div><div class="k"><div class="v" style="color:${WRITES?'var(--ok)':'var(--mut)'}">${WRITES?'on':'gated'}</div><div class="l">writes</div></div>`; }
+async function refresh(){ const o=await API.post('get'); C=o.contract; WRITES=o.writes_enabled; renderForm(); renderLoop(o.scheduler); }
+function renderPlan(p){ LASTPLAN=p; LASTARMED=!!(p&&p.armed); const blocks=p.agents||[]; document.getElementById('planCount').textContent=blocks.reduce((s,b)=>s+(b.selected||0),0)+' tags planned';
+  document.getElementById('planOut').innerHTML='<div style="overflow-x:auto"><table><thead><tr><th>Agent</th><th>Candidates</th><th>Selected</th><th>How</th><th>Sample</th></tr></thead><tbody>'+
+    blocks.map(b=>`<tr><td><b>${esc(b.agent)}</b></td><td>${b.error?'<span class="sub" style="color:var(--crit)">'+esc(b.error)+'</span>':(b.candidates||0)}</td><td>${b.selected||0}</td><td class="sub">${esc(b.note||'')}</td><td class="sub" style="font-size:11px">${esc((b.items||[]).slice(0,4).map(i=>i.label).join(', '))}${(b.items||[]).length>4?'…':''}</td></tr>`).join('')+
+    '</tbody></table></div>'+(p.acr&&p.acr.length?'<p class="sub" style="margin-top:8px">+ '+p.acr.length+' ACR change(s)</p>':'')+
+    ((p.removal&&p.removal.enabled&&(p.removal.tags||[]).length)?'<p class="sub" style="margin-top:6px">🗑️ Removal phase: strips <b>'+p.removal.tags.length+'</b> tag(s) first, pauses '+(p.removal.pause_minutes!=null?p.removal.pause_minutes:30)+' min, runs <span class="mono">navi update</span>, then re-tags.</p>':'')+
+    '<p class="sub" style="margin-top:6px">'+(p.armed?(WRITES?'Armed — a cycle will execute these via the background tag queue.':'Armed, but writes are gated (set NAVI_ALLOW_WRITES=1).'):'Disarmed — planning only.')+'</p>'; }
+function renderLoop(sched){ const box=document.getElementById('loop');
+  API.post('loop_log').then(o=>{ const log=o.loop_log||[]; const s=sched||{};
+    const hdr=`<p class="sub">Scheduler: <b>${s.running?'running':'stopped'}</b>${s.next_run?(' · next ~'+new Date(s.next_run*1000).toLocaleTimeString()):''}</p>`;
+    box.innerHTML=hdr+(log.length?'<div style="overflow-x:auto"><table><thead><tr><th>Started</th><th>Armed</th><th>Queued</th><th>ACR</th><th>navi update</th><th>QA</th></tr></thead><tbody>'+
+      log.map(e=>`<tr><td class="sub" style="font-size:11px">${esc((e.started||'').replace('T',' ').replace('Z',''))}</td><td>${e.armed?'yes':'plan'}</td><td>${e.queued_tags||0}</td><td>${e.acr_applied||0}</td><td class="sub">${esc(((e.navi_update||{}).started||[]).join(',')||(e.navi_update||{}).skipped||'')}</td><td><span class="badge ${e.qa&&e.qa.verdict==='ok'?'b-ready':'b-err'}">${e.qa?e.qa.verdict:'—'}</span> <span class="sub">Δtags ${e.qa?(e.qa.tag_delta==null?'?':e.qa.tag_delta):'?'}</span></td></tr>`).join('')+'</tbody></table></div>':'<p class="sub">No cycles yet.</p>'); });
+}
+document.getElementById('fromLog').onclick=async()=>{ flash('flash','<span class="spin"></span> building from tag log…','run'); const o=await API.post('build_from_log'); C=o.contract; renderForm();
+  if(o.log_count) flash('flash','✓ Built the policy from <b>'+o.log_count+'</b> logged tag(s) — review below, then Plan / Arm.','ok');
+  else flash('flash','No tags in this session\'s log yet, so I enabled all agents as a starting point. Run some agents (or <b>⬆ Build from tag-log CSV</b>) for a policy shaped by your tags.','warn'); };
+// CSV import — parse an exported tag-log CSV and build the policy from it (survives restarts)
+document.getElementById('fromCsv').onclick=()=>document.getElementById('csvFile').click();
+document.getElementById('csvFile').onchange=async(e)=>{
+  const f=e.target.files&&e.target.files[0]; e.target.value=''; if(!f)return;
+  flash('flash','<span class="spin"></span> reading '+esc(f.name)+'…','run');
+  let text; try{ text=await f.text(); }catch(err){ flash('flash','✗ could not read the file','crit'); return; }
+  const rows=parseCsv(text);
+  if(!rows.length){ flash('flash','✗ no rows found in that CSV (expected a tag-log export)','crit'); return; }
+  let o; try{ o=await API.post('build_from_csv',{rows}); }catch(err){ flash('flash','✗ '+err.message,'crit'); return; }
+  C=o.contract; renderForm();
+  flash('flash','✓ Built the policy from <b>'+(o.log_count||rows.length)+'</b> tag(s) in '+esc(f.name)+' — review below, then Plan / Arm.','ok');
+};
+function parseCsv(text){
+  const lines=String(text).replace(/\r/g,'').split('\n').filter(l=>l.trim().length);
+  if(!lines.length) return [];
+  const split=(l)=>{ const out=[]; let cur='',q=false; for(let i=0;i<l.length;i++){ const c=l[i];
+    if(q){ if(c==='"'){ if(l[i+1]==='"'){cur+='"';i++;} else q=false; } else cur+=c; }
+    else { if(c===','){out.push(cur);cur='';} else if(c==='"')q=true; else cur+=c; } } out.push(cur); return out; };
+  const hdr=split(lines[0]).map(h=>h.trim().toLowerCase());
+  return lines.slice(1).map(l=>{ const cells=split(l); const o={}; hdr.forEach((h,i)=>o[h]=(cells[i]||'').trim()); return o; });
+}
+document.getElementById('planBtn').onclick=async()=>{ await push(); flash('flash','<span class="spin"></span> planning…','run'); const o=await API.post('plan'); flashClear('flash'); renderPlan(o.plan); };
+document.getElementById('exportBtn').onclick=async()=>{ await push(); flash('flash','<span class="spin"></span> building navi script…','run'); let o; try{o=await API.post('export');}catch(e){o={ok:false}} flashClear('flash'); if(!o.ok){flash('flash','✗ export failed','crit');return;} const blob=new Blob([o.script],{type:'text/x-shellscript'}); const u=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=u; a.download=(C.name||'navi-contract')+'.sh'; a.click(); setTimeout(()=>URL.revokeObjectURL(u),2000); flash('flash','Exported navi script — run it where navi can write.','ok'); };
+document.getElementById('runBtn').onclick=async()=>{ await push(); flash('flash','<span class="spin"></span> running one cycle…','run'); const o=await API.post('run_now'); flashClear('flash'); renderPlan((o.cycle&&o.cycle.plan)||{agents:[]}); refresh(); flash('flash','Cycle complete — queued '+((o.cycle&&o.cycle.queued_tags)||0)+' tag(s). See loop log + Tag log.','ok'); };
+document.getElementById('armBtn').onclick=async()=>{ await push(); if(C.armed){ await API.post('disarm'); } else { if(!WRITES && !confirm('Writes are gated (NAVI_ALLOW_WRITES not set), so armed cycles will be planned but not executed. Arm anyway?'))return; await API.post('arm'); } refresh(); };
+document.getElementById('emailSummaryBtn').onclick=async()=>{
+  // If there's no plan yet, build one so the summary reflects this contract.
+  if(!LASTPLAN){ await push(); flash('flash','<span class="spin"></span> planning for the summary…','run'); try{ const o=await API.post('plan'); renderPlan(o.plan); }catch(e){} flashClear('flash'); }
+  const plan_agents=AGENTS.map(([id])=>{ const blk=((LASTPLAN&&LASTPLAN.agents)||[]).find(b=>b.agent===id)||{};
+    return {agent:id, enabled:!!(C&&C.agents[id]&&C.agents[id].enabled), selected:blk.selected||0, error:blk.error||undefined}; });
+  // hand off to Gabriel — it reads the live tag log for deployed/errored tags + navi.db for
+  // assets-per-category, and uses this plan for enabled/skipped/matched-nothing.
+  emailFindings({report:'contract_summary', armed:LASTARMED, plan_agents});
+};
+document.getElementById('saveBtn').onclick=async()=>{ await push(); const name=prompt('Save contract as:',C.name||'navi-contract'); if(name===null)return; const o=await API.post('save',{name}); flash('flash',o.ok?('Saved '+o.name+'.json'):'Save failed','ok'); };
+document.getElementById('exportJson').onclick=()=>{ const doc=gather(); const blob=new Blob([JSON.stringify(doc,null,2)],{type:'application/json'}); const u=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=u; a.download=(doc.name||'navi-contract')+'.json'; a.click(); setTimeout(()=>URL.revokeObjectURL(u),2000); flash('flash','Exported contract JSON — Import it on another machine to reuse this policy.','ok'); };
+document.getElementById('importJson').onclick=()=>document.getElementById('cFile').click();
+document.getElementById('cFile').onchange=(e)=>{ const f=e.target.files&&e.target.files[0]; if(!f)return; const r=new FileReader();
+  r.onload=async()=>{ let doc; try{ doc=JSON.parse(r.result); }catch(err){ flash('flash','✗ not valid JSON','crit'); return; }
+    if(!doc||!doc.agents){ flash('flash','✗ that file is not a contract (missing "agents")','crit'); return; }
+    C=doc; await push(); await refresh(); flash('flash','✓ imported contract'+(doc.name?' “'+esc(doc.name)+'”':'')+' — review, then Plan / Arm as usual.','ok'); };
+  r.readAsText(f); e.target.value=''; };
+document.getElementById('acrAdd').onclick=()=>{ const box=document.getElementById('acr'); if(box.querySelector('.sub'))box.innerHTML=''; box.insertAdjacentHTML('beforeend',acrRow()); box.querySelectorAll('.acrdel').forEach(b=>b.onclick=()=>b.closest('.acrrow').remove()); };
+document.getElementById('remAdd').onclick=()=>{ const box=document.getElementById('remList'); if(box.querySelector('.sub'))box.innerHTML=''; box.insertAdjacentHTML('beforeend',remRow()); box.querySelectorAll('.remdel').forEach(b=>b.onclick=()=>b.closest('.remrow').remove()); };
+document.getElementById('remClear').onclick=()=>{ C.removal=C.removal||{}; C.removal.tags=[]; renderRemoval(); };
+/* ---- AI-authored bulk ACR inside the contract (reuses /api/acr run + interpret) ---- */
+let C_ACR_TAGS=null, C_ACR_AI={changes:[]};
+function cAcrAiReasons(){ return [...document.querySelectorAll('#cAcrReasons input:checked')].map(x=>x.value); }
+async function ensureAcrTags(){ if(C_ACR_TAGS&&C_ACR_TAGS.length) return C_ACR_TAGS; const o=await jpost('/api/acr/run',{}); C_ACR_TAGS=(o&&o.result&&o.result.tags)||[]; return C_ACR_TAGS; }
+function cAcrRender(changes,source){
+  C_ACR_AI={changes:changes};
+  const pv=document.getElementById('cAcrAiPreview'), ab=document.getElementById('cAcrAddAll'), cc=document.getElementById('cAcrAiCount');
+  if(pv) pv.innerHTML='<p class="sub" style="margin:10px 0 4px">'+changes.length+' change(s) · <b>'+esc(source)+'</b></p>'+(changes.length?'<div style="overflow-x:auto"><table><thead><tr><th>Tag</th><th>Action</th><th>Reason</th><th>Why</th></tr></thead><tbody>'+changes.map(c=>'<tr><td>'+esc(c.category)+' : <b>'+esc(c.value)+'</b></td><td><b>'+(c.mod==='set'?'set '+c.score:(c.mod==='inc'?'+':'−')+c.score)+'</b></td><td class="sub">'+esc((c.reasons||[]).join(', '))+'</td><td class="sub">'+esc(c.why||'')+'</td></tr>').join('')+'</tbody></table></div>':'<p class="sub">No changes.</p>');
+  if(cc)cc.textContent=changes.length+' change(s)';
+  if(ab)ab.disabled=!changes.length;
+}
+async function cAcrInterpret(){
+  const prompt=(document.getElementById('cAcrAi').value||'').trim();
+  if(!prompt){ flash('cAcrAiFlash','Type an instruction first.','crit'); return; }
+  flash('cAcrAiFlash','<span class="spin"></span> loading the live tag list…','run');
+  let tags; try{ tags=await ensureAcrTags(); }catch(e){ flash('cAcrAiFlash','✗ could not load tags: '+esc(e.message||e),'crit'); return; }
+  if(!tags.length){ flash('cAcrAiFlash','No tags found (is navi on PATH / navi.db present?).','crit'); return; }
+  flash('cAcrAiFlash','<span class="spin"></span> interpreting across '+tags.length+' tags…','run');
+  const reasons=cAcrAiReasons(), note=(document.getElementById('cAcrAiNote').value||'').trim();
+  let o; try{ o=await jpost('/api/acr/interpret',{prompt,tags}); }catch(e){ o={ok:false,message:e.message}; }
+  if(!o||!o.ok){ flash('cAcrAiFlash','✗ '+esc((o&&(o.message||o.error))||'failed')+(o&&o.fallback?' — set ANTHROPIC_API_KEY on the server for AI authoring':''),'crit'); return; }
+  const changes=(o.changes||[]).map(c=>({category:c.category,value:c.value,mod:c.mod,score:c.score,reasons:(reasons.length?reasons:(c.reasons||['business'])),note:'AI ACR (contract): "'+prompt.slice(0,80)+'"'+(c.why?' — '+c.why:'')+(note?' — '+note:''),why:c.why||''}));
+  flash('cAcrAiFlash','AI proposed '+changes.length+' change(s).'+(o.rejected&&o.rejected.length?' ('+o.rejected.length+' rejected by validation)':''),'ok');
+  cAcrRender(changes,'AI (server)');
+}
+function cAcrAddAll(){
+  const changes=(C_ACR_AI.changes||[]); if(!changes.length)return;
+  const box=document.getElementById('acr'); if(box.querySelector('.sub'))box.innerHTML='';
+  changes.forEach(c=>{ box.insertAdjacentHTML('beforeend',acrRow({category:c.category,value:c.value,score:c.score,mod:c.mod,reasons:c.reasons})); });
+  box.querySelectorAll('.acrdel').forEach(b=>b.onclick=()=>b.closest('.acrrow').remove());
+  flash('cAcrAiFlash','✓ added '+changes.length+' rule(s) to the ACR list below — they apply on the loop when armed. Review / Save / Export as usual.','ok');
+  C_ACR_AI={changes:[]}; const ab=document.getElementById('cAcrAddAll'); if(ab)ab.disabled=true;
+  box.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+document.getElementById('cAcrInterpret').onclick=cAcrInterpret;
+document.getElementById('cAcrAddAll').onclick=cAcrAddAll;
+
+mountAgentHeader({icon:'📜',name:'AI Navi Contract',sub:'autonomous workflow · plan→arm→loop'});
+refresh();
+/* Arriving from "Plan Run" (?plan=1) → auto-run the plan and land on the review below. */
+if(new URLSearchParams(location.search).get('plan')){
+  setTimeout(()=>{ const b=document.getElementById('planBtn'); if(b){ b.click(); const pc=document.getElementById('planCard'); if(pc) pc.scrollIntoView({behavior:'smooth',block:'start'}); } }, 450);
+}
+</script>
+</body></html>

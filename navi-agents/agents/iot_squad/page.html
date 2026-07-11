@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>IoT Discovery Squad · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>
+.agrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+.agent{border:1px solid var(--line);border-radius:12px;padding:14px;background:var(--panel)}
+.agent .ah{display:flex;align-items:center;gap:10px}.agent .ico{width:30px;height:30px;border-radius:8px;background:var(--panel2);display:flex;align-items:center;justify-content:center;border:1px solid var(--line)}
+.agent .nm{font-weight:700;font-size:13px}.agent .ds{color:var(--mut);font-size:11.5px;margin-top:6px}
+.plink{color:var(--accent);text-decoration:none}.plink:hover{text-decoration:underline}
+</style>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+
+  <section class="card">
+    <div class="toolbar"><div><h2 style="margin:0">IoT Discovery Squad</h2>
+      <p class="sub" style="margin:2px 0 0">Discovery → Expansion → Cross-Reference → QA. Two human gates: IoT tag approval, new-detection approval.</p></div>
+      <button class="btn run sm" id="runIot" style="margin-left:auto">▶ Run squad</button></div>
+    <div class="agrid" id="pipeline"></div>
+  </section>
+
+  <section class="card">
+    <h2>Gate 1 — discovered IoT devices</h2><p class="sub">Tag each <span class="tagval">IoT : &lt;name&gt;</span> (ephemeral). Approve to queue gated writes.</p>
+    <div id="sqFlash" class="flash"></div>
+    <div class="toolbar"><button class="btn sm" id="sqApproveAll">Approve all</button><span class="chip" id="sqApprCount"></span></div>
+    <table id="sqTags"><thead><tr><th>IoT name</th><th>Vendor</th><th>Assets</th><th>Status</th><th></th></tr></thead><tbody><tr><td colspan="5" class="sub">Run the squad…</td></tr></tbody></table>
+    <div id="sqQueue"></div>
+  </section>
+
+  <section class="card">
+    <h2>Gate 2 — proposed new detections</h2><p class="sub">Promote auto-discovered plugins to the default registry? Approve = persist; Reject = remembered.</p>
+    <div id="propFlash" class="flash"></div>
+    <table id="sqProps"><thead><tr><th>IoT name</th><th>Plugin</th><th>Assets</th><th>Prevalence</th><th>Decision</th></tr></thead><tbody><tr><td colspan="5" class="sub">Run the squad…</td></tr></tbody></table>
+    <div class="toolbar"><button class="btn sm" id="submitProps">Submit decisions</button><span class="chip" id="propCount"></span></div>
+  </section>
+
+  <section class="card">
+    <h2>Cross-reference candidates</h2><p class="sub">Other assets sharing the expanded plugins — IoT Agent 1 may have missed. <b>Inspect</b> the matching plugin output to judge false positives, then tag the asset <span class="tagval">IoT : &lt;name&gt;</span> (gated) or mark it a false positive.</p>
+    <div id="candFlash" class="flash"></div>
+    <table id="sqCands"><thead><tr><th>IoT name</th><th>IP</th><th>Host</th><th>Evidence</th><th>Decision</th><th></th></tr></thead><tbody><tr><td colspan="6" class="sub">Run the squad…</td></tr></tbody></table>
+  </section>
+
+  <section class="card"><h2>QA &amp; detection registry</h2><div id="sqQa" class="sub">Run the squad…</div><div id="sqReg"></div></section>
+  <footer>IoT Discovery Squad · gated <span class="mono">navi enrich tag</span> · learning-loop registry</footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('iot_squad');
+let IOT=null, iotAppr=JSON.parse(localStorage.getItem('iotAppr')||'{}'), propDecisions={};
+const saveIot=()=>localStorage.setItem('iotAppr',JSON.stringify(iotAppr));
+// "applied" is ground-truthed against navi.db (loadAppliedTags/tagBadge) plus this
+// session's confirmed writes — never a sticky localStorage flag.
+let IOT_SUBMITTED=new Set(), XREF_SUBMITTED=new Set();
+(function(){let d=false;Object.keys(iotAppr).forEach(k=>{if(iotAppr[k]==='applied'){delete iotAppr[k];d=true;}});if(d)saveIot();})();
+function badge(s){return s==='running'?'<span class="badge b-running"><span class="spin"></span>Running</span>':s==='complete'?'<span class="badge b-applied">Done</span>':'<span class="badge b-pending">Ready</span>';}
+function renderPipeline(){const steps=[['📡','1 · Discovery'],['🔎','2 · Expansion'],['🕸️','3 · Cross-Reference'],['🤖','4 · QA']];
+  document.getElementById('pipeline').innerHTML=steps.map((s,i)=>`<div class="agent"><div class="ah"><div class="ico">${s[0]}</div><div class="nm">${s[1]}</div><span style="margin-left:auto">${badge(IOT?'complete':'ready')}</span></div></div>`).join('');}
+async function runIot(){document.getElementById('runIot').disabled=true;flash('sqFlash','<span class="spin"></span> executing pipeline…','run');
+  try{const o=await API.post('run');if(!o.ok){flash('sqFlash','✗ '+(o.error||''),'crit');}else{IOT=o.result;flashClear('sqFlash');await loadAppliedTags();renderSquad();}}catch(e){flash('sqFlash','✗ '+e.message,'crit');}
+  document.getElementById('runIot').disabled=false;}
+function renderSquad(){renderPipeline();if(!IOT)return;
+  const tb=document.querySelector('#sqTags tbody');
+  tb.innerHTML=IOT.tag_actions.length?IOT.tag_actions.map(a=>{const B=tagBadge('IoT',a.value,IOT_SUBMITTED.has(a.value)?'applied':iotAppr[a.value]);const bc=B.cls;const bl=B.label;
+    return `<tr><td><span class="tagval">IoT:${a.value}</span></td><td>${a.vendor||''}</td><td>${a.asset_count}</td><td><span class="badge ${bc}">${bl}</span></td><td><button class="btn sm" data-v="${a.value}">${iotAppr[a.value]==='approved'?'Un-approve':(B.done?'Re-tag':'Approve')}</button></td></tr>`;}).join(''):'<tr><td colspan="5" class="sub">No IoT devices detected.</td></tr>';
+  tb.querySelectorAll('button[data-v]').forEach(x=>x.onclick=()=>{const v=x.dataset.v;iotAppr[v]=iotAppr[v]==='approved'?'pending':'approved';saveIot();renderSquad();});
+  document.getElementById('sqApprCount').textContent=`${IOT.tag_actions.filter(a=>iotAppr[a.value]==='approved').length} / ${IOT.tag_actions.length}`;
+  renderQueue();
+  const pb=document.querySelector('#sqProps tbody');
+  pb.innerHTML=IOT.proposals.length?IOT.proposals.map(p=>{const d=propDecisions[p.key]||'';return `<tr><td>${p.iot_name}</td><td class="mono">${p.plugin_name} <span class="sub">#${p.plugin_id}</span></td><td>${p.asset_count}</td><td>${(p.prevalence*100).toFixed(0)}%</td><td><button class="btn sm ${d==='approve'?'':'ghost'}" data-app="${p.key}">Approve</button> <button class="btn sm ${d==='reject'?'':'ghost'}" data-rej="${p.key}">Reject</button></td></tr>`;}).join(''):'<tr><td colspan="5" class="sub">No new detections proposed.</td></tr>';
+  pb.querySelectorAll('[data-app]').forEach(x=>x.onclick=()=>{propDecisions[x.dataset.app]='approve';renderSquad();});
+  pb.querySelectorAll('[data-rej]').forEach(x=>x.onclick=()=>{propDecisions[x.dataset.rej]='reject';renderSquad();});
+  document.getElementById('propCount').textContent=`${Object.keys(propDecisions).length} / ${IOT.proposals.length}`;
+  renderCands();
+  document.getElementById('sqQa').innerHTML=`Checks: ${IOT.qa.checks.join(', ')} · weak candidates: <b>${IOT.qa.weak}</b> · flags: <b>${IOT.qa.flags.length}</b>`+(IOT.qa.flags.length?'<div class="callbox" style="color:#ffd28a">'+IOT.qa.flags.map(f=>JSON.stringify(f)).join('\n')+'</div>':'');
+  loadReg();
+}
+const XPL=agentApi('explore');
+let xrefState=JSON.parse(localStorage.getItem('iotXref')||'{}'); const saveXref=()=>localStorage.setItem('iotXref',JSON.stringify(xrefState));
+(function(){let d=false;Object.keys(xrefState).forEach(k=>{if(xrefState[k]==='applied'){delete xrefState[k];d=true;}});if(d)saveXref();})();
+const xkey=c=>c.asset_uuid+'::'+c.iot_name;
+const xrefApplied=c=>XREF_SUBMITTED.has(xkey(c))||(typeof tagApplied==='function'&&tagApplied('IoT',c.iot_name));
+function renderCands(){
+  const tb=document.querySelector('#sqCands tbody');
+  const cs=(IOT&&IOT.xref.candidates)||[];
+  if(!cs.length){tb.innerHTML='<tr><td colspan="6" class="sub">No candidates.</td></tr>';return;}
+  tb.innerHTML=cs.map((c,i)=>{
+    const ev=c.evidence!=null?c.evidence:c.evidence_plugins;
+    const st=xrefApplied(c)?'applied':(xrefState[xkey(c)]||'pending');
+    const dec=st==='applied'?'<span class="badge b-applied">Tagged ✔ (navi.db)</span>':st==='fp'?'<span class="badge b-pending">False positive</span>':'<span class="badge b-pending">Needs review</span>';
+    const chips=(c.pids||[]).map(p=>`<a class="plink" href="/web/vuln.html?plugin=${encodeURIComponent(p)}">#${esc(String(p))}</a>`).join(' ');
+    const acts=st==='applied'?'':`<button class="btn ghost sm" data-insp="${i}">🔍 Inspect</button> <button class="btn sm" data-tag="${i}">Approve &amp; tag</button> <button class="btn ghost sm" data-fp="${i}">${st==='fp'?'Un-mark FP':'Mark FP'}</button>`;
+    return `<tr><td>${esc(c.iot_name)}</td><td class="mono">${esc(c.ip||'')}</td>`+
+      `<td><a class="plink" href="/web/asset.html?asset=${encodeURIComponent(c.asset_uuid)}">${esc(c.hostname)}</a></td>`+
+      `<td>${ev} plugin(s) ${chips}</td><td>${dec}</td><td style="white-space:nowrap">${acts}</td></tr>`+
+      `<tr id="insp-${i}" style="display:none"><td colspan="6"><div id="inspbox-${i}" class="callbox">…</div></td></tr>`;
+  }).join('');
+  tb.querySelectorAll('[data-insp]').forEach(b=>b.onclick=()=>inspectCand(+b.dataset.insp));
+  tb.querySelectorAll('[data-tag]').forEach(b=>b.onclick=()=>tagCand(+b.dataset.tag));
+  tb.querySelectorAll('[data-fp]').forEach(b=>b.onclick=()=>{const c=cs[+b.dataset.fp],k=xkey(c);xrefState[k]=xrefState[k]==='fp'?'pending':'fp';saveXref();renderCands();});
+}
+async function inspectCand(i){
+  const c=IOT.xref.candidates[i]; const row=document.getElementById('insp-'+i), box=document.getElementById('inspbox-'+i);
+  if(row.style.display!=='none'){row.style.display='none';return;}
+  row.style.display='';box.innerHTML='<span class="spin"></span> loading plugin output…';
+  const pids=new Set(c.pids||[]);
+  const o=await XPL.post('asset',{uuid:c.asset_uuid});
+  if(!o.ok){box.textContent='lookup failed: '+(o.error||'');return;}
+  const rows=(o.vulns||[]).filter(v=>!pids.size||pids.has(String(v.plugin_id)));
+  if(!rows.length){box.textContent='No matching plugin output recorded on this asset.';return;}
+  box.innerHTML='<div class="sub" style="margin-bottom:6px">Matching plugin output on <b>'+esc(c.hostname)+'</b> ('+esc(c.ip||'')+') — read it to judge whether <b>IoT:'+esc(c.iot_name)+'</b> is real or a false positive:</div>'+
+    rows.map(v=>`<div style="margin-bottom:8px"><a class="plink" href="/web/vuln.html?plugin=${encodeURIComponent(v.plugin_id)}">#${esc(String(v.plugin_id))} ${esc(v.plugin_name)}</a>`+
+      `<div style="white-space:pre-wrap;word-break:break-word;color:#9fd0ff;margin-top:2px">${esc((v.output||'(no output stored)').slice(0,600))}</div></div>`).join('');
+}
+async function tagCand(i){
+  const c=IOT.xref.candidates[i], k=xkey(c);
+  const value=prompt('Tag value (rename if needed):', c.iot_name); if(value===null) return;
+  flash('candFlash','<span class="spin"></span> applying IoT:'+esc(value)+' to '+esc(c.hostname)+' …','run');
+  try{
+    const o=await API.post('tag_candidate',{iot_name:c.iot_name,value:value,asset_uuid:c.asset_uuid,confirm:true});
+    const r=o.result||{};
+    if(o.ok&&(r.ok!==false)){XREF_SUBMITTED.add(k);flash('candFlash','✓ Submitted IoT:'+esc(c.iot_name)+' on '+esc(c.hostname)+' — allow ~30 min + a navi update to confirm in navi.db'+(r.warning?' — '+esc(r.warning):''),'ok');}
+    else{flash('candFlash','✗ '+esc((r.message||r.stderr||o.error||'failed')),'crit');}
+  }catch(e){flash('candFlash','✗ '+e.message,'crit');}
+  renderCands();
+}
+async function pollJobs(ids, timeoutMs=25000){
+  const want=[...new Set((ids||[]).filter(x=>x!=null).map(String))]; let map={}; if(!want.size)return map;
+  const t0=Date.now();
+  while(Date.now()-t0<timeoutMs){
+    let o; try{ o=await jpost('/api/explore/tag_jobs',{}); }catch(e){ break; }
+    map={}; (o.jobs||[]).forEach(j=>{map[String(j.id)]=j;});
+    if(!want.filter(id=>{const j=map[id];return !j||(j.status!=='done'&&j.status!=='error');}).length) break;
+    await new Promise(r=>setTimeout(r,900));
+  }
+  return map;
+}
+function renderQueue(){const q=document.getElementById('sqQueue');const ap=IOT.tag_actions.filter(a=>iotAppr[a.value]==='approved');
+  if(!ap.length){q.innerHTML='';return;}
+  q.innerHTML='<div class="toolbar" style="margin:14px 0 4px"><b style="font-size:12.5px">Queued</b><button class="btn run sm" id="execTags" style="margin-left:auto">▶ Execute tags</button></div>'+ap.map(a=>`<div class="callbox">${a.tool_call}</div>`).join('')+'<div id="tagRes"></div>';
+  document.getElementById('execTags').onclick=async()=>{const res=document.getElementById('tagRes');res.innerHTML='<div class="callbox"><span class="spin"></span> running <span class="mono">navi enrich tag</span> — waiting for the result…</div>';
+    let o; try{ o=await API.post('tags_apply',{values:ap.map(a=>a.value),confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+    if(!o||!o.ok){ res.innerHTML='<div class="callbox" style="color:var(--crit)">✗ '+esc((o&&(o.error||o.message))||'failed')+'</div>'; return; }
+    const results=o.results||[];
+    const allIds=results.reduce((s,r)=>s.concat(r.job_ids||(r.job_id!=null?[r.job_id]:[])),[]);
+    const jm=await pollJobs(allIds); res.innerHTML='';
+    results.forEach(r=>{
+      const ids=(r.job_ids&&r.job_ids.length)?r.job_ids:(r.job_id!=null?[r.job_id]:[]);
+      const jobs=ids.map(id=>jm[String(id)]).filter(Boolean);
+      const nCmd=r.commands||ids.length;
+      const allFinished=jobs.length&&jobs.every(j=>j.status==='done'||j.status==='error');
+      const anyErr=jobs.some(j=>j.status==='error');
+      const anyOkTag=jobs.some(j=>j.status==='done'&&j.ok!==false&&!(j.result&&j.result.warning));
+      const d=document.createElement('div');d.className='callbox';
+      if(anyOkTag){ IOT_SUBMITTED.add(r.value); delete iotAppr[r.value]; saveIot(); d.style.color='#7ee2a8'; d.textContent='✓ IoT:'+r.value+' applied ('+nCmd+' navi command'+(nCmd>1?'s':'')+')'; }
+      else if(!allFinished){ d.style.color='#e7c66b'; d.textContent='⏳ IoT:'+r.value+' still running — check the Tagging log'; }
+      else if(anyErr){ d.style.color='#ffb4c6'; const em=jobs.filter(j=>j.status==='error').map(j=>j.message).filter(Boolean).join('; '); d.textContent='✗ IoT:'+r.value+': '+esc(em||'failed'); }
+      else { d.style.color='#e7c66b'; d.textContent='⚠ IoT:'+r.value+' — navi ran but tagged no assets (check the query/plugin against navi.db · see Tagging log)'; }
+      res.appendChild(d); });
+    if(!o.writes_enabled){const g=document.createElement('div');g.className='sub';g.style.cssText='margin-top:6px;color:var(--warn,#e7c66b)';g.innerHTML='<b>Nothing was written.</b> '+esc(o.write_gate_reason||'Writes are gated — set NAVI_ALLOW_WRITES=1')+'.';res.appendChild(g);}
+    else{const g=document.createElement('div');g.className='sub';g.style.cssText='margin-top:6px;color:var(--ink-3)';g.innerHTML='navi.db reflects new tags only after a <span class="mono">navi update</span> (~30 min for Tenable). See the <a href="/web/tags-log.html">Tagging log</a> for navi\'s output.';res.appendChild(g);}
+    loadAppliedTags().then(renderSquad);};}
+async function loadReg(){try{const d=await API.post('registry');document.getElementById('sqReg').innerHTML='<p class="sub" style="margin:12px 0 4px">Registry ('+d.detections.length+' devices, '+(d.rejected||[]).length+' rejected)</p><table><thead><tr><th>IoT</th><th>Plugins</th><th>Match terms</th><th>Source</th></tr></thead><tbody>'+d.detections.map(x=>`<tr><td>${x.iot_name}</td><td class="mono">${(x.plugins||[]).join(', ')||'—'}</td><td class="sub">${[...(x.name_contains||[]),...(x.output_contains||[])].join(', ')}</td><td>${x.source||''}</td></tr>`).join('')+'</tbody></table>';}catch(e){}}
+document.getElementById('runIot').onclick=runIot;
+document.getElementById('sqApproveAll').onclick=()=>{if(IOT){IOT.tag_actions.forEach(a=>{if(!IOT_SUBMITTED.has(a.value)&&!(typeof tagApplied==='function'&&tagApplied('IoT',a.value)))iotAppr[a.value]='approved';});saveIot();renderSquad();}};
+document.getElementById('submitProps').onclick=async()=>{const decisions=IOT.proposals.filter(p=>propDecisions[p.key]).map(p=>({iot_name:p.iot_name,plugin_id:p.plugin_id,plugin_name:p.plugin_name,vendor:p.vendor,approve:propDecisions[p.key]==='approve'}));if(!decisions.length)return;
+  flash('propFlash','<span class="spin"></span> submitting…','run');const o=await API.post('detections_decide',{decisions,confirm:true});
+  if(o.ok){flash('propFlash',`Registry updated: +${o.added}, ${o.rejected} rejected. Re-running…`,'ok');propDecisions={};runIot();}else flash('propFlash','✗ '+(o.error||'failed'),'crit');};
+mountAgentHeader({id:'iot_squad',icon:'📡',name:'IoT Discovery Squad',sub:'4 agents · discover→expand→xref→QA'});
+(async()=>{
+  await runIot();
+  const h=handoffParams();
+  if(h.focus){ const hit=focusRow('#sqCands',h.focus)||focusRow('#sqTags',h.focus);
+    flash('candFlash', hit?('Handoff: highlighted matches for “'+h.focus+'”. Inspect the plugin output, then tag or dismiss.'):('Handoff: “'+h.focus+'” not in this run’s candidates — try Inspect on the closest row.'),'run'); }
+})();
+</script>
+</body></html>

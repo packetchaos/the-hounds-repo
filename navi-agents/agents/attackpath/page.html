@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Attack Path Analysis · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>.k.crit{border-color:var(--crit)}.k.crit .v{color:var(--crit)}
+.acode{font-family:var(--mono,ui-monospace,monospace);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--amber);font-weight:700}</style>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+  <section class="card" style="background:radial-gradient(120% 140% at 90% -20%,var(--amber-glow),transparent 60%),var(--panel)">
+    <div class="toolbar"><div><div class="acode">Fenrir Hound</div><h2 style="margin:0">🕸️ Attack Path Analysis</h2>
+      <p class="sub" style="margin:2px 0 0">Fenrir chains <b>exploitability × identity × reachability</b> into likely attack paths: an attacker's <b>foothold</b> (exploitable or weak-auth asset) → <b>lateral movement</b> (same-subnet reachability + credential pivots) → <b>crown-jewel target</b> (high-ACR asset). Reachability is inferred from /24 subnet adjacency + credential signals, <b>not</b> observed traffic. Gated tagging.</p></div>
+      <button class="btn run sm" id="run" style="margin-left:auto">▶ Map attack paths</button></div>
+    <div id="flash" class="flash"></div>
+    <div class="kpi" id="kpi"></div>
+    <div class="toolbar" id="tools" style="margin-top:6px;display:none">
+      <button class="btn ghost sm" id="csv">⬇ Export paths CSV</button>
+      <button class="btn run sm" id="tagEntry">🎯 Tag entry points → Attack Path : Entry Point</button>
+      <button class="btn sm" id="tagTarget">👑 Tag reachable crown jewels → Attack Path : Target</button></div>
+  </section>
+  <section class="card" id="card" style="display:none">
+    <h3 style="margin:0 0 4px">Attack paths <span class="sub" id="count"></span></h3>
+    <p class="sub" style="margin:0 0 8px">Ranked by path risk = target ACR + entry exploitability + credential pivot. Break the chain at the foothold, or harden the target.</p>
+    <div id="tagRes"></div>
+    <div style="overflow-x:auto"><table id="tbl"><thead><tr><th>Foothold (entry)</th><th>Lateral movement</th><th>Crown-jewel target</th><th>Risk</th><th></th></tr></thead><tbody></tbody></table></div>
+    <div class="toolbar" id="pgr" style="margin-top:10px;justify-content:center;gap:10px;flex-wrap:wrap"></div>
+  </section>
+  <footer>Attack Path Analysis · Fenrir Hound · reads navi.db read-only · gated <span class="mono">navi enrich tag</span></footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('attackpath'); let DATA=null; let AP_PAGE=1, AP_SIZE=50;
+const plink=(u,txt)=>u?`<a class="plink" href="/web/asset.html?asset=${encodeURIComponent(u)}" style="color:var(--accent);text-decoration:none">${esc(txt)}</a>`:esc(txt);
+async function run(){
+  const b=document.getElementById('run'); b.disabled=true;
+  flash('flash','<span class="spin"></span> correlating exploitability · identity · reachability…','run');
+  let o; try{ o=await API.post('run'); }catch(e){ o={ok:false,error:e.message}; }
+  b.disabled=false;
+  if(!o||!o.ok||!o.result){ flash('flash','✗ '+esc((o&&(o.error||o.message))||'failed'),'crit'); return; }
+  DATA=o.result; flashClear('flash'); render();
+}
+function render(){
+  const k=DATA.kpi||{}, paths=DATA.paths||[];
+  document.getElementById('kpi').innerHTML=
+    `<div class="k crit"><div class="v">${k.entries||0}</div><div class="l">exploitable / weak-auth entries</div></div>`+
+    `<div class="k"><div class="v">${k.targets||0}</div><div class="l">crown-jewel targets (ACR≥7 · else high-exposure)</div></div>`+
+    `<div class="k crit"><div class="v">${k.paths||0}</div><div class="l">reachable paths</div></div>`+
+    `<div class="k crit"><div class="v">${k.kev_paths||0}</div><div class="l">KEV-fronted paths</div></div>`;
+  document.getElementById('tools').style.display='flex';
+  document.getElementById('tagEntry').disabled=!(DATA.entries||[]).length;
+  document.getElementById('tagTarget').disabled=!paths.length;
+  const tb=document.querySelector('#tbl tbody');
+  const total=paths.length, pages=Math.max(1,Math.ceil(total/AP_SIZE));
+  if(AP_PAGE>pages)AP_PAGE=pages;
+  const start=(AP_PAGE-1)*AP_SIZE, pageRows=paths.slice(start,start+AP_SIZE);
+  tb.innerHTML=paths.length?pageRows.map(p=>{const e=p.entry,t=p.target;
+    const eb=(e.kev?'<span class="badge" style="color:var(--crit);border-color:var(--crit)">🔥 KEV</span>':(e.crit?'<span class="badge" style="color:#ff9a4d;border-color:#ff9a4d">critical</span>':''))+(e.weak?' <span class="badge" style="color:var(--warn)">'+esc(e.weakWhy)+'</span>':'');
+    const piv='→ same subnet <span class="mono">'+esc(p.subnet)+'.0/24</span>'+(p.pivotWeak?' · <span style="color:var(--warn)">credential pivot</span>':'')+(p.altEntries>0?' · <span class="sub">+'+p.altEntries+' entr'+(p.altEntries>1?'ies':'y')+'</span>':'')+' →';
+    const tbadge='ACR <b style="color:var(--crit)">'+t.acr+'</b>'+(t.kev?' <span class="badge" style="color:var(--crit);border-color:var(--crit)">🔥 KEV</span>':'');
+    return `<tr><td><b>${plink(e.uuid,e.host)}</b><div class="sub" style="font-size:12px">${esc(e.entryReason||'exposed')}</div>${eb}</td>`+
+      `<td class="sub" style="font-size:12.5px">${piv}</td>`+
+      `<td><b>${plink(t.uuid,t.host)}</b><div class="sub" style="font-size:12px">${tbadge}</div></td>`+
+      `<td><b>${p.score}</b></td>`+
+      `<td><button class="btn sm" data-u="${esc(String(t.uuid))}">Tag target</button></td></tr>`;
+  }).join(''):'<tr><td colspan="5" class="sub">No attack paths — needs exploitable entry points and crown-jewel targets (ACR≥7) sharing a /24. Set ACR and refresh navi.db.</td></tr>';
+  tb.querySelectorAll('button[data-u]').forEach(b=>b.onclick=()=>tagOne(b.dataset.u,b));
+  document.getElementById('count').textContent='('+paths.length+' path(s))';
+  renderPager(total,pages,start,pageRows.length);
+  document.getElementById('card').style.display='block';
+}
+function renderPager(total,pages,start,shown){
+  const pgr=document.getElementById('pgr'); if(!pgr)return;
+  if(!total){ pgr.innerHTML=''; return; }
+  const opts=[10,15,25,50].map(n=>'<option value="'+n+'"'+(n===AP_SIZE?' selected':'')+'>'+n+' / page</option>').join('');
+  pgr.innerHTML='<button class="btn ghost sm" id="pgPrev"'+(AP_PAGE<=1?' disabled':'')+'>‹ Prev</button>'+
+    '<span class="sub">'+(total?(start+1):0)+'–'+(start+shown)+' of '+total+' · page '+AP_PAGE+'/'+pages+'</span>'+
+    '<button class="btn ghost sm" id="pgNext"'+(AP_PAGE>=pages?' disabled':'')+'>Next ›</button>'+
+    '<select id="pgSize" class="fld" style="margin-left:8px">'+opts+'</select>';
+  const prev=document.getElementById('pgPrev'); if(prev)prev.onclick=()=>{if(AP_PAGE>1){AP_PAGE--;render();}};
+  const next=document.getElementById('pgNext'); if(next)next.onclick=()=>{AP_PAGE++;render();};
+  const sz=document.getElementById('pgSize'); if(sz)sz.onchange=()=>{AP_SIZE=+sz.value;AP_PAGE=1;render();};
+}
+async function tagOne(u,btn){ btn.disabled=true; btn.textContent='tagging…';
+  let o; try{ o=await API.post('tag',{value:'Target',uuids:[u],confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+  btn.textContent=o&&o.ok?'✓ tagged':'✗ failed'; showTagResult(o,'crown-jewel target'); }
+async function tagBulk(action,label,btn){ btn.disabled=true; const old=btn.textContent; btn.textContent='tagging…';
+  let o; try{ o=await API.post(action,{confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+  btn.disabled=false; btn.textContent=old; showTagResult(o,label); }
+function showTagResult(o,label){ const r=document.getElementById('tagRes');
+  if(!o||!o.ok){ r.innerHTML='<div class="callbox" style="color:var(--crit)">✗ '+esc((o&&(o.error||o.message))||'failed')+'</div>'; return; }
+  const res=o.result||{}; const ok=res.ok!==false;
+  r.innerHTML='<div class="callbox" style="color:'+(ok?'#7ee2a8':'#ffb4c6')+'">'+(ok
+    ?'✓ tagged '+(o.count||0)+' '+esc(label)+' → Attack Path : '+esc(o.value||'')+(res.warning?' — '+esc(res.warning):'')
+    :'✗ '+esc(res.message||res.stderr||'write rejected'))+'</div>'
+    +(o.writes_enabled?'':'<div class="sub" style="margin-top:6px;color:var(--warn)">Writes are gated — set <span class="mono">NAVI_ALLOW_WRITES=1</span> to apply. Tags show in the <a href="/web/tags-log.html">Tagging log</a> after a navi.db sync.</div>'); }
+function exportCsv(){ if(!DATA||!DATA.paths.length){alert('Map paths first.');return;}
+  downloadCSV('attack-paths.csv',['risk','entry_host','entry_ip','entry_reason','subnet','pivot','target_host','target_ip','target_acr','target_kev'],
+    DATA.paths.map(p=>({risk:p.score,entry_host:p.entry.host,entry_ip:p.entry.ip,entry_reason:p.entry.entryReason,subnet:p.subnet+'.0/24',pivot:p.pivotWeak?'credential pivot':'lateral',target_host:p.target.host,target_ip:p.target.ip,target_acr:p.target.acr,target_kev:p.target.kev?'yes':''}))); }
+document.getElementById('run').onclick=run;
+document.getElementById('csv').onclick=exportCsv;
+document.getElementById('tagEntry').onclick=function(){tagBulk('tag_entry','exploitable / weak-auth entry point(s)',this);};
+document.getElementById('tagTarget').onclick=function(){tagBulk('tag_target','reachable crown-jewel target(s)',this);};
+mountAgentHeader({icon:'🕸️',name:'Attack Path Analysis',sub:'Fenrir · foothold → lateral → crown jewel'});
+</script>
+</body></html>

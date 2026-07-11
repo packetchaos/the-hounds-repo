@@ -1,0 +1,17 @@
+{
+  "id": "certificate",
+  "name": "Certificate Agent",
+  "icon": "\ud83d\udd10",
+  "order": 1,
+  "category": "Tagging",
+  "summary": "Reasons over certificates failing in 12 months (editable agent prompt), triages & explains the risk, builds two heat maps, and caches IoT/app devices.",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": [
+    "run",
+    "reason",
+    "tags_apply",
+    "tags_issues"
+  ],
+  "codename": "Certania Hound"
+}

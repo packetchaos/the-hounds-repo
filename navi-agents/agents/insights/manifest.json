@@ -1,0 +1,14 @@
+{
+  "id": "insights",
+  "name": "Unknown Unknowns",
+  "icon": "\ud83d\udc1d",
+  "order": 0,
+  "category": "Overview",
+  "summary": "Aggregates the unknown-unknowns in navi.db \u2014 failing certs, shadow software, IoT, identities, MITRE on high-ACR assets, custom apps \u2014 as click-through stat tiles.",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": [
+    "run"
+  ],
+  "codename": "Sphinx Hound"
+}

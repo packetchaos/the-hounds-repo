@@ -1,0 +1,12 @@
+{
+  "id": "exproute",
+  "name": "Exposure Routes",
+  "icon": "🧭",
+  "order": 22,
+  "category": "Tagging",
+  "summary": "Pulls users & groups (navi primary, Tenable MCP backup) split into paginated Users/Groups, tracks ownership COVERAGE (how much of the attack surface has an owner — an asset is 'closed' only when every route it sits on is owned), and maps exposure routes & paths to owners from plain English — tagging Owner:<group/user> on every asset on the matched route/path (gated).",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": ["load", "run", "interpret", "apply", "coverage", "refresh", "map", "path_detail"],
+  "codename": "Atlas Hound"
+}

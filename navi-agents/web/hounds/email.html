@@ -1,0 +1,83 @@
+<!DOCTYPE html><html lang="en" data-theme="dark"><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>GABRIEL — Meet the Hounds</title>
+<style>
+:root{--bg:#080808;--sheet:#0c0d0a;--ink:#ececdf;--ink2:#b9bcae;--mut:#7f836f;--accent:#d6f84c;--line:#2a2c1e;--strong:#ffffff;--bar:#000}
+html[data-theme="light"]{--bg:#e9eef6;--sheet:#ffffff;--ink:#0e1730;--ink2:#3a4a67;--mut:#7b8aa3;--accent:#1763bf;--line:#d3ddec;--strong:#0b1220;--bar:#0e1730}
+*{box-sizing:border-box} html,body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.toolbar{position:sticky;top:0;z-index:9;display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:12px 16px;background:var(--bar);border-bottom:1px solid var(--line)}
+.toolbar .sp{flex:1} .toolbar .lab{color:#8b8f7a;font-size:12px}
+html[data-theme="light"] .toolbar .lab{color:#c9d3e6}
+.btn{cursor:pointer;border:1px solid var(--line);background:rgba(214,248,76,.10);color:var(--accent);font-weight:700;font-size:13px;padding:9px 15px;border-radius:9px;text-decoration:none;display:inline-flex;align-items:center;gap:7px}
+.btn:hover{border-color:var(--accent)} .btn.ghost{background:transparent}
+.wrap{display:flex;justify-content:center;padding:22px 14px 60px}
+.sheet{width:960px;max-width:100%;background:var(--sheet);border:2px solid var(--accent);border-radius:6px;padding:40px 44px;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+.hdr{display:flex;gap:28px;align-items:flex-start;border-bottom:1.5px solid var(--accent);padding-bottom:22px;margin-bottom:22px}
+.crest{width:210px;height:210px;flex:0 0 auto;border-radius:8px;object-fit:cover;border:1px solid var(--line);background:#111a29}
+.eyebrow{color:var(--accent);font-size:13px;font-weight:700;letter-spacing:.18em;margin:2px 0 2px}
+h1{font-size:58px;line-height:.95;margin:2px 0 6px;color:var(--accent);letter-spacing:.01em}
+.role{font-size:22px;font-weight:800;margin:0 0 3px} .meta{color:var(--ink2);font-style:italic;font-size:15px;margin:0 0 14px}
+.tagline{color:var(--accent);font-weight:800;font-style:italic;font-size:20px;margin:0 0 8px}
+.lead{color:var(--ink2);font-size:14.5px;line-height:1.5;margin:0}
+.cols{column-count:2;column-gap:40px}
+@media(max-width:760px){.cols{column-count:1}.hdr{flex-direction:column}h1{font-size:44px}}
+.sec{break-inside:avoid;margin:0 0 16px}
+.sec h2{color:var(--accent);font-size:15px;font-weight:800;letter-spacing:.04em;margin:0 0 6px}
+.sec p{margin:0 0 8px;font-size:13.5px;line-height:1.5;color:var(--ink)}
+.sec ul{list-style:none;margin:0;padding:0}
+.sec li{position:relative;padding-left:18px;margin:0 0 9px;font-size:13.5px;line-height:1.5;color:var(--ink)}
+.sec li:before{content:"\25A0";position:absolute;left:0;top:0;color:var(--accent);font-size:11px}
+.note{color:var(--mut);font-style:italic;font-size:12.5px;line-height:1.45;margin:0 0 14px}
+b{color:var(--strong)}
+.placeholder{color:var(--mut);font-size:10px;text-align:center;margin-top:4px;font-style:italic}
+.foot{border-top:1px solid var(--line);margin-top:20px;padding-top:12px;display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap;color:var(--mut);font-size:11.5px}
+@media print{.toolbar{display:none} .wrap{padding:0} .sheet{border:none;box-shadow:none;width:auto;padding:16px 22px} @page{size:letter;margin:.35in}}
+</style></head><body>
+<div class="toolbar">
+  <button class="btn" onclick="window.print()">🖨 Print / Save as PDF</button>
+  <button class="btn ghost" id="themeBtn" type="button">☀ Light</button>
+  <span class="sp"></span><span class="lab">Meet the Hounds · toggle theme, then print</span>
+</div>
+<div class="wrap"><div class="sheet">
+  <div class="hdr">
+    <div style="flex:0 0 auto">
+      <img class="crest" src="/static/crests/email.png?v=3" alt="Gabriel Hound crest"
+           onerror="this.onerror=null;this.src='../assets/crests/email.png?v=3'"/>
+    </div>
+    <div style="flex:1 1 auto;min-width:0">
+      <div class="eyebrow">MEET THE HOUNDS</div>
+      <h1>GABRIEL</h1>
+      <div class="role">Email &amp; Reports · the loop-closer</div>
+      <div class="meta">Gabriel Hound · Category: Loop / Reporting</div>
+      <div class="tagline">“Findings that reach the right human.”</div>
+      <p class="lead">Gabriel is the messenger — the one who carries the word to those who need it. It takes what the whole pack found and delivers it to the humans who own it, with deep-links back into the Tenable platform, so a finding doesn't just get tagged — it gets <b>acted on</b>.</p>
+    </div>
+  </div>
+  <div class="cols">
+    <div class="sec"><h2>THE PROBLEM</h2><p>The pack can find, prioritize and tag exposure all day — but exposure only shrinks when a <b>human fixes it</b>. Most programs stall at the last mile: a dashboard nobody opens, a CSV nobody routes, a KEV alert buried in a channel. The loop stays open.</p></div>
+    <div class="sec"><h2>WHAT IT DOES</h2><p>Gabriel turns the pack's findings into <b>email that lands</b>. It reads Atlas <span style="color:var(--accent)">Owner:</span> tags and sends each owner <b>only their</b> assets; fires <b>KEV alarms</b> and <b>cert countdowns</b>; sends a leadership <b>morning briefing</b>; and gives every Hound a one-click way to <b>email its findings</b> — the detection signals, the tagged assets, and Tenable deep-links — labelled with which Hound produced them.</p></div>
+    <div class="sec"><h2>KEY CAPABILITIES</h2><ul>
+      <li><b>Owner-routed remediation</b> — reads Atlas <span style="color:var(--accent)">Owner : &lt;group/user&gt;</span> tags and emails each owner a personalized list of <b>their</b> assets, each with its Tenable asset link and top findings.</li>
+      <li><b>Tenable deep-links</b> — every asset carries its platform URL; the technical template lists each finding's <b>plugin deep-link</b>, plus a <b>tag filter</b> link to view the whole set in-platform.</li>
+      <li><b>KEV fire-alarms &amp; cert countdowns</b> — targeted alerts from Laelaps (actively-exploited) and Certania (expiring certs), not noisy digests.</li>
+      <li><b>Morning briefing</b> — exposure-at-a-glance for leadership, on the Contract cadence.</li>
+      <li><b>Agent findings hand-off</b> — the pack's shared second option: any Hound sends Gabriel the <b>finding IDs that made up its asset search</b> + the matched assets + the tag it applied, and Gabriel emails the overview.</li>
+      <li><b>Board vs technical templates</b> — a summary for leadership, per-asset detail for the people who fix it.</li>
+    </ul></div>
+    <div class="sec"><h2>HOW IT WORKS</h2><p>Gabriel reads the local navi.db (owners, assets, findings, certs — all read-only) to <b>compose</b> and <b>preview</b> every email. Sending goes through <span style="color:var(--accent)">navi action mail</span> and is <b>double-gated</b>: it needs writes enabled <i>and</i> a separate email opt-in (<span style="color:var(--accent)">NAVI_EMAIL=1</span>) <i>and</i> an explicit confirm. SMTP is configured once, out-of-band. Every send is logged as an accountability ledger — who was notified, when.</p></div>
+    <div class="sec"><h2>WHY IT'S DIFFERENT</h2><ul>
+      <li><b>Closes the loop</b> — most tools stop at "here's the finding"; Gabriel puts it in the owner's inbox with a link to fix it.</li>
+      <li><b>Personalized by ownership</b> — each owner gets only their assets, which is what makes the outreach land instead of getting ignored.</li>
+      <li><b>Preview-first, double-gated</b> — you see exactly what goes out; nothing sends without a separate email opt-in and a confirm.</li>
+      <li><b>Wired to the whole pack</b> — every Hound can hand its findings to Gabriel in one click.</li>
+    </ul></div>
+    <div class="sec"><h2>WORKS BETTER WITH</h2><p>Gabriel pairs with <b>Atlas</b> (Owner tags drive the routing), <b>Laelaps</b> (KEV alarms), <b>Certania</b> (cert countdowns), <b>Argos</b> (per-asset dossiers to link) and the <b>AI Contract</b> (email the plan on arm, the result on finish).</p></div>
+    <div class="sec"><h2>WHO IT'S FOR</h2><p>VM leads who need findings to reach a human; remediation owners who want just their slice; leadership who want a briefing, not a spreadsheet.</p></div>
+    <div class="sec"><h2>CALL TO ACTION</h2><p style="color:var(--accent);font-weight:800;font-style:italic">Let Gabriel carry the word — and finally close the loop.</p></div>
+  </div>
+  <div class="foot"><span>THE HOUNDS — a human-in-the-loop security agent pack for Tenable VM / Tenable One.</span><span>Gated writes · Evidence-first · Honest about coverage</span></div>
+</div></div>
+<script>(function(){var r=document.documentElement,b=document.getElementById('themeBtn');
+function set(t){r.setAttribute('data-theme',t);b.textContent=t==='light'?'🌙 Dark':'☀ Light';}
+b.onclick=function(){set(r.getAttribute('data-theme')==='light'?'dark':'light');};set('dark');})();</script>
+</body></html>

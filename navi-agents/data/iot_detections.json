@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "note": "Default IoT device detections. Seed entries come from the navi device-fingerprinting playbook (plugin 10863 cert appliances, 66717 mDNS local-network, 35716 MAC OUI). 'approved' entries are added by Agent 3 after human-in-the-loop review. 'rejected' keys are remembered so they are not re-proposed.",
+  "detections": [
+    {"iot_name": "Chromecast", "vendor": "Google", "plugins": ["66717"], "name_contains": ["Chromecast"], "output_contains": ["Chromecast", "_googlecast"], "source": "seed"},
+    {"iot_name": "pfSense", "vendor": "Netgate", "plugins": [], "name_contains": ["pfSense"], "output_contains": ["pfSense"], "source": "seed"},
+    {"iot_name": "Ubiquiti", "vendor": "Ubiquiti", "plugins": [], "name_contains": ["Ubiquiti", "UniFi"], "output_contains": ["Ubiquiti", "ubnt"], "source": "seed"},
+    {"iot_name": "TeraStation", "vendor": "Buffalo", "plugins": [], "name_contains": ["TeraStation"], "output_contains": ["TeraStation", "Buffalo Inc"], "source": "seed"},
+    {"iot_name": "Samsung SmartTV", "vendor": "Samsung", "plugins": [], "name_contains": ["SmartViewSDK"], "output_contains": ["SmartViewSDK", "Samsung Electronics"], "source": "seed"}
+  ],
+  "rejected": []
+}

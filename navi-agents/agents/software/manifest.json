@@ -1,0 +1,12 @@
+{
+  "id": "software",
+  "name": "Software Analyzer",
+  "icon": "📦",
+  "order": 12,
+  "category": "Inventory",
+  "summary": "Mines the software table for version sprawl (one product at many versions), the most-deployed software, standardized vs fragmented apps, and rare single-install software — and tags any product or version (gated).",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": ["run", "tag"],
+  "codename": "Mimir Hound"
+}

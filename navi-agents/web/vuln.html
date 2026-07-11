@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Plugin detail · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>
+.kpi{display:flex;gap:14px;flex-wrap:wrap;margin:2px 0 4px}
+.kpi .k{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px 16px;flex:1;min-width:120px}
+.kpi .k .v{font-size:24px;font-weight:700}.kpi .k .l{font-size:11.5px;color:var(--mut)}
+.plink{color:var(--accent);cursor:pointer;text-decoration:none}
+.plink:hover{text-decoration:underline}
+.crumb{font-size:12px;color:var(--mut);margin:0 0 10px}
+.crumb a{color:var(--accent);text-decoration:none}
+.out{font-family:ui-monospace,monospace;font-size:11px;color:#9fd0ff;white-space:pre-wrap;word-break:break-word;max-width:560px}
+</style>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+  <p class="crumb"><a href="/">← All agents</a></p>
+  <section class="card">
+    <h2 id="title">Plugin detail</h2>
+    <p class="sub" id="sub"></p>
+    <div id="flash" class="flash"></div>
+    <div class="kpi" id="kpi"></div>
+  </section>
+  <section class="card">
+    <h2>Affected assets <span class="sub" id="acount"></span></h2>
+    <p class="sub">Click an asset to see all of its findings and certificates.</p>
+    <table id="atbl"><thead><tr><th>Host</th><th>IP</th><th>Scan output</th><th>Last found</th></tr></thead>
+      <tbody><tr><td colspan="4" class="sub">Loading…</td></tr></tbody></table>
+  </section>
+  <footer>Explore · read-only drill-down over navi.db</footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('explore');
+const qp=new URLSearchParams(location.search);
+const plugin=(qp.get('plugin')||qp.get('plugin_id')||'').trim();
+/* platform deep-link: assets.url → asset data, vulns.url → plugin/finding data in Tenable */
+const plat=(u,l)=>u?` <a href="${String(u).replace(/&/g,'&amp;').replace(/"/g,'&quot;')}" target="_blank" rel="noopener" class="plink" title="Open in Tenable platform" style="font-weight:600">${l||'↗'}</a>`:'';
+async function load(){
+  await mountAgentHeader({icon:'🔎',name:'Plugin detail',sub:'drill-down'});
+  if(!plugin){flash('flash','✗ no plugin specified (?plugin=&lt;id&gt;)','crit');return;}
+  const o=await API.post('vuln',{plugin});
+  if(!o.ok){flash('flash','✗ '+(o.error||'failed'),'crit');return;}
+  document.getElementById('title').innerHTML=`Plugin <span class="mono">${esc(o.plugin)}</span> — ${esc(o.plugin_name)}`+plat(o.plugin_url,'Open in Tenable ↗');
+  document.getElementById('sub').innerHTML=`Affects <b>${o.count}</b> asset(s). Tenable plugin reference: <a class="plink" href="https://www.tenable.com/plugins/nessus/${encodeURIComponent(o.plugin)}" target="_blank" rel="noopener">plugins/nessus/${esc(o.plugin)} ↗</a>`;
+  document.getElementById('kpi').innerHTML=
+    `<div class="k"><div class="v">${o.count}</div><div class="l">affected assets</div></div>`;
+  const t=document.querySelector('#atbl tbody');
+  document.getElementById('acount').textContent=`(${o.assets.length})`;
+  t.innerHTML = o.assets.length ? o.assets.map(a=>
+    `<tr><td><a class="plink" href="/web/asset.html?asset=${encodeURIComponent(a.asset_uuid)}">${esc(a.hostname)}</a>${plat(a.finding_url,'Finding ↗')||plat(a.asset_url,'Asset ↗')}</td>`+
+    `<td class="mono">${esc(a.ip_address||'')}</td><td class="out">${esc((a.output||'').slice(0,260))}</td>`+
+    `<td class="mono">${esc((a.last_found||'').slice(0,10))}</td></tr>`).join('')
+    : '<tr><td colspan="4" class="sub">No affected assets.</td></tr>';
+}
+load();
+</script>
+</body></html>

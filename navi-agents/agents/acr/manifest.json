@@ -1,0 +1,17 @@
+{
+  "id": "acr",
+  "name": "ACR Calibration Agent",
+  "icon": "\ud83c\udfaf",
+  "order": 3,
+  "category": "Risk",
+  "summary": "Adjust Asset Criticality Rating per tag (set / +N / \u2212N) with a business justification; bulk via natural language.",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": [
+    "run",
+    "apply",
+    "bulk_apply",
+    "interpret"
+  ],
+  "codename": "Anubis Hound"
+}

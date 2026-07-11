@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Asset detail · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>
+.kpi{display:flex;gap:14px;flex-wrap:wrap;margin:2px 0 4px}
+.kpi .k{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:12px 16px;flex:1;min-width:120px}
+.kpi .k .v{font-size:24px;font-weight:700}.kpi .k .l{font-size:11.5px;color:var(--mut)}
+.plink{color:var(--accent);cursor:pointer;text-decoration:none;font-family:ui-monospace,monospace}
+.plink:hover{text-decoration:underline}
+.crumb{font-size:12px;color:var(--mut);margin:0 0 10px}
+.crumb a{color:var(--accent);text-decoration:none}
+.out{font-family:ui-monospace,monospace;font-size:11px;color:#9fd0ff;white-space:pre-wrap;word-break:break-word;max-width:520px}
+</style>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+  <p class="crumb"><a href="/">← All agents</a></p>
+  <section class="card">
+    <h2 id="title">Asset detail</h2>
+    <p class="sub" id="sub"></p>
+    <div id="flash" class="flash"></div>
+    <div class="kpi" id="kpi"></div>
+  </section>
+  <section class="card" id="hostCard" style="display:none">
+    <h2 style="margin:0 0 6px">🖥 Host profile &amp; scan health</h2>
+    <div id="hostBody"></div>
+  </section>
+  <section class="card">
+    <h2>Vulnerabilities &amp; plugins <span class="sub" id="vcount"></span></h2>
+    <p class="sub">Click a plugin to see every asset it affects and the scan output.</p>
+    <table id="vtbl"><thead><tr><th>Plugin</th><th>Name</th><th>Output</th><th>Last found</th></tr></thead>
+      <tbody><tr><td colspan="4" class="sub">Loading…</td></tr></tbody></table>
+  </section>
+  <section class="card">
+    <h2>Certificates <span class="sub" id="ccount"></span></h2>
+    <table id="ctbl"><thead><tr><th>Common name</th><th>Organization</th><th>Expiry</th><th>Signature</th><th>Key</th></tr></thead>
+      <tbody><tr><td colspan="5" class="sub">Loading…</td></tr></tbody></table>
+  </section>
+  <footer>Explore · read-only drill-down over navi.db</footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('explore');
+const qp=new URLSearchParams(location.search);
+const uuid=(qp.get('asset')||qp.get('uuid')||'').trim();
+function go(u){location.href=u;}
+/* platform deep-link: assets.url → asset data, vulns.url → plugin/finding data in Tenable */
+const plat=(u,l)=>u?` <a href="${String(u).replace(/&/g,'&amp;').replace(/"/g,'&quot;')}" target="_blank" rel="noopener" class="plink" title="Open in Tenable platform" style="font-weight:600">${l||'↗'}</a>`:'';
+async function load(){
+  await mountAgentHeader({icon:'🔎',name:'Asset detail',sub:'drill-down'});
+  if(!uuid){flash('flash','✗ no asset specified (?asset=&lt;uuid&gt;)','crit');return;}
+  const o=await API.post('asset',{uuid});
+  if(!o.ok){flash('flash','✗ '+(o.error||'failed'),'crit');return;}
+  const a=o.asset||{};
+  document.getElementById('title').innerHTML=esc((a.hostname&&a.hostname.trim())||a.ip_address||'Asset')+plat(a.url,'Open in Tenable ↗');
+  document.getElementById('sub').innerHTML=`IP <b class="mono">${esc(a.ip_address||'—')}</b> · UUID <span class="mono">${esc(a.uuid||uuid)}</span>`;
+  document.getElementById('kpi').innerHTML=
+    `<div class="k"><div class="v">${o.counts.vulns}</div><div class="l">findings / plugins</div></div>`+
+    `<div class="k"><div class="v">${o.counts.certs}</div><div class="l">certificates</div></div>`;
+  const H=o.host||{}, hc=document.getElementById('hostCard'), hb=document.getElementById('hostBody');
+  const hrow=(k,v)=>v?`<div style="display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid var(--line)"><span class="sub">${k}</span><span style="text-align:right">${v}</span></div>`:'';
+  if(H.has_data){ hc.style.display='';
+    const auth=H.authenticated?(esc(H.last_auth_scan||'—')+' <span style="color:#34d399">✓ authenticated</span>'):'<span style="color:var(--crit)">never — no credentialed scan</span>';
+    const dur=(H.last_scan_dur_min!=null)?(H.last_scan_dur_min+' min'+(H.last_scan_name?(' <span class="sub">· '+esc(H.last_scan_name)+'</span>'):'')):'—';
+    hb.innerHTML=hrow('CPU',esc(H.cpu||''))+hrow('Memory (RAM)',esc(H.ram||''))+(H.arch?hrow('Architecture',esc(H.arch)):'')
+      +hrow('Last authenticated scan',auth)+hrow('Last scan duration',dur)
+      +(H.scan_count>1?`<div class="sub" style="margin-top:6px">${H.scan_count} scan records on file</div>`:''); }
+  const vt=document.querySelector('#vtbl tbody');
+  document.getElementById('vcount').textContent=`(${o.vulns.length})`;
+  vt.innerHTML = o.vulns.length ? o.vulns.map(v=>
+    `<tr><td><a class="plink" href="/web/vuln.html?plugin=${encodeURIComponent(v.plugin_id)}">${esc(v.plugin_id)}</a>${plat(v.url)}</td>`+
+    `<td>${esc(v.plugin_name)}</td><td class="out">${esc((v.output||'').slice(0,240))}</td>`+
+    `<td class="mono">${esc((v.last_found||'').slice(0,10))}</td></tr>`).join('')
+    : '<tr><td colspan="4" class="sub">No findings recorded for this asset.</td></tr>';
+  const ct=document.querySelector('#ctbl tbody');
+  document.getElementById('ccount').textContent=`(${o.certs.length})`;
+  ct.innerHTML = o.certs.length ? o.certs.map(c=>
+    `<tr><td>${esc(c.common_name)}</td><td>${esc(c.organization)}</td>`+
+    `<td class="mono">${esc(c.expiry_iso||c.not_valid_after||'')}</td>`+
+    `<td>${esc(c.signature_algorithm)}</td><td class="mono">${esc(c.key_length)}</td></tr>`).join('')
+    : '<tr><td colspan="5" class="sub">No certificates on this asset.</td></tr>';
+}
+load();
+</script>
+</body></html>

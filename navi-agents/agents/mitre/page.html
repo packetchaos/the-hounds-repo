@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>MITRE ATT&CK Tagging · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>.plink{color:var(--accent);text-decoration:none}.plink:hover{text-decoration:underline}</style>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+  <section class="card">
+    <div class="toolbar"><div><h2 style="margin:0">MITRE ATT&CK tagging</h2>
+      <p class="sub" style="margin:2px 0 0">Follows the navi <span class="mono">tag-by-cve</span> recipe: fetch the live ATT&amp;CK→CVE mapping, then tag each CVE with its <b>Primary / Secondary Impact</b> and <b>Exploit Technique</b> via navi's tag-by-CVE function. Writes are gated.</p></div>
+      <button class="btn run sm" id="run" style="margin-left:auto">▶ Start</button></div>
+    <div id="flash" class="flash"></div>
+    <div id="approve" class="card" style="background:var(--panel2);display:none">
+      <b style="font-size:12.5px">Human approval — external download</b>
+      <p class="sub" style="margin:6px 0">This agent fetches the live <b>ATT&amp;CK→CVE</b> mapping from an external source before tagging. Review and approve.</p>
+      <div class="callbox" id="srcUrl"></div>
+      <div class="callbox" id="srcAssess" style="margin-top:6px">…</div>
+      <div class="toolbar" style="margin-top:10px"><button class="btn run sm" id="approveBtn">✓ Approve &amp; download</button><button class="btn ghost sm" id="cancelBtn">Cancel</button></div>
+    </div>
+    <div class="toolbar">
+      <div class="filterbtns" id="scope"><button data-s="navidb" class="on">CVEs in navi.db</button><button data-s="all">Full mapping</button></div>
+      <label class="btn ghost sm" style="cursor:pointer">⬆ Upload CSV<input id="csvFile" type="file" accept=".csv,text/csv" style="display:none"></label>
+      <a class="btn ghost sm" id="dlCsv" href="#" target="_blank" rel="noopener">⬇ Download official CSV ↗</a>
+      <span class="chip" id="counts"></span>
+    </div>
+    <div class="kpi" id="kpi"></div>
+  </section>
+  <section class="card">
+    <h2>Planned MITRE tags <span class="sub" id="planCount"></span></h2>
+    <p class="sub">Each row = one <span class="tagval">Mitre : &lt;impact/technique&gt;</span> applied to every asset whose findings cite that CVE (navi tag-by-CVE). Approve, then apply.</p>
+    <div class="toolbar"><button class="btn sm" id="approveAll">Approve all</button><button class="btn ghost sm" id="reset">Reset</button>
+      <button class="btn run sm" id="apply" style="margin-left:auto" disabled>▶ Apply tags (gated)</button><span class="chip" id="apprCount"></span></div>
+    <table id="tbl"><thead><tr><th>CVE</th><th>Category</th><th>Tag value</th><th>Status</th><th></th></tr></thead>
+      <tbody><tr><td colspan="5" class="sub">Build the plan to load…</td></tr></tbody></table>
+    <div id="res"></div>
+  </section>
+  <section class="card">
+    <h2>High-risk assets (ACR &gt; 7) with ATT&amp;CK-mapped CVEs <span class="sub" id="highCount"></span></h2>
+    <p class="sub">The crown-jewel assets behind the “MITRE techniques on assets (ACR &gt; 7)” insight.</p>
+    <table id="highTbl"><thead><tr><th>Host</th><th>IP</th><th>ACR</th><th>Mapped CVEs</th></tr></thead>
+      <tbody><tr><td colspan="4" class="sub">Build the plan to load…</td></tr></tbody></table>
+  </section>
+  <footer>MITRE ATT&CK Tagging · live ATT&amp;CK→CVE CSV · gated <span class="mono">navi enrich tag --cve</span></footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('mitre');
+let PLAN=null, scope='navidb', appr=JSON.parse(localStorage.getItem('mitreAppr')||'{}');
+const save=()=>localStorage.setItem('mitreAppr',JSON.stringify(appr));
+const key=a=>a.cve+'|'+a.value;
+const CSV_URL='https://raw.githubusercontent.com/center-for-threat-informed-defense/attack_to_cve/master/Att%26ckToCveMappings.csv';
+let uploadText='';
+async function run(){
+  document.getElementById('run').disabled=true;
+  flash('flash','<span class="spin"></span> '+(uploadText?'parsing uploaded CSV':'loading ATT&CK→CVE mapping')+' & building plan…','run');
+  let o; try{ o=await API.post('run',{scope,csv_text:uploadText}); }catch(e){ o={ok:false,error:e.message}; }
+  document.getElementById('run').disabled=false;
+  if(!o.ok){ flash('flash','✗ '+(o.error||'failed'),'crit'); return; }
+  PLAN=o.result; flashClear('flash'); await loadAppliedTags(); render();
+}
+function render(){
+  if(!PLAN)return;
+  const src={live:'● live download',bundled:'◆ baked snapshot',upload:'⬆ your upload',unavailable:'✗ no source'}[PLAN.mapping_source]||PLAN.mapping_source||'';
+  document.getElementById('counts').textContent=`${PLAN.csv_rows} CSV rows · ${PLAN.navi_cves} CVEs in navi.db · ${PLAN.matched_cves} matched · ${src}`;
+  document.getElementById('kpi').innerHTML=
+    `<div class="k"><div class="v">${PLAN.matched_cves}</div><div class="l">CVEs to tag</div></div>`+
+    `<div class="k"><div class="v">${PLAN.actions.length}</div><div class="l">tag writes</div></div>`+
+    `<div class="k"><div class="v">${PLAN.navi_cves}</div><div class="l">CVEs in navi.db</div></div>`;
+  const tb=document.querySelector('#tbl tbody'); const acts=PLAN.actions;
+  document.getElementById('planCount').textContent=`(${acts.length})`;
+  tb.innerHTML=acts.length?acts.slice(0,500).map(a=>{const B=tagBadge(a.category||'Mitre',a.value,appr[key(a)]);const bc=B.cls;const bl=B.label;
+    return `<tr><td class="mono"><a class="plink" href="https://nvd.nist.gov/vuln/detail/${esc(a.cve)}" target="_blank" rel="noopener">${esc(a.cve)}</a></td><td>${esc(a.category)}</td><td><span class="tagval">${esc(a.value)}</span></td>
+      <td><span class="badge ${bc}">${bl}</span></td><td>${B.done?'':`<button class="btn sm" data-k="${esc(key(a))}">${appr[key(a)]==='approved'?'Un-approve':'Approve'}</button>`}</td></tr>`;}).join(''):'<tr><td colspan="5" class="sub">No matching CVEs. Try the full mapping, or sync navi.db.</td></tr>';
+  if(acts.length>500) tb.innerHTML+=`<tr><td colspan="5" class="sub">… and ${acts.length-500} more (apply works on all approved).</td></tr>`;
+  tb.querySelectorAll('button[data-k]').forEach(b=>b.onclick=()=>{const k=b.dataset.k;appr[k]=appr[k]==='approved'?'pending':'approved';save();render();});
+  const n=acts.filter(a=>appr[key(a)]==='approved').length;
+  document.getElementById('apprCount').textContent=`${n} approved / ${acts.length}`;
+  document.getElementById('apply').disabled=!n;
+  const ha=PLAN.high_acr||[]; document.getElementById('highCount').textContent=`(${ha.length})`;
+  document.querySelector('#highTbl tbody').innerHTML=ha.length?ha.map(a=>`<tr><td><a class="plink" href="/web/asset.html?asset=${encodeURIComponent(a.asset_uuid)}">${esc(a.host)}</a></td><td class="mono">${esc(a.ip||'')}</td><td><b style="color:var(--crit)">${esc(String(a.acr))}</b></td><td>${(a.cves||[]).map(c=>`<span class="tagval">${esc(c)}</span>`).join(' ')}</td></tr>`).join(''):'<tr><td colspan="4" class="sub">No ACR&gt;7 assets with ATT&CK-mapped CVEs.</td></tr>';
+}
+document.querySelectorAll('#scope button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#scope button').forEach(x=>x.classList.remove('on'));b.classList.add('on');scope=b.dataset.s;run();});
+document.getElementById('dlCsv').href=CSV_URL;
+document.getElementById('csvFile').onchange=function(e){
+  const f=e.target.files&&e.target.files[0]; if(!f)return;
+  const rd=new FileReader(); rd.onload=()=>{ uploadText=rd.result||''; document.getElementById('approve').style.display='none';
+    flash('flash','Using uploaded CSV ('+f.name+'). Building plan…','run'); run(); }; rd.readAsText(f);
+};
+async function requestApprove(){
+  const ap=document.getElementById('approve'); ap.style.display='block';
+  document.getElementById('srcUrl').textContent='GET '+'(ATT&CK→CVE mapping)';
+  document.getElementById('srcAssess').innerHTML='<span class="spin"></span> assessing source…';
+  let o; try{ o=await API.post('source'); }catch(e){ o={ok:false}; }
+  if(o&&o.ok){ document.getElementById('srcUrl').textContent='GET '+o.url; document.getElementById('srcAssess').textContent=o.assessment+(o.llm_used?'':'  (set ANTHROPIC_API_KEY for an AI assessment)'); }
+  else { document.getElementById('srcAssess').textContent='Official Center for Threat-Informed Defense attack_to_cve mapping. Approve to download.'; }
+}
+document.getElementById('run').onclick=requestApprove;
+document.getElementById('approveBtn').onclick=()=>{document.getElementById('approve').style.display='none';run();};
+document.getElementById('cancelBtn').onclick=()=>{document.getElementById('approve').style.display='none';};
+document.getElementById('approveAll').onclick=()=>{if(PLAN){PLAN.actions.forEach(a=>{if(appr[key(a)]!=='applied')appr[key(a)]='approved';});save();render();}};
+document.getElementById('reset').onclick=()=>{if(PLAN){PLAN.actions.forEach(a=>{if(appr[key(a)]!=='applied')delete appr[key(a)];});save();render();}};
+document.getElementById('apply').onclick=async()=>{
+  const acts=PLAN.actions.filter(a=>appr[key(a)]==='approved'); if(!acts.length)return;
+  const res=document.getElementById('res'); res.innerHTML='<div class="callbox"><span class="spin"></span> applying '+acts.length+' tag(s) via navi tag-by-CVE…</div>';
+  const o=await API.post('apply',{actions:acts,confirm:true});
+  if(!o.ok){res.innerHTML='<div class="callbox" style="color:#ffb4c6">✗ '+(o.error||'failed')+'</div>';return;}
+  (o.results||[]).forEach(r=>{ if(r.ok) appr[r.cve+'|'+r.value]='applied'; }); save();
+  res.innerHTML=`<div class="callbox" style="color:${o.applied?'#7ee2a8':'#ffb4c6'}">Applied ${o.applied}/${o.total}.`+(o.writes_enabled?' Allow ~30 min for Tenable.':' (gated — set NAVI_ALLOW_WRITES=1 and put navi on PATH)')+'</div>';
+  render();
+};
+mountAgentHeader({icon:'🎯',name:'MITRE ATT&CK Tagging',sub:'navi tag-by-CVE · live ATT&CK mapping'});
+requestApprove();   // human approves the external download before anything is fetched
+</script>
+</body></html>

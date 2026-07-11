@@ -1,0 +1,267 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>The Hounds — Navi Agent Command Center · HITL</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>
+/* Release the Hounds — card layout matched to the live console (single large left crest,
+   tag chips, metric + last-run rows, lore details). */
+.hero{background:radial-gradient(120% 140% at 90% -20%,var(--amber-glow),transparent 60%),var(--panel)}
+.agrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:12px;margin-top:14px}
+@media (max-width:520px){ .agrid{grid-template-columns:1fr} }
+.agrid .agent{padding:11px 12px;display:flex;flex-direction:column;gap:7px}
+.agrid .agent .ah{display:flex;align-items:center;gap:9px}
+.agrid .agent .ico{width:34px;height:34px;border-radius:8px;background:var(--panel-2);display:flex;align-items:center;justify-content:center;font-size:17px;border:1px solid var(--line);overflow:hidden;flex:0 0 auto}
+.agrid .agent .ico img{width:100%;height:100%;object-fit:cover;display:block}
+.agrid .agent .nm{font-family:var(--display);font-weight:700;font-size:14.5px;line-height:1.15}
+.agrid .agent .ameta{font-size:10.5px;color:var(--ink-3);margin-top:1px}
+.agrid .agent .adep{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:3px}
+.agrid .agent .alast{font-size:10.5px;color:var(--mut)}
+.agrid .agent .atags{display:flex;gap:4px;flex-wrap:wrap}
+.agrid .agent .acode{font-family:var(--mono);font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--amber);font-weight:700;line-height:1.1;margin-bottom:1px}
+.agrid .agent .ds{color:var(--mut);font-size:15px;min-height:32px}
+.agrid .agent .row{display:flex;justify-content:space-between;font-size:14px;color:var(--mut)}
+.agrid .agent .acts{display:flex;gap:5px;margin-top:1px;flex-wrap:nowrap;overflow-x:auto}
+.agrid .agent .acts .btn{padding:5px 8px;font-size:11.5px;white-space:nowrap;flex:0 0 auto}
+.agrid .agent .atag{font-size:10px;padding:1px 7px}
+.agent.dim{opacity:.6}
+.atag{font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);background:var(--panel-2);border:1px solid var(--line);border-radius:999px;padding:2px 8px;white-space:nowrap}
+.atagchip{font-size:12.5px;font-weight:600;color:var(--ink-2);background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:4px 12px;cursor:pointer;margin:0 5px 6px 0;transition:background .15s,color .15s,border-color .15s}
+.atagchip:hover{border-color:var(--accent);color:var(--ink)}
+.atagchip.on{color:#10130a;background:var(--amber);border-color:var(--amber);font-weight:700}
+[data-theme="light"] .atagchip.on{color:#1a1206}
+#agentCats{display:flex;gap:6px;flex-wrap:wrap}
+.badge.b-live{background:rgba(52,211,153,.16);color:var(--ok);border:1px solid rgba(52,211,153,.4)}
+.badge.b-off{background:rgba(138,153,173,.16);color:var(--mut);border:1px solid var(--line)}
+.badge.b-err{background:rgba(251,113,133,.14);color:var(--crit);border:1px solid rgba(251,113,133,.4)}
+.badge.b-run{background:rgba(62,166,255,.14);color:var(--accent);border:1px solid rgba(62,166,255,.4)}
+#trustLog{max-height:260px;overflow:auto}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="logo"><span class="hcrest brand" role="img" aria-label="The Hounds"></span></div>
+    <h1>The Hounds <small>NAVI AGENT COMMAND CENTER · HITL</small></h1>
+    <div class="meta" id="meta"><span class="chip">loading…</span></div>
+  </header>
+
+  <div id="srcbanner"></div>
+
+  <section class="card hero" style="margin-top:14px">
+    <div class="toolbar">
+      <div><h2 style="margin:0"><span class="hcrest sm" aria-hidden="true"></span>Release the Hounds</h2>
+        <p class="sub" style="margin:2px 0 0" id="intro">The pack — every agent, what it does, and the lore behind its name. <b>Execute</b> runs it live against navi.db; <b>Open</b> jumps to its page. Ask below to find the right Hound fast.</p></div>
+      <button class="btn ghost sm" id="runAll" style="margin-left:auto">🗺 Plan Run</button>
+      <button class="btn sm" id="trustBtn" style="background:#b9791a;color:#fff;border-color:#b9791a">⚡ Run Tag Sequence</button>
+    </div>
+
+    <div class="toolbar needs-llm" style="margin-top:10px">
+      <input id="askq" placeholder="Ask which agent can help — e.g. “find expiring certificates” or “tag end-of-life software”…" style="flex:1;min-width:260px;padding:9px;border-radius:8px;border:1px solid var(--accent);background:var(--bg-2);color:var(--ink)">
+      <button class="btn run sm" id="askgo">✨ Ask</button>
+    </div>
+    <div id="askout" style="margin-top:8px"></div>
+    <div class="no-llm-note sub" style="display:none;margin-top:8px;color:var(--warn,#e7c66b)">Set <span class="mono">ANTHROPIC_API_KEY</span> on the server to enable “ask which agent can help”.</div>
+
+    <div style="margin:12px 0 10px;padding:11px 14px;border-radius:10px;border:1px solid var(--accent);background:rgba(214,248,76,.12)">
+      <b style="color:var(--accent)">⚡ Run Tag Sequence</b> runs every tagging agent and <b>auto-applies all proposed tags live</b> (gated writes) — Certificate, IoT, MITRE, EOL, AI, Custom apps, Identity, Scan-eval. <b>ACR is never run.</b> Ownership Assignment &amp; Software need your input, so they’re skipped.<br>
+      <span style="color:var(--ink-2)">Not ready to write? <b style="color:var(--accent)">🗺 Plan Run</b> opens the <b>AI Contract</b> page and runs its plan — you land on the <b>plan review</b> under the contract widget showing exactly what would be tagged — no writes.</span>
+    </div>
+
+    <div class="toolbar" style="margin:10px 0 6px;gap:10px;flex-wrap:wrap;align-items:center">
+      <input id="filter" placeholder="🔎 Filter the pack — name, codename, or what it does…" style="flex:1;min-width:220px;padding:8px 12px;border-radius:8px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink)">
+      <span id="agentCats"></span>
+    </div>
+    <div id="trustLog" class="log" style="display:none;margin:10px 0 4px"></div>
+    <div id="flash" class="flash"></div>
+  </section>
+
+  <div id="grid" class="agrid"><div class="sub" style="padding:12px">discovering agents…</div></div>
+
+  <footer>The Hounds · Navi Agent Command Center · HITL — agents auto-discovered from <span class="mono">agents/</span> · reads <b>navi.db</b> read-only · writes gated</footer>
+</div>
+
+<script src="/static/console.js"></script>
+<script>
+let AGENTS=[], TAGGERS=[], curCat='__all';
+const LASTRUN={};
+
+/* Tag chips mirror the live console's per-agent tags; fall back to the agent's category. */
+const TAG_MAP={
+  certificate:['Tagging','Certificates'], iot_squad:['Tagging','Discovery'], acr:['Risk'],
+  customapp:['Tagging','Discovery'], mitre:['Tagging','Threat'], eol:['Tagging','Lifecycle'],
+  ai:['Tagging','Discovery'], identity:['Tagging','Identity'], scan_eval:['Health'],
+  agentgroup:['Tagging'], tagremoval:['Tagging'], cisakev:['Tagging','Threat'],
+  postquantum:['Tagging','Threat'], attackpath:['Correlation','Threat'],
+  contract:['Orchestration'], insights:['Overview'], software:['Inventory'],
+  dashboard:['Explore'], mcpcmp:['Reference'], exproute:['Tagging','Ownership']
+};
+function tagsFor(a){ return TAG_MAP[a.id] || [a.category||'Agent']; }
+
+/* The pack — the hounds shown on Release the Hounds, in the live console's order.
+   Every other deployed agent stays reachable by its own URL, just not carded here. */
+const PACK=['certificate','iot_squad','acr','customapp','exproute','mitre','eol','software',
+            'ai','identity','scan_eval','agentgroup','tagremoval','cisakev','postquantum','attackpath'];
+const METRIC_LABEL={
+  certificate:'Failing certs (12mo)', iot_squad:'IoT devices', acr:'Tags available',
+  customapp:'Candidates', exproute:'Routes mapped', mitre:'Tag writes', eol:'Lifecycle assets',
+  software:'Software titles', ai:'AI assets',
+  identity:'Identities', scan_eval:'Cred failures', agentgroup:'Agent groups',
+  tagremoval:'Tags loaded', cisakev:'KEV assets', postquantum:'PQ assets', attackpath:'Paths'
+};
+
+function badge(a){
+  if(a.deployed) return '<span class="badge b-live">deployed</span>';
+  if(a.error)    return '<span class="badge b-err">import error</span>';
+  return '<span class="badge b-off">not installed</span>';
+}
+function codenameFor(a){ return (typeof CODENAMES!=='undefined'&&CODENAMES[a.id])||{name:a.codename||'',lore:''}; }
+function card(a){
+  const cn=codenameFor(a);
+  const acts=(a.actions||[]);
+  const canExec=a.deployed && (acts.includes('run')||acts.includes('load')||!acts.length);
+  const inPack=TAGGERS.includes(a.id);
+  const glyph=(a.icon||'🐾').replace(/'/g,'');
+  const tags=tagsFor(a);
+  const crestImg=`<img src="/static/crests/${a.id}.png" alt="${esc(cn.name||a.name||'')}" onerror="this.replaceWith(document.createTextNode('${glyph}'))">`;
+  const tagsHtml=tags.map(t=>`<span class="atag">${esc(t)}</span>`).join('');
+  const search=((cn.name||'')+' '+(a.name||'')+' '+(a.summary||'')+' '+tags.join(' ')).toLowerCase();
+  const dd=(typeof deepDive==='function')?deepDive(a.id):null;
+  const yr=dd&&dd.year?`📖 Origin story · ${dd.year}`:'';
+  return `<div class="agent agentcard ${a.deployed?'':'dim'}" data-cat="${esc(tags.join(' '))}" data-search="${esc(search)}" data-id="${a.id}">
+    <div class="ah">
+      <div class="ico">${a.deployed&&a.page?`<a href="${a.page}" title="Open ${esc(a.name||'')}" style="display:block;line-height:0;width:100%;height:100%">${crestImg}</a>`:crestImg}</div>
+      <div style="min-width:0;flex:1">
+        <div class="nm">${esc(a.name||a.id)}</div>
+        ${yr?`<div class="ameta">${yr}</div>`:''}
+        <div class="adep"><span data-badge>${badge(a)}</span><span class="alast">· last run <span data-lastrun>never</span></span><span class="alast" data-metric></span></div>
+      </div>
+    </div>
+    ${tagsHtml?`<div class="atags">${tagsHtml}${inPack?'<span class="atag" style="color:var(--amber);border-color:var(--amber)">in the pack</span>':''}</div>`:''}
+    <div class="acts">
+      ${a.deployed&&a.page?`<a class="btn ghost sm" href="${a.page}">Open</a>`:''}
+      ${canExec?`<button class="btn run sm" data-exec="${a.id}">▶ Execute</button>`:''}
+      ${a.hound?`<a class="btn ghost sm" href="${a.hound}" target="_blank" title="Details — the hound's one-pager (printable)">Info ↗</a>`
+               :(a.readme?`<a class="btn ghost sm" href="${a.readme}" target="_blank">Info ↗</a>`:'')}
+      ${(typeof deepDiveCode==='function')?deepDiveCode(a.id):''}
+      ${!a.deployed&&!a.hound&&!a.readme?`<button class="btn sm" disabled>unavailable</button>`:''}
+    </div>
+  </div>`;
+}
+function renderCats(){
+  const cats=[...new Set(AGENTS.reduce((s,a)=>s.concat(tagsFor(a)),[]))].sort();
+  const cc=document.getElementById('agentCats');
+  cc.innerHTML='<button class="atagchip on" data-cat="__all">All</button>'+cats.map(c=>`<button class="atagchip" data-cat="${esc(c)}">${esc(c)}</button>`).join('');
+  cc.querySelectorAll('.atagchip').forEach(b=>b.onclick=()=>{cc.querySelectorAll('.atagchip').forEach(x=>x.classList.remove('on'));b.classList.add('on');curCat=b.dataset.cat;applyFilter();});
+}
+function applyFilter(){
+  const q=(document.getElementById('filter').value||'').toLowerCase().trim();
+  let shown=0;
+  document.querySelectorAll('#grid .agentcard').forEach(c=>{
+    const okT=!q||(c.dataset.search||'').indexOf(q)>=0;
+    const okC=curCat==='__all'||((' '+(c.dataset.cat||'')+' ').indexOf(' '+curCat+' ')>=0);
+    const vis=okT&&okC; c.style.display=vis?'':'none'; if(vis)shown++;
+  });
+  const e=document.getElementById('gridEmpty'); if(e) e.style.display=shown?'none':'';
+}
+function render(){
+  const grid=document.getElementById('grid');
+  grid.innerHTML=AGENTS.map(card).join('')+'<div id="gridEmpty" class="sub" style="display:none;grid-column:1/-1;text-align:center;padding:24px 0">No agents match — clear the filter.</div>';
+  grid.querySelectorAll('[data-exec]').forEach(b=>b.onclick=()=>execAgent(b.dataset.exec,b));
+  renderCats(); applyFilter();
+}
+function cardEls(id){ const c=document.querySelector('.agentcard[data-id="'+id+'"]'); return c?{badge:c.querySelector('[data-badge]'),metric:c.querySelector('[data-metric]'),lastrun:c.querySelector('[data-lastrun]')}:null; }
+function summarize(o){
+  const r=(o&&o.result)||o||{}; if(typeof r!=='object'||!r) return 'ran ✓';
+  for(const k of ['tag_actions','candidates','twelve_month','actions','groups','accounts','rows','paths']){ if(Array.isArray(r[k])) return r[k].length+' '+k.replace(/_/g,' '); }
+  for(const k of ['asset_count','failing_count','count','total','assets']){ if(typeof r[k]==='number') return r[k]+' '+k.replace(/_/g,' '); }
+  if(r.kpi&&typeof r.kpi==='object'){ const kv=Object.entries(r.kpi)[0]; if(kv) return kv[1]+' '+kv[0].replace(/_/g,' '); }
+  return 'ran ✓';
+}
+async function execAgent(id,btn){
+  const el=cardEls(id); btn.disabled=true; const old=btn.textContent; btn.textContent='running…';
+  if(el){ el.badge.innerHTML='<span class="badge b-run">running…</span>'; }
+  try{
+    let o=await jpost('/api/'+id+'/run',{});
+    if(o&&o.error&&/unknown action/.test(o.error)) o=await jpost('/api/'+id+'/load',{});
+    if(o&&o.ok!==false){ if(el){ el.badge.innerHTML='<span class="badge b-live">ran ✓</span>'; el.metric.textContent=summarize(o); el.lastrun.textContent=new Date().toLocaleString(); } }
+    else { if(el){ el.badge.innerHTML='<span class="badge b-err">error</span>'; el.metric.textContent=(o&&(o.error||o.message))||'failed'; } }
+  }catch(e){ if(el){ el.badge.innerHTML='<span class="badge b-err">error</span>'; el.metric.textContent=e.message; } }
+  btn.disabled=false; btn.textContent=old;
+}
+/* Plan Run → open the AI Contract page and run its (no-writes) plan; the user lands on
+   the plan review that sits directly under the AI Contract widget. */
+function runAll(){
+  const c=(AGENTS||[]).find(a=>a.id==='contract');
+  const pg=(c&&c.page)||'/agents/contract/page.html';
+  location.href=pg+(pg.indexOf('?')>=0?'&':'?')+'plan=1';
+}
+async function trust(){
+  if(!confirm('Run Tag Sequence will run every tagging agent and APPLY all proposed tags live (gated writes). ACR is never run; Ownership Assignment and Software are skipped. Continue?')) return;
+  const btn=document.getElementById('trustBtn'); btn.disabled=true; const old=btn.textContent; btn.textContent='Running…';
+  const box=document.getElementById('trustLog'); box.style.display='block'; box.textContent='';
+  const tlog=m=>{ box.textContent='['+new Date().toLocaleTimeString()+'] '+m+'\n'+box.textContent; };
+  tlog('Running the whole pack — discovers + applies across every tagging agent…');
+  try{
+    const o=await jpost('/api/hub/trust',{confirm:true});
+    if(!o||!o.ok){ tlog('✗ '+((o&&(o.error||o.message))||'failed')); }
+    else{
+      (o.plan&&o.plan.agents||[]).forEach(b=>{ const el=cardEls(b.agent);
+        tlog((b.error?'✗ ':'✓ ')+b.agent+': '+(b.error||(b.selected+' tag(s) queued')));
+        if(el&&!b.error){ el.badge.innerHTML='<span class="badge b-live">ran ✓</span>'; el.metric.textContent=b.selected+' tag(s) queued'; el.lastrun.textContent=new Date().toLocaleString(); }});
+      tlog('— DONE — '+o.queued_tags+' tag(s) queued. '+(o.writes_enabled?'Writes enabled — applied live (allow ~30 min for navi.db to reflect).':'⚠ Writes are GATED — tags were planned, not written. Set NAVI_ALLOW_WRITES=1 to apply.'));
+      flash('flash', o.writes_enabled?('✓ pack run complete — '+o.queued_tags+' tag(s) applied (gated).'):('Planned '+o.queued_tags+' tag(s) — writes gated, nothing written.'), o.writes_enabled?'ok':'warn');
+    }
+  }catch(e){ tlog('✗ '+e.message); }
+  btn.disabled=false; btn.textContent=old;
+}
+async function askAgent(){
+  const q=document.getElementById('askq'), out=document.getElementById('askout');
+  const prompt=(q.value||'').trim(); if(!prompt){ out.innerHTML='<div class="callbox" style="color:var(--crit)">Type a question first.</div>'; return; }
+  out.innerHTML='<div class="callbox"><span class="spin"></span> matching your task to the right Hound…</div>';
+  let o; try{ o=await jpost('/api/explore/which_agent',{prompt,agents:AGENTS.map(a=>({id:a.id,name:a.name,summary:a.summary||'',codename:codenameFor(a).name}))}); }catch(e){ o={ok:false,message:e.message}; }
+  if(!o||!o.ok){ out.innerHTML='<div class="callbox" style="color:var(--crit)">✗ '+esc((o&&(o.message||o.error))||'failed')+'</div>'; return; }
+  const picks=o.picks||[]; if(!picks.length){ out.innerHTML='<div class="callbox">No clear match — try describing the task differently.</div>'; return; }
+  const byId={}; AGENTS.forEach(a=>byId[a.id]=a);
+  out.innerHTML='<div class="callbox"><b>Recommended Hounds</b>'+picks.map(p=>{ const a=byId[p.id]||{}; const nm=codenameFor(a).name||a.name||p.id;
+    const img='<img src="/static/crests/'+p.id+'.png?v=2" style="width:32px;height:32px;border-radius:8px;object-fit:cover;vertical-align:middle;margin-right:8px" onerror="this.replaceWith(document.createTextNode(\'🐾 \'))">';
+    const open=(a.deployed&&a.page)?(' <a class="btn ghost sm" href="'+a.page+'" style="margin-left:6px">Open →</a>'):'';
+    return '<div style="display:flex;align-items:center;gap:6px;margin-top:8px">'+img+'<div style="flex:1"><b>'+esc(nm)+'</b> — '+esc(p.why||'')+open+'</div></div>'; }).join('')+
+    (o.note?'<div class="sub" style="margin-top:8px">'+esc(o.note)+'</div>':'')+'</div>';
+}
+(async()=>{
+  const meta=document.getElementById('meta'); let h=null;
+  try{ h=await jget('/api/health'); }catch(e){}
+  window.__LLM_AVAILABLE=!!(h&&h.llm); applyLlmGate();
+  const banner=document.getElementById('srcbanner');
+  if(h){
+    meta.innerHTML=dataSourceChip(h)+claudeChip(h)+
+      (h.db_ok?`<span class="chip">assets <b>${h.asset_total}</b></span>`+(h.db_fresh?`<span class="chip">db <b>${String(h.db_fresh).slice(0,10)}</b></span>`:''):`<span class="chip" style="color:var(--crit)">db: ${esc(h.error||'error')}</span>`)+
+      `<span class="chip gate">writes: ${h.writes_enabled?'enabled':'gated'}</span>`;
+    if(h.data_source==='fixture') banner.innerHTML=`<div style="margin:14px 0 0;padding:11px 14px;border-radius:9px;background:rgba(251,191,36,.10);border:1px solid rgba(251,191,36,.4);color:#e7c66b;font-size:12.5px">◆ <b>Sample data.</b> Reading a crafted fixture (<span class="mono">${esc(h.db_path||'sample_navi.db')}</span>). Point <span class="mono">NAVI_DB_PATH</span> at navi’s real <span class="mono">navi.db</span> to run live.</div>`;
+    else if(h.data_source==='live') banner.innerHTML=`<div style="margin:14px 0 0;padding:11px 14px;border-radius:9px;background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.35);color:#7ee2a8;font-size:12.5px">● <b>Live navi.db</b> — <span class="mono">${esc(h.db_path||'')}</span></div>`;
+  } else meta.innerHTML=`<span class="chip" style="color:var(--warn)">no backend · static view</span>`;
+
+  let reg=null;
+  try{ reg=await jget('/api/registry'); }
+  catch(e){ for(const u of ['/web/agents.json','agents.json']){ try{ reg=await jget(u); if(reg)break; }catch(_){} } }
+  const byId={}; ((reg&&reg.agents)||[]).forEach(a=>byId[a.id]=a);
+  /* Release the Hounds = the 14-strong pack, in the live console's order. Any pack
+     agent missing from the registry is still shown as a card (marked not installed). */
+  AGENTS=PACK.map(id=>byId[id]||{id,name:id,deployed:false,actions:[],summary:''});
+  try{ const rr=await jpost('/api/hub/roster',{}); if(rr&&rr.ok) TAGGERS=rr.taggers||[]; }catch(e){}
+  const dep=AGENTS.filter(a=>a.deployed).length;
+  document.getElementById('intro').innerHTML=`The pack — <b>${dep} of ${AGENTS.length}</b> agents deployed. <b>Execute</b> runs one live against navi.db; <b>Open</b> jumps to its page. <b>Plan Run</b> opens the AI Contract page and runs its plan review (no writes); <b>Run Tag Sequence</b> applies it (gated). Ask below to find the right Hound fast.`;
+  if(!AGENTS.length){ document.getElementById('grid').innerHTML='<div class="agent"><div class="ds">No agent modules found in <span class="mono">agents/</span>. Start the launcher from the repo root that contains <span class="mono">agents/</span> and <span class="mono">app_fastapi.py</span>.</div></div>'; return; }
+  render();
+  document.getElementById('filter').addEventListener('input',applyFilter);
+  document.getElementById('runAll').onclick=runAll;
+  document.getElementById('trustBtn').onclick=trust;
+  const g=document.getElementById('askgo'), qq=document.getElementById('askq');
+  if(g){ g.onclick=askAgent; qq.addEventListener('keydown',e=>{if(e.key==='Enter')askAgent();}); }
+})();
+</script>
+</body>
+</html>

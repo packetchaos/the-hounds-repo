@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Advanced Search — The Hounds</title>
+<link rel="stylesheet" href="/static/console.css"/>
+</head>
+<body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+
+  <section class="card needs-llm">
+    <h2 style="margin:0">🧠 Advanced search <span class="sub">— cross-table NL→SQL with automatic joins</span></h2>
+    <p class="sub" style="margin:4px 0 8px">Ask anything across the whole of navi.db and the model writes the <b>joins</b> for you. e.g. <i>"assets in the Production tag with the highest EPSS score"</i> · <i>"critical vulns with EPSS over 0.5 on cloud assets"</i> · <i>"hosts running OpenSSL that also have an expiring certificate"</i>. It drafts the SQL with joins, you review/refine, then execute (read-only).</p>
+    <div class="toolbar"><input id="advq" placeholder="Ask across tags, assets, vulns, epss, software, certs, plugins…" style="flex:1;min-width:280px;padding:10px;border-radius:8px;border:1px solid var(--accent);background:var(--bg-2);color:var(--ink)"><button class="btn run sm" id="advgo">✨ Build SQL (with joins)</button></div>
+    <div id="advflash" class="flash"></div>
+    <div id="advout" style="margin-top:8px"></div>
+  </section>
+
+  <section class="no-llm-note card" style="display:none"><p class="sub">Advanced search needs an LLM. Set <span class="mono">ANTHROPIC_API_KEY</span> in the server environment and reload. You can still hand-write SQL on the explorer pages.</p></section>
+
+  <section class="card">
+    <div class="toolbar"><h3 style="margin:0">🔗 Schema &amp; join map</h3><button class="btn ghost sm" id="schemaToggle" style="margin-left:auto">Show tables &amp; joins</button></div>
+    <p class="sub" style="margin:4px 0 0">The tables present in your navi.db and how they join. Advanced search uses these keys automatically.</p>
+    <div id="schemaBox" style="display:none;margin-top:10px"></div>
+  </section>
+  <footer>Advanced Search · read-only · cross-table NL→SQL</footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+let SCHEMA=null;
+async function loadSchema(){ if(SCHEMA)return SCHEMA; try{ SCHEMA=await agentApi('explore').post('schema'); }catch(e){ SCHEMA={ok:false}; } return SCHEMA; }
+function renderSchema(){ const box=document.getElementById('schemaBox'); const s=SCHEMA||{}; const tables=s.tables||{}, joins=s.joins||[];
+  box.innerHTML='<div style="overflow-x:auto"><table><thead><tr><th>Table</th><th>Columns</th></tr></thead><tbody>'+
+    Object.keys(tables).map(t=>`<tr><td class="mono"><b>${esc(t)}</b></td><td class="mono" style="font-size:11px;color:var(--ink-2)">${esc((tables[t]||[]).join(', '))}</td></tr>`).join('')+'</tbody></table></div>'+
+    '<h4 style="margin:14px 0 4px">Join keys in this database</h4><div style="overflow-x:auto"><table><thead><tr><th>Join</th><th>Meaning</th></tr></thead><tbody>'+
+    (joins.length?joins.map(j=>`<tr><td class="mono" style="font-size:11px">${esc(j.left)} = ${esc(j.right)}</td><td class="sub">${esc(j.note)}</td></tr>`).join(''):'<tr><td colspan="2" class="sub">No multi-table joins available — only single tables are present.</td></tr>')+'</tbody></table></div>';
+}
+async function advRun(){
+  const q=document.getElementById('advq'), out='advout';
+  const p=(q.value||'').trim(); if(!p){ flash('advflash','Type a question first.','crit'); return; }
+  flash('advflash','<span class="spin"></span> mapping your question across tables & joins…','run');
+  let o; try{ o=await agentApi('explore').post('advanced_translate',{prompt:p}); }catch(e){ o={ok:false,message:e.message}; }
+  if(!o||!o.ok){ flashClear('advflash'); renderSqlResult(out,o); return; }
+  flashClear('advflash'); renderSqlBox(out, o.sql);   // execute wired to read-only run_sql
+}
+document.getElementById('advgo').onclick=advRun;
+document.getElementById('advq').addEventListener('keydown',e=>{if(e.key==='Enter')advRun();});
+document.getElementById('schemaToggle').onclick=async()=>{ const box=document.getElementById('schemaBox'); const open=box.style.display==='none'; if(open){ await loadSchema(); renderSchema(); } box.style.display=open?'block':'none'; document.getElementById('schemaToggle').textContent=open?'Hide tables & joins':'Show tables & joins'; };
+mountAgentHeader({id:'advanced',icon:'🧠',name:'Advanced Search',sub:'cross-table NL→SQL with joins'});
+</script>
+</body>
+</html>

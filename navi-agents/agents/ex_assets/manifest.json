@@ -1,0 +1,14 @@
+{
+  "id": "ex_assets",
+  "name": "Asset Explorer",
+  "icon": "\ud83d\udd0e",
+  "order": 20,
+  "category": "Explore",
+  "codename": "Bloodhound",
+  "summary": "Search navi.db assets by hostname, IP, OS or network. Read-only navi.db search via the UI.",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": [
+    "search"
+  ]
+}
