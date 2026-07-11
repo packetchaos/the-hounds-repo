@@ -1,0 +1,12 @@
+{
+  "id": "attackpath",
+  "name": "Attack Path Analysis",
+  "icon": "🕸️",
+  "order": 15,
+  "category": "Risk",
+  "summary": "Fenrir — chains exploitability × identity × reachability into likely attack paths (foothold → lateral movement → crown-jewel target). Infers reachability from /24 adjacency + credential signals. Gated tagging + CSV export.",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": ["run", "tag_entry", "tag_target", "tag"],
+  "codename": "Fenrir Hound"
+}

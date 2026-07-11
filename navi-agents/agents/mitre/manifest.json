@@ -1,0 +1,16 @@
+{
+  "id": "mitre",
+  "name": "MITRE ATT&CK Tagging",
+  "icon": "\ud83c\udfaf",
+  "order": 5,
+  "category": "Tagging",
+  "summary": "Follows the navi tag-by-CVE recipe: fetches the live ATT&CK\u2192CVE mapping and tags each CVE in your navi.db with its Primary/Secondary Impact + Exploit Technique via navi's tag-by-CVE function.",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": [
+    "source",
+    "run",
+    "apply"
+  ],
+  "codename": "Orthrus Hound"
+}

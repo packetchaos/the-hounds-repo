@@ -1,0 +1,11 @@
+{
+  "id": "mcpcmp",
+  "name": "MCP Compare",
+  "icon": "⚖",
+  "order": 23,
+  "category": "Reference",
+  "summary": "Tenable MCP vs navi MCP — a capability & routing matrix, the limits that force a handoff (rule-tag cap, OS/app/device detection, ACR/AES, dashboards), and a navi-side snapshot to sanity-check the connection.",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": ["run", "snapshot"]
+}

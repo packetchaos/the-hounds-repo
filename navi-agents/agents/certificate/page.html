@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Certificate Agent · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>.fld{width:100%;padding:9px;border-radius:7px;background:var(--panel2);color:var(--txt);border:1px solid var(--line);font-family:ui-monospace,monospace;font-size:12px}
+.prio{font-size:10.5px;padding:2px 7px;border-radius:5px;font-weight:700}
+.p-high{background:rgba(251,113,133,.16);color:var(--crit)}.p-med{background:rgba(62,166,255,.14);color:var(--accent)}.p-low{background:rgba(138,153,173,.16);color:var(--mut)}.p-skip{background:rgba(138,153,173,.12);color:var(--mut)}
+.plink{color:var(--accent);text-decoration:none}.plink:hover{text-decoration:underline}
+.cell.has:hover{outline:2px solid var(--accent);outline-offset:-2px}
+.h2row.click{cursor:pointer;border-radius:8px;padding:2px 4px}.h2row.click:hover{background:var(--panel2)}
+#monthPanel .mp{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:14px;margin-top:14px}</style>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+
+  <section class="card">
+    <div class="toolbar"><div><h2 style="margin:0">Agent reasoning</h2>
+      <p class="sub" style="margin:2px 0 0">The agent reads the certs that are <b>already expired</b> or <b>failing within 12 months</b>, then reasons over them with the prompt below to triage, prioritize and explain. Edit the prompt to change how it thinks (e.g. add “only tag certs that have expired”).</p></div>
+      <button class="btn run sm" id="runReason" style="margin-left:auto">▶ Run agent</button></div>
+    <div id="flash" class="flash"></div>
+    <label class="sub">Agent prompt <span id="promptState" class="mono" style="color:var(--mut)"></span></label>
+    <textarea id="prompt" class="fld" rows="9"></textarea>
+    <div class="toolbar" style="margin-top:8px"><button class="btn ghost sm" id="resetPrompt">Reset to default</button>
+      <span class="chip" id="llmchip"></span></div>
+    <div id="assess" class="callbox" style="display:none"></div>
+  </section>
+
+  <section class="card">
+    <h2>Certificates expired or failing (next 12 months) <span class="sub" id="win"></span></h2>
+    <div class="toolbar"><button class="btn sm" id="approveAll">Approve all</button>
+      <button class="btn ghost sm" id="reset">Reset</button><span class="chip" id="apprCount"></span></div>
+    <table id="tbl1"><thead><tr><th>Expiry</th><th>Tag value</th><th>IP</th><th>Host</th><th>Common name</th><th>Days</th><th>Agent decision</th><th>Status</th><th></th></tr></thead>
+      <tbody><tr><td colspan="9" class="sub">Run the agent to load…</td></tr></tbody></table>
+    <div id="queue"></div><p class="note" id="expnote"></p>
+  </section>
+
+  <section class="card"><h2>IoT &amp; application cache</h2>
+    <div class="kpi" id="iotkpi"></div>
+    <div class="toolbar"><div class="filterbtns" id="iotFilter"><button data-f="all" class="on">All</button><button data-f="IoT">IoT</button><button data-f="Application">Apps</button></div></div>
+    <table id="tbl3"><thead><tr><th>Type</th><th>Vendor</th><th>Product</th><th>IP</th><th>Host</th><th>Cert CN</th></tr></thead><tbody></tbody></table>
+  </section>
+  <footer>Certificate Agent · reasons over failing certs (editable prompt) · gated <span class="mono">navi enrich tag</span></footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('certificate');
+let MODEL=null, PLAN={}, DEFAULT='', appr=JSON.parse(localStorage.getItem('certAppr')||'{}');
+const save=()=>localStorage.setItem('certAppr',JSON.stringify(appr));
+// "applied" is ground-truthed against navi.db (APPLIEDV) + this session's confirmed
+// writes (SESSION_APPLIED) — never a sticky localStorage flag. Delete a tag in
+// navi.db and it stops showing as applied after the next run.
+let APPLIEDV=new Set(), SESSION_APPLIED=new Set();
+const isApplied=v=>APPLIEDV.has(v)||SESSION_APPLIED.has(v);
+let iotF='all';
+
+async function load(){               // get data + the default prompt
+  const o=await API.post('run');
+  if(!o.ok){flash('flash','✗ '+(o.error||'failed'),'crit');return;}
+  MODEL=o.result; DEFAULT=o.default_prompt||'';
+  APPLIEDV=new Set((o.tags_present||[]).map(t=>t.tag_value));
+  // migrate away any legacy sticky 'applied' flags in localStorage
+  let dirty=false; Object.keys(appr).forEach(k=>{ if(appr[k]==='applied'){ delete appr[k]; dirty=true; } }); if(dirty) save();
+  if(!document.getElementById('prompt').value) document.getElementById('prompt').value=DEFAULT;
+  document.getElementById('llmchip').textContent = o.llm_available ? 'AI: on-device key detected' : 'AI: no key — deterministic fallback';
+  renderAll();
+}
+async function runReason(){          // the agentic step
+  document.getElementById('runReason').disabled=true;
+  flash('flash','<span class="spin"></span> agent reasoning over the certificates…','run');
+  const prompt=document.getElementById('prompt').value;
+  let o; try{o=await API.post('reason',{prompt});}catch(e){o={ok:false,error:e.message};}
+  if(!o.ok){flash('flash','✗ '+(o.error||'failed'),'crit');document.getElementById('runReason').disabled=false;return;}
+  MODEL=o.result; DEFAULT=o.default_prompt||DEFAULT;
+  if(o.tags_present) APPLIEDV=new Set((o.tags_present||[]).map(t=>t.tag_value));
+  PLAN={}; (o.plan||[]).forEach(p=>{PLAN[p.value]=p; if(p.decision==='tag' && !isApplied(p.value)) appr[p.value]='approved';});
+  save();
+  const a=document.getElementById('assess'); a.style.display='block';
+  a.textContent=(o.llm_used?'🧠 ':'⚙ ')+(o.assessment||'')+(o.llm_used?` — ${o.model||'model'}`:' (deterministic)');
+  flashClear('flash'); renderAll();
+  document.getElementById('runReason').disabled=false;
+}
+function prioPill(d){ if(!d) return ''; if(d.decision==='skip') return '<span class="prio p-skip">skip</span> <span class="sub">'+esc(d.why||'')+'</span>';
+  const c=d.priority==='high'?'p-high':d.priority==='low'?'p-low':'p-med';
+  return `<span class="prio ${c}">tag · ${esc(d.priority||'med')}</span> <span class="sub">${esc(d.why||'')}</span>`; }
+function renderAll(){renderTbl();renderQueue();renderIot();}
+function renderTbl(){
+  const tb=document.querySelector('#tbl1 tbody');
+  document.getElementById('win').textContent=MODEL?`(${MODEL.window_start} → ${MODEL.window_end})`:'';
+  if(!MODEL)return; const ta=MODEL.tag_actions||[];
+  tb.innerHTML=ta.length?ta.map(a=>{const st=isApplied(a.value)?'applied':(appr[a.value]==='approved'?'approved':'pending');const bc=st==='applied'?'b-applied':st==='approved'?'b-appr':'b-pending';const bl=st==='applied'?'Applied ✔ · navi.db':st==='approved'?'Approved':'Pending';
+    const hostCell=a.asset_uuid?`<a class="plink" href="/web/asset.html?asset=${encodeURIComponent(a.asset_uuid)}">${esc(a.hostname)}</a>`:esc(a.hostname);
+    const exp=(a.status==='expired'||a.days_left<0);
+    const daysCell=exp?`<span style="color:var(--crit);font-weight:700">expired ${Math.abs(a.days_left)}d ago</span>`:`${a.days_left}d`;
+    return `<tr><td class="mono">${a.expiry.replace(' GMT','')}</td><td><span class="tagval">${a.value}</span></td><td class="mono">${a.ip}</td><td>${hostCell}</td><td class="mono">${a.common_name}</td><td>${daysCell}</td>
+      <td>${prioPill(PLAN[a.value])}</td><td><span class="badge ${bc}">${bl}</span></td><td><button class="btn sm" data-v="${a.value}">${appr[a.value]==='approved'?'Un-approve':(st==='applied'?'Re-tag':'Approve')}</button></td></tr>`;}).join(''):'<tr><td colspan="9" class="sub">No certificates are expired or failing within 12 months — see the agent reasoning panel above for why.</td></tr>';
+  tb.querySelectorAll('button').forEach(b=>b.onclick=()=>{const v=b.dataset.v;appr[v]=appr[v]==='approved'?'pending':'approved';save();renderTbl();renderQueue();});
+  document.getElementById('apprCount').textContent=`${ta.filter(a=>appr[a.value]==='approved').length} approved / ${ta.length}`;
+  document.getElementById('expnote').innerHTML=`In scope: <b>${MODEL.expired_count!=null?MODEL.expired_count:(MODEL.expired||[]).length}</b> already-expired + <b>${MODEL.failing_count!=null?MODEL.failing_count:(MODEL.twelve_month||[]).length}</b> failing within 12 months · <b>${MODEL.cert_rows}</b> certs in navi.db.`;
+}
+// Wait for queued navi tag jobs to actually finish, so the UI reports the REAL
+// result (done / error / blocked) instead of the optimistic "queued" stub.
+async function pollJobs(ids, timeoutMs=25000){
+  const want=[...new Set((ids||[]).filter(x=>x!=null).map(String))];
+  let map={}; if(!want.size) return map;
+  const t0=Date.now();
+  while(Date.now()-t0<timeoutMs){
+    let o; try{ o=await jpost('/api/explore/tag_jobs',{}); }catch(e){ break; }
+    map={}; (o.jobs||[]).forEach(j=>{ map[String(j.id)]=j; });
+    const pending=want.filter(id=>{ const j=map[id]; return !j||(j.status!=='done'&&j.status!=='error'); });
+    if(!pending.length) break;
+    await new Promise(r=>setTimeout(r,900));
+  }
+  return map;
+}
+function renderQueue(){
+  const q=document.getElementById('queue'); if(!MODEL){q.innerHTML='';return;}
+  const ap=(MODEL.tag_actions||[]).filter(a=>appr[a.value]==='approved');   // applied is info-only, never blocks re-tagging
+  if(!ap.length){q.innerHTML='';return;}
+  q.innerHTML='<div class="toolbar" style="margin:14px 0 4px"><b style="font-size:12.5px">Queued (HITL gate)</b><button class="btn run sm" id="execTags" style="margin-left:auto">▶ Execute tags</button></div>'+
+    ap.map(a=>`<div class="callbox">${a.tool_call}</div>`).join('')+'<div id="tagres"></div>';
+  document.getElementById('execTags').onclick=async()=>{const res=document.getElementById('tagres');res.innerHTML='<div class="callbox"><span class="spin"></span> running <span class="mono">navi enrich tag</span> — waiting for the result…</div>';
+    let o; try{ o=await API.post('tags_apply',{values:ap.map(a=>a.value),confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+    if(!o||!o.ok){ res.innerHTML='<div class="callbox" style="color:var(--crit)">✗ '+esc((o&&(o.error||o.message))||'failed')+'</div>'; return; }
+    const results=o.results||[];
+    const jm=await pollJobs(results.map(r=>r.job_id));  // wait for the queued writes to finish
+    res.innerHTML=''; let anyOk=false;
+    results.forEach(r=>{ const j=(r.job_id!=null)?jm[String(r.job_id)]:null;
+      const finished=j&&(j.status==='done'||j.status==='error');
+      const ok=j?(j.status==='done'&&j.ok!==false):(r.ok&&r.queued!==true);   // no job info → only trust a real (non-queued) ok
+      const d=document.createElement('div');d.className='callbox';
+      const warn=j&&j.result&&j.result.warning;
+      const naviOut=(j&&j.result&&(j.result.navi_output||j.result.message))||'';
+      if(ok&&!warn){ anyOk=true; SESSION_APPLIED.add(r.value); delete appr[r.value]; save(); d.style.color='#7ee2a8'; d.textContent='✓ '+r.value+' applied'+(naviOut&&naviOut!=='applied'?(' — navi: '+naviOut):''); }
+      else if(ok&&warn){ d.style.color='#e7c66b'; d.textContent='⚠ '+r.value+' — '+warn; }   // navi ran but tagged nothing → do NOT mark applied
+      else if(j&&!finished){ d.style.color='#e7c66b'; d.textContent='⏳ '+r.value+' still running — check the Tagging log'; }
+      else { d.style.color='#ffb4c6'; const msg=j?(j.message||(j.result&&(j.result.message||j.result.stderr))||j.status):(r.message||r.stderr||'failed'); d.textContent='✗ '+r.value+': '+esc(msg); }
+      res.appendChild(d); });
+    const note=document.createElement('div'); note.className='sub'; note.style.marginTop='6px';
+    if(!o.writes_enabled){ note.style.color='var(--warn,#e7c66b)'; note.innerHTML='<b>Nothing was written.</b> '+esc(o.write_gate_reason||'Writes are gated — set NAVI_ALLOW_WRITES=1')+'.'; res.appendChild(note); }
+    else if(anyOk){ note.style.color='var(--ink-3)'; note.innerHTML='Submitted to Tenable via <span class="mono">navi enrich tag</span>. New tags can take <b>~30 min</b> to appear in Tenable and need a <span class="mono">navi update</span> before they show in navi.db — so this list won\'t reflect them immediately. Track them in the <a href="/web/tags-log.html">Tagging log</a>.'; res.appendChild(note); }
+    renderTbl();};
+}
+async function applyCertIssues(){
+  const picks=[...document.querySelectorAll('#h2 .certsel:checked')].map(c=>({plugin_id:c.dataset.p,plugin_name:c.dataset.nm}));
+  if(!picks.length)return;
+  const btn=document.getElementById('certTagSel'); if(btn)btn.disabled=true;
+  const res=document.getElementById('certIssueRes');
+  res.innerHTML='<div class="callbox"><span class="spin"></span> applying '+picks.length+' cert-issue tag(s) via navi --plugin…</div>';
+  let o; try{o=await API.post('tags_issues',{issues:picks,confirm:true});}catch(e){o={ok:false,error:e.message};}
+  if(!o.ok){res.innerHTML='<div class="callbox" style="color:var(--crit)">✗ '+esc(o.error||'failed')+'</div>';if(btn)btn.disabled=false;return;}
+  const results=o.results||[];
+  const jm=await pollJobs(results.map(r=>r.job_id));   // wait for the queued writes to finish
+  let anyOk=false;
+  res.innerHTML=results.map(r=>{ const j=(r.job_id!=null)?jm[String(r.job_id)]:null;
+    const finished=j&&(j.status==='done'||j.status==='error');
+    const ok=j?(j.status==='done'&&j.ok!==false):(r.ok===true&&r.queued!==true&&!r.error);
+    if(ok)anyOk=true;
+    if(ok) return '<div class="callbox" style="color:#7ee2a8">✓ Cert Issue : '+esc(r.value||r.plugin_id)+' tagged'+((j&&j.result&&j.result.warning)?(' — '+esc(j.result.warning)):'')+'</div>';
+    if(j&&!finished) return '<div class="callbox" style="color:#e7c66b">⏳ Cert Issue : '+esc(r.value||r.plugin_id)+' still running — check the Tagging log</div>';
+    const msg=j?(j.message||(j.result&&(j.result.message||j.result.stderr))||j.status):(r.message||r.stderr||'write rejected');
+    return '<div class="callbox" style="color:#ffb4c6">✗ '+esc(r.value||r.plugin_id)+': '+esc(msg)+'</div>'; }).join('')
+    +(!o.writes_enabled?('<div class="sub" style="margin-top:6px;color:var(--warn,#e7c66b)"><b>Nothing was written.</b> '+esc(o.write_gate_reason||'Writes are gated — set NAVI_ALLOW_WRITES=1')+'.</div>')
+      :(anyOk?'<div class="sub" style="margin-top:6px;color:var(--ink-3)">Submitted via <span class="mono">navi enrich tag --plugin</span>. Allow ~30 min for Tenable + a <span class="mono">navi update</span> before it shows in navi.db. See the <a href="/web/tags-log.html">Tagging log</a>.</div>':''));
+  document.querySelectorAll('#h2 .certsel').forEach(c=>c.checked=false);
+  const cc=document.getElementById('certSelCount'); if(cc)cc.textContent='0 selected';
+}
+function renderHeat(){
+  if(!MODEL)return;const cal=document.getElementById('cal');const max1=Math.max(1,...MODEL.heatmap_months.map(b=>b.count));
+  const sh=['var(--h0)','var(--h1)','var(--h2)','var(--h3)','var(--h4)'];const shade=c=>c===0?sh[0]:(c/max1>=1?sh[4]:c/max1>=.66?sh[3]:c/max1>=.33?sh[2]:sh[1]);
+  cal.innerHTML=MODEL.heatmap_months.map((b,i)=>`<div class="cell${b.count?' has':''}" data-i="${i}" style="background:${shade(b.count)}"><div class="m">${b.label}</div><div class="n">${b.count||''}</div></div>`).join('');
+  cal.querySelectorAll('.cell.has').forEach(c=>c.onclick=()=>showMonth(+c.dataset.i));
+  document.getElementById('leg').innerHTML='Fewer'+sh.map(s=>`<span class="sw" style="background:${s}"></span>`).join('')+`More · peak <b>${max1}</b>`;
+  const h2=document.getElementById('h2');const rows=MODEL.cert_issue_matrix||[];
+  if(!rows.length){ h2.innerHTML='<p class="sub">No certificate-issue plugins found in navi.db.</p>'; return; }
+  const max2=Math.max(1,...rows.map(r=>r.asset_count));const bcol=c=>c/max2>=.75?'#fb7185':c/max2>=.5?'#fbbf24':c/max2>=.25?'#3ea6ff':'#4b6178';
+  h2.innerHTML='<div class="toolbar" style="margin:0 0 10px;gap:8px;flex-wrap:wrap">'
+    +'<button class="btn sm" id="certTagSel" disabled>🏷 Tag selected cert issues (gated)</button>'
+    +'<button class="btn ghost sm" id="certSelAll">Select all</button>'
+    +'<button class="btn ghost sm" id="certSelNone">Clear</button>'
+    +'<span class="chip" id="certSelCount">0 selected</span>'
+    +'<span class="sub">tick issues, then tag <span class="tagval">Cert Issue : &lt;plugin&gt;</span> via <span class="mono">navi --plugin &lt;id&gt;</span></span></div>'
+    +'<div id="certIssueRes"></div>'
+    +rows.map(r=>{const w=Math.max(5,(r.asset_count/max2)*100);
+      return `<div class="h2row" data-p="${esc(String(r.plugin_id))}" style="display:grid;grid-template-columns:26px 1fr 50px;align-items:center;gap:8px;padding:3px 4px">`
+        +`<input type="checkbox" class="certsel" data-p="${esc(String(r.plugin_id))}" data-nm="${esc(r.plugin_name)}">`
+        +`<div class="certopen" style="cursor:pointer"><div class="h2lab">${esc(r.plugin_name)} <span class="pid">#${esc(r.plugin_id)}</span></div><div class="h2bar" style="width:${w}%;background:${bcol(r.asset_count)}">${r.asset_count}</div></div>`
+        +`<div class="h2cnt">${r.asset_count}</div></div>`;}).join('');
+  const certSync=()=>{const n=h2.querySelectorAll('.certsel:checked').length;document.getElementById('certSelCount').textContent=n+' selected';document.getElementById('certTagSel').disabled=!n;};
+  h2.querySelectorAll('.certopen').forEach(o=>o.onclick=()=>{location.href='/web/vuln.html?plugin='+encodeURIComponent(o.closest('.h2row').dataset.p);});
+  h2.querySelectorAll('.certsel').forEach(c=>c.onchange=certSync);
+  document.getElementById('certSelAll').onclick=()=>{h2.querySelectorAll('.certsel').forEach(c=>c.checked=true);certSync();};
+  document.getElementById('certSelNone').onclick=()=>{h2.querySelectorAll('.certsel').forEach(c=>c.checked=false);certSync();};
+  document.getElementById('certTagSel').onclick=applyCertIssues;
+  certSync();
+}
+function showMonth(i){
+  const b=MODEL.heatmap_months[i]; const panel=document.getElementById('monthPanel');
+  if(!b||!b.count){panel.innerHTML='';return;}
+  const assets=(b.assets||[]).slice().sort((x,y)=>(x.expiry_iso||'').localeCompare(y.expiry_iso||''));
+  const arow=a=>{const host=a.asset_uuid?`<a class="plink" href="/web/asset.html?asset=${encodeURIComponent(a.asset_uuid)}">${esc((a.hostname&&a.hostname.trim())||a.cn||'asset')}</a>`:esc(a.hostname||a.cn||'');
+    return `<tr><td class="mono">${esc((a.date||'').replace(' GMT',''))}</td><td class="mono">${esc(a.ip||'')}</td><td>${host}</td><td class="mono">${esc(a.cn||'')}</td><td><span class="tagval">${esc(a.tag||'')}</span></td></tr>`;};
+  panel.innerHTML=`<div class="mp"><div class="toolbar" style="margin:0 0 8px"><b>${esc(b.label)} — ${b.count} certificate(s) failing</b>`+
+    `<button class="btn ghost sm" id="mpClose" style="margin-left:auto">Close</button></div>`+
+    `<table><thead><tr><th>Expiry</th><th>IP</th><th>Host</th><th>Common name</th><th>Tag</th></tr></thead><tbody>${assets.map(arow).join('')}</tbody></table>`+
+    `<div id="mpPlugins" class="sub" style="margin-top:10px">Loading relevant plugins…</div></div>`;
+  document.getElementById('mpClose').onclick=()=>{panel.innerHTML='';};
+  panel.scrollIntoView({behavior:'smooth',block:'nearest'});
+  agentApi('explore').post('cert_month',{month:b.key}).then(o=>{
+    const el=document.getElementById('mpPlugins'); if(!el)return;
+    if(!o.ok||!(o.plugins||[]).length){el.innerHTML='No cert-issue plugins recorded on these assets.';return;}
+    el.innerHTML='<b style="color:var(--txt)">Relevant cert plugins:</b> '+o.plugins.map(p=>
+      `<a class="plink" href="/web/vuln.html?plugin=${encodeURIComponent(p.plugin_id)}">${esc(p.plugin_name)} #${esc(p.plugin_id)} (${p.asset_count})</a>`).join(' · ');
+  });
+}
+function renderIot(){
+  if(!MODEL)return;const tb=document.querySelector('#tbl3 tbody');const rows=MODEL.iot_app_cache.filter(c=>iotF==='all'||c.device_type===iotF);
+  tb.innerHTML=rows.map(c=>{const host=c.asset_uuid?`<a class="plink" href="/web/asset.html?asset=${encodeURIComponent(c.asset_uuid)}">${esc(c.hostname)}</a>`:esc(c.hostname);
+    return `<tr><td><span class="dtype ${c.device_type==='IoT'?'t-iot':'t-app'}">${c.device_type}</span></td><td>${esc(c.vendor)}</td><td>${esc(c.product)}</td><td class="mono">${esc(c.ip)}</td><td>${host}</td><td class="mono">${esc(c.cert_cn)}</td></tr>`;}).join('');
+  const iotN=MODEL.iot_app_cache.filter(c=>c.device_type==='IoT').length,appN=MODEL.iot_app_cache.filter(c=>c.device_type==='Application').length;
+  document.getElementById('iotkpi').innerHTML=`<div class="k"><div class="v">${iotN}</div><div class="l">IoT devices</div></div><div class="k"><div class="v">${appN}</div><div class="l">App endpoints</div></div><div class="k"><div class="v">${MODEL.iot_app_cache.length}</div><div class="l">cache entries</div></div>`;
+}
+document.querySelectorAll('#iotFilter button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#iotFilter button').forEach(x=>x.classList.remove('on'));b.classList.add('on');iotF=b.dataset.f;renderIot();});
+document.getElementById('runReason').onclick=runReason;
+document.getElementById('resetPrompt').onclick=()=>{document.getElementById('prompt').value=DEFAULT;document.getElementById('promptState').textContent='(default)';};
+document.getElementById('prompt').oninput=()=>{document.getElementById('promptState').textContent = document.getElementById('prompt').value===DEFAULT?'(default)':'(edited)';};
+document.getElementById('approveAll').onclick=()=>{if(MODEL){MODEL.tag_actions.forEach(a=>{appr[a.value]='approved';});save();renderTbl();renderQueue();}};
+document.getElementById('reset').onclick=()=>{if(MODEL){MODEL.tag_actions.forEach(a=>{if(!isApplied(a.value))delete appr[a.value];});save();renderTbl();renderQueue();}};
+mountAgentHeader({id:'certificate',icon:'🔐',name:'Certificate Agent',sub:'reasons over failing certs · editable prompt'});
+(async()=>{ await load(); await runReason();
+  const h=handoffParams();
+  if(h.focus){ if(!focusRow('#tbl1',h.focus)) flash('flash','Handoff: “'+h.focus+'” has no certificate expired or failing in the next 12 months.','warn'); }
+})();
+</script>
+</body></html>

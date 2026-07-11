@@ -1,0 +1,16 @@
+{
+  "id": "ai",
+  "name": "AI Inventory",
+  "icon": "\ud83e\udde0",
+  "order": 6,
+  "category": "Tagging",
+  "summary": "Content-first AI/ML discovery — the Tenable AI plugin family plus the software & cpes inventories, plugin output, and network endpoints. Classifies each asset by role, flags exposed/unauth endpoints, maps data-egress (shadow vs sanctioned) and MITRE ATLAS techniques, with a per-row 🔍 Why + false-positive suppression. Tag by role via navi tag-by-query (gated).",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": [
+    "run",
+    "tag",
+    "apply"
+  ],
+  "codename": "Pythia Hound"
+}

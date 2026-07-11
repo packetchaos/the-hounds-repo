@@ -1,0 +1,12 @@
+{
+  "id": "cisakev",
+  "name": "CISA KEV Tagging",
+  "icon": "🛡️",
+  "order": 12,
+  "category": "Tagging",
+  "summary": "Laelaps — tags CISA Known-Exploited Vulnerabilities off Tenable's CISA-KNOWN-EXPLOITED xref: every KEV asset (CISA KEV:Vulnerable), or by catalog date (CISA KEV:<Mon>-<DD>-<YYYY>). Plus an NL→SQL to hunt KEV in navi.db / tags.",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": ["run", "tag_vulnerable", "tag_dates", "nl"],
+  "codename": "Laelaps Hound"
+}

@@ -1,0 +1,9 @@
+# Core has no third-party deps (uses stdlib sqlite3 + subprocess).
+# Install only the server framework you intend to run.
+
+# FastAPI server
+fastapi>=0.110
+uvicorn[standard]>=0.27
+
+# Flask server
+flask>=3.0

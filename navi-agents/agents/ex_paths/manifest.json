@@ -1,0 +1,14 @@
+{
+  "id": "ex_paths",
+  "name": "Path Explorer",
+  "icon": "\ud83d\udd0e",
+  "order": 24,
+  "category": "Explore",
+  "codename": "Greyhound",
+  "summary": "Filesystem paths discovered on assets (vuln_paths) \u2014 search by path text. Read-only navi.db search via the UI.",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": [
+    "search"
+  ]
+}

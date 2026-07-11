@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Argos · Asset Deep-Dive · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>
+  .argrid{display:grid;grid-template-columns:320px 1fr;gap:16px;margin-top:14px}
+  @media(max-width:820px){.argrid{grid-template-columns:1fr}}
+  .idrow{display:flex;justify-content:space-between;gap:10px;font-size:13.5px;padding:6px 0;border-bottom:1px solid var(--line)}
+  .idrow:last-child{border-bottom:0} .idrow .k{color:var(--mut)} .idrow .v{font-weight:600;text-align:right;word-break:break-all}
+  .ring-wrap{display:flex;align-items:center;gap:18px}
+  .sevbar{display:flex;align-items:center;gap:10px;margin:7px 0}
+  .sevbar .lab{width:74px;font-size:12.5px;color:var(--mut)} .sevbar .track{flex:1;height:12px;border-radius:99px;background:var(--panel-2);overflow:hidden}
+  .sevbar .fill{height:100%;border-radius:99px} .sevbar .n{width:34px;text-align:right;font-family:var(--mono);font-size:12.5px}
+  .tagcard{border:1px solid var(--line);border-left-width:4px;border-radius:10px;padding:10px 12px;margin:0 0 9px;background:var(--panel)}
+  .tagcard .th{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .tagcard .tv{font-weight:700;font-size:14px} .tagcard .why{color:var(--ink-2);font-size:13px;margin:5px 0 0;line-height:1.45}
+  .houndchip{font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;padding:2px 8px;border-radius:99px;border:1px solid var(--line);color:var(--amber);white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
+  .houndchip img{width:15px;height:15px;border-radius:4px;object-fit:cover}
+  .cvechip{display:inline-block;font-family:var(--mono);font-size:11.5px;background:var(--panel-2);border:1px solid var(--line);border-radius:6px;padding:2px 7px;margin:0 5px 5px 0}
+  .swchip{display:inline-block;font-size:12px;background:var(--panel-2);border:1px solid var(--line);border-radius:99px;padding:3px 9px;margin:0 5px 5px 0}
+  .swchip b{color:var(--ink)} .swchip .ver{color:var(--mut);font-family:var(--mono);font-size:11px;margin-left:4px}
+  .pill{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;border-radius:99px;padding:4px 11px;border:1px solid var(--line)}
+  #liveOut{white-space:pre-wrap;font-family:var(--mono);font-size:12px;line-height:1.45;background:var(--bg-2);border:1px solid var(--line);border-radius:9px;padding:12px;max-height:420px;overflow:auto}
+  #vulnTbl{table-layout:fixed;width:100%}#vulnTbl th,#vulnTbl td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+</style>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+
+  <section class="card">
+    <div class="toolbar"><div><h2 style="margin:0">🔦 Asset Deep-Dive</h2>
+      <p class="sub" style="margin:2px 0 0">Argos recognizes one asset by <b>UUID</b> or <b>IP</b> and tells its whole story — risk band, the pack's tags <b>deciphered</b>, top CVEs, software and certs. Reads <span class="mono">navi.db</span>; the live <span class="mono">navi explore uuid</span> views run on demand.</p></div></div>
+    <div class="toolbar" style="margin-top:10px">
+      <input id="target" class="fld" style="flex:1;min-width:280px;padding:9px 12px;border-radius:8px;border:1px solid var(--accent);background:var(--bg-2);color:var(--ink)" placeholder="Asset UUID  (e.g. 6f2c…-9a1b)  or  IP  (e.g. 10.4.22.15)">
+      <button class="btn run sm" id="goBtn">🔦 Look up</button>
+    </div>
+    <div id="flash" class="flash"></div>
+  </section>
+
+  <div id="result" style="display:none">
+    <div class="argrid">
+      <!-- identity + risk left column -->
+      <div>
+        <section class="card" id="idCard">
+          <h2 style="margin:0 0 8px;font-size:15px">🖥 Asset</h2>
+          <div id="idBody"></div>
+        </section>
+        <section class="card" id="hostCard" style="margin-top:16px">
+          <h2 style="margin:0 0 8px;font-size:15px">🖥 Host profile &amp; scan health</h2>
+          <div id="hostBody"></div>
+        </section>
+        <section class="card" id="riskCard" style="margin-top:16px">
+          <h2 style="margin:0 0 10px;font-size:15px">⚠ Risk</h2>
+          <div class="ring-wrap"><div id="ring"></div>
+            <div id="riskMeta" style="flex:1"></div></div>
+          <div id="sevBars" style="margin-top:12px"></div>
+        </section>
+        <section class="card" id="swCard" style="margin-top:16px">
+          <div class="toolbar" style="margin:0"><h2 style="margin:0;font-size:15px">📦 Software</h2><span class="chip" id="swCount" style="margin-left:auto"></span></div>
+          <div id="swBody" style="margin-top:8px"></div>
+        </section>
+        <section class="card" id="certCard" style="margin-top:16px">
+          <div class="toolbar" style="margin:0"><h2 style="margin:0;font-size:15px">🔐 Certificates</h2><span class="chip" id="certCount" style="margin-left:auto"></span></div>
+          <div id="certBody" style="margin-top:8px"></div>
+        </section>
+      </div>
+      <!-- pack intelligence right column -->
+      <div>
+        <section class="card" id="tagCard">
+          <div class="toolbar" style="margin:0"><h2 style="margin:0;font-size:15px">🐾 What the pack knows</h2>
+            <span class="chip" id="tagCount" style="margin-left:auto"></span></div>
+          <p class="sub" style="margin:4px 0 10px">Every tag on this asset, deciphered — what it means and which Hound raised it. Ranked by how much it matters.</p>
+          <div id="tagBody"></div>
+        </section>
+
+        <section class="card" id="cveCard" style="margin-top:16px">
+          <div class="toolbar" style="margin:0"><h2 style="margin:0;font-size:15px">🧬 CVEs</h2><span class="chip" id="cveCount" style="margin-left:auto"></span></div>
+          <div id="cveBody" style="margin-top:8px"></div>
+        </section>
+
+        <section class="card" id="vulnCard" style="margin-top:16px">
+          <div class="toolbar" style="margin:0"><h2 style="margin:0;font-size:15px">🔒 Top findings</h2><span class="chip" id="vulnCount" style="margin-left:auto"></span></div>
+          <div style="margin-top:8px"><table id="vulnTbl"><colgroup><col style="width:62px"><col style="width:74px"><col><col style="width:50px"><col style="width:120px"></colgroup><thead><tr><th>Sev</th><th>Plugin</th><th>Name</th><th>VPR</th><th>Family</th></tr></thead><tbody></tbody></table></div>
+        </section>
+
+        <section class="card" id="liveCard" style="margin-top:16px">
+          <div class="toolbar" style="margin:0"><h2 style="margin:0;font-size:15px">🛰 Live · navi explore uuid</h2></div>
+          <p class="sub" style="margin:4px 0 8px">Flag-driven per-asset views, straight from the navi CLI (needs navi on the server). Base lookup plus the workhorse views.</p>
+          <div class="toolbar" style="margin:0;flex-wrap:wrap;gap:6px">
+            <button class="btn ghost sm live" data-view="">📋 Base</button>
+            <button class="btn ghost sm live" data-view="-software">📦 -software</button>
+            <button class="btn ghost sm live" data-view="-patches">🩹 -patches</button>
+            <button class="btn ghost sm live" data-view="-details">🔎 -details</button>
+            <button class="btn ghost sm live" data-view="-cves">🧬 -cves</button>
+          </div>
+          <div id="liveOut" style="display:none;margin-top:10px"></div>
+        </section>
+      </div>
+    </div>
+  </div>
+  <footer>Argos · asset deep-dive · reads navi.db read-only · live views via navi explore uuid</footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('argos');
+let CUR=null;
+const SEV_COLOR={critical:'#f43f5e',high:'#fb923c',medium:'#fbbf24',low:'#6ea8ff',info:'#8a99ad'};
+const BAND_COLOR={critical:'#f43f5e',high:'#fb923c',medium:'#fbbf24',low:'#6ea8ff',info:'#8a99ad',good:'#34d399',clear:'#34d399'};
+function crestFor(agent){ return agent?`<img src="/static/crests/${agent}.png?v=2" onerror="this.style.display='none'">`:''; }
+
+function ring(score,band){
+  const c=BAND_COLOR[band]||'#8a99ad', r=52, C=2*Math.PI*r, off=C*(1-Math.max(0,Math.min(100,score))/100);
+  return `<svg width="130" height="130" viewBox="0 0 130 130">
+    <circle cx="65" cy="65" r="${r}" fill="none" stroke="var(--panel-2)" stroke-width="13"/>
+    <circle cx="65" cy="65" r="${r}" fill="none" stroke="${c}" stroke-width="13" stroke-linecap="round"
+      stroke-dasharray="${C}" stroke-dashoffset="${off}" transform="rotate(-90 65 65)"/>
+    <text x="65" y="60" text-anchor="middle" font-size="30" font-weight="800" fill="var(--ink)">${score}</text>
+    <text x="65" y="82" text-anchor="middle" font-size="12" fill="${c}" font-weight="700" style="text-transform:uppercase;letter-spacing:.08em">${esc(band)}</text>
+  </svg>`;
+}
+function sevBars(sev){
+  const max=Math.max(1,...Object.values(sev));
+  return ['critical','high','medium','low','info'].map(k=>{
+    const n=sev[k]||0, w=Math.round(n/max*100);
+    return `<div class="sevbar"><span class="lab">${k}</span><span class="track"><span class="fill" style="width:${w}%;background:${SEV_COLOR[k]}"></span></span><span class="n">${n}</span></div>`;
+  }).join('');
+}
+function idRow(k,v){ return v?`<div class="idrow"><span class="k">${esc(k)}</span><span class="v">${v}</span></div>`:''; }
+
+function render(d){
+  CUR=d;
+  const a=d.asset||{}, R=d.risk||{};
+  // identity
+  const url=a.url?`<a href="${esc(a.url)}" target="_blank" class="chip" style="text-decoration:none">Tenable ↗</a>`:'';
+  document.getElementById('idBody').innerHTML=
+    idRow('Hostname', esc(a.hostname||'—'))+idRow('IP', esc(a.ip_address||'—'))+
+    idRow('OS', esc(a.operating_system||'—'))+idRow('Network', esc(a.network||'—'))+
+    idRow('ACR', (R.acr!=null?('<b>'+esc(R.acr)+'</b>'):'—'))+
+    (R.aes!=null?idRow('AES', esc(R.aes)):'')+
+    idRow('UUID', '<span class="mono" style="font-size:11px">'+esc(a.uuid||'—')+'</span>')+
+    (url?`<div style="margin-top:8px">${url}</div>`:'');
+  // host profile & scan health
+  const H=d.host||{}, hc=document.getElementById('hostCard'), hb=document.getElementById('hostBody');
+  if(hb){ if(!H.has_data){ if(hc)hc.style.display='none'; }
+    else { if(hc)hc.style.display='';
+      const auth=H.authenticated?(esc(H.last_auth_scan||'—')+' <span style="color:#34d399">✓</span>'):'<span style="color:var(--crit)">never</span>';
+      const dur=(H.last_scan_dur_min!=null)?(H.last_scan_dur_min+' min'+(H.last_scan_name?(' <span class="sub">· '+esc(H.last_scan_name)+'</span>'):'')):'—';
+      hb.innerHTML=idRow('CPU',esc(H.cpu||''))+idRow('RAM',esc(H.ram||''))+(H.arch?idRow('Arch',esc(H.arch)):'')
+        +idRow('Last auth scan',auth)+idRow('Last duration',dur)
+        +(H.scan_count>1?('<div class="sub" style="margin-top:6px">'+H.scan_count+' scan records on file</div>'):''); } }
+  // risk
+  document.getElementById('ring').innerHTML=ring(R.score||0, R.band||'clear');
+  document.getElementById('riskMeta').innerHTML=
+    `<div style="display:flex;gap:6px;flex-wrap:wrap">`+
+    (R.kev?`<span class="pill" style="color:#f43f5e;border-color:rgba(244,63,94,.5);background:rgba(244,63,94,.12)">🔥 CISA KEV</span>`:'')+
+    (R.exploitable?`<span class="pill" style="color:#fb923c;border-color:rgba(251,146,60,.5);background:rgba(251,146,60,.12)">💥 ${R.exploitable} exploitable</span>`:'')+
+    `<span class="pill">${R.total_vulns||0} findings</span>`+
+    `<span class="pill">${R.cve_count||0} CVEs</span></div>`+
+    `<p class="sub" style="margin:8px 0 0">Score blends severity mix, KEV / exploitable findings, and the pack's tag intelligence into one 0–100 read.</p>`;
+  document.getElementById('sevBars').innerHTML=sevBars(R.severity||{});
+  // tags
+  const tags=d.tags||[]; document.getElementById('tagCount').textContent=tags.length+' tag'+(tags.length==1?'':'s');
+  document.getElementById('tagBody').innerHTML= tags.length? ('<div style="max-height:460px;overflow:auto;padding-right:4px">'+tags.map(t=>{
+    const c=BAND_COLOR[t.band]||'#8a99ad';
+    const hound=t.hound?`<span class="houndchip" title="raised by ${esc(t.hound)}">${crestFor(t.agent)}${esc(t.hound)}</span>`:'';
+    const open=t.agent?`<a class="chip" href="/agents/${esc(t.agent)}/page.html" style="text-decoration:none;font-size:11px">open →</a>`:'';
+    return `<div class="tagcard" style="border-left-color:${c}">
+      <div class="th"><span class="tv">${esc(t.category||'')} : ${esc(t.value||'')}</span>${hound}<span style="margin-left:auto">${open}</span></div>
+      <p class="why">${esc(t.why||'')}</p></div>`;
+  }).join('')+'</div>') : '<p class="sub">No tags on this asset yet — none of the pack has flagged it.</p>';
+  // cves
+  const cves=d.top_cves||[]; document.getElementById('cveCount').textContent=(d.risk&&d.risk.cve_count||0)+' total';
+  document.getElementById('cveBody').innerHTML= cves.length? cves.map(c=>`<span class="cvechip">${esc(c)}</span>`).join('')+((d.risk.cve_count>cves.length)?`<span class="sub"> +${d.risk.cve_count-cves.length} more</span>`:'') : '<p class="sub">No CVEs recorded for this asset.</p>';
+  // vulns
+  const vs=d.top_vulns||[]; document.getElementById('vulnCount').textContent=(d.counts&&d.counts.vulns||0)+' findings';
+  document.querySelector('#vulnTbl tbody').innerHTML= vs.length? vs.map(v=>{
+    const c=SEV_COLOR[v.severity]||'#8a99ad';
+    const pid=v.plugin_id!=null?String(v.plugin_id):'';
+    return `<tr><td><span class="pill" style="padding:1px 8px;color:${c};border-color:${c}66">${esc(v.severity||'—')}</span></td>
+      <td class="mono">${pid?`<a class="mono" style="cursor:pointer;text-decoration:underline;color:var(--accent)" onclick="pluginOut('${esc(pid)}','${esc(v.plugin_name||'')}')" title="Show this plugin's output on this asset (navi explore uuid --plugin ${esc(pid)})">${esc(pid)}</a>`:'—'}</td>
+      <td title="${esc(v.plugin_name||'')}">${pid?`<a style="cursor:pointer;color:var(--ink)" onclick="pluginOut('${esc(pid)}','${esc(v.plugin_name||'')}')">${esc(v.plugin_name||'—')}</a>`:esc(v.plugin_name||'—')}</td><td class="mono">${v.vpr!=null&&v.vpr!==''?esc(v.vpr):'—'}</td>
+      <td class="sub">${esc(v.family||'—')}</td></tr>`;
+  }).join('') : '<tr><td colspan="5" class="sub">No findings.</td></tr>';
+  // software
+  const sw=d.software||[]; document.getElementById('swCount').textContent=sw.length;
+  document.getElementById('swBody').innerHTML= sw.length? sw.slice(0,120).map(s=>`<span class="swchip"><b>${esc(s.name)}</b>${s.version?`<span class="ver">${esc(s.version)}</span>`:''}</span>`).join('')+(sw.length>120?`<span class="sub"> +${sw.length-120} more</span>`:'') : '<p class="sub">No software inventory for this asset.</p>';
+  // certs
+  const cs=d.certs||[]; document.getElementById('certCount').textContent=cs.length;
+  document.getElementById('certBody').innerHTML= cs.length? cs.map(c=>{
+    const weak=c.weak?` <span class="pill" style="padding:1px 7px;color:#fb923c;border-color:rgba(251,146,60,.5)">weak</span>`:'';
+    return `<div style="padding:6px 0;border-bottom:1px solid var(--line)"><b>${esc(c.common_name||'(no CN)')}</b>${weak}<br><span class="sub mono" style="font-size:11.5px">exp ${esc(c.expiry_iso||c.not_valid_after||'?')} · ${esc(c.signature_algorithm||'')} ${c.key_length?('· '+esc(c.key_length)+'-bit'):''}</span></div>`;
+  }).join('') : '<p class="sub">No certificates on this asset.</p>';
+  document.getElementById('result').style.display='';
+  document.getElementById('result').scrollIntoView({behavior:'smooth',block:'start'});
+}
+
+async function lookup(){
+  const t=(document.getElementById('target').value||'').trim();
+  if(!t){ flash('flash','Enter a UUID or IP first.','warn'); return; }
+  flash('flash','<span class="spin"></span> recognizing '+esc(t)+' across navi.db…','run');
+  let o; try{ o=await API.post('lookup',{target:t}); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o||!o.ok){ flash('flash','✗ '+esc((o&&o.error)||'lookup failed'),'crit'); return; }
+  if(!o.found){ flash('flash','⚠ '+esc(o.message||'no match'),'warn'); document.getElementById('result').style.display='none'; return; }
+  flashClear('flash'); render(o);
+}
+async function runLive(view,btn){
+  const t=(CUR&&CUR.asset&&CUR.asset.uuid)||(document.getElementById('target').value||'').trim();
+  const box=document.getElementById('liveOut'); box.style.display='block'; box.textContent='running navi explore uuid '+(view||'')+' …';
+  let o; try{ o=await API.post('live',{target:t,view:view}); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o||o.ok===false){ box.textContent='✗ '+((o&&(o.error||o.message))||'failed')+(o&&o.stderr?('\n'+o.stderr):''); return; }
+  box.textContent=(o.cmd?('$ '+o.cmd+'\n\n'):'')+(o.stdout||'(no output)');
+}
+/* Click a plugin ID/name in Top findings → show that plugin's output on THIS asset
+   (navi explore uuid <target> --plugin <id>). */
+async function pluginOut(id,name){
+  const lc=document.getElementById('liveCard'); lc.scrollIntoView({behavior:'smooth',block:'start'});
+  const box=document.getElementById('liveOut'); box.style.display='block';
+  box.textContent='fetching output for plugin '+id+(name?(' — '+name):'')+' on this asset…';
+  await runLive('--plugin '+id);
+}
+document.getElementById('goBtn').onclick=lookup;
+document.getElementById('target').addEventListener('keydown',e=>{ if(e.key==='Enter') lookup(); });
+document.querySelectorAll('.live').forEach(b=>b.onclick=()=>runLive(b.dataset.view,b));
+mountAgentHeader({id:'argos',icon:'🔦',name:'Asset Deep-Dive',sub:'Argos · one asset, the whole story'});
+// deep-link: ?target=<uuid|ip> auto-runs
+(function(){ const q=new URLSearchParams(location.search).get('target'); if(q){ document.getElementById('target').value=q; lookup(); } })();
+</script>
+</body></html>

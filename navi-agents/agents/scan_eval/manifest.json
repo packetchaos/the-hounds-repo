@@ -1,0 +1,15 @@
+{
+  "id": "scan_eval",
+  "name": "Scan Evaluations",
+  "icon": "\ud83d\udcc8",
+  "order": 8,
+  "category": "Scanning",
+  "summary": "Reproduces navi scan evaluate (avg scan time by scanner / policy / scan, from plugin 19506) cleaned and interactive, plus credential-failure coverage (plugin 104410). Tag problematic scanners, policies, scans, and credential failures via navi.",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": [
+    "run",
+    "tag"
+  ],
+  "codename": "Chronos Hound"
+}

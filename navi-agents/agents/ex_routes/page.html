@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Route Explorer · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>.plink{color:var(--accent);text-decoration:none;font-weight:600}.plink:hover{text-decoration:underline}
+#tbl{table-layout:fixed;width:100%}#tbl th,#tbl td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}#tbl td:first-child{white-space:normal;word-break:break-word}</style>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+  <section class="card">
+    <h2 style="margin:0">🔎 Route Explorer</h2>
+    <p class="sub" style="margin:2px 0 8px">Application routes from navi.db (vuln_route) — search by app name or type. 500 rows/page. <b>Tag</b> applies <span class="tagval">Route : &lt;name&gt;</span> to every asset on that route (navi <span class="mono">tag --route_id</span>, gated).</p>
+    <div class="toolbar needs-llm"><input id="nlq" placeholder="Ask in plain English → SQL on the vuln_route table…" style="flex:1;min-width:240px;padding:9px;border-radius:8px;border:1px solid var(--accent);background:var(--bg-2);color:var(--ink)"><button class="btn sm" id="nlgo">✨ Ask (NL→SQL)</button></div>
+    <div id="nlout" class="needs-llm"></div>
+    <div class="toolbar"><input id="q" placeholder="app name / vuln type…" style="flex:1;min-width:220px;padding:9px;border-radius:8px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink)"><button class="btn run sm" id="go">▶ Search</button><span class="chip" id="count"></span></div>
+    <div id="flash" class="flash"></div>
+    <table id="tbl" style="table-layout:fixed;width:100%"><colgroup><col style="width:200px"><col style="width:110px"><col style="width:90px"><col><col style="width:64px"></colgroup><thead><tr><th>App / route</th><th>Type</th><th>Total vulns</th><th>Plugins</th><th></th></tr></thead><tbody><tr><td colspan="5" class="sub">Search to load…</td></tr></tbody></table>
+    <div class="toolbar" id="pager"></div>
+    <div id="tagRes"></div>
+  </section>
+  <footer>Route Explorer · read-only navi.db search · gated navi tag --route_id</footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('ex_routes'); const PAGE=500; let ROWS=[];
+async function go(off){ off=off||0;
+  document.getElementById('go').disabled=true; flash('flash','<span class="spin"></span> querying navi.db…','run');
+  let o; try{ o=await API.post('search',{q:document.getElementById('q').value.trim(),offset:off}); }catch(e){ o={ok:false,error:e.message}; }
+  document.getElementById('go').disabled=false;
+  if(!o.ok){ flash('flash','✗ '+(o.error||'failed'),'crit'); return; }
+  flashClear('flash'); const res=o.result||{}; ROWS=res.rows||[];
+  document.getElementById('count').textContent=ROWS.length+' shown';
+  document.querySelector('#tbl tbody').innerHTML=ROWS.length?ROWS.map((r,i)=>{
+    const pl=String(r.plugin_list||''); const items=pl.split(/[,\s]+/).filter(Boolean);
+    const SHOWN=6; const plShort=items.slice(0,SHOWN).join(', ')+(items.length>SHOWN?(' … +'+(items.length-SHOWN)+' more'):'');
+    return `<tr><td><b>${esc(r.app_name||'')}</b></td><td>${esc(r.vuln_type||'')}</td><td>${esc(String(r.total_vulns||''))}</td><td class="mono" style="font-size:11px;color:var(--mut)" title="${esc(pl)}">${esc(plShort)}</td><td><button class="btn sm" data-i="${i}" ${r.route_id==null?'disabled':''}>Tag</button></td></tr>`;
+  }).join(''):'<tr><td colspan="5" class="sub">No matches.</td></tr>';
+  document.querySelectorAll('#tbl button[data-i]').forEach(b=>b.onclick=()=>tagRoute(ROWS[+b.dataset.i]));
+  const pg=document.getElementById('pager'); const page=res.page||1;
+  pg.innerHTML='<button class="btn ghost sm" '+(off<=0?'disabled':'')+' id="pp">◀ Prev</button><span class="chip">page '+page+' · rows '+(ROWS.length?off+1:0)+'–'+(off+ROWS.length)+'</span><button class="btn ghost sm" '+(res.has_next?'':'disabled')+' id="pn">Next ▶</button>';
+  const pp=document.getElementById('pp'); if(pp)pp.onclick=()=>go(Math.max(0,off-PAGE));
+  const pn=document.getElementById('pn'); if(pn)pn.onclick=()=>go(off+PAGE);
+}
+async function tagRoute(r){
+  if(r.route_id==null)return;
+  const value=prompt('Tag value for route "'+(r.app_name||'')+'" (editable):',r.app_name||'route'); if(value===null)return;
+  const res=document.getElementById('tagRes'); res.innerHTML='<div class="callbox"><span class="spin"></span> tagging via navi tag --route_id…</div>';
+  let o; try{ o=await API.post('tag',{route_id:r.route_id,value:value.trim()||r.app_name,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o.ok){ res.innerHTML='<div class="callbox" style="color:#ffb4c6">✗ '+(o.error||'failed')+'</div>'; return; }
+  const rr=o.result||{}; const okk=rr.ok||/job_uuid|not subscriptable/.test(JSON.stringify(rr));
+  res.innerHTML='<div class="callbox" style="color:'+(okk?'#7ee2a8':'#ffb4c6')+'">'+(okk?('Tagged Route : '+esc(value)+'.'+(o.writes_enabled?' Allow ~30 min for Tenable.':' (gated — set NAVI_ALLOW_WRITES=1 and put navi on PATH)')):('✗ '+(rr.message||'tag failed')))+'</div>';
+}
+document.getElementById('go').onclick=()=>go(0);
+document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter')go(0);});
+mountAgentHeader({icon:'🔎',name:'Route Explorer',sub:'navi.db search · 500/page · tag by route'});
+wireNlBox('vuln_route');
+</script>
+</body></html>

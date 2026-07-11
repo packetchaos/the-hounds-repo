@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>EOL / Unsupported Tagging · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+  <section class="card">
+    <div class="toolbar"><div><h2 style="margin:0">EOL / Unsupported software tagging</h2>
+      <p class="sub" style="margin:2px 0 0">Finds <b>Unsupported</b> and <b>End-of-Life</b> software from lifecycle text in plugin names and tags the affected assets via navi <span class="mono">tag --name</span>. Expands automatically as new EOL plugins appear.</p></div>
+      <button class="btn run sm" id="run" style="margin-left:auto">▶ Scan</button></div>
+    <div id="flash" class="flash"></div>
+    <div class="kpi" id="kpi"></div>
+  </section>
+  <div id="groups"></div>
+  <footer>EOL / Unsupported Agent · gated <span class="mono">navi enrich tag --name</span></footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('eol');
+let RES=null, appr={}; const save=()=>{};   /* NO cache — applied is confirmed only by navi.db tags; appr holds only the in-session "approved" selection */
+let excl=JSON.parse(localStorage.getItem('eolExcl')||'{}'); const saveExcl=()=>localStorage.setItem('eolExcl',JSON.stringify(excl)); const isExcl=p=>!!excl[String(p)];
+async function run(){
+  document.getElementById('run').disabled=true; flash('flash','<span class="spin"></span> scanning navi.db for lifecycle plugins…','run');
+  let o; try{ o=await API.post('run'); }catch(e){ o={ok:false,error:e.message}; }
+  document.getElementById('run').disabled=false;
+  if(!o.ok){ flash('flash','✗ '+(o.error||'failed'),'crit'); return; }
+  RES=o.result; flashClear('flash'); await loadAppliedTags(); render();
+}
+function render(){
+  if(!RES)return; const gs=RES.groups||[];
+  document.getElementById('kpi').innerHTML=gs.map(g=>`<div class="k"><div class="v">${g.asset_count}</div><div class="l">${esc(g.label)} assets</div></div>`).join('')||'<div class="sub">No lifecycle plugins found.</div>';
+  document.getElementById('groups').innerHTML=gs.map((g,i)=>{
+    const B=tagBadge('Lifecycle',g.label,appr[g.label]);const bc=B.cls;const bl=B.label;
+    return `<section class="card"><div class="toolbar"><div><h2 style="margin:0">${esc(g.label)} <span class="badge ${bc}">${bl}</span></h2>
+      <p class="sub" style="margin:2px 0 0">${g.asset_count} asset(s) · ${g.plugins.length} plugin(s) · matches plugin name: ${g.patterns.map(p=>`<span class="tagval">${esc(p)}</span>`).join(' ')}</p></div>
+      <button class="btn sm" data-g="${i}" style="margin-left:auto"${B.done?' disabled':''}>${B.done?'Applied ✔':(appr[g.label]==='approved'?'Un-approve':'Approve')}</button></div>
+      <table><thead><tr><th>Plugin</th><th>Name</th><th>Assets</th><th>Include?</th></tr></thead><tbody>${
+        g.plugins.length?g.plugins.slice(0,200).map(p=>{const ex=isExcl(p.plugin_id);return `<tr style="${ex?'opacity:.5':''}"><td class="mono">${esc(String(p.plugin_id))}</td><td style="${ex?'text-decoration:line-through':''}">${esc(p.plugin_name)}</td><td>${p.assets}</td><td><label style="cursor:pointer;font-size:11.5px"><input type="checkbox" class="ex" data-pid="${esc(String(p.plugin_id))}" ${ex?'':'checked'}> ${ex?'opted out':'tag'}</label></td></tr>`;}).join(''):'<tr><td colspan="4" class="sub">No matching plugins.</td></tr>'
+      }</tbody></table></section>`;
+  }).join('');
+  document.querySelectorAll('#groups button[data-g]').forEach(b=>b.onclick=()=>{const g=gs[+b.dataset.g];appr[g.label]=appr[g.label]==='approved'?'pending':'approved';save();render();});
+  document.querySelectorAll('#groups .ex').forEach(c=>c.onchange=()=>{const pid=String(c.dataset.pid);if(c.checked)delete excl[pid];else excl[pid]=true;saveExcl();render();});
+  // apply bar
+  const n=gs.filter(g=>appr[g.label]==='approved').length;
+  if(!document.getElementById('eolApplyBar')){ const bar=document.createElement('div'); bar.id='eolApplyBar'; bar.className='card';
+    bar.innerHTML='<div class="toolbar"><b style="font-size:12.5px">Tag approved groups (gated)</b><button class="btn run sm" id="eolApply" style="margin-left:auto">▶ Apply tags</button><span class="chip" id="eolCount"></span></div><div id="eolRes"></div>';
+    document.getElementById('groups').appendChild(bar); document.getElementById('eolApply').onclick=applyTags; }
+  document.getElementById('eolCount').textContent=`${n} group(s) approved`;
+  document.getElementById('eolApply').disabled=!n;
+}
+async function applyTags(){
+  const gs=(RES.groups||[]).filter(g=>appr[g.label]==='approved'); if(!gs.length)return;
+  const res=document.getElementById('eolRes'); res.innerHTML='<div class="callbox"><span class="spin"></span> applying via navi tag --name…</div>';
+  const o=await API.post('apply',{confirm:true,apply_groups:gs.map(g=>({category:g.category,value:g.label,patterns:g.patterns,exclude:(g.plugins||[]).map(p=>String(p.plugin_id)).filter(isExcl)}))});
+  if(!o.ok){res.innerHTML='<div class="callbox" style="color:#ffb4c6">✗ '+(o.error||'failed')+'</div>';return;}
+  gs.forEach(g=>{delete appr[g.label];});   // no cache — re-confirm from navi.db
+  await loadAppliedTags();
+  res.innerHTML='<div class="callbox" style="color:'+(o.applied?'#7ee2a8':'#ffb4c6')+'">Submitted '+o.applied+'/'+o.total+' tag write(s).'+(o.writes_enabled?' Confirms here once navi.db shows it (it reads the tags table) — allow ~30 min + a sync.':' (gated — set NAVI_ALLOW_WRITES=1 and put navi on PATH)')+'</div>';
+  render();
+}
+document.getElementById('run').onclick=run;
+mountAgentHeader({icon:'⏏️',name:'EOL / Unsupported Tagging',sub:'navi tag-by-plugin-name · lifecycle risk'});
+/* no auto-run — user clicks ▶ Scan (protects a busy navi.db) */
+</script>
+</body></html>

@@ -1,0 +1,14 @@
+{
+  "id": "ex_routes",
+  "name": "Route Explorer",
+  "icon": "\ud83d\udd0e",
+  "order": 23,
+  "category": "Explore",
+  "codename": "Wolfhound",
+  "summary": "Application routes from navi.db (vuln_route) \u2014 search by app name or type. Read-only navi.db search via the UI.",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": [
+    "search"
+  ]
+}

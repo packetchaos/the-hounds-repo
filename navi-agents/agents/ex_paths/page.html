@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Path Explorer · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>.plink{color:var(--accent);text-decoration:none;font-weight:600}.plink:hover{text-decoration:underline}
+#tbl{table-layout:fixed;width:100%}#tbl th,#tbl td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}</style>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+  <section class="card">
+    <h2 style="margin:0">🔎 Path Explorer</h2>
+    <p class="sub" style="margin:2px 0 8px">Filesystem paths discovered on assets (vuln_paths) — search by path text. 500 rows/page. <b>Tag</b> applies <span class="tagval">Path : &lt;name&gt;</span> to every asset carrying that exact path (navi <span class="mono">tag --query</span>, gated).</p>
+    <div class="toolbar needs-llm"><input id="nlq" placeholder="Ask in plain English → SQL on the vuln_paths table…" style="flex:1;min-width:240px;padding:9px;border-radius:8px;border:1px solid var(--accent);background:var(--bg-2);color:var(--ink)"><button class="btn sm" id="nlgo">✨ Ask (NL→SQL)</button></div>
+    <div id="nlout" class="needs-llm"></div>
+    <div class="toolbar"><input id="q" placeholder="path contains… (e.g. /opt, nginx, .db)" style="flex:1;min-width:220px;padding:9px;border-radius:8px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink)"><button class="btn run sm" id="go">▶ Search</button><span class="chip" id="count"></span></div>
+    <div id="flash" class="flash"></div>
+    <table id="tbl" style="table-layout:fixed;width:100%"><colgroup><col><col style="width:70px"><col style="width:150px"><col style="width:116px"><col style="width:52px"></colgroup><thead><tr><th>Path</th><th>Plugin</th><th>Host</th><th>IP</th><th></th></tr></thead><tbody><tr><td colspan="5" class="sub">Search to load…</td></tr></tbody></table>
+    <div class="toolbar" id="pager"></div>
+    <div id="tagRes"></div>
+  </section>
+  <footer>Path Explorer · read-only navi.db search · gated navi tag --query</footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('ex_paths'); const PAGE=500; let ROWS=[];
+async function go(off){ off=off||0;
+  document.getElementById('go').disabled=true; flash('flash','<span class="spin"></span> querying navi.db…','run');
+  let o; try{ o=await API.post('search',{q:document.getElementById('q').value.trim(),offset:off}); }catch(e){ o={ok:false,error:e.message}; }
+  document.getElementById('go').disabled=false;
+  if(!o.ok){ flash('flash','✗ '+(o.error||'failed'),'crit'); return; }
+  flashClear('flash'); const res=o.result||{}; ROWS=res.rows||[];
+  document.getElementById('count').textContent=ROWS.length+' shown';
+  document.querySelector('#tbl tbody').innerHTML=ROWS.length?ROWS.map((r,i)=>{
+    const pth=String(r.path||''); const pthShort=pth.length>46?('…'+pth.slice(-45)):pth;
+    return `<tr><td class="mono" style="font-size:11px" title="${esc(pth)}">${esc(pthShort)}</td><td><a class="plink" href="/web/vuln.html?plugin=${encodeURIComponent(r.plugin_id)}">${esc(String(r.plugin_id))}</a></td><td><a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(r.asset_uuid)}">${esc((r.hostname||'').trim()||'(none)')}</a></td><td class="mono">${esc(r.ip_address||'')}</td><td><button class="btn sm" data-i="${i}">Tag</button></td></tr>`;
+  }).join(''):'<tr><td colspan="5" class="sub">No matches.</td></tr>';
+  document.querySelectorAll('#tbl button[data-i]').forEach(b=>b.onclick=()=>tagPath(ROWS[+b.dataset.i]));
+  const pg=document.getElementById('pager'); const page=res.page||1;
+  pg.innerHTML='<button class="btn ghost sm" '+(off<=0?'disabled':'')+' id="pp">◀ Prev</button><span class="chip">page '+page+' · rows '+(ROWS.length?off+1:0)+'–'+(off+ROWS.length)+'</span><button class="btn ghost sm" '+(res.has_next?'':'disabled')+' id="pn">Next ▶</button>';
+  const pp=document.getElementById('pp'); if(pp)pp.onclick=()=>go(Math.max(0,off-PAGE));
+  const pn=document.getElementById('pn'); if(pn)pn.onclick=()=>go(off+PAGE);
+}
+async function tagPath(r){
+  const base=String(r.path||'').split('/').filter(Boolean).pop()||'path';
+  const value=prompt('Tag value for assets with path '+(r.path||'')+' (editable):',base); if(value===null)return;
+  const res=document.getElementById('tagRes'); res.innerHTML='<div class="callbox"><span class="spin"></span> tagging via navi tag --query…</div>';
+  let o; try{ o=await API.post('tag',{path:r.path,value:value.trim()||base,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o.ok){ res.innerHTML='<div class="callbox" style="color:#ffb4c6">✗ '+(o.error||'failed')+'</div>'; return; }
+  const rr=o.result||{}; const okk=rr.ok||/job_uuid|not subscriptable/.test(JSON.stringify(rr));
+  res.innerHTML='<div class="callbox" style="color:'+(okk?'#7ee2a8':'#ffb4c6')+'">'+(okk?('Tagged Path : '+esc(value)+'.'+(o.writes_enabled?' Allow ~30 min for Tenable.':' (gated — set NAVI_ALLOW_WRITES=1 and put navi on PATH)')):('✗ '+(rr.message||'tag failed')))+'</div>';
+}
+document.getElementById('go').onclick=()=>go(0);
+document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter')go(0);});
+mountAgentHeader({icon:'🔎',name:'Path Explorer',sub:'navi.db search · 500/page · tag by path'});
+wireNlBox('vuln_paths');
+</script>
+</body></html>

@@ -1,0 +1,13 @@
+{
+  "id": "_template",
+  "name": "Template Agent",
+  "icon": "🧩",
+  "order": 999,
+  "category": "Example",
+  "codename": "Template",
+  "summary": "Copy this folder to agents/<your-id> to start a new agent. Read-only demo that counts assets.",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": ["run"],
+  "hidden": true
+}

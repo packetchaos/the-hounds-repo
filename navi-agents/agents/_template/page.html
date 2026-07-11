@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Template Agent · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+  <section class="card">
+    <div class="toolbar"><div><h2 style="margin:0">🧩 Template Agent</h2>
+      <p class="sub" style="margin:2px 0 0">Copy <span class="mono">agents/_template</span> to <span class="mono">agents/&lt;your-id&gt;</span> and build from here. This demo just counts assets.</p></div>
+      <button class="btn run sm" id="go" style="margin-left:auto">▶ Run</button></div>
+    <div id="flash" class="flash"></div>
+    <div id="out" style="margin-top:10px"></div>
+  </section>
+  <footer>Template · read-only example agent</footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('_template');
+document.getElementById('go').onclick=async()=>{
+  flash('flash','<span class="spin"></span> running…','run');
+  let o; try{ o=await API.post('run'); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o.ok){ flash('flash','✗ '+esc(o.error||'failed'),'crit'); return; }
+  flashClear('flash');
+  const r=o.result||{};
+  document.getElementById('out').innerHTML='<div class="card"><b>'+esc(r.asset_count)+'</b> assets in navi.db.<p class="sub" style="margin:6px 0 0">'+esc(r.hint||'')+'</p></div>';
+};
+mountAgentHeader({id:'_template',icon:'🧩',name:'Template Agent',sub:'copy me to start a new agent'});
+</script>
+</body></html>

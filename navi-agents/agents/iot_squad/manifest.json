@@ -1,0 +1,18 @@
+{
+  "id": "iot_squad",
+  "name": "IoT Discovery Squad",
+  "icon": "\ud83d\udce1",
+  "order": 2,
+  "category": "Discovery",
+  "summary": "Four cooperating agents: discover IoT devices, expand plugins, cross-reference, and learn new detections (HITL).",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": [
+    "run",
+    "tags_apply",
+    "tag_candidate",
+    "detections_decide",
+    "registry"
+  ],
+  "codename": "Cerberus Hound"
+}

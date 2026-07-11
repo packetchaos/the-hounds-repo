@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>MCP Compare · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>.card{overflow-x:auto}</style>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+
+  <section class="card">
+    <div class="toolbar"><div><h2 style="margin:0">⚖ Tenable MCP vs navi MCP</h2>
+      <p class="sub" style="margin:2px 0 0">Two tools, one platform. What each surface is for, where they overlap, the limits that force a handoff — plus a navi-side snapshot.</p></div>
+      <button class="btn run sm" id="snap" style="margin-left:auto">▶ navi snapshot</button></div>
+    <div id="flash" class="flash"></div>
+    <div class="kpi" id="kpi"></div>
+    <div id="ident"></div>
+  </section>
+
+  <section class="card">
+    <h2 style="margin:0">Capability &amp; routing matrix</h2>
+    <p class="sub" style="margin:2px 0 8px">Where each job naturally lives. <b>✅</b> first-class · <b>☑</b> possible · <b>—</b> not supported.</p>
+    <table id="matrix"><thead><tr><th>Job</th><th style="text-align:center">navi MCP</th><th style="text-align:center">Tenable MCP</th><th>Recommended</th></tr></thead><tbody></tbody></table>
+  </section>
+
+  <section class="card">
+    <h2 style="margin:0">Limits &amp; handoffs that matter</h2>
+    <div id="notes" style="margin-top:8px"></div>
+  </section>
+  <footer>MCP Compare · routing reference · navi-side snapshot (full cross-check runs in the desktop console)</footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('mcpcmp');
+const MATRIX=[
+ ['Asset / finding lookup','✅','✅','navi for bulk/SQL joins & EPSS; Tenable MCP for Exposure-Mgmt inventory & VPR'],
+ ['Tagging — small / simple','☑','✅','Either; prefer Tenable MCP if a teammate will see it in the UI'],
+ ['Tagging at scale (&gt;~1024 IP / 1999 UUID)','✅','—','navi — the platform caps rule-based tags'],
+ ['OS / app / device tagging','✅','☑','navi — real plugin-output fingerprinting (Tenable sees only the coarse OS field)'],
+ ['ACR / AES risk scoring','✅','—','navi only — it is the sole writer of ACR'],
+ ['CSV export with ACR + AES','✅','—','navi — <span class="mono">navi_export bytag</span>'],
+ ['Local SQL / ad-hoc analytics','✅','—','navi — <span class="mono">navi_explore_query</span>'],
+ ['Scan control','☑','✅','Tenable MCP for rich config/scheduling; navi for quick create/start/stop + evaluate'],
+ ['Agent management','—','✅','Tenable MCP (list/group/restart/settings)'],
+ ['Policy management','—','✅','Tenable MCP (create/configure/templates)'],
+ ['WAS / DAST','✅','—','navi — <span class="mono">navi_was</span>'],
+ ['Dashboards · widgets · native reports','—','✅','Tenable MCP (navi has only an offline HTML dashboard)'],
+ ['Identity / status / "which key am I?"','✅','—','navi — the only self-introspection (<span class="mono">navi_explore_api</span>)'],
+ ['Raw API passthrough','✅','—','navi — <span class="mono">navi_explore_api</span>'],
+ ['Remote action (push command / email)','CLI','—','navi CLI only — not exposed as an MCP tool'],
+];
+const NOTES=[
+ ['Rule-tag size limit','The Tenable platform caps a rule-based dynamic tag at roughly <b>1024 IPs / 1999 UUIDs</b>. Bigger matches must be applied through navi (tag-by-plugin / CVE / query), which has no such cap.'],
+ ['OS / app / device detection','Tenable rule tags only filter the coarse OS field. To tag by real software/device identity you need navi’s <b>plugin-output fingerprinting</b> — the usual case here.'],
+ ['ACR / AES are navi-only','Only navi writes Asset Criticality. The Tenable MCP cannot set ACR/AES — every ACR change goes through navi.'],
+ ['Dashboards & reports are Tenable-only','Native dashboards, widgets, and platform reports live only on the Tenable MCP. navi ships an offline HTML dashboard instead.'],
+ ['If they disagree, suspect a STALE navi.db first','When navi.db and Tenable show different asset counts or tags, it is <b>almost always a stale or partial navi.db</b> — not two different accounts. navi.db is a local snapshot; Tenable changes constantly. <b>Run a full <span class="mono">navi update -d</span></b> and re-check the db freshness before drawing any conclusion.'],
+ ['Different tenants is the rare case','Two different keys/tenants is possible but uncommon. Only after navi.db is <b>freshly updated</b> and still disjoint from Tenable should you suspect different accounts and verify the API keys. Writing to the wrong tenant is silent and hard to undo.'],
+ ['navi is the ground-truth probe','navi can introspect which key/container it holds (<span class="mono">navi_explore_api</span>) and how fresh the local snapshot is (<span class="mono">navi_explore_info status</span> / the db timestamp). Use it to confirm both before blaming the account.'],
+];
+function renderMatrix(){
+  const cell=v=>{const c=v==='✅'?'var(--ok,#34d399)':v==='☑'?'var(--warn,#e7c66b)':v==='—'?'var(--mut)':'var(--ink-2)';return `<td style="text-align:center;color:${c};font-weight:700">${v}</td>`;};
+  document.querySelector('#matrix tbody').innerHTML=MATRIX.map(r=>`<tr><td>${r[0]}</td>${cell(r[1])}${cell(r[2])}<td class="sub">${r[3]}</td></tr>`).join('');
+  document.getElementById('notes').innerHTML=NOTES.map(n=>`<div class="callbox" style="margin-bottom:8px"><b>${n[0]}</b><div class="sub" style="margin-top:3px">${n[1]}</div></div>`).join('');
+}
+async function snap(){ document.getElementById('snap').disabled=true; flash('flash','<span class="spin"></span> reading navi snapshot…','run');
+  let o; try{ o=await API.post('snapshot'); }catch(e){ o={ok:false,error:e.message}; }
+  document.getElementById('snap').disabled=false;
+  if(!o||!o.ok){ flash('flash','✗ '+((o&&o.error)||'failed'),'crit'); return; }
+  const r=o.result||{}; flashClear('flash');
+  let freshTxt='unknown', col='var(--ink-2)';
+  if(r.db_fresh){ const d=new Date(r.db_fresh); if(!isNaN(d)){ const days=Math.floor((Date.now()-d.getTime())/86400000); freshTxt=String(r.db_fresh).slice(0,10)+(days>=0?(' ('+days+'d)'):''); col=days<=1?'var(--ok,#34d399)':(days<=7?'var(--warn,#e7c66b)':'var(--crit)'); } }
+  document.getElementById('kpi').innerHTML=`<div class="k"><div class="v">${r.asset_total!=null?r.asset_total:'—'}</div><div class="l">assets in navi.db</div></div><div class="k"><div class="v" style="color:${col};font-size:15px">${esc(freshTxt)}</div><div class="l">navi.db freshness</div></div><div class="k"><div class="v">${r.navi_category_count||0}</div><div class="l">navi tag categories</div></div><div class="k"><div class="v" style="color:${r.navi_available?'var(--ok,#34d399)':'var(--mut)'}">${r.navi_available?'on':'off'}</div><div class="l">navi CLI</div></div>`;
+  document.getElementById('ident').innerHTML=
+    `<div class="callbox" style="margin-top:8px">⏱ <b>Check freshness before blaming the account.</b> If Tenable shows assets/tags navi doesn't, the snapshot is stale — run a full <span class="mono">navi update -d</span>, then re-snapshot. Local snapshot: <span class="mono" style="color:${col}">${esc(freshTxt)}</span>.</div>`+
+    (r.navi_identity?`<div class="callbox" style="margin-top:8px"><b>navi identity</b><div class="mono sub" style="margin-top:3px;white-space:pre-wrap">${esc(r.navi_identity)}</div></div>`:'')+
+    (r.navi_categories&&r.navi_categories.length?`<div class="sub" style="margin-top:8px">Categories in navi.db: ${r.navi_categories.map(esc).join(', ')}</div>`:'')+
+    `<div class="sub" style="margin-top:8px">The full navi.db ⇄ Tenable same-account check runs in the desktop console (it has the Tenable MCP).</div>`;
+}
+document.getElementById('snap').onclick=snap;
+mountAgentHeader({icon:'⚖',name:'MCP Compare',sub:'Tenable MCP vs navi MCP'});
+renderMatrix();
+</script>
+</body></html>

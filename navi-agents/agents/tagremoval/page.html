@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Tag Removal · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+
+  <section class="card">
+    <div class="toolbar"><div><h2 style="margin:0">🗑️ Tag Removal</h2>
+      <p class="sub" style="margin:2px 0 0">Garmr lists every tag in the tenant. Pick the ones to strip — each removal runs <span class="mono">navi enrich tag … -remove</span> against the assets that carry it and shows in the <a href="/web/tags-log.html">Tagging log</a> as a <b>remove</b> job. Send your picks to the <a href="/agents/contract/page.html">AI Contract</a> and it will remove them first, pause 30 min, run <span class="mono">navi update</span>, then re-run the tagging workflow.</p></div></div>
+
+    <div class="flash" id="syncBanner" style="display:block;margin-top:10px;background:rgba(251,191,36,.12);color:var(--warn);border:1px solid rgba(251,191,36,.4)">
+      <b>⚠ Removals depend on a current tags table.</b> navi's <span class="mono">-remove</span> strips a tag by first clearing the assets navi.db believes carry it — that view is the local <span class="mono">tags</span> table, which is only rebuilt by an <b>assets</b> sync. If you tagged or changed assets and have <b>not</b> re-synced, a removal clears a stale (often empty) set and the live tag stays put. <b>Run an assets update, let it finish, then remove.</b>
+      <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <button class="btn sm" id="updBtn">↻ Update assets (rebuild tags table)</button>
+        <span class="chip" id="updState">removals act on the tags table as of the last assets sync</span>
+      </div>
+    </div>
+
+    <div class="toolbar" style="margin-top:8px">
+      <button class="btn run sm" id="loadBtn">▶ Load all tags</button>
+      <input id="filter" class="fld" placeholder="filter…" style="padding:6px 9px;border-radius:7px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink)">
+      <span class="chip" id="count"></span>
+      <span style="margin-left:auto;display:flex;gap:6px">
+        <button class="btn ghost sm" id="selAll">Select all</button>
+        <button class="btn ghost sm" id="selNone">Clear</button>
+      </span>
+    </div>
+    <div id="flash" class="flash"></div>
+    <div class="toolbar" style="margin-top:6px">
+      <button class="btn sm" id="removeBtn" disabled>🗑️ Remove selected</button>
+      <button class="btn sm" id="contractBtn" disabled>➕ Add selected to AI Contract</button>
+      <span class="chip" id="selCount">0 selected</span>
+    </div>
+  </section>
+
+  <section class="card" id="cmpCard">
+    <div class="toolbar" style="margin:0"><h2 style="margin:0">⚖ Tag compare — Tenable ⇄ navi.db</h2>
+      <button class="btn ghost sm" id="cmpBtn" style="margin-left:auto">↻ Re-compare</button></div>
+    <p class="sub" style="margin:4px 0 0">Forced on load and again before every removal. <b>Tenable</b> is the live tenant (<span class="mono">navi explore info tags</span>); <b>navi.db</b> is the local <span class="mono">tags</span> table your <span class="mono">-remove</span> actually acts on. If a tag is live in Tenable but shows <b>0 / missing</b> in navi.db, a removal will clear nothing — sync assets first.</p>
+    <div id="cmpBody" class="sub" style="margin-top:8px"><span class="spin"></span> comparing…</div>
+  </section>
+
+  <section class="card" id="out" style="display:none">
+    <div style="overflow-x:auto"><table id="tbl"><thead><tr>
+      <th style="width:34px"></th><th>Category</th><th>Value</th><th style="width:90px">Assets</th>
+    </tr></thead><tbody></tbody></table></div>
+  </section>
+  <footer>Garmr · tag removal · removals are gated by NAVI_ALLOW_WRITES and tracked in the Tagging log</footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('tagremoval');
+const XAPI=agentApi('explore');
+let TAGS=[], WRITES=false;
+let CMP=null;                 // {naviMap:{key:count}, tenSet:Set, ghosts:[], stale:bool}
+const keyOf=(c,v)=>((c||'')+''+(v||''));
+
+/* Forced Tenable ⇄ navi.db tag compare. navi -remove only clears what navi.db's
+   tags table says a tag carries, so this shows whether that table is behind. */
+async function compare(){
+  const body=document.getElementById('cmpBody');
+  body.innerHTML='<span class="spin"></span> comparing (live navi explore info tags vs navi.db tags table)…';
+  let o; try{ o=await XAPI.post('tags_compare',{side:'both'}); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o || !o.ok){ CMP=null; body.innerHTML='<span class="crit">✗ compare failed: '+esc((o&&(o.error||o.ten_message))||'unknown')+'</span>'; return CMP; }
+  const naviMap={}; (o.navi||[]).forEach(r=>{ naviMap[keyOf(r.cat,r.val)]=r.c||0; });
+  const tenSet=new Set(); (o.ten||[]).forEach(r=>{ tenSet.add(keyOf(r.cat,r.val)); });
+  // "ghosts": live in Tenable but navi.db shows the tag missing or carrying 0 assets →
+  // a -remove for these clears nothing until an assets sync rebuilds the tags table.
+  const ghosts=[];
+  (o.ten||[]).forEach(r=>{ const k=keyOf(r.cat,r.val); const c=naviMap[k];
+    if(c===undefined||c===0) ghosts.push({cat:r.cat,val:r.val,c:(c===undefined?null:0)}); });
+  CMP={naviMap,tenSet,ghosts,stale:ghosts.length>0,
+       naviErr:o.navi_error,tenOk:o.ten_ok,tenMsg:o.ten_message};
+  const nCount=(o.navi||[]).length, tCount=(o.ten||[]).length;
+  let html='<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">'+
+    '<span class="chip">Tenable (live): <b>'+tCount+'</b></span>'+
+    '<span class="chip">navi.db tags table: <b>'+nCount+'</b></span>'+
+    (CMP.stale?'<span class="chip" style="background:rgba(220,80,80,.16);border-color:rgba(220,80,80,.5)">⚠ '+ghosts.length+' live tag(s) not yet in navi.db</span>'
+              :'<span class="chip" style="background:rgba(80,200,120,.14);border-color:rgba(80,200,120,.5)">✓ in sync — removals will target the live set</span>')+
+    '</div>';
+  if(!CMP.tenOk) html+='<p class="warn" style="margin:8px 0 0">Tenable side unavailable ('+esc(CMP.tenMsg||'navi explore info tags failed')+') — can\'t confirm sync state. Treat removals as risky until this loads.</p>';
+  if(ghosts.length){
+    html+='<p style="margin:10px 0 4px"><b>Live in Tenable, but navi.db can\'t see the assets yet</b> — a removal on these will no-op until you update assets:</p>'+
+      '<div style="overflow-x:auto"><table><thead><tr><th>Category</th><th>Value</th><th style="width:110px">navi.db assets</th></tr></thead><tbody>'+
+      ghosts.slice(0,50).map(g=>'<tr><td>'+esc(g.cat||'')+'</td><td><b>'+esc(g.val||'')+'</b></td><td class="mono">'+(g.c===null?'<span class="crit">missing</span>':'<span class="crit">0</span>')+'</td></tr>').join('')+
+      '</tbody></table></div>'+(ghosts.length>50?'<p class="sub" style="margin:4px 0 0">…and '+(ghosts.length-50)+' more.</p>':'');
+  }
+  body.innerHTML=html;
+  return CMP;
+}
+
+/* Kick an assets sync (rebuilds the navi.db tags table). Fire-and-forget. */
+async function updateAssets(){
+  const b=document.getElementById('updBtn'), s=document.getElementById('updState');
+  b.disabled=true; b.textContent='↻ starting assets sync…';
+  let o; try{ o=await XAPI.post('navi_refresh',{kinds:['assets']}); }catch(e){ o={ok:false,error:e.message}; }
+  if(o&&o.ok&&(o.started&&o.started.length)){
+    s.textContent='assets sync running in the background — wait for it to finish, then Re-compare before removing';
+  }else{
+    s.textContent='could not start ('+esc((o&&(o.message||o.error))||'navi not available')+') — run `navi config update assets` at the CLI';
+  }
+  setTimeout(()=>{ b.disabled=false; b.textContent='↻ Update assets (rebuild tags table)'; }, 4000);
+}
+function selected(){ return [...document.querySelectorAll('#tbl tbody input.tsel:checked')].map(c=>({category:c.dataset.cat,value:c.dataset.val})); }
+function syncButtons(){ const n=selected().length; document.getElementById('selCount').textContent=n+' selected';
+  document.getElementById('removeBtn').disabled=!n; document.getElementById('contractBtn').disabled=!n; }
+function renderTags(){
+  const f=(document.getElementById('filter').value||'').toLowerCase();
+  const rows=TAGS.filter(t=>!f||((t.category||'')+' '+(t.value||'')).toLowerCase().includes(f));
+  document.getElementById('count').textContent=`(${rows.length} of ${TAGS.length})`;
+  document.querySelector('#tbl tbody').innerHTML = rows.length ? rows.map(t=>
+    `<tr><td><input type="checkbox" class="tsel" data-cat="${esc(t.category||'')}" data-val="${esc(t.value||'')}"></td>`+
+    `<td>${esc(t.category||'')}</td><td><b>${esc(t.value||'')}</b></td>`+
+    `<td class="mono">${t.assets==null?'<span class="sub">—</span>':t.assets}</td></tr>`).join('')
+    : '<tr><td colspan="4" class="sub">No tags match.</td></tr>';
+  document.querySelectorAll('#tbl tbody input.tsel').forEach(c=>c.onchange=syncButtons);
+  syncButtons();
+  document.getElementById('out').style.display='block';
+}
+async function load(){
+  document.getElementById('loadBtn').disabled=true;
+  flash('flash','<span class="spin"></span> loading every tag (live navi explore info tags + navi.db counts)…','run');
+  let o; try{ o=await API.post('run'); }catch(e){ o={ok:false,error:e.message}; }
+  document.getElementById('loadBtn').disabled=false;
+  if(!o.ok && !(o.result&&o.result.tags)){ flash('flash','✗ '+esc(o.error||(o.result&&o.result.message)||'failed — is navi on PATH?'),'crit'); return; }
+  TAGS=(o.result&&o.result.tags)||[]; flashClear('flash'); renderTags();
+  if(!TAGS.length) flash('flash','No tags found. '+esc((o.result&&o.result.message)||''),'warn');
+}
+async function removeSel(){
+  const tags=selected(); if(!tags.length) return;
+  // FORCE a fresh compare so the operator can't remove against a stale tags table.
+  flash('flash','<span class="spin"></span> forcing a tag compare before removal…','run');
+  await compare(); flashClear('flash');
+  const ghostSel = CMP ? tags.filter(t=>CMP.ghosts.some(g=>keyOf(g.cat,g.val)===keyOf(t.category,t.value))) : [];
+  if(CMP && !CMP.tenOk){
+    if(!confirm('The Tenable side of the tag compare did not load, so navi.db\'s sync state is unknown. A -remove may clear nothing if navi.db is behind. Continue anyway?')) return;
+  } else if(ghostSel.length){
+    if(!confirm(ghostSel.length+' of your selected tag(s) are LIVE in Tenable but navi.db shows 0 / missing assets for them:\n\n'+
+      ghostSel.slice(0,10).map(g=>' • '+(g.category||'')+' : '+(g.value||'')).join('\n')+
+      (ghostSel.length>10?'\n …and '+(ghostSel.length-10)+' more':'')+
+      '\n\nnavi -remove clears what navi.db believes the tag carries, so removing these now will do NOTHING and the live tags will remain. Update assets first (button in the banner), wait for it to finish, then Re-compare.\n\nQueue the removals anyway?')) return;
+  }
+  if(!WRITES && !confirm('Writes are gated on the server (NAVI_ALLOW_WRITES not set). The remove jobs will queue but be blocked. Continue anyway?')) return;
+  if(!confirm('Remove '+tags.length+' tag(s) from every asset that carries them? This runs navi -remove and cannot be undone from here.')) return;
+  flash('flash','<span class="spin"></span> queuing '+tags.length+' removal(s)…','run');
+  let o; try{ o=await API.post('remove',{tags,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o.ok){ flash('flash','✗ '+esc(o.error||'failed'),'crit'); return; }
+  flash('flash','✓ queued '+o.queued+' removal job(s) — watch them in the <a href="/web/tags-log.html">Tagging log</a> (they appear as <b>remove</b>). Allow the ~30-min propagation window, run an <b>assets update</b>, then <b>Re-compare</b> here to confirm the tags cleared.','ok');
+}
+async function toContract(){
+  const tags=selected(); if(!tags.length) return;
+  flash('flash','<span class="spin"></span> adding to the AI Contract removal phase…','run');
+  let o; try{ o=await API.post('add_to_contract',{tags}); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o.ok){ flash('flash','✗ '+esc(o.error||'failed'),'crit'); return; }
+  flash('flash','✓ added '+o.added+' tag(s) to the contract ('+o.total+' total in the removal list). Open the <a href="/agents/contract/page.html">AI Contract</a> → Tag removal to review. When armed, the contract removes these first, pauses, runs navi update, then re-tags.','ok');
+}
+document.getElementById('loadBtn').onclick=load;
+document.getElementById('filter').addEventListener('input',()=>{ if(TAGS.length) renderTags(); });
+document.getElementById('selAll').onclick=()=>{ document.querySelectorAll('#tbl tbody input.tsel').forEach(c=>c.checked=true); syncButtons(); };
+document.getElementById('selNone').onclick=()=>{ document.querySelectorAll('#tbl tbody input.tsel').forEach(c=>c.checked=false); syncButtons(); };
+document.getElementById('removeBtn').onclick=removeSel;
+document.getElementById('contractBtn').onclick=toContract;
+document.getElementById('cmpBtn').onclick=compare;
+document.getElementById('updBtn').onclick=updateAssets;
+mountAgentHeader({id:'tagremoval',icon:'🗑️',name:'Tag Removal',sub:'Garmr · list tags → remove chosen → feed the contract'});
+jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});
+compare();   // force the compare on load
+</script>
+</body></html>

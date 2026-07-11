@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Unknown Unknowns · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>
+.itiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px;margin-top:12px}
+.itile{display:block;text-decoration:none;border:1px solid var(--line);border-radius:var(--radius,14px);background:var(--panel);
+  padding:20px;box-shadow:var(--shadow);transition:border-color .2s,transform .2s}
+.itile:hover{border-color:var(--amber);transform:translateY(-2px)}
+.itile .big{font-family:var(--display);font-weight:700;font-size:46px;line-height:1}
+.itile .lab{color:var(--ink-2);font-size:13px;margin-top:8px}
+.itile .go{color:var(--ink-3);font-family:var(--mono);font-size:11px;margin-top:12px}
+.cell.has:hover{outline:2px solid var(--accent);outline-offset:-2px}
+#monthPanel .mp{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:14px;margin-top:14px}
+</style>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+  <section class="card" style="background:radial-gradient(120% 140% at 90% -20%,var(--amber-glow),transparent 60%),var(--panel)">
+    <div class="toolbar"><div><h2 style="margin:0">🐝 Unknown Unknowns</h2>
+      <p class="sub" style="margin:2px 0 0">The unknown-unknowns hiding in <span class="mono">navi.db</span> — press <b>Run</b> to aggregate, then click any tile to dig in.</p></div>
+      <button class="btn run sm" id="run" style="margin-left:auto">▶ Run</button></div>
+    <div id="flash" class="flash"></div>
+  </section>
+  <section class="card" id="storiesCard" style="display:none">
+    <div class="toolbar"><div><h2 style="margin:0">📊 The unknowns, visualized</h2>
+      <p class="sub" style="margin:2px 0 0">The stories behind the numbers — estate risk, coverage &amp; blind spots, where exposure concentrates, and the unmanaged surface. Click any chart to drill in.</p></div>
+      <button class="btn ghost sm" id="emailDigest" style="margin-left:auto" title="Compose an HTML digest of this page and send via Gabriel">📧 Email this digest</button></div>
+    <div id="stories"></div>
+  </section>
+  <section class="card" id="certHeatCard" style="display:none">
+    <h2>Certificates — 12-month failure timeline</h2>
+    <p class="sub">Click a month to drill into the assets failing that month and the cert plugins on them.</p>
+    <div class="cal" id="cal"></div><div class="legend" id="leg"></div>
+    <div id="monthPanel"></div>
+  </section>
+  <section class="card" id="certHeat2Card" style="display:none">
+    <h2>Certificate issues × affected assets</h2>
+    <p class="sub">Click a plugin row to see every affected asset; tick issues to tag <span class="tagval">Cert Issue : &lt;plugin&gt;</span> (gated).</p>
+    <div id="h2"><p class="sub">Run to load…</p></div>
+  </section>
+  <section class="card" id="tilesCard">
+    <h2 style="margin:0 0 2px">📇 Unknown-unknowns — the numbers</h2>
+    <p class="sub" style="margin:0 0 6px">Every unknown-unknown as a clickable number. Press <b>Run</b> above.</p>
+    <div class="itiles" id="tiles"><div class="sub" style="grid-column:1/-1;text-align:center;padding:24px 0">Press <b>▶ Run</b> above to query navi.db. <span style="color:var(--ink-3)">Nothing runs until you ask.</span></div></div>
+  </section>
+  <footer>Insights overview · read-only roll-up of navi.db</footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('insights');
+const CAPI=agentApi('certificate'); let CERTMODEL=null;
+const C='var(--crit)',H='var(--high,#ff8a3d)',A='var(--amber,#f5a623)',CY='var(--cyan,#4dd0e1)';
+async function run(){
+  flash('flash','<span class="spin"></span> aggregating from navi.db…','run');
+  let o; try{ o=await API.post('run'); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o.ok){ flash('flash','✗ '+(o.error||'failed'),'crit'); return; }
+  const r=o.result; flashClear('flash');
+  const tiles=[
+    {v:r.certs_expired,l:'Certificates already expired',c:C,href:'/agents/certificate/page.html'},
+    {v:r.certs_failing,l:'Certificates expiring in next 12 months',c:H,href:'/agents/certificate/page.html'},
+    {v:r.shadow_assets,l:'Assets with software NOT in inventory',c:H,href:'/agents/customapp/page.html'},
+    {v:r.iot_devices,l:'IoT / embedded devices found',c:A,href:'/agents/iot_squad/page.html'},
+    {v:r.identities,l:'NHI & human identities surfaced',c:CY,href:'/agents/identity/page.html'},
+    {v:r.mitre_high_acr,l:'MITRE techniques on assets (ACR > 7)',c:C,href:'/agents/mitre/page.html'},
+    {v:r.custom_apps,l:'Custom applications found',c:A,href:'/agents/customapp/page.html'},
+    {v:r.ai_assets,l:'Assets running AI software',c:CY,href:'/agents/ai/page.html'},
+    {v:r.docker_hosts,l:'Docker hosts / container engines',c:A,href:'/agents/dashboard/page.html?q='+encodeURIComponent('Assets running Docker: count distinct assets where plugin_id is 93561 or plugin_name has Docker')},
+    {v:r.web_apps,l:'Assets serving web applications',c:H,href:'/agents/dashboard/page.html?q='+encodeURIComponent('Count distinct assets per plugin family for Web Servers and CGI abuses')},
+    {v:r.cloud_assets,l:'Cloud assets (AWS / GCP / Azure)',c:CY,href:'/agents/dashboard/page.html?q='+encodeURIComponent('List cloud assets: hostname and ip where aws_id or gcp_instance_id or azure_vm_id is set')},
+  ];
+  document.getElementById('tiles').innerHTML=tiles.map(t=>`<a class="itile" href="${t.href}"><div class="big" style="color:${t.c}">${t.v}</div><div class="lab">${esc(t.l)}</div><div class="go">▸ open</div></a>`).join('');
+  try{ renderStories(r.stories||{}, r); }catch(e){}
+  // Certificate heat maps (moved here from the Certificate agent) — below the numbers
+  try{ const co=await CAPI.post('run'); if(co&&co.ok&&co.result){ CERTMODEL=co.result;
+    document.getElementById('certHeatCard').style.display='';
+    document.getElementById('certHeat2Card').style.display='';
+    renderHeat(); } }catch(e){}
+}
+/* ===== graphical stories — hand-rolled SVG, no deps ===== */
+const _SPAL=['#f43f5e','#fb923c','#e7c66b','#34d399','#3fb0c9','#6ea8ff','#a97fd6','#d78ac0'];
+function _n(x){ return (typeof x==='number'&&isFinite(x))?x.toLocaleString():'—'; }
+function _card(t,s,inner,href){ const foot=href?'<div class="sub" style="margin-top:10px;display:flex;justify-content:flex-end;color:var(--accent);font-weight:600">Open the data →</div>':'';
+  const oc=href?(' onclick="location.href=\''+href.replace(/'/g,"&#39;")+'\'" style="margin:0;cursor:pointer"'):' style="margin:0"';
+  return '<section class="card"'+oc+'><h3 style="margin:0 0 1px;font-size:14.5px">'+t+'</h3>'+(s?'<p class="sub" style="margin:0 0 8px">'+s+'</p>':'')+inner+foot+'</section>'; }
+const _DQ=q=>'/agents/dashboard/page.html?q='+encodeURIComponent(q);
+function _donut(segs,opts){ opts=opts||{}; segs=segs.filter(s=>s.v>0); if(!segs.length)return '<p class="sub">No data.</p>';
+  const tot=segs.reduce((a,s)=>a+s.v,0)||1,R=54,r=34,cx=70,cy=70; let a=-Math.PI/2,p='';
+  segs.forEach(s=>{ let f=s.v/tot; if(f>=0.9999)f=0.9999; const a2=a+f*2*Math.PI,big=f>0.5?1:0,x1=cx+R*Math.cos(a),y1=cy+R*Math.sin(a),x2=cx+R*Math.cos(a2),y2=cy+R*Math.sin(a2),xi2=cx+r*Math.cos(a2),yi2=cy+r*Math.sin(a2),xi1=cx+r*Math.cos(a),yi1=cy+r*Math.sin(a);
+    p+='<path d="M'+x1+' '+y1+' A'+R+' '+R+' 0 '+big+' 1 '+x2+' '+y2+' L'+xi2+' '+yi2+' A'+r+' '+r+' 0 '+big+' 0 '+xi1+' '+yi1+' Z" fill="'+s.c+'" fill-opacity="0.9"><title>'+esc(s.l)+': '+_n(s.v)+'</title></path>'; a=a2; });
+  const ctr=opts.center!=null?('<text x="70" y="69" text-anchor="middle" font-size="19" font-weight="800" fill="var(--ink)">'+opts.center+'</text><text x="70" y="83" text-anchor="middle" font-size="9" fill="var(--ink-3)">'+esc(opts.centerLabel||'')+'</text>'):'';
+  const leg='<div style="display:flex;flex-direction:column;gap:4px;font-size:12px">'+segs.map(s=>'<div style="display:flex;align-items:center;gap:6px"><i style="width:10px;height:10px;border-radius:3px;background:'+s.c+';flex:none"></i><span style="flex:1">'+esc(s.l)+'</span><b class="mono">'+_n(s.v)+'</b></div>').join('')+'</div>';
+  return '<div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap"><svg viewBox="0 0 140 140" width="130" height="130" style="flex:none">'+p+ctr+'</svg><div style="flex:1;min-width:130px">'+leg+'</div></div>';
+}
+function _gauge(pct,opts){ opts=opts||{}; pct=Math.max(0,Math.min(100,pct||0)); const col=opts.color||'var(--crit)',cx=80,cy=80,R=60,a1=Math.PI*(1+pct/100);
+  const arc=(f,t,c)=>{const x1=cx+R*Math.cos(f),y1=cy+R*Math.sin(f),x2=cx+R*Math.cos(t),y2=cy+R*Math.sin(t),b=(t-f)>Math.PI?1:0; return '<path d="M'+x1+' '+y1+' A'+R+' '+R+' 0 '+b+' 1 '+x2+' '+y2+'" fill="none" stroke="'+c+'" stroke-width="13" stroke-linecap="round"/>';};
+  return '<div style="text-align:center"><svg viewBox="0 0 160 98" width="100%" style="max-width:230px">'+arc(Math.PI,2*Math.PI,'var(--line)')+arc(Math.PI,a1,col)+'<text x="80" y="74" text-anchor="middle" font-size="26" font-weight="800" fill="'+col+'">'+(pct<10?pct.toFixed(1):Math.round(pct))+'%</text></svg><div class="sub" style="margin-top:2px">'+esc(opts.label||'')+'</div></div>';
+}
+function _hbars(pairs){ pairs=pairs.filter(p=>p&&p.v>0); if(!pairs.length)return '<p class="sub">No data.</p>';
+  const mx=Math.max(...pairs.map(p=>p.v)); return '<div style="display:flex;flex-direction:column;gap:7px">'+pairs.map((p,i)=>{const w=Math.max(2,Math.round(p.v/mx*100)),c=p.c||_SPAL[i%_SPAL.length];
+    return '<div style="display:grid;grid-template-columns:130px 1fr auto;gap:8px;align-items:center"><div style="font-size:12px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+esc(p.l)+'">'+esc(p.l)+'</div><div style="height:18px;border-radius:5px;background:color-mix(in srgb,'+c+' 15%,transparent);overflow:hidden"><div style="width:'+w+'%;height:100%;background:'+c+';border-radius:5px"></div></div><b class="mono" style="font-size:12px;color:'+c+'">'+_n(p.v)+'</b></div>';}).join('')+'</div>';
+}
+function _funnel(F){ const st=[{k:'CVEs',v:F.cves||0,c:'#f43f5e'},{k:'Findings',v:F.findings||0,c:'#fb923c'},{k:'Plugins',v:F.plugins||0,c:'#e7c66b'},{k:'Apps',v:F.routes||0,c:'#34d399'}];
+  const mx=Math.max(1,...st.map(s=>s.v)),W=260,h=32,gap=8,padT=6,cx=W/2,sc=v=>50+Math.sqrt(v/mx)*(W-96),H=padT+st.length*(h+gap);
+  let s='<svg viewBox="0 0 '+W+' '+H+'" width="100%" style="max-width:320px;display:block;margin:0 auto">';
+  st.forEach((x,i)=>{const y=padT+i*(h+gap),wt=sc(x.v),wb=sc(i<st.length-1?st[i+1].v:x.v);
+    s+='<polygon points="'+(cx-wt/2)+','+y+' '+(cx+wt/2)+','+y+' '+(cx+wb/2)+','+(y+h)+' '+(cx-wb/2)+','+(y+h)+'" fill="'+x.c+'" fill-opacity="0.88"/><text x="'+cx+'" y="'+(y+h/2)+'" text-anchor="middle" font-size="12" font-weight="700" fill="#0d0f08">'+_n(x.v)+'</text><text x="'+cx+'" y="'+(y+h/2+12)+'" text-anchor="middle" font-size="8.5" fill="#0d0f08" fill-opacity="0.75">'+x.k+'</text>';});
+  s+='</svg>'; const cut=F.cves?Math.floor((1-F.routes/F.cves)*1000)/10:0;
+  return s+'<div class="sub" style="text-align:center;margin-top:4px"><b style="color:var(--accent)">'+cut+'% fewer</b> to track owning apps</div>';
+}
+function renderStories(S,r){ const host=document.getElementById('stories'),card=document.getElementById('storiesCard'); if(!host)return; if(card)card.style.display='';
+  const tot=r.asset_total||0, cards=[]; const SEV={'4':['Critical','#f43f5e'],'3':['High','#fb923c'],'2':['Medium','#e7c66b'],'1':['Low','#6ea8ff'],'0':['Info','#64748b']};
+  const sevSeg=(S.severity||[]).map(x=>{const m=SEV[String(x.sev)];return m?{l:m[0],c:m[1],v:x.count}:null;}).filter(Boolean);
+  const ordS=['Critical','High','Medium','Low','Info']; sevSeg.sort((a,b)=>ordS.indexOf(a.l)-ordS.indexOf(b.l));
+  if(sevSeg.length) cards.push(_card('🎯 Findings by severity','Every open finding across the estate.',_donut(sevSeg,{center:_n(sevSeg.reduce((a,s)=>a+s.v,0)),centerLabel:'findings'}),_DQ('Count of findings grouped by severity')));
+  cards.push(_card('🔥 CISA KEV exposure','Assets carrying a Known-Exploited vuln.',_gauge(tot?(S.kev||0)/tot*100:0,{color:'#f43f5e',label:_n(S.kev||0)+' of '+_n(tot)+' assets actively exploited'}),'/agents/cisakev/page.html'));
+  const AB=S.acr_bands||{},acrPairs=[['Critical (9-10)','crit','#f43f5e'],['High (7-8)','high','#fb923c'],['Medium (4-6)','med','#e7c66b'],['Low (1-3)','low','#34d399'],['Unrated','unrated','#64748b']].map(x=>({l:x[0],v:AB[x[1]]||0,c:x[2]})).filter(p=>p.v>0);
+  if(acrPairs.length) cards.push(_card('🏷 Assets by criticality (ACR)','How the estate is rated.',_hbars(acrPairs),'/agents/acr/page.html'));
+  cards.push(_card('🗺 Ownership coverage','Owned vs Ownerless Risk.',_donut([{l:'Owned',c:'#34d399',v:S.owned||0},{l:'Ownerless Risk',c:'#f43f5e',v:Math.max(0,tot-(S.owned||0))}],{center:(tot?Math.floor((S.owned||0)/tot*1000)/10:0)+'%',centerLabel:'owned'}),'/web/ownermap.html'));
+  cards.push(_card('🩺 Scan-health blind spots','Assets with credential failures.',_gauge(tot?(S.credfail||0)/tot*100:0,{color:'#fb923c',label:_n(S.credfail||0)+' of '+_n(tot)+' with credential issues'}),'/agents/scan_eval/page.html'));
+  cards.push(_card('📦 Software-inventory coverage','Inventory vs shadow.',_donut([{l:'In inventory',c:'#34d399',v:S.inventory||0},{l:'Shadow (none)',c:'#f43f5e',v:Math.max(0,tot-(S.inventory||0))}],{center:(tot?Math.floor((S.inventory||0)/tot*1000)/10:0)+'%',centerLabel:'covered'}),'/agents/customapp/page.html'));
+  const tr=(S.top_routes||[]).map((x,i)=>({l:x.app||'—',v:x.vulns||0,c:_SPAL[i%_SPAL.length]})).filter(p=>p.v>0);
+  if(tr.length) cards.push(_card('🧭 Top apps / routes by exposure','Where vulnerabilities concentrate.',_hbars(tr),'/agents/exproute/page.html'));
+  if(S.funnel&&S.funnel.cves) cards.push(_card('📉 The reduction — CVE → app','Chase CVEs, or own a handful of apps.',_funnel(S.funnel),'/web/ownermap.html'));
+  if(S.champion&&S.champion.cve_count) cards.push(_card('🏆 Champion fix','One patch, the most CVEs.','<div style="text-align:center;padding:6px 0"><div style="font-size:38px;font-weight:800;color:var(--accent);line-height:1">'+_n(S.champion.cve_count)+'</div><div class="sub">CVEs cleared by one fix</div><div style="margin-top:8px;font-size:12.5px"><b>'+esc(S.champion.name||'')+'</b></div><div class="sub">on just '+(S.champion.assets||0)+' asset'+((S.champion.assets||0)==1?'':'s')+'</div></div>','/agents/software/page.html'));
+  const catSeg=[{l:'Unmanaged surface',c:'#fb923c',v:(r.shadow_assets||0)+(r.iot_devices||0)+(r.custom_apps||0)+(r.docker_hosts||0)+(r.web_apps||0)},{l:'Identity & access',c:'#3fb0c9',v:(r.identities||0)+(r.ai_assets||0)},{l:'Risk & lifecycle',c:'#f43f5e',v:(r.certs_failing||0)+(r.mitre_high_acr||0)}].filter(s=>s.v>0);
+  if(catSeg.length) cards.push(_card('🗂 Unknown-unknowns by category','The blind-spot surface, grouped.',_donut(catSeg,{})));
+  cards.push(_card('☁️ Cloud vs on-prem','Where the estate lives.',_donut([{l:'Cloud (AWS/GCP/Azure)',c:'#6ea8ff',v:r.cloud_assets||0},{l:'On-prem / other',c:'#a97fd6',v:Math.max(0,tot-(r.cloud_assets||0))}],{center:_n(tot),centerLabel:'assets'}),_DQ('List cloud assets: hostname and ip where aws_id or gcp_instance_id or azure_vm_id is set')));
+  const pq=S.pq||{}; if((pq.vuln||0)+(pq.safe||0)>0) cards.push(_card('🔮 Post-quantum readiness','Certificates a quantum computer could break.',_donut([{l:'Quantum-vulnerable',c:'#f43f5e',v:pq.vuln||0},{l:'Quantum-safe',c:'#34d399',v:pq.safe||0}],{center:((pq.vuln||0)+(pq.safe||0)?Math.floor((pq.vuln||0)/((pq.vuln||0)+(pq.safe||0))*1000)/10:0)+'%',centerLabel:'at risk'}),'/agents/postquantum/page.html'));
+  host.innerHTML=cards.length?('<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-top:12px">'+cards.join('')+'</div>'):'<p class="sub">No chartable data yet.</p>';
+}
+document.getElementById('run').onclick=run;
+(function(){ const b=document.getElementById('emailDigest'); if(!b)return; b.onclick=()=>{ try{ sessionStorage.setItem('gabriel_handoff',JSON.stringify({report:'sphinx_digest',source_hound:'Sphinx — On the Scent',headline:'Daily unknown-unknowns digest'})); }catch(e){} location.href='/agents/email/page.html'; }; })();
+function renderHeat(){
+  if(!CERTMODEL)return;const cal=document.getElementById('cal');const max1=Math.max(1,...CERTMODEL.heatmap_months.map(b=>b.count));
+  const sh=['var(--h0)','var(--h1)','var(--h2)','var(--h3)','var(--h4)'];const shade=c=>c===0?sh[0]:(c/max1>=1?sh[4]:c/max1>=.66?sh[3]:c/max1>=.33?sh[2]:sh[1]);
+  cal.innerHTML=CERTMODEL.heatmap_months.map((b,i)=>`<div class="cell${b.count?' has':''}" data-i="${i}" style="background:${shade(b.count)}"><div class="m">${b.label}</div><div class="n">${b.count||''}</div></div>`).join('');
+  cal.querySelectorAll('.cell.has').forEach(c=>c.onclick=()=>showMonth(+c.dataset.i));
+  document.getElementById('leg').innerHTML='Fewer'+sh.map(s=>`<span class="sw" style="background:${s}"></span>`).join('')+`More · peak <b>${max1}</b>`;
+  const h2=document.getElementById('h2');const rows=CERTMODEL.cert_issue_matrix||[];
+  if(!rows.length){ h2.innerHTML='<p class="sub">No certificate-issue plugins found in navi.db.</p>'; return; }
+  const max2=Math.max(1,...rows.map(r=>r.asset_count));const bcol=c=>c/max2>=.75?'#fb7185':c/max2>=.5?'#fbbf24':c/max2>=.25?'#3ea6ff':'#4b6178';
+  h2.innerHTML='<div class="toolbar" style="margin:0 0 10px;gap:8px;flex-wrap:wrap">'
+    +'<button class="btn sm" id="certTagSel" disabled>🏷 Tag selected cert issues (gated)</button>'
+    +'<button class="btn ghost sm" id="certSelAll">Select all</button>'
+    +'<button class="btn ghost sm" id="certSelNone">Clear</button>'
+    +'<span class="chip" id="certSelCount">0 selected</span>'
+    +'<span class="sub">tick issues, then tag <span class="tagval">Cert Issue : &lt;plugin&gt;</span> via <span class="mono">navi --plugin &lt;id&gt;</span></span></div>'
+    +'<div id="certIssueRes"></div>'
+    +rows.map(r=>{const w=Math.max(5,(r.asset_count/max2)*100);
+      return `<div class="h2row" data-p="${esc(String(r.plugin_id))}" style="display:grid;grid-template-columns:26px 1fr 50px;align-items:center;gap:8px;padding:3px 4px">`
+        +`<input type="checkbox" class="certsel" data-p="${esc(String(r.plugin_id))}" data-nm="${esc(r.plugin_name)}">`
+        +`<div class="certopen" style="cursor:pointer"><div class="h2lab">${esc(r.plugin_name)} <span class="pid">#${esc(r.plugin_id)}</span></div><div class="h2bar" style="width:${w}%;background:${bcol(r.asset_count)}">${r.asset_count}</div></div>`
+        +`<div class="h2cnt">${r.asset_count}</div></div>`;}).join('');
+  const certSync=()=>{const n=h2.querySelectorAll('.certsel:checked').length;document.getElementById('certSelCount').textContent=n+' selected';document.getElementById('certTagSel').disabled=!n;};
+  h2.querySelectorAll('.certopen').forEach(o=>o.onclick=()=>{location.href='/web/vuln.html?plugin='+encodeURIComponent(o.closest('.h2row').dataset.p);});
+  h2.querySelectorAll('.certsel').forEach(c=>c.onchange=certSync);
+  document.getElementById('certSelAll').onclick=()=>{h2.querySelectorAll('.certsel').forEach(c=>c.checked=true);certSync();};
+  document.getElementById('certSelNone').onclick=()=>{h2.querySelectorAll('.certsel').forEach(c=>c.checked=false);certSync();};
+  document.getElementById('certTagSel').onclick=applyCertIssues;
+  certSync();
+}
+function showMonth(i){
+  const b=CERTMODEL.heatmap_months[i]; const panel=document.getElementById('monthPanel');
+  if(!b||!b.count){panel.innerHTML='';return;}
+  const assets=(b.assets||[]).slice().sort((x,y)=>(x.expiry_iso||'').localeCompare(y.expiry_iso||''));
+  const arow=a=>{const host=a.asset_uuid?`<a class="plink" href="/web/asset.html?asset=${encodeURIComponent(a.asset_uuid)}">${esc((a.hostname&&a.hostname.trim())||a.cn||'asset')}</a>`:esc(a.hostname||a.cn||'');
+    return `<tr><td class="mono">${esc((a.date||'').replace(' GMT',''))}</td><td class="mono">${esc(a.ip||'')}</td><td>${host}</td><td class="mono">${esc(a.cn||'')}</td><td><span class="tagval">${esc(a.tag||'')}</span></td></tr>`;};
+  panel.innerHTML=`<div class="mp"><div class="toolbar" style="margin:0 0 8px"><b>${esc(b.label)} — ${b.count} certificate(s) failing</b>`+
+    `<button class="btn ghost sm" id="mpClose" style="margin-left:auto">Close</button></div>`+
+    `<table><thead><tr><th>Expiry</th><th>IP</th><th>Host</th><th>Common name</th><th>Tag</th></tr></thead><tbody>${assets.map(arow).join('')}</tbody></table>`+
+    `<div id="mpPlugins" class="sub" style="margin-top:10px">Loading relevant plugins…</div></div>`;
+  document.getElementById('mpClose').onclick=()=>{panel.innerHTML='';};
+  panel.scrollIntoView({behavior:'smooth',block:'nearest'});
+  agentApi('explore').post('cert_month',{month:b.key}).then(o=>{
+    const el=document.getElementById('mpPlugins'); if(!el)return;
+    if(!o.ok||!(o.plugins||[]).length){el.innerHTML='No cert-issue plugins recorded on these assets.';return;}
+    el.innerHTML='<b style="color:var(--txt)">Relevant cert plugins:</b> '+o.plugins.map(p=>
+      `<a class="plink" href="/web/vuln.html?plugin=${encodeURIComponent(p.plugin_id)}">${esc(p.plugin_name)} #${esc(p.plugin_id)} (${p.asset_count})</a>`).join(' · ');
+  });
+}
+async function applyCertIssues(){
+  const picks=[...document.querySelectorAll('#h2 .certsel:checked')].map(c=>({plugin_id:c.dataset.p,plugin_name:c.dataset.nm}));
+  if(!picks.length)return;
+  const btn=document.getElementById('certTagSel'); if(btn)btn.disabled=true;
+  const res=document.getElementById('certIssueRes');
+  res.innerHTML='<div class="callbox"><span class="spin"></span> applying '+picks.length+' cert-issue tag(s) via navi --plugin…</div>';
+  let o; try{o=await CAPI.post('tags_issues',{issues:picks,confirm:true});}catch(e){o={ok:false,error:e.message};}
+  if(!o.ok){res.innerHTML='<div class="callbox" style="color:var(--crit)">✗ '+esc(o.error||'failed')+'</div>';if(btn)btn.disabled=false;return;}
+  const results=o.results||[];
+  const jm=await pollJobs(results.map(r=>r.job_id));   // wait for the queued writes to finish
+  let anyOk=false;
+  res.innerHTML=results.map(r=>{ const j=(r.job_id!=null)?jm[String(r.job_id)]:null;
+    const finished=j&&(j.status==='done'||j.status==='error');
+    const ok=j?(j.status==='done'&&j.ok!==false):(r.ok===true&&r.queued!==true&&!r.error);
+    if(ok)anyOk=true;
+    if(ok) return '<div class="callbox" style="color:#7ee2a8">✓ Cert Issue : '+esc(r.value||r.plugin_id)+' tagged'+((j&&j.result&&j.result.warning)?(' — '+esc(j.result.warning)):'')+'</div>';
+    if(j&&!finished) return '<div class="callbox" style="color:#e7c66b">⏳ Cert Issue : '+esc(r.value||r.plugin_id)+' still running — check the Tagging log</div>';
+    const msg=j?(j.message||(j.result&&(j.result.message||j.result.stderr))||j.status):(r.message||r.stderr||'write rejected');
+    return '<div class="callbox" style="color:#ffb4c6">✗ '+esc(r.value||r.plugin_id)+': '+esc(msg)+'</div>'; }).join('')
+    +(!o.writes_enabled?('<div class="sub" style="margin-top:6px;color:var(--warn,#e7c66b)"><b>Nothing was written.</b> '+esc(o.write_gate_reason||'Writes are gated — set NAVI_ALLOW_WRITES=1')+'.</div>')
+      :(anyOk?'<div class="sub" style="margin-top:6px;color:var(--ink-3)">Submitted via <span class="mono">navi enrich tag --plugin</span>. Allow ~30 min for Tenable + a <span class="mono">navi update</span> before it shows in navi.db. See the <a href="/web/tags-log.html">Tagging log</a>.</div>':''));
+  document.querySelectorAll('#h2 .certsel').forEach(c=>c.checked=false);
+  const cc=document.getElementById('certSelCount'); if(cc)cc.textContent='0 selected';
+}
+async function pollJobs(ids, timeoutMs=25000){
+  const want=[...new Set((ids||[]).filter(x=>x!=null).map(String))];
+  let map={}; if(!want.size) return map;
+  const t0=Date.now();
+  while(Date.now()-t0<timeoutMs){
+    let o; try{ o=await jpost('/api/explore/tag_jobs',{}); }catch(e){ break; }
+    map={}; (o.jobs||[]).forEach(j=>{ map[String(j.id)]=j; });
+    const pending=want.filter(id=>{ const j=map[id]; return !j||(j.status!=='done'&&j.status!=='error'); });
+    if(!pending.length) break;
+    await new Promise(r=>setTimeout(r,900));
+  }
+  return map;
+}
+mountAgentHeader({id:'insights',icon:'🐝',name:"Unknown Unknowns",sub:'coverage gaps roll-up'});
+/* on-demand: nothing queries navi.db until the user presses Run (large-environment friendly) */
+</script>
+</body></html>

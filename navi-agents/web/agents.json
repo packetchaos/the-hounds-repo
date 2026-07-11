@@ -1,0 +1,76 @@
+{
+  "agents": [
+    {
+      "id": "acr",
+      "name": "ACR Calibration Agent",
+      "icon": "\ud83c\udfaf",
+      "summary": "Adjust Asset Criticality Rating per tag (set / +N / \u2212N) with a business justification; bulk via natural language.",
+      "category": "Risk",
+      "needs_backend": true,
+      "deployed": true,
+      "page": "/agents/acr/page.html",
+      "readme": "/agents/acr/README.md",
+      "error": null,
+      "actions": [
+        "run",
+        "apply",
+        "bulk_apply",
+        "interpret"
+      ]
+    },
+    {
+      "id": "certificate",
+      "name": "Certificate Agent",
+      "icon": "\ud83d\udd10",
+      "summary": "Tags certificates failing in the next 12 months, builds two heat maps, and caches IoT/app devices from certs.",
+      "category": "Tagging",
+      "needs_backend": true,
+      "deployed": true,
+      "page": "/agents/certificate/page.html",
+      "readme": "/agents/certificate/README.md",
+      "error": null,
+      "actions": [
+        "run",
+        "tags_apply"
+      ]
+    },
+    {
+      "id": "customapp",
+      "name": "Custom App Name Agent",
+      "icon": "\ud83e\udde9",
+      "summary": "Finds software missing from inventory via routes/paths; tag custom apps in plain English ('Tag my custom app navi').",
+      "category": "Discovery",
+      "needs_backend": true,
+      "deployed": true,
+      "page": "/agents/customapp/page.html",
+      "readme": "/agents/customapp/README.md",
+      "error": null,
+      "actions": [
+        "run",
+        "interpret",
+        "search",
+        "tag"
+      ]
+    },
+    {
+      "id": "iot_squad",
+      "name": "IoT Discovery Squad",
+      "icon": "\ud83d\udce1",
+      "summary": "Four cooperating agents: discover IoT devices, expand plugins, cross-reference, and learn new detections (HITL).",
+      "category": "Discovery",
+      "needs_backend": true,
+      "deployed": true,
+      "page": "/agents/iot_squad/page.html",
+      "readme": "/agents/iot_squad/README.md",
+      "error": null,
+      "actions": [
+        "run",
+        "tags_apply",
+        "detections_decide",
+        "registry"
+      ]
+    }
+  ],
+  "count": 4,
+  "deployed": 4
+}

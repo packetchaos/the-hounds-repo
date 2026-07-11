@@ -1,0 +1,17 @@
+{
+  "id": "customapp",
+  "name": "Custom App Name Agent",
+  "icon": "\ud83e\udde9",
+  "order": 4,
+  "category": "Discovery",
+  "summary": "Finds software missing from inventory via routes/paths; tag custom apps in plain English ('Tag my custom app navi').",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": [
+    "run",
+    "interpret",
+    "search",
+    "tag"
+  ],
+  "codename": "Argus Hound"
+}

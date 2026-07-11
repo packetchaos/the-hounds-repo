@@ -1,0 +1,14 @@
+{
+  "id": "ex_vulns",
+  "name": "Vulnerability Explorer",
+  "icon": "\ud83d\udd0e",
+  "order": 21,
+  "category": "Explore",
+  "codename": "Hellhound",
+  "summary": "Search findings by plugin name, ID, CVE, or severity \u2014 grouped by plugin. Read-only navi.db search via the UI.",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": [
+    "search"
+  ]
+}

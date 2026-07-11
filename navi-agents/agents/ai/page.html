@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>AI Inventory · Pythia · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>
+  .kpi{display:flex;gap:12px;flex-wrap:wrap;margin-top:10px}
+  .k{border:1px solid var(--line);border-radius:10px;padding:10px 14px;min-width:120px}
+  .k .v{font-size:26px;font-weight:800} .k .l{color:var(--mut);font-size:12px}
+  .chip{display:inline-block;font-size:11px;background:var(--panel-2);border:1px solid var(--line);border-radius:99px;padding:2px 8px;margin:0 4px 4px 0}
+  .badge{display:inline-block;font-size:10px;border:1px solid var(--line);border-radius:6px;padding:1px 6px}
+  .tagval{font-weight:700}
+  #aiTbl{table-layout:fixed;width:100%}
+  #aiTbl th,#aiTbl td{vertical-align:top;overflow:hidden}
+  #aiTbl td:nth-child(1),#aiTbl td:nth-child(2){text-overflow:ellipsis;white-space:nowrap}
+  #aiwhyov{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto}
+  .egbox,.atbox{border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px}
+  pre.snip{white-space:pre-wrap;word-break:break-word;margin:4px 0 0;font-size:12px;color:var(--ink);max-height:150px;overflow:auto;background:var(--bg-2);padding:6px 8px;border-radius:6px}
+</style>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+  <section class="card" style="background:radial-gradient(120% 140% at 90% -20%,var(--amber-glow),transparent 60%),var(--panel)">
+    <div class="toolbar"><div><div class="acode">Pythia Hound</div><h2 style="margin:0">🧠 AI Inventory</h2>
+      <p class="sub" style="margin:2px 0 0">Discovers AI/ML by <b>content</b> — the Tenable AI plugin family <b>plus</b> the <span class="mono">software</span> &amp; <span class="mono">cpes</span> inventories, plugin output, and network <b>endpoints</b> — and classifies each asset by <b>role</b>. Flags <b>exposed/unauth endpoints</b>, maps <b>data-egress</b> (shadow vs sanctioned) and <b>MITRE ATLAS</b>. Every row has a <b>🔍 Why</b> — inspect the evidence and dismiss false positives. Tag by role via <span class="mono">navi tag --query</span> (gated).</p></div>
+      <button class="btn run sm" id="run" style="margin-left:auto">▶ Run</button></div>
+    <div id="flash" class="flash"></div>
+    <div class="kpi" id="kpi"></div>
+  </section>
+  <section class="card" id="resultCard" style="display:none">
+    <div class="toolbar" style="margin:0"><h2 style="margin:0;font-size:15px">AI assets <span class="chip" id="aiCount"></span></h2>
+      <button class="btn run sm" id="tagAll" style="margin-left:auto" disabled>▶ Tag all → AI : Present (gated)</button></div>
+    <div id="roleTags" class="toolbar" style="flex-wrap:wrap;gap:6px;margin-top:8px"></div>
+    <div style="margin-top:8px"><table id="aiTbl" style="table-layout:fixed;width:100%"><colgroup><col style="width:170px"><col style="width:120px"><col style="width:120px"><col><col style="width:74px"><col style="width:118px"></colgroup><thead><tr><th>Host</th><th>IP</th><th>Role</th><th>AI software / exposed</th><th>Platform</th><th></th></tr></thead><tbody><tr><td colspan="6" class="sub">Press ▶ Run…</td></tr></tbody></table></div>
+    <div id="egressOut" style="margin-top:14px"></div>
+    <div id="atlasOut" style="margin-top:14px"></div>
+  </section>
+  <footer>Pythia · AI inventory · reads navi.db read-only · gated <span class="mono">navi enrich tag</span></footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('ai');
+let DATA=null;
+const ROLE_PRI={'Model Serving':6,'Vector DB / RAG':5,'GPU / Training':5,'MLOps':4,'Notebook / Dev':3,'AI Dev Tool':2,'LLM API Client':2,'Tenable AI plugin':1};
+const ROLE_COLOR={'Model Serving':'#fb923c','Vector DB / RAG':'#a97fd6','GPU / Training':'#34d399','MLOps':'#3fb0c9','Notebook / Dev':'#e0b341','AI Dev Tool':'#b48ead','LLM API Client':'#6ea8ff','Tenable AI plugin':'var(--accent)','AI':'var(--accent)'};
+const ATLAS_ORDER=['Reconnaissance','Resource Development','Initial Access','ML Model Access','Execution','Persistence','Privilege Escalation','Defense Evasion','Credential Access','Discovery','Collection','ML Attack Staging','Exfiltration','Impact'];
+/* FP suppression + egress allowlist persist in localStorage, exactly like the console */
+function fpLoad(){ try{return JSON.parse(localStorage.getItem('aiFP')||'{}');}catch(e){return {};} }
+function fpSave(o){ try{localStorage.setItem('aiFP',JSON.stringify(o));}catch(e){} }
+function fpCount(o){ o=o||{}; return (o.assets?Object.keys(o.assets).length:0)+(o.fw?Object.keys(o.fw).length:0)+(o.gfw?Object.keys(o.gfw).length:0); }
+function allowLoad(){ try{var v=localStorage.getItem('aiEgressAllow'); if(v)return JSON.parse(v);}catch(e){} return null; }
+function allowSave(l){ try{localStorage.setItem('aiEgressAllow',JSON.stringify(l));}catch(e){} }
+const plink=(u,txt)=>u?`<a href="/web/asset.html?asset=${encodeURIComponent(u)}" style="color:var(--accent);text-decoration:none">${esc(txt)}</a>`:esc(txt);
+const platLink=(url,txt)=>url?`<a href="${esc(url)}" target="_blank" class="chip" style="text-decoration:none">${esc(txt||'Tenable ↗')}</a>`:'';
+
+async function run(){
+  document.getElementById('run').disabled=true;
+  flash('flash','<span class="spin"></span> discovering AI/ML across plugin family + software + cpes + output + endpoints…','run');
+  let o; try{ o=await API.post('run',{fp:fpLoad(),allow:allowLoad()||undefined}); }catch(e){ o={ok:false,error:e.message}; }
+  document.getElementById('run').disabled=false;
+  if(!o||!o.ok||!o.result){ flash('flash','✗ '+esc((o&&(o.error||o.message))||'failed'),'crit'); return; }
+  DATA=o.result; flashClear('flash'); render();
+}
+async function aiTag(category,value,uuids,note){
+  if(!uuids||!uuids.length){ flash('flash','Nothing to tag.','warn'); return; }
+  const nv=prompt('Tag '+uuids.length+' asset(s) under "'+category+' : "\nValue (edit if you like):', value);
+  if(nv===null) return;
+  flash('flash','<span class="spin"></span> queuing '+esc(category)+' : '+esc(nv)+' ('+uuids.length+' assets)…','run');
+  let o; try{ o=await API.post('tag',{category,value:nv,uuids,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o||!o.ok){ flash('flash','✗ '+esc((o&&(o.error||(o.result&&o.result.message)))||'tag failed'),'crit'); return; }
+  const gated=!o.writes_enabled;
+  flash('flash','✓ queued '+esc(category)+' : '+esc(nv)+' on '+o.count+' asset(s)'+(note?(' — '+esc(note)):'')+(gated?' <span class="sub">(gated — set NAVI_ALLOW_WRITES=1)</span>':' — see the <a href="/web/tags-log.html">Tagging log</a>.'),gated?'warn':'ok');
+}
+
+function render(){
+  if(!DATA)return; const a=DATA.assets, br=DATA.byRole||{};
+  const roles=Object.keys(br).sort((x,y)=>(ROLE_PRI[y]||0)-(ROLE_PRI[x]||0));
+  document.getElementById('kpi').innerHTML='<div class="k"><div class="v">'+DATA.asset_count+'</div><div class="l">assets running AI/ML</div></div>'
+    +roles.map(r=>'<div class="k"><div class="v" style="color:'+(ROLE_COLOR[r]||'var(--accent)')+'">'+br[r]+'</div><div class="l">'+esc(r)+'</div></div>').join('')
+    +(DATA.kevCount?'<div class="k" style="border-color:var(--crit)"><div class="v" style="color:var(--crit)">'+DATA.kevCount+'</div><div class="l">🔥 KEV-exposed AI</div></div>':'')
+    +(DATA.shadowCount?'<div class="k" style="border-color:var(--crit)"><div class="v" style="color:var(--crit)">'+DATA.shadowCount+'</div><div class="l">🛰️ shadow egress</div></div>':'')
+    +(DATA.exposedCount?'<div class="k" style="border-color:var(--crit)"><div class="v" style="color:var(--crit)">'+DATA.exposedCount+'</div><div class="l">⚠ exposed endpoints</div></div>':'');
+  document.getElementById('resultCard').style.display='';
+  document.getElementById('aiCount').textContent=a.length;
+  document.getElementById('tagAll').disabled=!a.length;
+  const exA=a.filter(x=>x.exposed&&x.exposed.length), kevA=a.filter(x=>x.risk&&x.risk.kev);
+  const rt=document.getElementById('roleTags');
+  rt.innerHTML=(fpCount(fpLoad())?'<button class="btn ghost sm" id="fpReset">✖ '+fpCount(fpLoad())+' suppressed · reset</button>':'')
+    +(exA.length?'<button class="btn run sm" id="tagExp" style="border-color:var(--crit)">⚠ Tag '+exA.length+' exposed → AI Exposed</button>':'')
+    +(kevA.length?'<button class="btn run sm" id="tagKev" style="border-color:var(--crit)">🔥 Tag '+kevA.length+' AI×KEV → AI Priority</button>':'')
+    +(roles.length?('<span class="sub" style="align-self:center">Tag by role:</span>'+roles.map(r=>'<button class="btn sm" data-role="'+esc(r)+'">'+esc(r)+' ('+br[r]+')</button>').join('')):'');
+  const fpr=document.getElementById('fpReset'); if(fpr)fpr.onclick=()=>{ fpSave({}); run(); };
+  const eb=document.getElementById('tagExp'); if(eb)eb.onclick=()=>aiTag('AI Exposed','Endpoint',exA.map(x=>x.asset_uuid),'attack surface');
+  const kb=document.getElementById('tagKev'); if(kb)kb.onclick=()=>aiTag('AI Priority','KEV-exposed',kevA.map(x=>x.asset_uuid),'highest urgency');
+  rt.querySelectorAll('button[data-role]').forEach(b=>b.onclick=()=>{const r=b.dataset.role; aiTag('AI Role',r,a.filter(x=>x.role===r).map(x=>x.asset_uuid));});
+  document.querySelector('#aiTbl tbody').innerHTML=a.length?a.map((x,i)=>'<tr>'+
+    '<td title="'+esc(x.host||'')+'"><b>'+plink(x.asset_uuid,x.host)+'</b></td><td class="mono">'+esc(x.ip||'')+'</td>'+
+    '<td><span class="tagval" style="color:'+(ROLE_COLOR[x.role]||'var(--accent)')+'">'+esc(x.role)+'</span>'+((x.risk&&x.risk.kev)?' <span class="badge" style="color:#f43f5e;border-color:rgba(244,63,94,.5)" title="also carries a CISA-KEV finding">🔥 KEV</span>':'')+((x.risk&&x.risk.crit&&!(x.risk&&x.risk.kev))?' <span class="badge" style="color:#fb923c;border-color:rgba(251,146,60,.5)">⛔ crit</span>':'')+'</td>'+
+    '<td>'+((x.exposed&&x.exposed.length)?(x.exposed.map(e=>'<span class="badge" style="color:#f43f5e;border-color:rgba(244,63,94,.5)" title="network-detected AI endpoint">⚠ '+esc(e.name)+':'+esc(e.port)+(e.auth==='unauth'?' unauth':'')+'</span>').join(' ')+' '):'')+(x.frameworks.length?(x.frameworks.slice(0,8).map(fw=>'<span class="chip">'+esc(fw)+'</span>').join('')+(x.frameworks.length>8?'<span class="sub">+'+(x.frameworks.length-8)+'</span>':'')):((x.exposed&&x.exposed.length)?'':'<span class="sub">—</span>'))+'</td>'+
+    '<td>'+(platLink(x.url,'Open ↗')||'<span class="sub">—</span>')+'</td>'+
+    '<td style="white-space:nowrap"><button class="btn ghost sm" data-why="'+i+'" title="show the evidence behind this detection">🔍 Why</button> <button class="btn sm" data-tag="'+i+'">Tag</button></td></tr>').join(''):'<tr><td colspan="6" class="sub">No AI/ML found (checked the AI plugin family + software + cpes + plugin output + endpoints).</td></tr>';
+  document.querySelectorAll('#aiTbl button[data-why]').forEach(b=>b.onclick=()=>why(a[+b.dataset.why]));
+  document.querySelectorAll('#aiTbl button[data-tag]').forEach(b=>b.onclick=()=>{const x=a[+b.dataset.tag]; aiTag('AI Role',x.role,[x.asset_uuid]);});
+  renderEgress(); renderAtlas();
+}
+
+function why(x){
+  if(!x)return;
+  const SRC={'ai-plugin':['Tenable AI plugin','var(--accent)'],'software':['Software inventory','#34d399'],'cpe':['CPE inventory','#b48ead'],'output':['Plugin output','#6ea8ff'],'endpoint':['Network endpoint','#fb923c']};
+  const rows=x.evidence.map((e,idx)=>{const s=SRC[e.src]||[e.src,'var(--mut)']; return '<div style="border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:8px">'
+    +'<div class="toolbar" style="margin:0 0 4px;gap:6px;flex-wrap:wrap"><span class="chip" style="color:'+s[1]+';border-color:'+s[1]+'">'+esc(s[0])+'</span><b>'+esc(e.term)+'</b>'+(e.sig?'<span class="sub">via '+esc(e.sig)+'</span>':'')+(e.auth==='unauth'?'<span class="chip" style="color:var(--crit)">unauth</span>':'')+'<span style="flex:1"></span>'
+    +'<button class="btn ghost sm" data-fp="'+idx+'">✕ false positive</button>'+(e.src!=='ai-plugin'?'<button class="btn ghost sm" data-gfp="'+esc(e.term)+'">suppress '+esc(e.term)+' everywhere</button>':'')+'</div>'
+    +(e.pname?'<div class="sub" style="margin:2px 0">'+esc(e.pname)+(e.pid?' <span class="mono">#'+esc(String(e.pid))+'</span>':'')+'</div>':'')
+    +(e.snip?'<pre class="snip">'+esc(e.snip)+'</pre>':'<div class="sub">(matched by the Tenable AI plugin family)</div>')+'</div>';}).join('');
+  const ov=document.createElement('div'); ov.id='aiwhyov';
+  ov.innerHTML='<div style="background:var(--panel);border:1px solid var(--line);border-radius:12px;max-width:780px;width:100%;padding:16px 18px">'
+    +'<div class="toolbar" style="margin:0 0 10px;flex-wrap:wrap"><b>🔍 Why '+esc(x.host)+' was flagged as AI</b><span class="chip" style="color:'+(ROLE_COLOR[x.role]||'var(--accent)')+'">'+esc(x.role)+'</span><span class="chip">'+x.evidence.length+' signal(s)</span><span style="flex:1"></span><button class="btn ghost sm" data-close="1">✕ close</button></div>'
+    +'<p class="sub" style="margin:0 0 10px">Each row is the actual navi.db evidence. Mark a wrong signal a false positive — it is suppressed (persisted) and the agent re-runs.</p>'+rows
+    +'<div class="toolbar" style="margin:10px 0 0"><button class="btn ghost sm" data-dismiss="1" style="border-color:var(--crit)">✕ Dismiss this asset entirely (not AI)</button></div></div>';
+  document.body.appendChild(ov);
+  const close=()=>{try{document.body.removeChild(ov);}catch(e){}};
+  ov.addEventListener('click',e=>{if(e.target===ov)close();});
+  ov.querySelector('[data-close]').onclick=close;
+  ov.querySelectorAll('[data-fp]').forEach(bt=>bt.onclick=()=>{const e=x.evidence[+bt.dataset.fp]; const fp=fpLoad(); fp.fw=fp.fw||{}; fp.fw[x.asset_uuid+'|'+e.term]=1; fpSave(fp); close(); run();});
+  ov.querySelectorAll('[data-gfp]').forEach(bt=>bt.onclick=()=>{const fp=fpLoad(); fp.gfw=fp.gfw||{}; fp.gfw[bt.dataset.gfp]=1; fpSave(fp); close(); run();});
+  ov.querySelector('[data-dismiss]').onclick=()=>{const fp=fpLoad(); fp.assets=fp.assets||{}; fp.assets[x.asset_uuid]=1; fpSave(fp); close(); run();};
+}
+
+function sanctioned(dest,allow){ dest=String(dest||'').toLowerCase(); return (allow||[]).some(p=>{p=String(p||'').toLowerCase().replace(/^\*/,''); return p&&dest.indexOf(p)>=0;}); }
+function renderEgress(){
+  const out=document.getElementById('egressOut'); if(!out||!DATA)return;
+  const allow=allowLoad()||DATA.allow||[];
+  const assets=DATA.assets.filter(x=>x.egress&&x.egress.length);
+  if(!assets.length){ out.innerHTML='<div class="card" style="background:var(--panel-2)"><b>🛰️ AI data-egress</b> <span class="sub">— no outbound AI clients or destination hosts found for the detected AI assets.</span></div>'; return; }
+  const byDest={};
+  assets.forEach(x=>x.egress.forEach(e=>{const k=e.cat+'|'+e.dest; const d=byDest[k]||(byDest[k]={cat:e.cat,dest:e.dest,via:{},assets:new Set(),snip:e.snip}); d.assets.add(x.asset_uuid); d.via[e.via]=1; d.sanctioned=sanctioned(e.dest,allow); if(e.snip&&!d.snip)d.snip=e.snip;}));
+  const dests=Object.keys(byDest).map(k=>byDest[k]).sort((a,b)=>(a.sanctioned-b.sanctioned)||(b.assets.size-a.assets.size));
+  const shadowUuids=new Set(); assets.forEach(x=>{if(x.egress.some(e=>!sanctioned(e.dest,allow)))shadowUuids.add(x.asset_uuid);});
+  const byCat={}; dests.forEach(d=>(byCat[d.cat]=byCat[d.cat]||[]).push(d));
+  const allowChips=allow.map((v,i)=>'<span class="chip" style="gap:4px">'+esc(v)+' <span data-alrm="'+i+'" style="cursor:pointer;color:var(--crit)">✕</span></span>').join(' ');
+  out.innerHTML='<div class="card" style="background:var(--panel-2)"><div class="toolbar" style="margin:0 0 6px;flex-wrap:wrap"><b>🛰️ AI data-egress governance</b>'
+    +'<span class="chip">'+assets.length+' can egress</span><span class="chip">'+dests.length+' destination(s)</span>'
+    +(dests.some(d=>!d.sanctioned)?'<span class="chip" style="color:var(--crit);border-color:var(--crit)">'+dests.filter(d=>!d.sanctioned).length+' shadow</span>':'<span class="chip" style="color:#34d399">all sanctioned</span>')
+    +'<span style="flex:1"></span>'+(shadowUuids.size?'<button class="btn run sm" id="egShadow" style="border-color:var(--crit)">⚠ Tag '+shadowUuids.size+' shadow → AI Egress : Shadow</button>':'')+'</div>'
+    +'<p class="sub" style="margin:0 0 8px">Where AI data can leave the box — installed clients (<i>capability</i>) + destination hosts in plugin output (<i>observed</i>). Capability + configured destinations, not proven exfiltration. Gated.</p>'
+    +'<div class="toolbar" style="margin:0 0 10px;flex-wrap:wrap;gap:6px"><span class="sub">Sanctioned:</span>'+allowChips+'<input id="egAllowIn" placeholder="add e.g. api.openai.com" style="padding:6px;border-radius:7px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink);min-width:180px"><button class="btn sm" id="egAllowAdd">+ add</button></div>'
+    +Object.keys(byCat).map(cat=>'<div class="egbox"><div class="toolbar" style="margin:0 0 6px"><b>'+esc(cat)+'</b></div>'
+      +byCat[cat].map(d=>'<div class="toolbar" style="margin:0 0 4px;flex-wrap:wrap;gap:6px"><span class="tagval mono">'+esc(d.dest)+'</span>'+(d.sanctioned?'<span class="chip" style="color:#34d399">sanctioned</span>':'<span class="chip" style="color:var(--crit);border-color:var(--crit)">shadow</span>')+'<span class="chip">'+d.assets.size+' asset(s)</span>'+(d.via.observed?'<span class="chip" title="seen in plugin output">observed</span>':'<span class="chip" title="inferred from client">capability</span>')+'<span style="flex:1"></span><button class="btn sm" data-egtag="'+esc(d.cat+'|'+d.dest)+'">🏷 Tag</button>'+(!d.sanctioned?'<button class="btn ghost sm" data-egallow="'+esc(d.dest)+'">✓ sanction</button>':'')+'</div>').join('')
+      +'</div>').join('')+'</div>';
+  const add=v=>{v=String(v||'').trim(); if(!v)return; const l=allowLoad()||(DATA.allow||[]).slice(); if(l.indexOf(v)<0){l.push(v);allowSave(l);} run();};
+  const ab=document.getElementById('egAllowAdd'); if(ab)ab.onclick=()=>add(document.getElementById('egAllowIn').value);
+  out.querySelectorAll('[data-alrm]').forEach(s=>s.onclick=()=>{const l=(allowLoad()||(DATA.allow||[]).slice()); l.splice(+s.dataset.alrm,1); allowSave(l); run();});
+  out.querySelectorAll('[data-egallow]').forEach(b=>b.onclick=()=>add(b.dataset.egallow));
+  out.querySelectorAll('[data-egtag]').forEach(b=>b.onclick=()=>{const d=byDest[b.dataset.egtag]; if(!d)return; aiTag('AI Egress',d.sanctioned?d.dest:('Shadow : '+d.dest),Array.from(d.assets));});
+  const st=document.getElementById('egShadow'); if(st)st.onclick=()=>aiTag('AI Egress','Shadow',Array.from(shadowUuids),'review / raise ACR 8');
+}
+
+const ATLAS_URL=id=>'https://atlas.mitre.org/techniques/'+id;
+function renderAtlas(){
+  const out=document.getElementById('atlasOut'); if(!out||!DATA)return;
+  const assets=DATA.assets||[]; if(!assets.length){out.innerHTML='';return;}
+  const byTech={};
+  assets.forEach(x=>(x.atlas||[]).forEach(t=>{const d=byTech[t.id]||(byTech[t.id]={id:t.id,name:t.name,tactic:t.tactic,assets:new Set(),whys:{}}); d.assets.add(x.asset_uuid); d.whys[t.why]=1;}));
+  const ids=Object.keys(byTech); if(!ids.length){out.innerHTML='';return;}
+  const byTac={}; ids.forEach(id=>{const t=byTech[id].tactic||'Other'; (byTac[t]=byTac[t]||[]).push(byTech[id]);});
+  const order=DATA.atlas_tactic_order||ATLAS_ORDER;
+  const tacs=order.filter(t=>byTac[t]).concat(Object.keys(byTac).filter(t=>order.indexOf(t)<0));
+  out.innerHTML='<div class="card" style="background:var(--panel-2)"><div class="toolbar" style="margin:0 0 6px;flex-wrap:wrap"><b>🗺️ MITRE ATLAS threat mapping</b><span class="chip">'+ids.length+' technique(s)</span><span class="chip">'+tacs.length+' tactic(s)</span></div>'
+    +'<p class="sub" style="margin:0 0 8px">AI-specific adversary techniques (<a href="https://atlas.mitre.org" target="_blank" style="color:var(--accent)">MITRE ATLAS</a>) implied by each asset\'s role, exposure, and egress — capability-based, not observed. Tagging is gated.</p>'
+    +tacs.map(tac=>'<div class="atbox"><div class="toolbar" style="margin:0 0 6px"><b>'+esc(tac)+'</b></div>'
+      +byTac[tac].sort((a,b)=>b.assets.size-a.assets.size).map(d=>'<div class="toolbar" style="margin:0 0 4px;flex-wrap:wrap;gap:6px"><a href="'+ATLAS_URL(d.id)+'" target="_blank" class="tagval mono" style="color:var(--accent)">'+esc(d.id)+'</a><span>'+esc(d.name)+'</span><span class="chip">'+d.assets.size+' asset(s)</span><span class="sub" title="'+esc(Object.keys(d.whys).join(' · '))+'" style="cursor:help">why?</span><span style="flex:1"></span><button class="btn sm" data-atl="'+esc(d.id)+'">🏷 Tag</button></div>').join('')
+      +'</div>').join('')+'</div>';
+  out.querySelectorAll('[data-atl]').forEach(b=>b.onclick=()=>{const d=byTech[b.dataset.atl]; if(!d)return; aiTag('AI ATLAS',d.id,Array.from(d.assets),d.name);});
+}
+
+document.getElementById('run').onclick=run;
+document.getElementById('tagAll').onclick=()=>{ if(!DATA||!DATA.assets.length)return; aiTag('AI','Present',DATA.assets.map(x=>x.asset_uuid)); };
+mountAgentHeader({id:'ai',icon:'🧠',name:'AI Inventory',sub:'Pythia · content-first AI/ML discovery'});
+/* no auto-run — user clicks ▶ Run (protects a busy navi.db) */
+</script>
+</body></html>

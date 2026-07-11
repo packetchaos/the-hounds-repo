@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>ACR Calibration · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>.fld{width:100%;padding:8px;border-radius:7px;background:var(--panel2);color:var(--txt);border:1px solid var(--line)}</style>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+
+  <section class="card">
+    <div class="toolbar"><div><h2 style="margin:0">ACR calibration</h2>
+      <p class="sub" style="margin:2px 0 0">Adjust ACR for assets carrying a tag. <b>Set</b> absolute 1–10, or nudge <b>+N / −N</b>. Justification required. Tags from <span class="mono">navi explore info tags</span>.</p></div>
+      <button class="btn run sm" id="runAcr" style="margin-left:auto">▶ Load tags</button></div>
+    <div id="acrFlash" class="flash"></div>
+    <div class="card" style="background:var(--panel2)">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div><label class="sub">Tag</label><select id="acrTag" class="fld"></select></div>
+        <div><label class="sub">Change Reason (≥1)</label><div id="acrReasons" style="display:flex;gap:12px;flex-wrap:wrap;padding-top:6px;font-size:12.5px">
+          <label><input type="checkbox" value="business" checked> business</label><label><input type="checkbox" value="compliance"> compliance</label>
+          <label><input type="checkbox" value="mitigation"> mitigation</label><label><input type="checkbox" value="development"> development</label></div></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
+        <div><label class="sub">Action</label><select id="acrMod" class="fld"><option value="set">Set ACR to (1–10)</option><option value="inc">Increase by (+N)</option><option value="dec">Decrease by (−N)</option></select></div>
+        <div><label class="sub" id="acrScoreLbl">Value</label><input id="acrScore" type="number" min="1" max="10" value="8" class="fld"></div>
+      </div>
+      <div style="margin-top:12px"><label class="sub">Business justification</label><textarea id="acrNote" rows="2" class="fld" placeholder="e.g. Lab/test device — low business criticality."></textarea></div>
+      <div class="toolbar" style="margin-top:12px"><button class="btn run sm" id="acrApply">▶ Apply ACR change</button><span class="sub" id="acrPreview"></span></div>
+      <div id="acrResult"></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Bulk ACR — natural language</h2>
+    <p class="sub">Plain English; AI maps it to changes; you preview before any write. Falls back to a deterministic rule parser if no AI key.</p>
+    <div id="bulkFlash" class="flash"></div>
+    <textarea id="acrRules" rows="4" class="fld" style="font-size:13px" placeholder="e.g. Drop all IoT and lab gear by 5, set anything internet-facing to 9, bump production databases to 10, leave vuln-route tags alone."></textarea>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px">
+      <div><label class="sub">Change Reason (every change)</label><div id="bulkReasons" style="display:flex;gap:12px;flex-wrap:wrap;padding-top:6px;font-size:12.5px">
+        <label><input type="checkbox" value="business" checked> business</label><label><input type="checkbox" value="compliance"> compliance</label>
+        <label><input type="checkbox" value="mitigation"> mitigation</label><label><input type="checkbox" value="development"> development</label></div></div>
+      <div><label class="sub">Extra justification (optional)</label><input id="bulkNote" class="fld" placeholder="e.g. Q3 rebalance"></div>
+    </div>
+    <div class="toolbar" style="margin-top:10px"><button class="btn sm needs-llm" id="acrInterpret">✨ Interpret with AI</button><button class="btn ghost sm" id="acrParse">Parse as rules</button><button class="btn run sm" id="acrBulkApply" disabled>Apply all</button><span class="chip" id="bulkCount"></span></div>
+    <div id="bulkPreview"></div>
+  </section>
+
+  <section class="card">
+    <h2>All tags <span class="sub" id="acrCount"></span></h2><p class="sub">Live from <span class="mono">navi explore info tags</span>.</p>
+    <input id="acrSearch" class="fld" placeholder="filter…" style="margin-bottom:10px">
+    <table id="acrTbl"><thead><tr><th>Category</th><th>Value</th><th>Value UUID</th><th></th></tr></thead><tbody><tr><td colspan="4" class="sub">Load tags…</td></tr></tbody></table>
+  </section>
+  <footer>ACR Calibration Agent · gated <span class="mono">navi enrich acr</span></footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('acr');
+let ACR=null, BULK={changes:[]};
+async function runAcr(){
+  document.getElementById('runAcr').disabled=true;
+  try{const o=await API.post('run');ACR=o.result||{tags:[]};renderAcr();}catch(e){flash('acrFlash','✗ '+e.message,'crit');}
+  document.getElementById('runAcr').disabled=false;
+}
+function renderAcr(){
+  if(!ACR)return;const sel=document.getElementById('acrTag');
+  sel.innerHTML=(ACR.tags||[]).map((t,i)=>`<option value="${i}">${t.category} : ${t.value}</option>`).join('')||'<option>(no tags — is navi on PATH?)</option>';
+  const q=(document.getElementById('acrSearch').value||'').toLowerCase();
+  const rows=(ACR.tags||[]).filter(t=>!q||(t.category+' '+t.value).toLowerCase().includes(q));
+  const tb=document.querySelector('#acrTbl tbody');
+  tb.innerHTML=rows.length?rows.map(t=>`<tr><td>${esc(t.category)}</td><td><span class="tagval">${esc(t.value)}</span></td><td class="mono" style="font-size:11px;color:var(--mut)">${esc(t.uuid)}</td><td style="text-align:right"><button class="btn sm" data-cat="${esc(t.category)}" data-val="${esc(t.value)}">Set ACR</button></td></tr>`).join(''):'<tr><td colspan="4" class="sub">'+(ACR.message||'No tags.')+'</td></tr>';
+  tb.querySelectorAll('button[data-cat]').forEach(b=>b.onclick=()=>prefillAcr(b.dataset.cat,b.dataset.val));
+  document.getElementById('acrCount').textContent=`(${(ACR.tags||[]).length})`;acrPreview();
+}
+function prefillAcr(cat,val){
+  if(!ACR)return; const i=(ACR.tags||[]).findIndex(t=>t.category===cat&&t.value===val); if(i<0)return;
+  const sel=document.getElementById('acrTag'); sel.value=i; acrPreview();
+  document.querySelector('section.card').scrollIntoView({behavior:'smooth',block:'start'});
+  const sc=document.getElementById('acrScore'); sc.focus(); sc.select();
+  flash('acrFlash','Editing ACR for '+cat+' : '+val+'. Set the value, pick a Change Reason, add a justification, then Apply.','run');
+}
+function acrPreview(){if(!ACR)return;const mod=acrMod.value,sc=acrScore.value;document.getElementById('acrScoreLbl').textContent=mod==='set'?'Set to (1–10)':mod==='inc'?'Increase by (N)':'Decrease by (N)';const t=ACR.tags[acrTag.value];if(t)document.getElementById('acrPreview').textContent=mod==='set'?`Set ACR=${sc} on ${t.category}:${t.value}`:`${mod==='inc'?'Add':'Subtract'} ${sc} ${mod==='inc'?'to':'from'} ${t.category}:${t.value}`;}
+async function applyAcr(){
+  if(!ACR||!ACR.tags.length)return;const t=ACR.tags[acrTag.value];const mod=acrMod.value,score=Number(acrScore.value),note=acrNote.value.trim();
+  const reasons=[...document.querySelectorAll('#acrReasons input:checked')].map(x=>x.value);
+  if(!note)return flash('acrFlash','Business justification is required.','crit');
+  if(!reasons.length)return flash('acrFlash','Select ≥1 Change Reason.','crit');
+  flash('acrFlash','<span class="spin"></span> applying…','run');
+  const o=await API.post('apply',{category:t.category,value:t.value,score,mod,note,reasons,confirm:true});
+  const res=document.getElementById('acrResult');
+  if(o.ok){flash('acrFlash',`✓ ACR ${mod} ${score} on ${t.category}:${t.value}.`+(o.warning?' '+o.warning:' Allow ~30 min for AES.'),'ok');res.innerHTML='<div class="callbox">'+(o.cmd||'')+'</div>';}
+  else{flash('acrFlash','✗ '+(o.message||o.error||'failed'),'crit');res.innerHTML=o.cmd?'<div class="callbox">'+o.cmd+'</div>':'';}
+}
+/* bulk */
+const RULE_RE=/^\s*if\s+(?:it'?s\s+|it\s+has\s+|it\s+contains\s+|tag\s+has\s+|the\s+)?["']?(.+?)["']?\s+(reduce|decrease|lower|drop|increase|raise|bump|set)\s+(?:it\s+)?(?:by\s+|to\s+)?(\d+)\s*$/i;
+function parseRules(text){const rules=[],bad=[];(text||'').split('\n').forEach(l=>{if(!l.trim())return;const m=RULE_RE.exec(l.trim());if(!m){bad.push(l.trim());return;}const v=m[2].toLowerCase();const mod=(v==='increase'||v==='raise'||v==='bump')?'inc':(v==='set')?'set':'dec';rules.push({raw:l.trim(),keyword:m[1].trim(),mod,score:+m[3]});});return{rules,bad};}
+function bulkReasons(){return[...document.querySelectorAll('#bulkReasons input:checked')].map(x=>x.value);}
+function setBulk(changes,source,meta){BULK={changes};const pv=document.getElementById('bulkPreview');document.getElementById('acrBulkApply').disabled=!changes.length;
+  pv.innerHTML=(meta||'')+`<p class="sub" style="margin:10px 0 4px">${changes.length} change(s) · <b>${source}</b></p><table><thead><tr><th>Tag</th><th>Action</th><th>Reason</th><th>Why</th></tr></thead><tbody>`+
+    (changes.length?changes.map(c=>`<tr><td>${c.category} : <span class="tagval">${c.value}</span></td><td><b>${c.mod==='set'?'set '+c.score:(c.mod==='inc'?'+':'−')+c.score}</b></td><td class="sub">${(c.reasons||[]).join(', ')}</td><td class="sub">${c.why||c.rule||''}</td></tr>`).join(''):'<tr><td colspan="4" class="sub">No changes.</td></tr>')+'</tbody></table>';
+  document.getElementById('bulkCount').textContent=`${changes.length} change(s)`;}
+function deterministicBulk(){const {rules,bad}=parseRules(acrRules.value);const reasons=bulkReasons(),extra=bulkNote.value.trim(),changes=[];
+  (ACR?ACR.tags:[]).forEach(t=>{const hay=(t.category+' '+t.value).toLowerCase();const r=rules.find(x=>hay.includes(x.keyword.toLowerCase()));if(!r)return;if(r.mod==='set'&&(r.score<1||r.score>10))return;changes.push({category:t.category,value:t.value,mod:r.mod,score:r.score,reasons:reasons.length?reasons:['business'],note:`Bulk ACR rule: "${r.raw}"`+(extra?` — ${extra}`:''),rule:r.raw});});
+  const warn=[];if(bad.length)warn.push(`${bad.length} line(s) not understood`);if(!reasons.length)warn.push('no reason — defaulting to business');
+  setBulk(changes,'deterministic rules',warn.length?`<div class="flash show" style="background:rgba(251,191,36,.12);color:var(--warn)">${warn.join(' · ')}</div>`:'');}
+async function interpretAI(){const prompt=acrRules.value.trim();if(!prompt)return flash('bulkFlash','Type an instruction first.','crit');
+  flash('bulkFlash','<span class="spin"></span> interpreting with AI…','run');const reasons=bulkReasons(),extra=bulkNote.value.trim();
+  let o;try{o=await API.post('interpret',{prompt,tags:ACR?ACR.tags:[]});}catch(e){o={ok:false,message:e.message};}
+  if(o.ok){const changes=(o.changes||[]).map(c=>({category:c.category,value:c.value,mod:c.mod,score:c.score,reasons:reasons.length?reasons:(c.reasons||['business']),note:`AI ACR: "${prompt.slice(0,120)}"`+(c.why?` — ${c.why}`:'')+(extra?` — ${extra}`:''),why:c.why||''}));
+    flash('bulkFlash',`AI proposed ${changes.length} change(s).`+(o.rejected&&o.rejected.length?` (${o.rejected.length} rejected)`:''),'ok');setBulk(changes,'AI ('+(o.model||'llm')+')','');}
+  else{flash('bulkFlash',(o.message||'AI unavailable')+' — parsed as rules instead.','warn');deterministicBulk();}}
+async function applyBulk(){if(!BULK.changes.length)return;flash('bulkFlash','<span class="spin"></span> applying '+BULK.changes.length+' change(s)…','run');
+  const o=await API.post('bulk_apply',{changes:BULK.changes,confirm:true});
+  if(!o.ok){flash('bulkFlash','✗ '+(o.error||'failed'),'crit');return;}
+  flash('bulkFlash',`✓ Applied ${o.applied}/${o.total}.`+(o.writes_enabled?' Allow ~30 min for AES.':' (gated — set NAVI_ALLOW_WRITES=1)'),o.applied?'ok':'crit');
+  document.getElementById('bulkPreview').innerHTML=(o.results||[]).map(r=>`<div class="callbox" style="color:${r.ok?'#7ee2a8':'#ffb4c6'}">${r.ok?'✓':'✗'} ${r.category}:${r.value} ${r.mod} ${r.score}${r.ok?(r.warning?' — '+r.warning:''):' — '+(r.message||r.stderr||'failed')}</div>`).join('');}
+acrMod.onchange=acrPreview;acrScore.oninput=acrPreview;acrTag.onchange=acrPreview;acrSearch.oninput=renderAcr;
+document.getElementById('runAcr').onclick=runAcr;document.getElementById('acrApply').onclick=applyAcr;
+document.getElementById('acrInterpret').onclick=interpretAI;document.getElementById('acrParse').onclick=deterministicBulk;document.getElementById('acrBulkApply').onclick=applyBulk;
+mountAgentHeader({icon:'🎯',name:'ACR Calibration Agent',sub:'set / +N / −N per tag · NL bulk'});
+runAcr();
+</script>
+</body></html>

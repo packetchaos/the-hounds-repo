@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Dashboard Builder · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>
+  .barrow{display:grid;grid-template-columns:190px 1fr 64px;gap:10px;align-items:center;margin:7px 0}
+  .barrow .bl{font-size:12.5px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .barrow .bv{font-family:var(--mono);font-size:12px;color:var(--ink-3);text-align:right}
+  .exrow{display:flex;flex-wrap:wrap;gap:7px;margin:8px 0}
+  .ex{cursor:pointer}
+  .sqlbox{font-family:var(--mono);font-size:11.5px;white-space:pre-wrap;color:var(--ink-2)}
+</style>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+  <section class="card">
+    <div class="toolbar"><div><h2 style="margin:0">Dashboard Builder</h2>
+      <p class="sub" style="margin:2px 0 0">Describe a view in plain English. The model writes <b>one read-only</b> <span class="mono">SELECT</span> over navi.db and renders it as KPI tiles, a bar chart, or a table — a build-your-own dashboard for anything we didn't ship a page for. <b>Read-only: nothing is ever written.</b></p></div></div>
+    <div class="needs-llm">
+      <textarea id="prompt" rows="2" placeholder="e.g. Top 10 plugins by number of affected assets" style="width:100%;box-sizing:border-box;font-size:14px;padding:10px;border-radius:var(--radius-sm);border:1px solid var(--line);background:var(--bg-2);color:var(--ink)"></textarea>
+      <div class="exrow" id="examples"></div>
+      <div class="toolbar"><button class="btn run sm" id="go">▶ Generate dashboard</button>
+        <span class="chip" id="meta"></span></div>
+      <div id="flash" class="flash"></div>
+    </div>
+    <div class="no-llm-note callbox" style="display:none;color:var(--warn,#e7c66b)">The Dashboard Builder needs a language model to turn your request into SQL. Set <span class="mono">ANTHROPIC_API_KEY</span> on the server and reload to enable it.</div>
+  </section>
+
+  <section class="card" id="out" style="display:none">
+    <div class="toolbar"><div><h2 style="margin:0" id="dTitle">Dashboard</h2>
+      <p class="sub" style="margin:2px 0 0" id="dNote"></p></div>
+      <span style="margin-left:auto;display:flex;gap:6px;align-items:center">
+        <span class="sub">Chart</span><select id="dChartType" title="Chart type" style="padding:6px 8px;border-radius:7px;border:1px solid var(--line);background:var(--panel2);color:var(--ink);font-size:12px"><option value="auto">Auto</option><option value="bar">Bar</option><option value="column">Column</option><option value="pie">Pie</option><option value="donut">Donut</option><option value="line">Line</option><option value="gauge">Gauge</option><option value="kpi">KPI</option><option value="table">Table</option></select>
+        <button class="btn ghost sm" id="dashCsv">⤓ CSV</button>
+        <button class="btn sm" id="dashAdd">📌 Add to dashboard</button>
+        <button class="btn ghost sm" id="toggleSql">View SQL</button></span></div>
+    <div class="callbox" id="sqlWrap" style="display:none;margin-bottom:12px"><div class="sqlbox" id="dSql"></div></div>
+    <div id="viz"></div>
+  </section>
+
+  <section class="card" id="dashGridWrap" style="display:none">
+    <div class="toolbar"><div><h2 style="margin:0">📌 My dashboard</h2>
+      <p class="sub" style="margin:2px 0 0">Pinned components — saved in this browser. Generate a view above and click <b>Add to dashboard</b> to keep building a multi-panel board.</p></div>
+      <span style="margin-left:auto;display:flex;gap:6px;align-items:center"><span class="chip" id="dashGridCount"></span><a class="btn run sm" href="/web/customdash.html" title="Open these pinned components as a standalone, refreshable Custom Dashboard page">🚀 Promote to dashboard</a><button class="btn ghost sm" id="dashClearAll">Clear all</button></span></div>
+    <div id="dashGrid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:14px"></div>
+  </section>
+  <footer>Dashboard Builder · read-only navi.db · model writes the SQL, you see it before it renders · pin components to a saved multi-panel board</footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('dashboard');
+const EX=["Top 10 plugins by number of affected assets",
+  "Assets grouped by operating system",
+  "Vulnerability count by severity",
+  "Certificates expiring per month",
+  "Top 10 most critical assets by ACR",
+  "Count of assets per network"];
+const exWrap=document.getElementById('examples');
+EX.forEach(t=>{const c=document.createElement('span');c.className='chip ex';c.textContent=t;c.onclick=()=>{document.getElementById('prompt').value=t;go();};exWrap.appendChild(c);});
+
+const DPAL=['#f5a623','#3ea6ff','#34d399','#e0607e','#a78bfa','#fbbf24','#22d3ee','#f97362','#84cc16','#c084fc','#2dd4bf','#fb923c'];
+const _num=v=>v!==null&&v!==''&&!isNaN(parseFloat(v))&&isFinite(v);
+const _isDate=v=>typeof v==='string'&&/^\d{4}(-\d{2}(-\d{2})?)?([ T]\d|$)/.test(v.trim());
+function dPickViz(r,cols,rows){
+  const numCols=cols.filter(c=>rows.slice(0,30).filter(x=>x[c]!=null&&x[c]!=='').every(x=>_num(x[c]))&&rows.some(x=>_num(x[c])));
+  const lc=cols.includes(r.label_col)?r.label_col:(cols.find(c=>!numCols.includes(c))||cols[0]);
+  const vc=(cols.includes(r.value_col)&&numCols.includes(r.value_col))?r.value_col:(numCols.find(c=>c!==lc)||numCols[0]);
+  let viz=['kpi','bar','line','pie','table'].includes(r.viz)?r.viz:'';
+  if(!viz){ if(rows.length===1&&numCols.length)viz='kpi'; else if(vc&&lc&&rows.every(x=>_isDate(x[lc])))viz='line'; else if(vc&&lc&&rows.length<=8&&rows.every(x=>(parseFloat(x[vc])||0)>=0))viz='pie'; else if(vc&&lc)viz='bar'; else viz='table'; }
+  if(viz==='pie'&&(!vc||rows.length>12||rows.some(x=>(parseFloat(x[vc])||0)<0)))viz='bar';
+  if((viz==='line'||viz==='bar')&&!vc)viz='table';
+  return {viz,lc,vc};
+}
+function svgPie(rows,lc,vc){
+  const d=rows.map((r,i)=>({l:String(r[lc]==null?'':r[lc]),v:Math.max(0,parseFloat(r[vc])||0),c:DPAL[i%DPAL.length]})).filter(x=>x.v>0);
+  const tot=d.reduce((s,x)=>s+x.v,0)||1; const R=120,CX=140,CY=140; let a=-Math.PI/2; const seg=[];
+  d.forEach(x=>{const f=x.v/tot,a2=a+f*2*Math.PI,x1=CX+R*Math.cos(a),y1=CY+R*Math.sin(a),x2=CX+R*Math.cos(a2),y2=CY+R*Math.sin(a2),lg=f>0.5?1:0;
+    seg.push(f>0.999?`<circle cx="${CX}" cy="${CY}" r="${R}" fill="${x.c}"/>`:`<path d="M${CX},${CY} L${x1.toFixed(1)},${y1.toFixed(1)} A${R},${R} 0 ${lg} 1 ${x2.toFixed(1)},${y2.toFixed(1)} Z" fill="${x.c}"/>`);a=a2;});
+  const leg=d.map(x=>`<div style="display:flex;align-items:center;gap:7px;margin:3px 0;font-size:12.5px"><span style="width:12px;height:12px;border-radius:3px;background:${x.c};flex:0 0 auto"></span><span style="color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(x.l)}">${esc(x.l)}</span><span style="margin-left:auto;font-family:var(--mono);color:var(--ink-3)">${x.v} · ${Math.round(x.v/tot*100)}%</span></div>`).join('');
+  return `<div style="display:flex;gap:24px;flex-wrap:wrap;align-items:center"><svg viewBox="0 0 280 280" style="width:260px;height:260px;flex:0 0 auto">${seg.join('')}</svg><div style="flex:1;min-width:200px">${leg}</div></div>`;
+}
+function svgLine(rows,lc,vc){
+  const p=rows.map(r=>({x:String(r[lc]==null?'':r[lc]),y:parseFloat(r[vc])||0})); const W=720,H=240,PL=46,PB=34,PT=12,PR=12;
+  const max=Math.max(1,...p.map(o=>o.y)),min=Math.min(0,...p.map(o=>o.y)); const sx=i=>PL+(p.length<2?0:i*(W-PL-PR)/(p.length-1)),sy=y=>PT+(H-PT-PB)*(1-(y-min)/((max-min)||1));
+  const poly=p.map((o,i)=>sx(i).toFixed(1)+','+sy(o.y).toFixed(1)).join(' '); const dots=p.map((o,i)=>`<circle cx="${sx(i).toFixed(1)}" cy="${sy(o.y).toFixed(1)}" r="3" fill="var(--accent)"><title>${esc(o.x)}: ${o.y}</title></circle>`).join('');
+  const step=Math.ceil(p.length/8),xl=p.map((o,i)=>i%step?'':`<text x="${sx(i).toFixed(1)}" y="${H-12}" font-size="10" fill="var(--ink-3)" text-anchor="middle">${esc(String(o.x).slice(0,10))}</text>`).join('');
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto"><line x1="${PL}" y1="${H-PB}" x2="${W-PR}" y2="${H-PB}" stroke="var(--line)"/><line x1="${PL}" y1="${PT}" x2="${PL}" y2="${H-PB}" stroke="var(--line)"/><text x="${PL-6}" y="${sy(max)+4}" font-size="10" fill="var(--ink-3)" text-anchor="end">${max}</text><polyline points="${poly}" fill="none" stroke="var(--accent)" stroke-width="2"/>${dots}${xl}</svg>`;
+}
+/* Build the visualization HTML for a result object (reused by #viz and pinned components). */
+function _dnum(n){ return (typeof n==='number'&&isFinite(n))?n.toLocaleString():String(n); }
+function svgDonutD(rows,lc,vc){ const segs=rows.map((x,i)=>({l:String(x[lc]==null?'':x[lc]),c:DPAL[i%DPAL.length],v:Math.max(0,parseFloat(x[vc])||0)})).filter(s=>s.v>0);
+  const tot=segs.reduce((a,s)=>a+s.v,0)||1,R=54,r=34,cx=70,cy=70; let a=-Math.PI/2,p='';
+  segs.forEach(s=>{ let f=s.v/tot; if(f>=0.9999)f=0.9999; const a2=a+f*2*Math.PI,big=f>0.5?1:0,x1=cx+R*Math.cos(a),y1=cy+R*Math.sin(a),x2=cx+R*Math.cos(a2),y2=cy+R*Math.sin(a2),xi2=cx+r*Math.cos(a2),yi2=cy+r*Math.sin(a2),xi1=cx+r*Math.cos(a),yi1=cy+r*Math.sin(a);
+    p+='<path d="M'+x1+' '+y1+' A'+R+' '+R+' 0 '+big+' 1 '+x2+' '+y2+' L'+xi2+' '+yi2+' A'+r+' '+r+' 0 '+big+' 0 '+xi1+' '+yi1+' Z" fill="'+s.c+'"><title>'+esc(s.l)+': '+_dnum(s.v)+'</title></path>'; a=a2; });
+  const leg='<div style="display:flex;flex-direction:column;gap:4px;font-size:13px">'+segs.map(s=>'<div style="display:flex;align-items:center;gap:7px"><i style="width:11px;height:11px;border-radius:3px;background:'+s.c+';flex:none"></i><span style="flex:1">'+esc(s.l)+'</span><b class="mono">'+_dnum(s.v)+'</b></div>').join('')+'</div>';
+  return '<div style="display:flex;gap:20px;align-items:center;flex-wrap:wrap"><svg viewBox="0 0 140 140" width="150" height="150" style="flex:none"><text x="70" y="74" text-anchor="middle" font-size="18" font-weight="800" fill="var(--ink)">'+_dnum(tot)+'</text>'+p+'</svg><div style="flex:1;min-width:180px">'+leg+'</div></div>';
+}
+function svgColumnD(rows,lc,vc){ const data=rows.map((x,i)=>({l:String(x[lc]==null?'':x[lc]),v:Math.max(0,parseFloat(x[vc])||0),c:DPAL[i%DPAL.length]}));
+  const W=Math.max(360,data.length*64),H=250,PB=46,PT=14,PL=8,bw=Math.min(54,(W-PL)/data.length-14),mx=Math.max(1,...data.map(d=>d.v));
+  const bars=data.map((d,i)=>{const x=PL+i*((W-PL)/data.length)+((W-PL)/data.length-bw)/2,h=(H-PT-PB)*(d.v/mx),y=H-PB-h;
+    return '<g><rect x="'+x.toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+bw.toFixed(1)+'" height="'+h.toFixed(1)+'" rx="4" fill="'+d.c+'"><title>'+esc(d.l)+': '+d.v+'</title></rect><text x="'+(x+bw/2).toFixed(1)+'" y="'+(y-4).toFixed(1)+'" text-anchor="middle" font-size="11" font-weight="700" fill="var(--ink-2)">'+d.v+'</text><text x="'+(x+bw/2).toFixed(1)+'" y="'+(H-PB+14)+'" text-anchor="middle" font-size="10" fill="var(--ink-3)">'+esc(String(d.l).slice(0,10))+'</text></g>';}).join('');
+  return '<div style="overflow-x:auto"><svg viewBox="0 0 '+W+' '+H+'" style="min-width:'+Math.min(W,700)+'px;width:100%;height:auto"><line x1="'+PL+'" y1="'+(H-PB)+'" x2="'+W+'" y2="'+(H-PB)+'" stroke="var(--line)"/>'+bars+'</svg></div>';
+}
+function svgGaugeD(rows,lc,vc){ const vals=rows.map(x=>Math.max(0,parseFloat(x[vc])||0)),first=vals[0]||0,tot=vals.reduce((a,b)=>a+b,0);
+  const pct=(rows.length===1&&first<=100&&tot===first)?first:(tot?first/tot*100:0),col='var(--accent)',cx=80,cy=80,R=60,a1=Math.PI*(1+Math.max(0,Math.min(100,pct))/100);
+  const arc=(f,t,c)=>{const x1=cx+R*Math.cos(f),y1=cy+R*Math.sin(f),x2=cx+R*Math.cos(t),y2=cy+R*Math.sin(t),b=(t-f)>Math.PI?1:0; return '<path d="M'+x1+' '+y1+' A'+R+' '+R+' 0 '+b+' 1 '+x2+' '+y2+'" fill="none" stroke="'+c+'" stroke-width="13" stroke-linecap="round"/>';};
+  const lbl=rows.length?esc(String(rows[0][lc]))+' = '+first+(tot&&tot!==first?(' of '+tot):''):'';
+  return '<div style="text-align:center"><svg viewBox="0 0 160 98" width="100%" style="max-width:240px">'+arc(Math.PI,2*Math.PI,'var(--line)')+arc(Math.PI,a1,col)+'<text x="80" y="74" text-anchor="middle" font-size="26" font-weight="800" fill="'+col+'">'+(pct<10?pct.toFixed(1):Math.round(pct))+'%</text></svg><div class="sub" style="margin-top:2px">'+lbl+'</div></div>';
+}
+function vizHTML(r){
+  const rows=r.rows||[], cols=r.columns||[];
+  if(!rows.length) return '<p class="sub">No rows returned for that query. If you just applied tags/ACR or expected results, your local navi.db may be stale — refresh with <span class="mono">navi update assets</span> / <span class="mono">navi update vulns</span> (tags land in navi.db only after a sync).</p>';
+  let {viz,lc,vc}=dPickViz(r,cols,rows);
+  const ov=(document.getElementById('dChartType')||{}).value||'auto'; if(ov&&ov!=='auto') viz=ov;
+  if(viz==='donut') return svgDonutD(rows,lc,vc)+`<details style="margin-top:12px"><summary class="sub" style="cursor:pointer">Show data table</summary>${tableHtml(r)}</details>`;
+  if(viz==='column') return svgColumnD(rows,lc,vc)+`<details style="margin-top:12px"><summary class="sub" style="cursor:pointer">Show data table</summary>${tableHtml(r)}</details>`;
+  if(viz==='gauge') return svgGaugeD(rows,lc,vc)+`<details style="margin-top:12px"><summary class="sub" style="cursor:pointer">Show data table</summary>${tableHtml(r)}</details>`;
+  if(viz==='kpi'){ const row=rows[0];
+    return '<div class="kpi">'+cols.map(c=>`<div class="k"><div class="v">${esc(String(row[c]))}</div><div class="l">${esc(c)}</div></div>`).join('')+'</div>'+(rows.length>1?tableHtml(r):''); }
+  if(viz==='pie') return svgPie(rows,lc,vc)+`<details style="margin-top:12px"><summary class="sub" style="cursor:pointer">Show data table</summary>${tableHtml(r)}</details>`;
+  if(viz==='line') return svgLine(rows,lc,vc)+`<details style="margin-top:12px"><summary class="sub" style="cursor:pointer">Show data table</summary>${tableHtml(r)}</details>`;
+  if(viz==='bar'){
+    const max=Math.max(1,...rows.map(x=>parseFloat(x[vc])||0));
+    return rows.map((x,i)=>{const val=parseFloat(x[vc])||0;const w=Math.max(3,Math.round(val/max*100));
+      return `<div class="barrow"><div class="bl" title="${esc(String(x[lc]))}">${esc(String(x[lc]))}</div><div class="h2bar" style="width:${w}%;background:${DPAL[i%DPAL.length]};color:#10131a;border-radius:5px">${val}</div><div class="bv">${esc(String(x[vc]))}</div></div>`;}).join('')+
+      `<details style="margin-top:12px"><summary class="sub" style="cursor:pointer">Show data table</summary>${tableHtml(r)}</details>`;
+  }
+  return tableHtml(r);
+}
+function renderViz(r){
+  const v=document.getElementById('viz'); const rows=r.rows||[]; window.__dLast=r;
+  v.innerHTML=vizHTML(r);
+  if(rows.length){ let {viz}=dPickViz(r,r.columns||[],rows); const ov=(document.getElementById('dChartType')||{}).value||'auto'; if(ov!=='auto')viz=ov; const meta=document.getElementById('meta'); if(meta) meta.textContent=`${r.row_count} row(s) · ${viz} · read-only`; }
+}
+(function(){ const dt=document.getElementById('dChartType'); if(dt) dt.onchange=()=>{ if(window.__dLast) renderViz(window.__dLast); }; })();
+
+/* ===== Pinned multi-component dashboard (saved in this browser) ===== */
+let _dashCurrent=null, DASHBOARD=[];
+try{ DASHBOARD=JSON.parse(localStorage.getItem('navi-dashboard')||'[]')||[]; }catch(e){ DASHBOARD=[]; }
+function saveDash(){ try{ localStorage.setItem('navi-dashboard',JSON.stringify(DASHBOARD)); }catch(e){} }
+function renderDashGrid(){
+  const g=document.getElementById('dashGrid'), wrap=document.getElementById('dashGridWrap'); if(!g||!wrap)return;
+  wrap.style.display=DASHBOARD.length?'block':'none';
+  const cnt=document.getElementById('dashGridCount'); if(cnt)cnt.textContent=DASHBOARD.length+' component'+(DASHBOARD.length===1?'':'s');
+  g.innerHTML=DASHBOARD.map((d,i)=>`<section class="card" style="margin:0"><div class="toolbar"><div><h3 style="margin:0">${esc(d.title||'Component')}</h3>${d.note?'<p class="sub" style="margin:2px 0 0">'+esc(d.note)+'</p>':''}</div><span style="margin-left:auto;display:flex;gap:6px"><button class="btn ghost sm" data-dcsv="${i}">⤓ CSV</button><button class="btn ghost sm" data-dsql="${i}">SQL</button><button class="btn ghost sm" data-drm="${i}" title="Remove">✕</button></span></div><div class="callbox" data-dsqlw="${i}" style="display:none;margin-bottom:10px"><div class="sqlbox">${esc(d.sql||'')}</div></div><div>${vizHTML(d.r||{})}</div></section>`).join('');
+  g.querySelectorAll('[data-drm]').forEach(b=>b.onclick=()=>{DASHBOARD.splice(+b.dataset.drm,1);saveDash();renderDashGrid();});
+  g.querySelectorAll('[data-dsql]').forEach(b=>b.onclick=()=>{const w=g.querySelector('[data-dsqlw="'+b.dataset.dsql+'"]');if(w)w.style.display=w.style.display==='none'?'block':'none';});
+  g.querySelectorAll('[data-dcsv]').forEach(b=>b.onclick=()=>{const d=DASHBOARD[+b.dataset.dcsv];downloadCSV((d.title||'component')+'.csv',(d.r&&d.r.columns)||[],(d.r&&d.r.rows)||[]);});
+}
+function addToDashboard(){ if(!_dashCurrent){flash('flash','Generate a dashboard first.','warn');return;}
+  DASHBOARD.push(JSON.parse(JSON.stringify(_dashCurrent))); saveDash(); renderDashGrid();
+  flash('flash','✓ pinned to “My dashboard” below — generate another to keep building.','ok');
+  const w=document.getElementById('dashGridWrap'); if(w)w.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+(function dashGridInit(){
+  const ab=document.getElementById('dashAdd'); if(ab){ab.disabled=true;ab.onclick=addToDashboard;}
+  const cb=document.getElementById('dashCsv'); if(cb)cb.onclick=()=>{ if(_dashCurrent&&_dashCurrent.r)downloadCSV((_dashCurrent.title||'dashboard')+'.csv',_dashCurrent.r.columns||[],_dashCurrent.r.rows||[]); else alert('Generate a dashboard first.'); };
+  const ca=document.getElementById('dashClearAll'); if(ca)ca.onclick=()=>{ if(DASHBOARD.length&&confirm('Remove all '+DASHBOARD.length+' pinned component(s)?')){DASHBOARD=[];saveDash();renderDashGrid();} };
+  renderDashGrid();
+})();
+function tableHtml(r){
+  const cols=r.columns||[]; const rows=r.rows||[];
+  return '<table><thead><tr>'+cols.map(c=>`<th>${esc(c)}</th>`).join('')+'</tr></thead><tbody>'+
+    rows.map(x=>'<tr>'+cols.map(c=>`<td>${esc(String(x[c]==null?'':x[c]))}</td>`).join('')+'</tr>').join('')+
+    '</tbody></table>';
+}
+async function go(){
+  const prompt=document.getElementById('prompt').value.trim();
+  if(!prompt){flash('flash','Describe the dashboard you want first.','warn');return;}
+  document.getElementById('go').disabled=true;
+  flash('flash','<span class="spin"></span> writing a read-only query & running it…','run');
+  let o; try{ o=await API.post('build',{prompt}); }catch(e){ o={ok:false,error:e.message}; }
+  document.getElementById('go').disabled=false;
+  if(!o.ok){
+    flashClear('flash');
+    let msg='✗ '+(o.error||'failed');
+    if(o.needs_key) msg+=' — set ANTHROPIC_API_KEY on the server (the artifact build uses on-device inference).';
+    flash('flash',msg,'crit');
+    if(o.sql){document.getElementById('out').style.display='block';document.getElementById('dTitle').textContent='Proposed query (not run)';document.getElementById('dNote').textContent='';document.getElementById('dSql').textContent=o.sql;document.getElementById('sqlWrap').style.display='block';document.getElementById('viz').innerHTML='';}
+    return;
+  }
+  flashClear('flash');
+  const r=o.result;
+  document.getElementById('out').style.display='block';
+  document.getElementById('dTitle').textContent=r.title||'Dashboard';
+  document.getElementById('dNote').textContent=r.note||'';
+  document.getElementById('dSql').textContent=r.sql||'';
+  document.getElementById('meta').textContent=`${r.row_count} row(s) · ${r.viz} · read-only`;
+  renderViz(r);
+  _dashCurrent={title:r.title||'Dashboard',note:r.note||'',sql:r.sql||'',r:r};
+  const _ab=document.getElementById('dashAdd'); if(_ab)_ab.disabled=false;
+}
+document.getElementById('go').onclick=go;
+document.getElementById('prompt').addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key==='Enter')go();});
+document.getElementById('toggleSql').onclick=()=>{const w=document.getElementById('sqlWrap');const sh=w.style.display==='none';w.style.display=sh?'block':'none';document.getElementById('toggleSql').textContent=sh?'Hide SQL':'View SQL';};
+mountAgentHeader({icon:'📊',name:'Dashboard Builder',sub:'read-only navi.db · prompt → KPI / bar / table'});
+/* deep-link prefill: insights tiles link here with ?q=<prompt> and auto-run */
+(function(){const q=new URLSearchParams(location.search).get('q');if(q){document.getElementById('prompt').value=q;go();}})();
+</script>
+</body></html>

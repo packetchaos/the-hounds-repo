@@ -1,0 +1,14 @@
+{
+  "id": "ex_plugins",
+  "name": "Plugin Explorer",
+  "icon": "\ud83d\udd0e",
+  "order": 22,
+  "category": "Explore",
+  "codename": "Foxhound",
+  "summary": "Every distinct plugin in navi.db \u2014 search by ID, name, or family. Read-only navi.db search via the UI.",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": [
+    "search"
+  ]
+}

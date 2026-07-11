@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Identity Inventory · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+
+  <section class="card" style="background:radial-gradient(120% 140% at 90% -20%,var(--amber-glow),transparent 60%),var(--panel)">
+    <div class="toolbar"><div><div class="acode" style="font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--amber);font-weight:700">Janus Hound</div><h2 style="margin:0">🆔 Identity inventory</h2>
+      <p class="sub" style="margin:2px 0 0">Discovers identities by <b>content, not a memorized plugin list</b> — sweeps plugin <b>names</b> and raw <b>output</b>, then the high-value enumerators (passwd <span class="mono">95928</span>, SMB users <span class="mono">10860</span>, non-expiring <span class="mono">83303</span>, host SID <span class="mono">10859</span>, SNMP <span class="mono">41028</span>). Classifies <b>Human / Service-NHI / Machine</b> — built-ins are labelled by <b>external authority</b> (Microsoft well-known SIDs/RIDs, AD machine <span class="mono">$</span> accounts, the Linux <span class="mono">login.defs</span> UID convention), not just our guess lists — flags the risky ones (non-expiring, privileged, guest, default-secret), and headlines the <b>coverage gap</b> — hosts scanned without credentials. Tagged via navi <span class="mono">tag --query</span>; <b>gated writes.</b></p></div>
+      <button class="btn run sm" id="run" style="margin-left:auto">▶ Run</button></div>
+    <div id="flash" class="flash"></div>
+    <div class="kpi" id="kpi"></div>
+    <div class="toolbar" id="identClass" style="display:none"><span class="sub">Tag by class:</span>
+      <button class="btn sm" data-cls="nhi" data-cat="NHI">Tag all NHI</button>
+      <button class="btn sm" data-cls="human" data-cat="Owner">Tag all Human → Owner:&lt;name&gt;</button>
+      <button class="btn sm" data-cls="service" data-cat="Identity">Tag all Service</button>
+      <button class="btn sm" data-cls="machine" data-cat="Machine ID">Tag all Machine</button></div>
+    <div id="identCov" class="callbox" style="display:none;margin-top:10px"></div>
+    <div id="tagRes"></div>
+  </section>
+
+  <section class="card" id="nlCard" style="display:none">
+    <h3 style="margin:0 0 4px">Tag with a sentence <span class="sub">— natural language</span></h3>
+    <p class="sub" style="margin:0 0 8px">e.g. <i>"tag every non-human identity as NHI : automation, and tag root/admin as Identity : privileged"</i>. The model proposes per-identity tags; approve before any gated write.</p>
+    <textarea id="nl" rows="2" placeholder="Describe how to tag these identities…" style="width:100%;box-sizing:border-box;font-size:15px;padding:10px;border-radius:8px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink)"></textarea>
+    <div class="toolbar" style="margin-top:8px"><button class="btn sm" id="nlGo">Interpret</button><span class="chip" id="nlHint"></span></div>
+    <div id="nlPrev"></div>
+  </section>
+
+  <section class="card">
+    <div class="toolbar" style="margin:0"><h3 style="margin:0">Identities <span class="sub" id="count"></span></h3>
+      <span id="idFilter" style="margin-left:auto;display:flex;gap:5px;flex-wrap:wrap">
+        <button class="atagchip on" data-if="all">All</button>
+        <button class="atagchip" data-if="human">👤 Human</button>
+        <button class="atagchip" data-if="service">⚙ Service / NHI</button>
+        <button class="atagchip" data-if="machine">🖥 Machine</button>
+        <button class="atagchip" data-if="flagged">⚠ Risk-flagged</button></span></div>
+    <p class="sub" style="margin:4px 0 8px">Each identity maps to the asset(s) it was enumerated on. <b>Tag</b> labels those assets; ↗ opens the asset in Tenable One.</p>
+    <div style="overflow-x:auto"><table id="tbl"><thead><tr><th>Identity</th><th>Class</th><th>Flags</th><th>Hosts</th><th>Assets</th><th>Plugins</th><th>Platform</th><th></th></tr></thead>
+      <tbody><tr><td colspan="8" class="sub">Press ▶ Run to load…</td></tr></tbody></table></div>
+  </section>
+  <footer>Janus · Identity inventory · reads navi.db read-only · gated <span class="mono">navi enrich tag --query</span></footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('identity'); let IDENT=null, WRITES=false, IDENT_FILTER='all';
+const idCat=k=>k==='nhi'?'NHI':k==='machine'?'Machine ID':'Identity';
+const KC={human:'#e0b341',service:'#3fb0c9',nhi:'#3fb0c9',machine:'#a97fd6'};
+const plat=u=>u?`<a href="${esc(u)}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none">Open ↗</a>`:'<span class="sub">—</span>';
+
+async function run(){
+  const b=document.getElementById('run'); b.disabled=true;
+  flash('flash','<span class="spin"></span> sweeping plugin names + output for identities…','run');
+  document.querySelector('#tbl tbody').innerHTML='<tr><td colspan="8" class="sub"><span class="spin"></span> querying…</td></tr>';
+  let o; try{ o=await API.post('run'); }catch(e){ o={ok:false,error:e.message}; }
+  b.disabled=false;
+  if(!o||!o.ok||!o.result){ flash('flash','✗ '+esc((o&&(o.error||o.message))||'failed'),'crit'); document.querySelector('#tbl tbody').innerHTML='<tr><td colspan="8" class="sub">Run failed — see message above.</td></tr>'; return; }
+  IDENT=o.result; window.__LLM=!!o.llm_available; flashClear('flash'); render();
+}
+function render(){
+  const a=IDENT.accounts||[], c=IDENT.counts||{}; const svc=(c.nhi||0)+(c.service||0);
+  const hasF=(x,fl)=>x.flags&&x.flags.indexOf(fl)>=0;
+  const crown=a.filter(x=>x.klass!=='machine'&&hasF(x,'privileged')&&(hasF(x,'on KEV host')||hasF(x,'on critical host'))).length;
+  const reused=a.filter(x=>x.flags&&x.flags.some(fl=>fl.indexOf('reused')===0)).length;
+  document.getElementById('kpi').innerHTML=
+    `<div class="k"><div class="v">${c.total||0}</div><div class="l">identities</div></div>`+
+    `<div class="k"><div class="v" style="color:#e0b341">${c.human||0}</div><div class="l">human / interactive</div></div>`+
+    `<div class="k"><div class="v" style="color:#3fb0c9">${svc}</div><div class="l">service / NHI</div></div>`+
+    `<div class="k"><div class="v" style="color:#a97fd6">${c.machine||0}</div><div class="l">machine identity</div></div>`+
+    `<div class="k"><div class="v" style="color:var(--crit)">${IDENT.blind||0}</div><div class="l">blind hosts (no creds)</div></div>`+
+    (c.flagged?`<div class="k"><div class="v" style="color:var(--crit)">${c.flagged}</div><div class="l">risk-flagged</div></div>`:'')+
+    (crown?`<div class="k" style="border-color:var(--crit)"><div class="v" style="color:var(--crit)">${crown}</div><div class="l">👑 crown-jewel ids</div></div>`:'');
+  const cov=document.getElementById('identCov'); const fr=IDENT.fresh?String(IDENT.fresh).slice(0,10):'unknown';
+  cov.style.display='block';
+  cov.innerHTML='<b>Coverage gap:</b> only credentialed hosts yield accounts. <b style="color:var(--crit)">'+(IDENT.blind||0)+'</b> host(s) were reachable but scanned <b>without credentials</b> (plugins 104410 / 110723) — their identities stay invisible until you enable credentialed checks and re-run, so treat this inventory as a floor. <span class="sub">navi.db snapshot: '+esc(fr)+' — a point-in-time view; hosts that aged out of the last sync won\'t appear.</span>';
+  if(IDENT.sshHosts||IDENT.weakHosts){ cov.innerHTML+='<div style="margin-top:6px"><b>Auth weaknesses:</b> '+(IDENT.sshHosts?('<b style="color:#ffb4c6">'+IDENT.sshHosts+'</b> host(s) accept SSH password auth'):'')+((IDENT.sshHosts&&IDENT.weakHosts)?' · ':'')+(IDENT.weakHosts?('<b style="color:#ffb4c6">'+IDENT.weakHosts+'</b> host(s) run a weak password policy (no complexity / never-expire)'):'')+'.</div>'; }
+  const bits=[]; if(reused)bits.push('<b>'+reused+'</b> account(s) reused across ≥5 hosts (lateral movement)'); if(IDENT.dcHosts)bits.push('<b style="color:#ffb4c6">'+IDENT.dcHosts+'</b> host(s) with default/blank/anonymous creds'); if(IDENT.adHosts)bits.push('<b>'+IDENT.adHosts+'</b> host(s) with AD attack-path exposure'); if(IDENT.kevHostN)bits.push('<b style="color:#ffb4c6">'+IDENT.kevHostN+'</b> host(s) carry a CISA-KEV finding');
+  if(bits.length)cov.innerHTML+='<div style="margin-top:6px"><b>Correlated signals:</b> '+bits.join(' · ')+'.</div>';
+  document.getElementById('count').textContent='('+a.length+')';
+  document.getElementById('identClass').style.display=a.length?'flex':'none';
+  const nlc=document.getElementById('nlCard'); nlc.style.display=a.length?'block':'none';
+  document.getElementById('nlHint').textContent=window.__LLM?'model ready':'no model — use the Tag buttons';
+  const _grp=k=>k==='human'?'human':(k==='machine'?'machine':'service');
+  const _im=x=> IDENT_FILTER==='all' ? true : (IDENT_FILTER==='flagged' ? !!(x.flags&&x.flags.length) : _grp(x.klass)===IDENT_FILTER);
+  const tb=document.querySelector('#tbl tbody');
+  tb.innerHTML=a.length?(a.map((x,i)=>_im(x)?('<tr>'+
+    '<td class="mono"><b>'+esc(x.user)+'</b></td>'+
+    '<td><span class="tagval" style="color:'+(KC[x.klass]||'var(--accent)')+'"'+(x.authority?' title="'+esc(x.authority)+'"':'')+'>'+esc(x.klass)+'</span>'+
+       (x.authority?'<div class="sub" style="font-size:10px;margin-top:2px" title="'+esc(x.authority)+'">📖 '+esc(x.authority.length>44?x.authority.slice(0,42)+'…':x.authority)+'</div>':'')+'</td>'+
+    '<td>'+((x.flags&&x.flags.length)?x.flags.map(fl=>'<span class="chip" style="color:#ffb4c6;border-color:rgba(255,80,120,.4)">'+esc(fl)+'</span>').join(' '):'<span class="sub">—</span>')+'</td>'+
+    '<td class="sub">'+esc((x.hosts||[]).slice(0,4).join(', '))+((x.hosts||[]).length>4?' +'+(x.hosts.length-4):'')+'</td>'+
+    '<td>'+((x.asset_uuids||[]).length)+'</td>'+
+    '<td class="mono sub" style="font-size:11px">'+esc((x.plugins||[]).join(', '))+'</td>'+
+    '<td>'+plat(x.url)+'</td>'+
+    '<td><button class="btn sm" data-ii="'+i+'">Tag</button></td></tr>'):'').join('')||'<tr><td colspan="8" class="sub">No identities of this type in the current view — clear the filter.</td></tr>'):'<tr><td colspan="8" class="sub">No identities enumerated — are these hosts credentialed?</td></tr>';
+  tb.querySelectorAll('button[data-ii]').forEach(b=>b.onclick=()=>{const x=a[+b.dataset.ii];tagOne(idCat(x.klass),x.user,x.asset_uuids,b);});
+  document.querySelectorAll('#idFilter button[data-if]').forEach(b=>b.onclick=()=>{ IDENT_FILTER=b.dataset.if; document.querySelectorAll('#idFilter button').forEach(x=>x.classList.toggle('on',x===b)); render(); });
+}
+function showRes(o,label){ const r=document.getElementById('tagRes');
+  if(!o||!o.ok){ r.innerHTML='<div class="callbox" style="color:var(--crit)">✗ '+esc((o&&(o.error||o.message))||'failed')+'</div>'; return; }
+  const applied=(o.applied!=null)?o.applied:((o.result&&o.result.ok!==false)?1:0);
+  const tot=(o.total!=null)?o.total:1;
+  r.innerHTML='<div class="callbox" style="color:'+(applied?'#7ee2a8':'#ffb4c6')+'">'+(applied?('✓ tagged '+applied+'/'+tot+' '+esc(label)):('✗ '+esc((o.result&&(o.result.message||o.result.stderr))||'write rejected')))+'</div>'
+    +(o.writes_enabled?'':'<div class="sub" style="margin-top:6px;color:var(--warn)">Writes are gated — set <span class="mono">NAVI_ALLOW_WRITES=1</span> to apply. Tags show in the <a href="/web/tags-log.html">Tagging log</a> after a navi.db sync.</div>'); }
+async function tagOne(category,value,uuids,btn){ if(btn){btn.disabled=true;btn.textContent='tagging…';}
+  let o; try{ o=await API.post('tag',{category,value,asset_uuids:uuids,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+  if(btn){btn.textContent=o&&o.ok?'✓ tagged':'✗ failed';}
+  showRes(o,'"'+value+'" → '+category); }
+async function tagClass(cls,cat,btn){ if(!IDENT)return; const set=(IDENT.accounts||[]).filter(x=>x.klass===cls);
+  if(!set.length){ flash('flash','No '+cls+' identities to tag.','warn'); return; }
+  btn.disabled=true; const old=btn.textContent; btn.textContent='tagging…';
+  let o;
+  try{
+    if(cls==='human'){ // each human → Owner : <name>
+      const items=set.filter(x=>(x.asset_uuids||[]).length).map(x=>({category:cat,value:x.user,asset_uuids:x.asset_uuids}));
+      o=await API.post('tag',{items,confirm:true});
+    } else {
+      const uuids=[...new Set(set.flatMap(x=>x.asset_uuids||[]))];
+      const value=cls==='nhi'?'Non-human identity':(cls.charAt(0).toUpperCase()+cls.slice(1));
+      o=await API.post('tag',{category:cat,value,asset_uuids:uuids,confirm:true});
+    }
+  }catch(e){ o={ok:false,error:e.message}; }
+  btn.disabled=false; btn.textContent=old;
+  showRes(o,cls==='human'?(set.length+' human → '+cat+':<name>'):('all '+cls));
+}
+async function nlInterpret(){
+  if(!IDENT)return; const q=document.getElementById('nl').value.trim(); const prev=document.getElementById('nlPrev');
+  if(!q){ prev.innerHTML='<div class="callbox" style="color:var(--crit)">Type an instruction first.</div>'; return; }
+  prev.innerHTML='<div class="callbox"><span class="spin"></span> interpreting…</div>';
+  let o; try{ o=await API.post('interpret',{prompt:q,accounts:IDENT.accounts}); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o||!o.ok){ prev.innerHTML='<div class="callbox" style="color:var(--crit)">✗ '+esc((o&&(o.error||o.message))||'failed')+'</div>'; return; }
+  const asg=(o.assignments||[]).filter(x=>x&&(x.value||x.category));
+  if(!asg.length){ prev.innerHTML='<div class="callbox">No assignments proposed — rephrase the instruction.</div>'; return; }
+  const byUser={}; (IDENT.accounts||[]).forEach(x=>byUser[x.user]=x);
+  window.__ASG=asg.map(x=>{const acc=byUser[x.user]||{}; return {category:x.category||idCat(acc.klass),value:x.value||x.user,asset_uuids:acc.asset_uuids||x.asset_uuids||[]};}).filter(x=>x.asset_uuids.length);
+  prev.innerHTML='<div class="callbox"><b>Proposed tags</b>'+asg.map(x=>'<div style="margin-top:6px">'+esc(x.user||'')+' → <span class="tagval">'+esc((x.category||''))+' : '+esc((x.value||''))+'</span></div>').join('')+
+    '<div class="toolbar" style="margin-top:10px"><button class="btn run sm" id="asgApply">▶ Apply '+window.__ASG.length+' tag(s) (gated)</button></div></div>';
+  const ab=document.getElementById('asgApply'); if(ab) ab.onclick=async()=>{ ab.disabled=true; ab.textContent='tagging…';
+    let r; try{ r=await API.post('tag',{items:window.__ASG,confirm:true}); }catch(e){ r={ok:false,error:e.message}; }
+    ab.textContent=r&&r.ok?'✓ applied':'✗ failed'; showRes(r,window.__ASG.length+' proposed tag(s)'); };
+}
+document.getElementById('run').onclick=run;
+document.querySelectorAll('#identClass button[data-cls]').forEach(b=>b.onclick=()=>tagClass(b.dataset.cls,b.dataset.cat,b));
+document.getElementById('nlGo').onclick=nlInterpret;
+mountAgentHeader({icon:'🆔',name:'Identity Inventory',sub:'Janus · NHI + human + machine identities'});
+jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});
+</script>
+</body></html>

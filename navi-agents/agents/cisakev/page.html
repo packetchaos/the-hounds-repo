@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>CISA KEV Tagging · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+
+  <section class="card">
+    <div class="toolbar"><div><h2 style="margin:0">🛡️ CISA KEV Tagging</h2>
+      <p class="sub" style="margin:2px 0 0">Laelaps tags <b>Known Exploited Vulnerabilities</b> off Tenable's <span class="mono">CISA-KNOWN-EXPLOITED</span> cross-reference. Tag <b>every KEV asset</b> as <span class="tagval">CISA KEV : Vulnerable</span>, or by <b>catalog date</b> as <span class="tagval">CISA KEV : &lt;Mon&gt; - &lt;DD&gt; - &lt;YYYY&gt;</span>. Gated; tracked in the <a href="/web/tags-log.html">Tagging log</a>.</p></div>
+      <button class="btn run sm" id="load" style="margin-left:auto">▶ Load CISA KEV</button></div>
+    <div id="flash" class="flash"></div>
+    <div class="kpi" id="kpi"></div>
+    <div class="toolbar" style="margin-top:6px"><button class="btn sm" id="tagVuln" disabled>🛡️ Tag all KEV → CISA KEV : Vulnerable (gated)</button></div>
+  </section>
+
+  <section class="card" id="datesCard" style="display:none">
+    <div class="toolbar"><div><h3 style="margin:0">By catalog date (dateAdded)</h3>
+      <p class="sub" style="margin:2px 0 0">Each KEV finding carries its CISA dateAdded. Tag assets per date.</p></div>
+      <span style="margin-left:auto;display:flex;gap:6px"><button class="btn ghost sm" id="dAll">All</button><button class="btn ghost sm" id="dNone">None</button></span></div>
+    <div class="toolbar" style="margin:4px 0"><button class="btn sm" id="tagDates" disabled>🏷 Tag selected dates (gated)</button><span class="chip" id="dSel">0 selected</span></div>
+    <div style="overflow-x:auto"><table id="dTbl"><thead><tr><th style="width:34px"></th><th>Date added</th><th>Tag value</th><th>Assets</th><th>Findings</th></tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <section class="card needs-llm">
+    <h3 style="margin:0 0 4px">Hunt CISA KEV — ask in plain English</h3>
+    <p class="sub" style="margin:0 0 8px">Turn a question into a read-only SQL over navi.db / tags — e.g. <i>"assets with a CISA KEV and ACR over 7"</i>, <i>"KEV added in 2025 by hostname"</i>, <i>"which assets already carry a CISA KEV tag"</i>.</p>
+    <textarea id="kevQ" rows="2" placeholder="ask about CISA KEV…" style="width:100%;box-sizing:border-box;font-size:14px;padding:10px;border-radius:7px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink)"></textarea>
+    <div class="toolbar" style="margin-top:8px"><button class="btn run sm" id="kevNl">✨ Translate to SQL</button></div>
+    <div id="kevOut" style="margin-top:8px"></div>
+  </section>
+  <div class="no-llm-note callbox" style="display:none;color:var(--warn,#e7c66b)">The KEV hunt needs a language model. Set <span class="mono">ANTHROPIC_API_KEY</span> on the server to enable plain-English → SQL — tagging above works without it.</div>
+  <footer>Laelaps · CISA KEV via navi --xrefs CISA-KNOWN-EXPLOITED · gated · tracked in the Tagging log</footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('cisakev');
+let DATES=[], WRITES=false;
+function dPicked(){ return [...document.querySelectorAll('#dTbl tbody input.dsel:checked')].map(c=>c.dataset.d); }
+function dSync(){ const n=dPicked().length; document.getElementById('dSel').textContent=n+' selected'; document.getElementById('tagDates').disabled=!n; }
+function renderDates(){
+  document.querySelector('#dTbl tbody').innerHTML=DATES.length?DATES.map(d=>
+    `<tr><td><input type="checkbox" class="dsel" data-d="${esc(d.kev_date)}"></td><td class="mono">${esc(d.kev_date)}</td><td><span class="tagval">${esc(d.value)}</span></td><td>${d.assets}</td><td>${d.findings}</td></tr>`).join('')
+    :'<tr><td colspan="5" class="sub">No CISA KEV findings in navi.db.</td></tr>';
+  document.querySelectorAll('#dTbl tbody input.dsel').forEach(c=>c.onchange=dSync); dSync();
+}
+async function load(){
+  document.getElementById('load').disabled=true; flash('flash','<span class="spin"></span> reading CISA KEV xrefs from navi.db…','run');
+  let o; try{ o=await API.post('run'); }catch(e){ o={ok:false,error:e.message}; }
+  document.getElementById('load').disabled=false;
+  if(!o.ok && !(o.result)){ flash('flash','✗ '+esc(o.error||'failed'),'crit'); return; }
+  const r=o.result||{}; const s=r.summary||{}; DATES=r.dates||[]; flashClear('flash');
+  document.getElementById('kpi').innerHTML=`<div class="k"><div class="v">${s.kev_assets||0}</div><div class="l">KEV assets</div></div><div class="k"><div class="v">${s.kev_findings||0}</div><div class="l">KEV findings</div></div><div class="k"><div class="v">${DATES.length}</div><div class="l">catalog dates</div></div>`;
+  document.getElementById('tagVuln').disabled=!(s.kev_assets);
+  document.getElementById('datesCard').style.display='block'; renderDates();
+  if(!s.kev_assets) flash('flash','No CISA KEV findings found — is navi.db fresh? Run a navi update.','warn');
+}
+async function tagVuln(){
+  if(!WRITES && !confirm('Writes are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked. Continue?')) return;
+  flash('flash','<span class="spin"></span> queuing CISA KEV : Vulnerable…','run');
+  let o; try{ o=await API.post('tag_vulnerable',{confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o.ok&&!o.queued&&!o.warning){ flash('flash','✗ '+esc(o.error||o.message||'failed'),'crit'); return; }
+  flash('flash','✓ queued CISA KEV : Vulnerable — watch the <a href="/web/tags-log.html">Tagging log</a> (navi --xrefs CISA-KNOWN-EXPLOITED).','ok');
+}
+async function tagDates(dates){
+  dates=dates||dPicked(); if(!dates.length) return;
+  if(!WRITES && !confirm('Writes are gated — jobs queue but are blocked. Continue?')) return;
+  flash('flash','<span class="spin"></span> queuing '+dates.length+' KEV date tag(s)…','run');
+  let o; try{ o=await API.post('tag_dates',{dates,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o.ok){ flash('flash','✗ '+esc(o.error||'failed'),'crit'); return; }
+  flash('flash','✓ queued '+o.queued+' date tag(s) — watch the <a href="/web/tags-log.html">Tagging log</a>.','ok');
+}
+async function kevNl(){
+  const p=(document.getElementById('kevQ').value||'').trim();
+  const out=document.getElementById('kevOut');
+  if(!p){ out.innerHTML='<div class="callbox" style="color:var(--crit)">Ask a question first.</div>'; return; }
+  out.innerHTML='<div class="callbox"><span class="spin"></span> turning your question into SQL…</div>';
+  let o; try{ o=await API.post('nl',{prompt:p}); }catch(e){ o={ok:false,message:e.message}; }
+  if(!o.ok || !o.sql){ renderSqlResult('kevOut', {ok:false, message:(o.message||o.error||'failed')+(o.fallback?' — set ANTHROPIC_API_KEY':'')}); return; }
+  renderSqlBox('kevOut', o.sql, 'vulns');
+}
+document.getElementById('load').onclick=load;
+document.getElementById('tagVuln').onclick=tagVuln;
+document.getElementById('tagDates').onclick=()=>tagDates();
+document.getElementById('dAll').onclick=()=>{ document.querySelectorAll('#dTbl tbody input.dsel').forEach(c=>c.checked=true); dSync(); };
+document.getElementById('dNone').onclick=()=>{ document.querySelectorAll('#dTbl tbody input.dsel').forEach(c=>c.checked=false); dSync(); };
+document.getElementById('kevNl').onclick=kevNl;
+mountAgentHeader({icon:'🛡️',name:'CISA KEV Tagging',sub:'Laelaps · tag known-exploited vulns by xref / date'});
+jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});
+</script>
+</body></html>

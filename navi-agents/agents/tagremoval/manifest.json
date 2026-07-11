@@ -1,0 +1,12 @@
+{
+  "id": "tagremoval",
+  "name": "Tag Removal",
+  "icon": "🗑️",
+  "order": 10,
+  "category": "Tagging",
+  "summary": "Garmr — lists every tag in the tenant and removes the ones you choose (queued to the Tagging log as -remove). Your choices can feed the AI Contract, which removes them first, forces a 30-min pause + navi update, then re-runs the tagging workflow.",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": ["run", "remove", "add_to_contract"],
+  "codename": "Garmr Hound"
+}

@@ -1,0 +1,12 @@
+{
+  "id": "email",
+  "name": "Email & Reports",
+  "icon": "📧",
+  "order": 20,
+  "category": "Loop",
+  "codename": "Gabriel Hound",
+  "summary": "The loop-closer. Turns the pack's findings into owner-routed remediation, KEV fire-alarms, cert countdowns, and morning briefings — emailed to the right humans with deep-links back into the Tenable platform. Reads Atlas Owner: tags to send each owner only THEIR assets. Preview first; sending is double-gated (writes + email + confirm).",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": ["run", "recipients", "preview", "send", "status"]
+}
