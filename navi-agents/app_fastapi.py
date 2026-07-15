@@ -3,6 +3,7 @@
 Run:  python3 app_fastapi.py        (or: uvicorn app_fastapi:app --port 8000)
 Drop a folder into agents/ and restart to add an agent.
 """
+import mimetypes
 import os
 
 from fastapi import FastAPI, Request
@@ -10,6 +11,18 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 from core import launcher
+
+# Windows fix: Starlette's StaticFiles guesses a file's Content-Type from Python's
+# `mimetypes`, which on Windows reads the registry — where .js/.css are frequently
+# mis-registered (e.g. .js as text/plain). A stylesheet or script served with the
+# wrong MIME type is rejected by the browser, so the hub loads UNSTYLED. Pin the
+# correct types at import so behaviour matches macOS/Linux regardless of the
+# registry. (app_stdlib.py uses its own MIME table and was never affected.)
+for _ext, _type in ((".css", "text/css"), (".js", "application/javascript"),
+                    (".mjs", "application/javascript"), (".json", "application/json"),
+                    (".svg", "image/svg+xml"), (".woff2", "font/woff2"),
+                    (".woff", "font/woff")):
+    mimetypes.add_type(_type, _ext)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WEB = os.path.join(HERE, "web")
