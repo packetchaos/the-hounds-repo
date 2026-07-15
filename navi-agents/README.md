@@ -49,14 +49,86 @@ python3 run.py
 **Point at your real tenant** (live data + tagging):
 
 ```bash
-export NAVI_ALLOW_WRITES=1        # required for any tag/ACR write
-export ANTHROPIC_API_KEY=sk-...   # optional: enables the NL→SQL features
+# macOS / Linux
+export NAVI_DB_PATH=/path/to/navi.db   # your real navi.db (see "Where is navi.db?" below)
+export NAVI_ALLOW_WRITES=1             # required for any tag/ACR write
+export ANTHROPIC_API_KEY=sk-ant-...    # optional: enables the NL / NL→SQL features
 python3 run.py
+```
+
+```powershell
+# Windows PowerShell — set in the SAME shell you launch the server from
+$env:NAVI_DB_PATH   = "C:\path\to\navi.db"
+$env:NAVI_ALLOW_WRITES = "1"
+$env:ANTHROPIC_API_KEY = "sk-ant-..."
+python run.py
 ```
 
 The app reads whatever `navi.db` navi maintains locally. Keep it fresh with
 `navi update assets` / `navi update vulns` (the UI has a one-click **Refresh
 navi.db**). navi.db is a point-in-time snapshot, so freshness matters.
+
+> **Set env vars in the SAME shell you start the server from.** A variable set in
+> a different terminal (or after the server started) won't reach the process. On
+> Windows, `set NAME=value` only lasts for that Command Prompt session; use the
+> System → Environment Variables dialog to make it permanent. Run
+> `python check_writes.py` (writes) and `python check_llm.py` (Anthropic key) to
+> confirm the server actually sees them.
+
+---
+
+## Configuration — environment variables
+
+Everything is configured through environment variables (never in code). Only
+`NAVI_DB_PATH` matters for a basic live run; the rest turn on specific features.
+
+| Variable | Needed for | Notes |
+|---|---|---|
+| `NAVI_DB_PATH` | Reading your real tenant | Full path to your live `navi.db`. If unset, the app auto-discovers navi's `navi.db` (most-assets wins) and otherwise falls back to the bundled `sample_navi.db`. **This is the #1 thing to set** to get off sample data. |
+| `NAVI_ALLOW_WRITES` | Tag / ACR writes | Set to `1`. The master write gate — without it every tag/ACR is blocked (reads still work). Equivalent: create an empty file named `ALLOW_WRITES` in the repo root. |
+| `NAVI_EMAIL` | Sending email (Gabriel) | Set to `1`. A **second** opt-in stacked *on top of* `NAVI_ALLOW_WRITES` — enabling writes alone does **not** enable email. Equivalent: an empty `ALLOW_EMAIL` file in the repo root. See **Email setup** below. |
+| `ANTHROPIC_API_KEY` | Natural-language features | Optional. Powers ask-which-Hound, NL→SQL, NL ACR rules, cert reasoning. The app works fully without it (those extras are greyed out). Get one at <https://console.anthropic.com> → API Keys. Verify with `python check_llm.py`. |
+| `ANTHROPIC_MODEL` | Overriding the model | Optional. Defaults to `claude-haiku-4-5-20251001`. Set only if you need a different model you have access to. |
+| `NAVI_BIN` | navi not on `PATH` | Optional. Full path to the `navi` executable if the server can't find it (pipx / Homebrew / pyenv installs). Verify with `python check_writes.py`. |
+| `NAVI_CWD` | Read/write DB alignment | Optional. Folder the `navi` CLI runs in (it uses that folder's `navi.db`). Defaults to the folder holding `NAVI_DB_PATH` so reads and tag-writes hit the same database. |
+| `PORT` | Changing the port | Optional. Default `8000` (the Flask fallback uses `8001`). e.g. `PORT=8010`. |
+
+### Where is navi.db?
+
+navi keeps `navi.db` in whatever folder you run navi from. If you're not sure,
+run `navi` once in your intended working folder and point `NAVI_DB_PATH` at the
+`navi.db` it created (or its `~/.navi` / home folder). The write-gate diagnostic
+prints exactly which file the app reads and which folder navi writes to:
+
+```bash
+python check_writes.py
+```
+
+## Email setup (Gabriel / the email agent)
+
+Sending email is **gated in three places** and needs a transport configured inside
+navi itself — this is the step that most often trips people up, because the env
+var alone is not enough:
+
+1. **Configure a transport in navi, once, out-of-band** (the app never does this
+   for you):
+
+   ```bash
+   navi config smtp        # a classic SMTP server, OR
+   navi config resend      # the Resend email API
+   ```
+
+   These are interactive navi commands — run them yourself at a terminal. Without
+   one of them, sends fail with *"your email information may be incorrect."*
+
+2. **Enable writes:** `NAVI_ALLOW_WRITES=1` (the master gate).
+3. **Enable email on top of writes:** `NAVI_EMAIL=1` (or an `ALLOW_EMAIL` file in
+   the repo root). Enabling writes alone does **not** enable email.
+4. **Confirm in the UI** — every send needs an explicit approval.
+
+Composing and preview are read-only and always available; only the actual send
+needs all of the above. Every send is recorded in the **Tagging log** for
+accountability.
 
 ---
 
@@ -146,6 +218,12 @@ that contains `run.py`, `agents/`, and `web/`).
 
 **Everything reads "SAMPLE data".** That's expected until you point at a real
 navi.db — set `NAVI_DB_PATH=/path/to/navi.db` (or run from navi's working dir).
+
+**Email won't send / "your email information may be incorrect."** Three things
+must all be true: (1) a transport is configured in navi — run `navi config smtp`
+or `navi config resend` at a terminal; (2) writes are on — `NAVI_ALLOW_WRITES=1`;
+(3) email is separately on — `NAVI_EMAIL=1` (or an `ALLOW_EMAIL` file). Enabling
+writes alone does **not** enable email. See **Email setup** above.
 
 **"⚠ Claude: no API key" chip / natural-language features greyed out.** The
 Anthropic key is **optional** — the whole app works without it. It only powers the
