@@ -9,12 +9,38 @@ caller falls back to the deterministic rule parser, so the app still works.
 """
 import json
 import os
+import re
 import ssl
 import urllib.error
 import urllib.request
 
 API_URL = "https://api.anthropic.com/v1/messages"
 DEFAULT_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+
+
+def _int_env(name: str, default: int) -> int:
+    """Read a positive int from the environment, falling back on empty/garbage."""
+    try:
+        v = int(os.environ.get(name, "").strip())
+        return v if v > 0 else default
+    except (ValueError, AttributeError):
+        return default
+
+
+# Ceiling on model output tokens for every reasoning call. Per-item agents (cert
+# triage, ownership mapping, ACR/identity/contract planning) size their request to
+# the input count but never exceed this; it is also enforced centrally in
+# _messages(), so lowering it forces EVERY agent down. Configurable for older models
+# with a smaller output cap, or to allow larger estates. Default 8000 suits haiku-4.5.
+MAX_TOKENS_CAP = _int_env("ANTHROPIC_MAX_TOKENS", 8000)
+
+
+def _scaled_budget(n_items: int, per_item: int = 90, base: int = 400) -> int:
+    """Token budget for a response that carries ONE object per input item (the JSON
+    grows with the item count). Scales with the count so large estates don't
+    truncate, keeps a sane floor for tiny inputs, and is capped at MAX_TOKENS_CAP."""
+    floor = min(1500, MAX_TOKENS_CAP)
+    return max(floor, min(MAX_TOKENS_CAP, base + max(0, n_items) * per_item))
 
 
 def _ssl_context():
@@ -53,6 +79,41 @@ def available() -> bool:
     return bool(os.environ.get("ANTHROPIC_API_KEY"))
 
 
+# ---- API token usage (in-memory tally since server start; surfaced on the Settings page) ----
+USAGE = {"calls": 0, "input_tokens": 0, "output_tokens": 0, "last": None}
+
+
+def usage() -> dict:
+    u = dict(USAGE)
+    u["total_tokens"] = u["input_tokens"] + u["output_tokens"]
+    u["model"] = DEFAULT_MODEL
+    return u
+
+
+def reset_usage():
+    USAGE.update(calls=0, input_tokens=0, output_tokens=0, last=None)
+
+
+def set_model(m):
+    """Change the model live (ANTHROPIC_MODEL is otherwise bound at import)."""
+    global DEFAULT_MODEL
+    if m:
+        DEFAULT_MODEL = str(m).strip()
+    return DEFAULT_MODEL
+
+
+def set_max_tokens(n):
+    """Change the output-token ceiling live (ANTHROPIC_MAX_TOKENS is otherwise import-bound)."""
+    global MAX_TOKENS_CAP
+    try:
+        n = int(n)
+        if n > 0:
+            MAX_TOKENS_CAP = n
+    except (TypeError, ValueError):
+        pass
+    return MAX_TOKENS_CAP
+
+
 def _extract_json(text: str) -> dict:
     text = text.strip()
     if text.startswith("```"):
@@ -70,6 +131,9 @@ def _messages(system: str, user: str, max_tokens: int = 1000, timeout: int = 40)
     key = os.environ.get("ANTHROPIC_API_KEY")
     if not key:
         raise RuntimeError("no ANTHROPIC_API_KEY")
+    # Every agent respects the configured ceiling — a caller can never request more
+    # than MAX_TOKENS_CAP (ANTHROPIC_MAX_TOKENS), so one env var governs them all.
+    max_tokens = max(1, min(max_tokens, MAX_TOKENS_CAP))
     body = {"model": DEFAULT_MODEL, "max_tokens": max_tokens, "system": system,
             "messages": [{"role": "user", "content": user}]}
     req = urllib.request.Request(
@@ -79,6 +143,15 @@ def _messages(system: str, user: str, max_tokens: int = 1000, timeout: int = 40)
     try:
         with urllib.request.urlopen(req, timeout=timeout, context=_SSL_CTX) as r:
             resp = json.loads(r.read().decode())
+        try:   # tally token usage for the Settings page
+            _u = resp.get("usage") or {}
+            USAGE["calls"] += 1
+            USAGE["input_tokens"] += int(_u.get("input_tokens") or 0)
+            USAGE["output_tokens"] += int(_u.get("output_tokens") or 0)
+            USAGE["last"] = {"model": DEFAULT_MODEL, "input": int(_u.get("input_tokens") or 0),
+                             "output": int(_u.get("output_tokens") or 0)}
+        except Exception:
+            pass
     except urllib.error.HTTPError as e:
         # Surface the REAL reason from Anthropic's JSON body, not just "Bad Request".
         body = ""
@@ -153,8 +226,13 @@ def cert_plan(system_prompt: str, certs: list[dict], timeout: int = 40) -> dict:
                 "message": "no ANTHROPIC_API_KEY — tagging all candidates deterministically"}
     user = ("Certificates failing in the next 12 months (JSON):\n"
             + json.dumps(certs) + "\n\nReturn ONLY the JSON described in the system prompt.")
+    # One decision per candidate → output grows with the cert count. A fixed cap
+    # (was 1400) truncated the JSON on larger estates, the parse failed, and the
+    # caller wrongly reported "no working model key". Scale to the count, ceiling
+    # at ANTHROPIC_MAX_TOKENS (default 8000).
     try:
-        data = _extract_json(_messages(system_prompt, user, max_tokens=1400, timeout=timeout))
+        data = _extract_json(_messages(system_prompt, user,
+                                       max_tokens=_scaled_budget(len(certs)), timeout=timeout))
         return {"ok": True, "assessment": data.get("assessment", ""),
                 "tag": data.get("tag", []), "skip": data.get("skip", []),
                 "model": DEFAULT_MODEL}
@@ -167,18 +245,24 @@ DASH_SYSTEM = (
     "read-only SQLite query over the navi.db schema below (you MAY join across tables "
     "using the JOIN KEYS), and pick the best chart for the data's shape. "
     "Return ONLY a JSON object, no prose:\n"
-    '{"title":"<short dashboard title>","sql":"SELECT ...","viz":"kpi|bar|line|pie|table",'
+    '{"title":"<short dashboard title>","sql":"SELECT ...","viz":"kpi|bar|column|stacked|grouped|pie|donut|line|multiline|area|combo|scatter|bubble|heatmap|sankey|threads|treemap|funnel|waterfall|radar|gauge|progress|histogram|table",'
     '"label_col":"<category/date column>","value_col":"<numeric column>",'
     '"note":"<=14 word caption"}\n'
     "Rules: query ONLY this navi.db — never ATTACH another database and never use "
     "file/host functions (load_extension, readfile, writefile). sql MUST be a single "
     "SELECT (or WITH ... SELECT) — never INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, "
     "ATTACH, PRAGMA, REPLACE, or multiple statements. Always add a LIMIT (<=50). "
-    "Return exactly two columns for charts: label_col (text category or date) then "
-    "value_col (numeric), ordered sensibly. Chart choice by shape: 'line' for a "
-    "time/date series; 'pie' for parts-of-a-whole with <=8 categories; 'bar' to rank "
-    "categories by a number (value_col DESC); 'kpi' for one row of scalar totals; "
-    "'table' otherwise. Prefer COUNT(*) aggregates and GROUP BY for distributions.\n\n")
+    "SHAPES: single ranking/series → TWO columns, label_col (text/date) then value_col "
+    "(numeric); use bar/column/pie/donut/treemap/funnel/waterfall/line/area/radar/progress. "
+    "Comparison across a SECOND dimension → THREE columns (label, series text, value) in "
+    "long format; use stacked/grouped/multiline/heatmap. A FLOW between two categories → "
+    "the SAME three long-format columns (source, target, value), label_col=source; use "
+    "sankey (proportional bands) or threads (thin links) — e.g. severity→asset class, "
+    "owner→severity, plugin family→severity. Correlation → label + TWO numeric "
+    "columns (x,y); use scatter (add a 3rd numeric for bubble). 'kpi' for one row of scalar "
+    "totals; 'table' otherwise. Prefer line/area for time series, funnel/waterfall for "
+    "reduction or running totals, treemap for top-N by size, heatmap for category×category. "
+    "Prefer COUNT(*) aggregates and GROUP BY for distributions.\n\n")
 
 
 def dashboard(prompt: str, schema: str, timeout: int = 40) -> dict:
@@ -220,7 +304,8 @@ def identity_plan(prompt: str, accounts: list[dict], timeout: int = 40) -> dict:
     user = ("Identities (JSON):\n" + json.dumps(slim) + "\n\nInstruction:\n" + (prompt or "")
             + "\n\nReturn ONLY the JSON described in the system prompt.")
     try:
-        data = _extract_json(_messages(IDENTITY_SYSTEM, user, max_tokens=1200, timeout=timeout))
+        data = _extract_json(_messages(IDENTITY_SYSTEM, user,
+                                       max_tokens=_scaled_budget(len(slim)), timeout=timeout))
         return {"ok": True, "assignments": data.get("assignments", []), "model": DEFAULT_MODEL}
     except Exception as e:
         return {"ok": False, "fallback": True, "message": f"LLM call failed ({e})"}
@@ -232,24 +317,79 @@ OWNER_SYSTEM = (
     "and OWNERS (name + type). The instruction may contain several rules. For every "
     "route/path the instruction refers to, output one mapping to the owner it names. "
     "Match routes/paths by keyword/semantics against app_name or path text; match the "
-    "owner by name (case-insensitive) to an EXACT entry in the OWNERS list. Use the exact "
-    "app_name / path / owner name from the lists — never invent. Skip anything no rule "
-    'mentions. Return ONLY JSON: {"mappings":[{"kind":"route|path","match":"<exact '
+    "owner (case-insensitive) to an EXACT entry in the OWNERS list — an owner may be named "
+    "by its `name` (login/username), its `alt` (friendly/full name), or a first name that "
+    "appears in `alt`. Always OUTPUT the entry's exact `name` (the username or group name), "
+    "never the friendly name. Use the exact app_name / path from the lists — never invent. "
+    "Skip anything no rule mentions.\n"
+    "CURRENT STATE (when provided): `already_assigned` maps route/path names to their "
+    "EXISTING owner, and `owner_load` gives each owner's current number of assigned items. "
+    "Use them to honor the instruction precisely:\n"
+    "- 'the remaining' / 'unassigned' / 'not yet assigned' / 'the rest' → map ONLY "
+    "routes/paths that are NOT keys in already_assigned. Never touch an already-assigned "
+    "item unless the instruction explicitly says to reassign or rebalance existing ones.\n"
+    "- 'balance the work' / 'keep it even' / 'distribute evenly' / 'fairly' → pick owners so "
+    "the FINAL per-owner totals (owner_load + what you add this run) are as equal as "
+    "possible; prefer owners with the lowest current load. If told to spread across a "
+    "specific set of owners, use only those.\n"
+    "- 'routes then paths' → assign all in-scope routes first, then paths, keeping balance "
+    "across the combined result.\n"
+    'Return ONLY JSON: {"mappings":[{"kind":"route|path","match":"<exact '
     'app_name or path>","owner":"<exact owner name>"}]}.')
 
 
+def _salvage_mappings(text: str) -> list:
+    """Recover every complete {kind,match,owner} object from a possibly-TRUNCATED
+    JSON response. A bulk instruction ('assign the remaining routes/paths') can make
+    the model emit hundreds of mappings that overflow max_tokens and get cut off
+    mid-object — strict json.loads then throws and discards the whole plan. Here we
+    pull out the objects that DID come through intact (they're flat, no nesting)."""
+    out = []
+    for m in re.finditer(r"\{[^{}]*\}", text):
+        try:
+            o = json.loads(m.group(0))
+        except Exception:
+            continue
+        if isinstance(o, dict) and o.get("match") and o.get("owner"):
+            out.append({"kind": o.get("kind", "route"), "match": o["match"], "owner": o["owner"]})
+    return out
+
+
 def owner_plan(prompt: str, routes: list[str], paths: list[str],
-               owners: list[dict], timeout: int = 40) -> dict:
-    """NL + routes/paths/owners -> {ok, mappings:[{kind,match,owner}]}."""
+               owners: list[dict], assigned: dict | None = None,
+               owner_load: dict | None = None, timeout: int = 60) -> dict:
+    """NL + routes/paths/owners (+ current assignments) -> {ok, mappings:[{kind,match,owner}]}.
+
+    `assigned` = {'routes': {name: owner}, 'paths': {name: owner}} of what's ALREADY
+    owned, and `owner_load` = {owner: count} let the model honor 'assign the remaining'
+    and 'keep it balanced' precisely instead of guessing.
+
+    Bulk prompts produce large responses, so we allow a big token budget AND salvage a
+    truncated tail rather than failing the whole plan. When salvage kicks in, `truncated`
+    is set so the caller can tell the user to re-run to assign the rest."""
     if not available():
         return {"ok": False, "fallback": True,
                 "message": "no ANTHROPIC_API_KEY — natural-language owner mapping needs the model"}
     payload = {"routes": routes, "paths": paths, "owners": owners}
+    if assigned:
+        payload["already_assigned"] = assigned
+    if owner_load:
+        payload["owner_load"] = owner_load
     user = ("Lists (JSON):\n" + json.dumps(payload) + "\n\nInstruction:\n" + (prompt or "")
             + "\n\nReturn ONLY the JSON described in the system prompt.")
     try:
-        data = _extract_json(_messages(OWNER_SYSTEM, user, max_tokens=1500, timeout=timeout))
-        return {"ok": True, "mappings": data.get("mappings", []), "model": DEFAULT_MODEL}
+        raw = _messages(OWNER_SYSTEM, user,
+                        max_tokens=_scaled_budget(len(routes) + len(paths)), timeout=timeout)
+        truncated = False
+        try:
+            mappings = _extract_json(raw).get("mappings", [])
+        except Exception:
+            mappings = _salvage_mappings(raw)      # recover the intact objects
+            truncated = True
+            if not mappings:
+                raise
+        return {"ok": True, "mappings": mappings, "model": DEFAULT_MODEL,
+                "truncated": truncated}
     except Exception as e:
         return {"ok": False, "fallback": True, "message": f"LLM call failed ({e})"}
 
@@ -301,7 +441,9 @@ def contract_select(agent_name: str, logic: str, items: list, top_n: int = 50,
         '{"keep":[<indices to tag>],"note":"<one line>"}.\n\nPolicy: ' + logic +
         "\n\nCandidates (index: label):\n" + listing)
     try:
-        txt = _messages(sys, "Return the JSON.", max_tokens=900, timeout=timeout)
+        # keep-list is one index (+ optional note) per candidate → scale with count.
+        txt = _messages(sys, "Return the JSON.",
+                        max_tokens=_scaled_budget(len(items), per_item=12), timeout=timeout)
         t = (txt or "").strip()
         if t.startswith("```"):
             t = t.split("```", 2)[1]
@@ -430,8 +572,9 @@ def interpret(prompt: str, tags: list[dict], timeout: int = 40) -> dict:
                 "message": "no ANTHROPIC_API_KEY set — using the deterministic rule parser"}
     tag_lines = "\n".join(f"- {t['category']} : {t['value']}" for t in tags)
     try:
+        # one change per matching tag → scale with the tag count.
         text = _messages(SYSTEM, f"Instruction:\n{prompt}\n\nTags:\n{tag_lines}",
-                         max_tokens=1500, timeout=timeout)
+                         max_tokens=_scaled_budget(len(tags)), timeout=timeout)
         data = _extract_json(text)
         return {"ok": True, "changes": data.get("changes", []),
                 "model": DEFAULT_MODEL}

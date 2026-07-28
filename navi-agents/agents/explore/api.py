@@ -1,7 +1,8 @@
 """Explore — shared read-only drill-down service.
 
-Backs the two reusable detail pages (web/asset.html, web/vuln.html) that every
-agent's widgets link into. All reads go through core.db (sqlite read-only); this
+Backs the reusable vuln detail page (web/vuln.html) that agent widgets link into
+(asset drill-downs now open the Argos deep-dive). All reads go through core.db
+(sqlite read-only); this
 service never writes. It is registered as a hidden agent so its actions mount at
 /api/explore/<action> on every server, but it does NOT appear as a runnable card
 on the hub.
@@ -59,6 +60,13 @@ def _parse_not_after(s):
     return f"{int(m.group(3)):04d}-{_MONTHS[m.group(1)]:02d}-{int(m.group(2)):02d}"
 
 
+def _table_exists(name):
+    try:
+        return bool(db.query("SELECT 1 FROM sqlite_master WHERE type='table' AND name=? LIMIT 1", (name,)))
+    except Exception:
+        return False
+
+
 def asset(p):
     uuid = (p.get("uuid") or "").strip()
     if not uuid:
@@ -84,6 +92,7 @@ def asset(p):
         host = {}
     return {"ok": True, "asset": (info[0] if info else {"uuid": uuid, "hostname": "", "ip_address": ""}),
             "vulns": vulns, "certs": certs, "host": host,
+            "tables": {"certs": _table_exists("certs"), "software": _table_exists("software")},
             "counts": {"vulns": len(vulns), "certs": len(certs)}}, 200
 
 

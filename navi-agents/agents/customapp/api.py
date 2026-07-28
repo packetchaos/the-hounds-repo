@@ -100,6 +100,19 @@ def ignore_remove(p):
     return {"ok": True, "ignored": save_ignore(terms)}, 200
 
 
+def ignore_import(p):
+    """Bulk-import ignore terms (CSV migration). mode: 'merge' (default) or 'replace'."""
+    terms = p.get("terms")
+    if not isinstance(terms, list):
+        return {"ok": False, "error": "terms (list) required"}, 400
+    clean = [str(t).strip().lower() for t in terms if str(t).strip()]
+    mode = str(p.get("mode", "merge")).lower()
+    merged = clean if mode == "replace" else (load_ignore() + clean)
+    saved = save_ignore(merged)
+    return {"ok": True, "ignored": saved, "imported": len(clean),
+            "total": len(saved), "mode": mode}, 200
+
+
 ACTIONS = {"run": run, "interpret": interpret, "search": search, "tag": tag,
            "ignore_list": ignore_list, "ignore_add": ignore_add,
-           "ignore_remove": ignore_remove}
+           "ignore_remove": ignore_remove, "ignore_import": ignore_import}

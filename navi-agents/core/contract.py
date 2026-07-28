@@ -63,6 +63,10 @@ def default_contract() -> dict:
         # then a forced pause + navi update, then the tagging workflow re-runs.
         "removal": {"enabled": False, "tags": [],     # [{category,value}]
                     "pause_minutes": 30, "navi_update": True},
+        # Gabriel run-summary email each cycle. On by default; flip enabled off to stop
+        # getting an email every run. Blank `to` → NAVI_ALERT_EMAIL / NAVI_EMAIL_TO. Send
+        # is still gated by NAVI_EMAIL, so a disabled inbox just records what would go out.
+        "notify": {"enabled": True, "to": ""},
         "agents": {a: {"enabled": True, "logic": ""} for a in TAGGERS},
     }
 
@@ -87,6 +91,9 @@ def set_contract(doc: dict) -> dict:
     rem.setdefault("enabled", False); rem.setdefault("tags", [])
     rem.setdefault("pause_minutes", 30); rem.setdefault("navi_update", True)
     base["removal"] = rem
+    nt = base.get("notify") or {}
+    nt.setdefault("enabled", True); nt.setdefault("to", "")
+    base["notify"] = nt
     _CURRENT = base
     return _CURRENT
 
@@ -528,6 +535,48 @@ def _qa(before):
                         else "review")}
 
 
+def _notify_run(c, entry):
+    """Email a Gabriel run-summary of this cycle — on by default, disabled via
+    notify.enabled. Recipient = notify.to → NAVI_ALERT_EMAIL → NAVI_EMAIL_TO. Send is
+    gated by NAVI_EMAIL; a disabled inbox just records what would have gone out."""
+    nt = c.get("notify") or {}
+    if not nt.get("enabled", True):
+        return {"skipped": "disabled"}
+    to = (nt.get("to") or os.environ.get("NAVI_ALERT_EMAIL") or os.environ.get("NAVI_EMAIL_TO") or "").strip()
+    if not to:
+        return {"skipped": "no recipient — set one in the AI Contract, or NAVI_ALERT_EMAIL"}
+    if not navi_cli.email_enabled():
+        return {"skipped": navi_cli.email_gate_reason()}
+    al = entry.get("alerts") or {}
+    nf = al.get("newly_fired") or []
+    subj = "[Hounds] Contract cycle — %d tag(s) queued%s%s" % (
+        entry.get("queued_tags", 0),
+        (" · %d ACR" % entry["acr_applied"]) if entry.get("acr_applied") else "",
+        (" · %d alert(s)" % len(nf)) if nf else "")
+    lines = ["The Hounds · AI Contract (Covenant) cycle", "",
+             "Finished: %s UTC" % entry.get("finished", ""),
+             "Mode: %s" % ("ARMED — writes applied" if entry.get("armed") else "disarmed — planned only"),
+             "Tags queued: %d" % entry.get("queued_tags", 0),
+             "ACR applied: %d" % entry.get("acr_applied", 0)]
+    rem = entry.get("removal") or {}
+    if rem.get("removed_jobs"):
+        lines.append("Tags removed: %s job(s)" % rem.get("removed_jobs"))
+    pc = entry.get("plan_counts") or {}
+    if pc:
+        lines.append("Per agent: " + ", ".join("%s %d" % (k, v) for k, v in pc.items() if v))
+    qa = entry.get("qa") or {}
+    if isinstance(qa, dict) and qa:
+        lines.append("QA: " + ", ".join("%s %s" % (k, v) for k, v in qa.items()))
+    if nf:
+        lines += ["", "🚨 Alerts newly fired (Alert Raven): " + ", ".join(nf)]
+    lines += ["", "— The Hounds · Covenant. Turn these run emails off in the AI Contract page (Notify)."]
+    try:
+        r = navi_cli.mail(to=to, subject=subj, message="\n".join(lines), agent="contract")
+        return {"sent": bool(r.get("ok")), "to": to, "reason": r.get("message") or r.get("error")}
+    except Exception as e:
+        return {"error": str(e), "to": to}
+
+
 def run_cycle(contract=None, enforce_pause=True) -> dict:
     global _OPTIMIZED
     c = contract or _CURRENT
@@ -562,12 +611,26 @@ def run_cycle(contract=None, enforce_pause=True) -> dict:
         before = None
     ex = execute(c)
     qa = _qa(before)
+    # ── Alert Raven alert sweep ──────────────────────────────────────────────
+    # Every cycle, evaluate the enabled alerts against the (freshly-updated) navi.db
+    # and email a digest of anything that NEWLY fired. Read-only detection; the send
+    # is gated by NAVI_EMAIL, so a disabled inbox just records what would have gone out.
+    alerts_info = {"skipped": "no alerts engine"}
+    try:
+        from core import alerts as _alerts
+        _ar = _alerts.evaluate_all(send=True, source="contract")
+        alerts_info = {"evaluated": len(_ar.get("evaluated", [])),
+                       "newly_fired": [r["name"] for r in _ar.get("newly_fired", [])],
+                       "sent": bool(_ar.get("sent") and _ar["sent"].get("ok"))}
+    except Exception as e:
+        alerts_info = {"error": str(e)}
     entry = {"started": started, "finished": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
              "armed": c.get("armed", False), "navi_update": upd, "optimize": opt,
-             "removal": removal_info,
+             "removal": removal_info, "alerts": alerts_info,
              "queued_tags": ex.get("queued_tags", 0), "acr_applied": ex.get("acr_applied", 0),
              "skipped": ex.get("skipped"), "qa": qa,
              "plan_counts": {b["agent"]: b.get("selected", 0) for b in ex.get("plan", {}).get("agents", [])}}
+    entry["notify"] = _notify_run(c, entry)     # Gabriel run-summary email (on by default, toggleable)
     with _LOCK:
         _LOOP_LOG.append(entry)
     return entry

@@ -6,13 +6,13 @@
 <style>.card{overflow-x:auto}.swl{color:var(--accent);cursor:pointer}
 .filterbtns{display:flex;gap:5px;flex-wrap:wrap}
 .filterbtns button{cursor:pointer;padding:5px 12px;border-radius:999px;border:1px solid var(--line);background:var(--bg-2);color:var(--mut);font-size:12.5px}
-.filterbtns button.on{background:var(--amber);color:#10130a;border-color:var(--amber);font-weight:700}
+.filterbtns button.on{background:var(--amber);color:#eef1fb;border-color:var(--amber);font-weight:700}
 .acode{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--amber);font-weight:700}</style>
 </head><body>
 <div class="wrap">
   <header class="top" id="app-header"></header>
 
-  <section class="card" style="background:radial-gradient(120% 140% at 90% -20%,var(--amber-glow),transparent 60%),var(--panel)">
+  <section class="card" style="background:var(--panel)">
     <div class="toolbar"><div><div class="acode">Mimir Hound</div><h2 style="margin:0">📦 Software analyzer</h2>
       <p class="sub" style="margin:2px 0 0">Mines the <span class="mono">software</span> table (reconciled with the <span class="mono">cpes</span> inventory) to find <b>version sprawl</b> — the same product at many versions — plus most-deployed, standardized vs fragmented, and single-install software. Check <b>lifecycle</b> (endoflife.date), flag <b>crown jewels</b>, and rank a <b>risk leaderboard</b>. Tag any product or version (gated).</p></div>
       <button class="btn run sm" id="swRun" style="margin-left:auto">▶ Analyze software</button>
@@ -63,16 +63,22 @@ function _srcBadge(p){ return p.src==='both'?'<span class="chip" title="software
 
 let SW=null, swFilter='sprawl', swOff=0, _SWPG=200, _SWLAST=[];
 
-async function tagByUuids(category,value,uuids,name){ const res=document.getElementById('swTagRes');
+async function tagByUuids(category,value,uuids,name,btn){ const res=document.getElementById('swTagRes');
+  if(btn&&btn.disabled)return;
   const uu=(uuids||[]).filter(Boolean); if(!uu.length)return;
+  const scroll=()=>{ if(res)res.scrollIntoView({behavior:'smooth',block:'center'}); };
+  const reset=()=>{ if(!btn)return; btn.disabled=false; btn.textContent=btn.dataset.label; btn.style.opacity=''; btn.style.transform=''; btn.style.cursor=''; };
+  if(btn){ btn.dataset.label=btn.dataset.label||btn.textContent; btn.disabled=true; btn.textContent='⏳ Sending…'; btn.style.opacity='.6'; btn.style.transform='translateY(1px)'; btn.style.cursor='default'; }
   res.innerHTML='<div class="callbox"><span class="spin"></span> tagging '+uu.length+' asset(s) → '+esc(category)+' : '+esc(value)+'…</div>';
+  scroll();
   // Pass the product `name` so the backend can fall back to navi built-ins
   // (--plugin <sw enum> --output <name> -regex) when the set exceeds the 1999 cap.
   let o; try{ o=await API.post('tag',{category,value,uuids:uu,name:(name||''),confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
   const r=(o&&o.result)||{}; const ok=o&&o.ok&&r.ok!==false;
   const capNote=(o&&o.over_cap)?(' · '+(o.count)+' assets exceed the 1999-UUID cap, so navi tagged by built-in signature (--plugin/--output -regex, '+(o.commands||1)+' command'+((o.commands||1)>1?'s':'')+')'):'';
-  res.innerHTML='<div class="callbox" style="color:'+(ok?'#7ee2a8':'#ffb4c6')+'">'+(ok?('✓ queued tag → '+esc(category)+' : '+esc(value)+' ('+(o.count||uu.length)+' asset(s))'+capNote+(r.warning?' — '+esc(r.warning):'')):('✗ '+esc(r.message||r.stderr||(o&&(o.error||o.message))||'write rejected')))+'</div>'
+  res.innerHTML='<div class="callbox" style="color:'+(ok?'var(--ok)':'#ffb4c6')+'">'+(ok?('✓ queued tag → '+esc(category)+' : '+esc(value)+' ('+(o.count||uu.length)+' asset(s))'+capNote+(r.warning?' — '+esc(r.warning):'')):('✗ '+esc(r.message||r.stderr||(o&&(o.error||o.message))||'write rejected')))+'</div>'
     +((o&&o.writes_enabled)?'':'<div class="sub" style="margin-top:6px;color:var(--warn)">'+esc((o&&o.write_gate_reason)||'Writes are gated — set NAVI_ALLOW_WRITES=1')+'. Tags queue in the <a href="/web/tags-log.html">Tagging log</a> and apply after a navi.db sync.</div>');
+  scroll(); reset();
 }
 function acrNote(cat,val,acr){ document.getElementById('swTagRes').innerHTML=
   '<div class="callbox" style="color:#e7c66b">⚖ Recommended ACR rule: <b>'+esc(cat)+' : '+esc(val)+' → set ACR '+acr+'</b>. Tag the assets first (button above), then add this rule on the <a href="/agents/contract/page.html">Covenant / AI Contract</a> page (or set ACR directly on the <a href="/agents/acr/page.html">Anubis / ACR</a> page) so Tenable One risk reflects their true value.</div>'; }
@@ -122,7 +128,7 @@ function renderSoftware(){
     return `<tr><td><a class="swl" data-i="${idx}">${esc(p.name)}</a></td><td>${vb}</td><td>${p.nasset}</td><td>${p.installs}</td><td class="mono" style="font-size:12.5px">${esc(p.newest||'')}</td><td>${_eolCell(p)}</td><td>${_srcBadge(p)}</td><td><button class="btn sm" data-tag="${idx}">Tag product</button></td></tr>`;
   }).join(''):'<tr><td colspan="8" class="sub">No products match.</td></tr>';
   document.querySelectorAll('#swTbl .swl').forEach(a=>a.onclick=()=>swDrill(+a.dataset.i));
-  document.querySelectorAll('#swTbl button[data-tag]').forEach(btn=>btn.onclick=()=>{ const p=_SWLAST[+btn.dataset.tag]; if(p)tagByUuids('Software',p.name,p.assets,p.name); });
+  document.querySelectorAll('#swTbl button[data-tag]').forEach(btn=>btn.onclick=()=>{ const p=_SWLAST[+btn.dataset.tag]; if(p)tagByUuids('Software',p.name,p.assets,p.name,btn); });
   const pg=document.getElementById('swPager'); const pgn=Math.floor(swOff/_SWPG)+1;
   pg.innerHTML=`<button class="btn ghost sm" ${swOff<=0?'disabled':''} id="swpp">◀ Prev</button><span class="chip">page ${pgn} · ${list.length} product(s)</span><button class="btn ghost sm" ${swOff+_SWPG>=list.length?'disabled':''} id="swpn">Next ▶</button>`;
   const pp=document.getElementById('swpp'); if(pp)pp.onclick=()=>{swOff=Math.max(0,swOff-_SWPG);renderSoftware();};
@@ -132,7 +138,7 @@ function swDrill(i){ const p=_SWLAST[i]; if(!p)return; const d=document.getEleme
   const eolSet=new Set((p.eol&&p.eol.eolVers)||[]);
   var _lat=(p.eol&&p.eol.latest)||''; var _behind=new Set(); if(_lat){ p.vers.forEach(function(v){ if(v.v&&!eolSet.has(v.v)&&verCmp(v.v,_lat)<0){ (v.uuids||[]).forEach(function(u){_behind.add(u);}); } }); }
   const life = p.eol ? ((p.eol.noData||!p.eol.slug) ? '<span class="sub">no endoflife.date match for this product</span>'
-      : ('endoflife.date <span class="mono">'+esc(p.eol.slug)+'</span> · latest release <b>'+esc(p.eol.latest||'?')+'</b>'+(p.eol.eolAssetCount?(' · <b style="color:var(--crit)">'+p.eol.eolAssetCount+' asset(s) on EOL/unsupported versions</b>'):' · <span style="color:#34d399">no EOL versions in the estate</span>')))
+      : ('endoflife.date <span class="mono">'+esc(p.eol.slug)+'</span> · latest release <b>'+esc(p.eol.latest||'?')+'</b>'+(p.eol.eolAssetCount?(' · <b style="color:var(--crit)">'+p.eol.eolAssetCount+' asset(s) on EOL/unsupported versions</b>'):' · <span style="color:var(--ok)">no EOL versions in the estate</span>')))
       : '<span class="sub">Run ⏳ Check lifecycle to enrich EOL / latest.</span>';
   d.innerHTML='<div class="card" style="background:var(--panel2);margin-top:14px"><div class="toolbar" style="margin:0 0 8px"><b>'+esc(p.name)+' — '+p.nver+' version(s) across '+p.nasset+' asset(s)</b><button class="btn ghost sm" id="swdClose" style="margin-left:auto">Close</button></div>'
     +'<p class="sub" style="margin:0 0 6px">'+life+'</p>'
@@ -140,14 +146,14 @@ function swDrill(i){ const p=_SWLAST[i]; if(!p)return; const d=document.getEleme
     +(_behind.size?('<div class="toolbar" style="margin:0 0 8px"><button class="btn sm" id="swdTagOld">🏷 Tag '+_behind.size+' asset(s) behind latest ('+esc(_lat)+') → Software Outdated : '+esc(p.name)+'</button></div>'):'')
     +'<p class="sub" style="margin:0 0 8px">Newest version first. Tag assets stuck on an older/EOL version to drive consolidation &amp; upgrades.</p>'
     +'<div style="overflow-x:auto"><table><thead><tr><th>Version</th><th>Assets</th><th>Share</th><th>Lifecycle</th><th></th></tr></thead><tbody>'
-    +p.vers.map(function(v,vi){ var pct=p.nasset?Math.round(v.assets/p.nasset*100):0; var l2=eolSet.has(v.v)?'<span class="badge b-appr" style="color:#ffb4c6;border-color:rgba(255,80,120,.5)">⛔ EOL</span>':((_lat&&v.v&&verCmp(v.v,_lat)<0)?'<span class="badge b-appr" style="color:#ffd28a">behind</span>':((_lat&&v.v===_lat)?'<span style="color:#34d399">latest</span>':(vi===0?'<span style="color:#34d399">newest here</span>':'<span class="sub">—</span>')));
+    +p.vers.map(function(v,vi){ var pct=p.nasset?Math.round(v.assets/p.nasset*100):0; var l2=eolSet.has(v.v)?'<span class="badge b-appr" style="color:#ffb4c6;border-color:rgba(255,80,120,.5)">⛔ EOL</span>':((_lat&&v.v&&verCmp(v.v,_lat)<0)?'<span class="badge b-appr" style="color:#ffd28a">behind</span>':((_lat&&v.v===_lat)?'<span style="color:var(--ok)">latest</span>':(vi===0?'<span style="color:var(--ok)">newest here</span>':'<span class="sub">—</span>')));
         return '<tr><td class="mono">'+esc(v.v||'(none)')+'</td><td>'+v.assets+'</td><td>'+pct+'%</td><td>'+l2+'</td><td><button class="btn sm" data-sv="'+vi+'">Tag this version</button></td></tr>'; }).join('')
     +'</tbody></table></div></div>';
   document.getElementById('swdClose').onclick=function(){d.innerHTML='';};
-  d.querySelectorAll('button[data-sv]').forEach(function(b){ b.onclick=function(){ var v=p.vers[+b.dataset.sv]; tagByUuids('Software',p.name+' '+v.v,v.uuids,p.name); }; });
-  var te=document.getElementById('swdTagEol'); if(te)te.onclick=function(){ tagByUuids('Software EOL',p.name,(p.eol&&p.eol.eolUuids)||[],p.name); };
+  d.querySelectorAll('button[data-sv]').forEach(function(b){ b.onclick=function(){ var v=p.vers[+b.dataset.sv]; tagByUuids('Software',p.name+' '+v.v,v.uuids,p.name,b); }; });
+  var te=document.getElementById('swdTagEol'); if(te)te.onclick=function(){ tagByUuids('Software EOL',p.name,(p.eol&&p.eol.eolUuids)||[],p.name,te); };
   var ae=document.getElementById('swdAcrEol'); if(ae)ae.onclick=function(){ acrNote('Software EOL',p.name,8); };
-  var to=document.getElementById('swdTagOld'); if(to)to.onclick=function(){ tagByUuids('Software Outdated',p.name,Array.from(_behind),p.name); };
+  var to=document.getElementById('swdTagOld'); if(to)to.onclick=function(){ tagByUuids('Software Outdated',p.name,Array.from(_behind),p.name,to); };
 }
 
 /* ===== Software lifecycle (endoflife.date) — cached EOL / latest enrichment ===== */
@@ -188,14 +194,14 @@ async function runSoftwareEol(){
   var combined=new Set(); eolAssets.forEach(function(u){combined.add(u);}); tenEol.forEach(function(u){combined.add(u);});
   SW.products.forEach(function(p){ if(!p.eol)p.eol={checked:true,noData:true,slug:eolSlug(p.name)}; else if(p.eol.eolUuids&&p.eol.eolUuids.length){ p.eol.tenConfirmed=p.eol.eolUuids.filter(function(u){return tenEol.has(u);}).length; } });
   SW.eol={checkedProducts:checked,eolProducts:eolProd,eolAssets:combined.size,eolAssetsEndoflife:eolAssets.size,tenEolAssets:tenEol.size};
-  if(f){f.className='flash show';f.style.background='var(--okbg,rgba(52,211,153,.14))';f.style.color='#34d399';f.innerHTML='✓ lifecycle checked: <b>'+checked+'</b> product(s) matched endoflife.date · <b style="color:var(--crit)">'+eolProd+'</b> with EOL versions. Assets on EOL software: <b style="color:var(--crit)">'+combined.size+'</b> — endoflife.date <b>'+eolAssets.size+'</b> + Tenable-flagged <b>'+tenEol.size+'</b> (unioned). Use the <b>EOL / unsupported</b> filter.';}
+  if(f){f.className='flash show';f.style.background='var(--okbg,rgba(52,211,153,.14))';f.style.color='var(--ok)';f.innerHTML='✓ lifecycle checked: <b>'+checked+'</b> product(s) matched endoflife.date · <b style="color:var(--crit)">'+eolProd+'</b> with EOL versions. Assets on EOL software: <b style="color:var(--crit)">'+combined.size+'</b> — endoflife.date <b>'+eolAssets.size+'</b> + Tenable-flagged <b>'+tenEol.size+'</b> (unioned). Use the <b>EOL / unsupported</b> filter.';}
   var kpi=document.getElementById('swKpi'); if(kpi){ var _eh='<div class="v" style="color:var(--crit)">'+combined.size+'</div><div class="l">assets on EOL software</div>'; var ex=document.getElementById('swEolKpi'); if(ex){ ex.innerHTML=_eh; } else { kpi.insertAdjacentHTML('beforeend','<div class="k" id="swEolKpi" style="border-color:var(--crit)">'+_eh+'</div>'); } }
   if(btn)btn.disabled=false; renderSoftware();
 }
 function _eolCell(p){ if(!p||!p.eol)return '<span class="sub">—</span>'; if(p.eol.noData||!p.eol.slug)return '<span class="sub" title="no endoflife.date match">n/a</span>';
   if(p.eol.eolAssetCount>0)return '<span class="badge b-appr" style="color:#ffb4c6;border-color:rgba(255,80,120,.5)" title="EOL versions: '+esc((p.eol.eolVers||[]).join(', '))+(p.eol.tenConfirmed?' · Tenable-confirmed: '+p.eol.tenConfirmed:'')+'">⛔ EOL · '+p.eol.eolAssetCount+(p.eol.tenConfirmed?' ✓T':'')+'</span>';
   if(p.eol.behind)return '<span class="badge b-appr" style="color:#ffd28a" title="latest release is '+esc(p.eol.behind)+'">behind latest</span>';
-  return '<span style="color:#34d399">supported</span>'; }
+  return '<span style="color:var(--ok)">supported</span>'; }
 
 /* ===== Crown-jewel software → role tags + suggested ACR ===== */
 const CROWN_ROLES=[
@@ -223,7 +229,7 @@ function runCrown(){
         +'<p class="sub" style="margin:0 0 8px">Products: '+esc(r.products.slice(0,12).join(', '))+(r.products.length>12?' +'+(r.products.length-12):'')+'</p>'
         +'<div class="toolbar" style="margin:0"><button class="btn run sm" data-crt="'+i+'">🏷 Tag '+r.assets.size+' asset(s) → Crown Jewel : '+esc(r.role)+'</button><button class="btn sm" data-cra="'+i+'">⚖ Suggest ACR '+r.acr+'</button></div></div>'; }).join('')
     +'</div>';
-  out.querySelectorAll('button[data-crt]').forEach(function(b){ b.onclick=function(){ var r=roles[+b.dataset.crt]; tagByUuids('Crown Jewel',r.role,Array.from(r.assets)); }; });
+  out.querySelectorAll('button[data-crt]').forEach(function(b){ b.onclick=function(){ var r=roles[+b.dataset.crt]; tagByUuids('Crown Jewel',r.role,Array.from(r.assets),null,b); }; });
   out.querySelectorAll('button[data-cra]').forEach(function(b){ b.onclick=function(){ var r=roles[+b.dataset.cra]; acrNote('Crown Jewel',r.role,r.acr); }; });
   out.scrollIntoView({behavior:'smooth',block:'nearest'});
 }
@@ -247,7 +253,7 @@ async function runSwRisk(){
     +'<div style="overflow-x:auto"><table><thead><tr><th>Product</th><th>Assets</th><th>KEV assets</th><th>Critical assets</th><th>Findings</th><th>Max VPR</th><th>EOL</th><th></th></tr></thead><tbody>'
     +top.map(function(x,i){ return '<tr><td><b>'+esc(x.name)+'</b></td><td>'+x.nasset+'</td><td'+(x.kev?' style="color:#ffb4c6;font-weight:700"':' class="sub"')+'>'+x.kev+'</td><td'+(x.crit?' style="color:#ffd28a"':' class="sub"')+'>'+x.crit+'</td><td>'+x.find+'</td><td class="mono">'+(x.vpr?x.vpr.toFixed(1):'—')+'</td><td>'+(x.eol?'<span class="badge b-appr" style="color:#ffb4c6;border-color:rgba(255,80,120,.5)">⛔ '+x.eol+'</span>':'<span class="sub">—</span>')+'</td><td><button class="btn sm" data-swr="'+i+'">Tag</button></td></tr>'; }).join('')
     +'</tbody></table></div></div>';
-  out.querySelectorAll('button[data-swr]').forEach(function(b){ b.onclick=function(){ var x=top[+b.dataset.swr]; tagByUuids('Software Risk',x.name,x.assets,x.name); }; });
+  out.querySelectorAll('button[data-swr]').forEach(function(b){ b.onclick=function(){ var x=top[+b.dataset.swr]; tagByUuids('Software Risk',x.name,x.assets,x.name,b); }; });
   out.scrollIntoView({behavior:'smooth',block:'nearest'});
 }
 

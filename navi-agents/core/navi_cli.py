@@ -212,7 +212,23 @@ def _selector_summary(query, cve, plugin_name, scanid, plugin, output, route_id,
         return "group", str(group)
     if xrefs:
         return "xref", str(xrefs) + (" / " + str(xid) if xid else "")
-    return "query", (query or "")[:200]
+    return "query", _query_summary(query)
+
+
+def _query_summary(q, cap=180):
+    """Readable one-line summary of a --query selector for the Tagging log. A raw slice of a
+    long `... IN ('a','b',… )` list looked like *broken* SQL (unclosed paren) in the log, so
+    collapse the IN-list to its count instead of cutting it mid-token."""
+    q = " ".join((q or "").split())
+    if len(q) <= cap:
+        return q
+    m = re.search(r"\bIN\s*\(\s*'", q, re.I)
+    if m:
+        inner = q[m.end() - 1:]                      # from the first quote
+        n = inner.count("','") + 1                   # quoted, comma-separated values
+        head = q[:m.start()].rstrip()
+        return f"{head} IN (… {n} values)"
+    return q[:cap - 1] + "…"
 
 
 def tag(category: str, value: str, query: str = "", remove: bool = False,
@@ -534,9 +550,10 @@ def mail_status() -> dict:
 
 
 def _mail_exec(to: str, subject: str = "navi report", message: str = "",
-               file: str = "") -> dict:
-    """Run `navi action mail --to <addr> --subject <s> --message <body> [--file <path>]`.
-    SMTP is configured out-of-band. Double-gated (writes + email)."""
+               file: str = "", html: str = "") -> dict:
+    """Run `navi action mail --to <addr> --subject <s> --message <body> [--html <path>] [--file <path>]`.
+    ``html`` is a path to an HTML file navi renders as the email body (``message`` stays the
+    plaintext fallback). SMTP is configured out-of-band. Double-gated (writes + email)."""
     if not allow_writes():
         return {"ok": False, "blocked": True,
                 "message": "writes disabled on server (set NAVI_ALLOW_WRITES=1)"}
@@ -553,6 +570,8 @@ def _mail_exec(to: str, subject: str = "navi report", message: str = "",
            "--subject", subject or "navi report"]
     if message:
         cmd += ["--message", message]
+    if html:
+        cmd += ["--html", html]
     if file:
         cmd += ["--file", file]
     pretty = " ".join(shlex.quote(c) for c in cmd)
@@ -579,11 +598,12 @@ def _mail_exec(to: str, subject: str = "navi report", message: str = "",
 
 
 def mail(to: str, subject: str = "navi report", message: str = "", file: str = "",
-         agent: str = "email", sync: bool = True) -> dict:
+         html: str = "", agent: str = "email", sync: bool = True) -> dict:
     """Send an email via `navi action mail` and record it in the Tagging log as the
-    accountability ledger (who was notified, when). Runs synchronously by default —
-    a send is a discrete, user-confirmed action, not a background job."""
-    res = _mail_exec(to=to, subject=subject, message=message, file=file)
+    accountability ledger (who was notified, when). ``html`` is a path to an HTML file
+    navi renders as the body (``message`` is the plaintext fallback). Runs synchronously
+    by default — a send is a discrete, user-confirmed action, not a background job."""
+    res = _mail_exec(to=to, subject=subject, message=message, file=file, html=html)
     try:
         from core import tagq
         tagq.record({"agent": agent, "category": "Email", "value": to,

@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Runs &amp; Queries — The Hounds</title>
+<link rel="stylesheet" href="/static/console.css">
+<style>
+  .qrow{font-family:var(--mono);font-size:12px;color:var(--ink-2);white-space:pre-wrap;word-break:break-word;padding:4px 0;border-bottom:1px solid var(--line)}
+  .ddl{font-family:var(--mono);font-size:12.5px;background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:8px 10px;white-space:pre-wrap;word-break:break-word;margin:4px 0}
+  .warn2{color:#e7c66b;font-size:12px}
+  table{table-layout:fixed;width:100%}
+  td,th{overflow:hidden;text-overflow:ellipsis}
+</style>
+</head><body>
+<div class="wrap">
+  <header class="top">
+    <div class="logo"><span class="hcrest brand" role="img" aria-label="The Hounds"></span></div>
+    <h1>Runs &amp; Queries <small>PROFILE · INDEX ADVISOR</small></h1>
+    <div class="meta" id="meta"></div>
+  </header>
+
+  <!-- INDEX ADVISOR -->
+  <section class="card">
+    <div class="toolbar"><div><h2 style="margin:0">💡 Index advisor</h2>
+      <p class="sub" style="margin:2px 0 0">Built from the queries the agents actually ran. Each suggestion targets a real table/column a slow query <b>full-scans</b>. Non-indexable filters (leading-wildcard <span class="mono">LIKE '%…'</span>) are flagged separately. <span id="advmeta" class="mono"></span></p></div>
+      <span style="margin-left:auto;display:flex;gap:6px"><button class="btn ghost sm" id="copyIdx">⧉ Copy all DDL</button><button class="btn ghost sm" id="clearProf">Clear profile</button></span></div>
+    <div id="idxList"><p class="sub">Run some agents, then reload — suggestions appear here.</p></div>
+  </section>
+
+  <!-- SLOWEST QUERIES -->
+  <section class="card">
+    <h2 style="margin:0 0 6px">🐢 Slowest queries <span class="sub" id="qmeta"></span></h2>
+    <table id="qtbl"><colgroup><col style="width:70px"><col style="width:64px"><col style="width:150px"><col></colgroup>
+      <thead><tr><th>Total</th><th>Runs</th><th>Agents · scan</th><th>Query</th></tr></thead><tbody></tbody></table>
+  </section>
+
+  <!-- RUN LOG -->
+  <section class="card">
+    <div class="toolbar"><div><h2 style="margin:0">🧾 Agent run log</h2>
+      <p class="sub" style="margin:2px 0 0">Every agent run that touched navi.db — click a row to see the exact queries it issued (to trace the skill/code that built them). <span id="rcounts" class="mono"></span></p></div>
+      <span style="margin-left:auto;display:flex;gap:6px"><button class="btn ghost sm" id="refresh">↻ Refresh</button><button class="btn ghost sm" id="clearRuns">Clear finished</button></span></div>
+    <table id="tbl"><colgroup><col style="width:48px"><col style="width:80px"><col style="width:120px"><col><col style="width:120px"><col style="width:70px"></colgroup>
+      <thead><tr><th>#</th><th>Status</th><th>Agent</th><th>Action</th><th>Message</th><th>Elapsed</th></tr></thead>
+      <tbody><tr><td colspan="6" class="sub">Loading…</td></tr></tbody></table>
+  </section>
+</div>
+<script src="/static/console.js"></script>
+<script>
+let ALL_DDL='';
+function fmtElapsed(j){ if(!j.started) return '—'; const end=j.finished||(Date.now()/1000); const s=Math.max(0,Math.round(end-j.started)); return s<60?(s+'s'):(Math.floor(s/60)+'m '+(s%60)+'s'); }
+
+async function loadProfile(){
+  let o; try{ o=await jget('/api/profile'); }catch(e){ return; }
+  const a=o.advisor||{}; const idx=a.indexes||[]; const qs=a.queries||[];
+  document.getElementById('advmeta').textContent='· '+(a.sampled||0)+' queries sampled';
+  ALL_DDL = idx.map(i=>i.ddl).join('\n');
+  document.getElementById('idxList').innerHTML = idx.length
+    ? idx.map(i=>`<div class="ddl">${esc(i.ddl)}<div class="sub" style="font-size:11px;margin-top:3px">helps ${i.query_hits} run(s) · ${i.total_ms} ms of query time</div></div>`).join('')
+      + `<p class="sub" style="margin-top:8px">Build them on the box that owns navi.db (read-only here). Rebuilding navi may drop custom indexes; re-run this after a big sync.</p>`
+    : '<p class="sub">No index opportunities yet — either nothing has full-scanned, or the slow filters are non-indexable (see below).</p>';
+  document.getElementById('qmeta').textContent = '('+qs.length+')';
+  hPaginate('qtbl', qs, q=>{
+    const scan = (q.full_scan&&q.full_scan.length)?('<span style="color:#f5a623">SCAN '+esc(q.full_scan.join(', '))+'</span>'):'<span class="sub">indexed</span>';
+    const warn = (q.nonsargable&&q.nonsargable.length)?('<div class="warn2">⚠ '+esc(q.nonsargable[0])+'</div>'):'';
+    return `<tr><td class="mono">${q.total_ms}ms</td><td class="mono">${q.count}</td><td class="sub" style="font-size:11px">${esc((q.agents||[]).join(', ')||'—')}<br>${scan}</td>`
+      +`<td class="mono" style="font-size:11.5px;white-space:pre-wrap;word-break:break-word">${esc(q.sql.slice(0,400))}${q.sql.length>400?'…':''}${warn}</td></tr>`;
+  }, {cols:4, empty:'<tr><td colspan="4" class="sub">No queries profiled yet.</td></tr>'});
+}
+
+async function loadRuns(){
+  let o; try{ o=await jget('/api/jobs'); }catch(e){ return; }
+  const c=o.counts||{}, jobs=o.jobs||[];
+  document.getElementById('rcounts').textContent=(c.running||0)+' running · '+(c.queued||0)+' queued · '+(c.done||0)+' done · '+(c.error||0)+' error · '+(c.workers||0)+' workers';
+  hPaginate('tbl', jobs, j=>{
+    const st=j.status, col=st==='done'?'var(--ok)':st==='error'?'var(--crit)':st==='running'?'var(--accent)':'var(--mut)';
+    const msg=(st==='running')?'<span class="spin"></span> running…':(st==='queued'?'waiting…':esc((j.message||'').slice(0,120)));
+    return `<tr data-jid="${j.id}" style="cursor:pointer"><td class="mono">${j.id}</td><td><span class="chip" style="color:${col}">${esc(st)}</span></td><td>${esc(j.agent)}</td><td class="mono">${esc(j.label||j.action)}</td><td>${msg}</td><td class="mono">${fmtElapsed(j)}</td></tr>`
+      +`<tr id="qd-${j.id}" style="display:none"><td colspan="6"><div id="qdbox-${j.id}" class="callbox"><span class="sub">click to load queries…</span></div></td></tr>`;
+  }, {cols:6, empty:'<tr><td colspan="6" class="sub">No agent runs yet — run any agent and it appears here.</td></tr>',
+     wire:tb=>{ tb.querySelectorAll('tr[data-jid]').forEach(r=>r.onclick=()=>toggleQueries(r.dataset.jid)); }});
+}
+async function toggleQueries(jid){
+  const row=document.getElementById('qd-'+jid), box=document.getElementById('qdbox-'+jid);
+  if(!row) return; if(row.style.display!=='none'){ row.style.display='none'; return; }
+  row.style.display=''; box.innerHTML='<span class="spin"></span> loading…';
+  let o; try{ o=await jget('/api/jobs/'+jid); }catch(e){ box.textContent='failed'; return; }
+  const qs=(o.job&&o.job.queries)||[];
+  box.innerHTML = qs.length ? qs.map(q=>`<div class="qrow"><b class="mono" style="color:var(--accent)">${q.ms}ms</b>  ${esc(q.sql)}</div>`).join('')
+    : '<span class="sub">No queries recorded for this run.</span>';
+}
+
+document.getElementById('refresh').onclick=()=>{ loadRuns(); loadProfile(); };
+document.getElementById('clearRuns').onclick=async()=>{ try{ await jpost('/api/jobs/clear',{}); }catch(e){} loadRuns(); };
+document.getElementById('clearProf').onclick=async()=>{ try{ await jpost('/api/profile/clear',{}); }catch(e){} loadProfile(); };
+document.getElementById('copyIdx').onclick=()=>{ if(!ALL_DDL){alert('No suggestions to copy yet.');return;} navigator.clipboard?.writeText(ALL_DDL); const b=document.getElementById('copyIdx'); b.textContent='✓ copied'; setTimeout(()=>b.textContent='⧉ Copy all DDL',1500); };
+mountAgentHeader({id:'runs',icon:'🧾',name:'Runs & Queries',sub:'profile · index advisor'});
+loadRuns(); loadProfile(); setInterval(loadRuns, 2500);
+</script>
+</body></html>

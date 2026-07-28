@@ -3,36 +3,19 @@
 Run:  python3 app_flask.py
 Identical behavior to app_fastapi.py (both call core.launcher).
 """
-import mimetypes
 import os
 
 from flask import Flask, jsonify, request, send_from_directory
 
 from core import launcher
 
-# Windows fix: Flask/Werkzeug derive a static file's Content-Type from Python's
-# `mimetypes`, which on Windows reads the registry — where .js/.css are frequently
-# mis-registered (e.g. .js as text/plain). A stylesheet or script served with the
-# wrong MIME type is rejected by the browser, so the hub loads UNSTYLED. Pin the
-# correct types at import so behaviour matches macOS/Linux regardless of the
-# registry. (app_stdlib.py uses its own MIME table and was never affected.)
-for _ext, _type in ((".css", "text/css"), (".js", "application/javascript"),
-                    (".mjs", "application/javascript"), (".json", "application/json"),
-                    (".svg", "image/svg+xml"), (".woff2", "font/woff2"),
-                    (".woff", "font/woff")):
-    mimetypes.add_type(_type, _ext)
-
 HERE = os.path.dirname(os.path.abspath(__file__))
 WEB = os.path.join(HERE, "web")
 AGENTS = os.path.join(HERE, "agents")
 
-# static_folder=None DISABLES Flask's built-in /static endpoint. Flask otherwise
-# auto-registers /static/<path:filename> pointing at a "static/" folder next to this
-# module (which doesn't exist here); that built-in rule is registered FIRST and wins,
-# so our own /static/<path:p> route below never fires and every /static/console.css
-# and /static/console.js returns 404 → the hub loads completely UNSTYLED. Disabling
-# the built-in lets our route serve web/assets/*. (macOS runs FastAPI, so it never hit
-# this; Windows has no uvicorn and falls back to Flask, which is where it showed up.)
+# static_folder=None disables Flask's built-in /static route (which points at a
+# nonexistent navi-agents/static/ and would shadow our /static → web/assets route,
+# 404-ing console.css / console.js). Our explicit /static handler below serves them.
 app = Flask(__name__, static_folder=None)
 
 
@@ -49,6 +32,31 @@ def health():
 @app.get("/api/registry")
 def registry():
     return jsonify(launcher.registry())
+
+
+@app.get("/api/jobs")
+def jobs():
+    return jsonify(launcher.jobs_list())
+
+
+@app.get("/api/jobs/<int:job_id>")
+def job_get(job_id):
+    return jsonify(launcher.jobs_get(job_id))
+
+
+@app.post("/api/jobs/clear")
+def jobs_clear():
+    return jsonify(launcher.jobs_clear())
+
+
+@app.get("/api/profile")
+def profile():
+    return jsonify(launcher.profile())
+
+
+@app.post("/api/profile/clear")
+def profile_clear():
+    return jsonify(launcher.profile_clear())
 
 
 @app.post("/api/<agent_id>/<action>")

@@ -1,0 +1,29 @@
+{
+  "snap": {
+    "al19fa4150e9b5291": 40.0,
+    "al19fa54d5c57731d": 7.0
+  },
+  "fired": {
+    "al19fa4150e9b5291": false,
+    "al19fa54d5c57731d": false
+  },
+  "history": [
+    {
+      "ts": "2026-07-27T20:39:13Z",
+      "source": "manual",
+      "evaluated": 2,
+      "newly": [],
+      "still": 0,
+      "sent": false
+    },
+    {
+      "ts": "2026-07-27T05:03:31Z",
+      "source": "manual",
+      "evaluated": 0,
+      "newly": [],
+      "still": 0,
+      "sent": false
+    }
+  ],
+  "last_run": "2026-07-27T20:39:13Z"
+}

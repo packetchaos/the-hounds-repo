@@ -23,6 +23,7 @@
   .pill{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;border-radius:99px;padding:4px 11px;border:1px solid var(--line)}
   #liveOut{white-space:pre-wrap;font-family:var(--mono);font-size:12px;line-height:1.45;background:var(--bg-2);border:1px solid var(--line);border-radius:9px;padding:12px;max-height:420px;overflow:auto}
   #vulnTbl{table-layout:fixed;width:100%}#vulnTbl th,#vulnTbl td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .lnk{color:var(--accent);text-decoration:underline;text-underline-offset:2px;font-weight:600}
 </style>
 </head><body>
 <div class="wrap">
@@ -45,6 +46,7 @@
         <section class="card" id="idCard">
           <h2 style="margin:0 0 8px;font-size:15px">🖥 Asset</h2>
           <div id="idBody"></div>
+          <div id="covStrip" style="margin-top:10px"></div>
         </section>
         <section class="card" id="hostCard" style="margin-top:16px">
           <h2 style="margin:0 0 8px;font-size:15px">🖥 Host profile &amp; scan health</h2>
@@ -55,6 +57,16 @@
           <div class="ring-wrap"><div id="ring"></div>
             <div id="riskMeta" style="flex:1"></div></div>
           <div id="sevBars" style="margin-top:12px"></div>
+        </section>
+        <section class="card" id="ownCard" style="margin-top:16px">
+          <div class="toolbar" style="margin:0"><h2 style="margin:0;font-size:15px">👑 Ownership</h2><span class="chip" id="ownCount" style="margin-left:auto"></span></div>
+          <p class="sub" style="margin:4px 0 0">Who's accountable for this asset, from its <span class="mono">Owner</span> tags (by app/route).</p>
+          <div id="ownBody" style="margin-top:8px"></div>
+        </section>
+        <section class="card" id="idnCard" style="margin-top:16px">
+          <div class="toolbar" style="margin:0"><h2 style="margin:0;font-size:15px">🧑‍💻 Identities on this host</h2><span class="chip" id="idnCount" style="margin-left:auto"></span></div>
+          <p class="sub" style="margin:4px 0 0">Accounts enumerated on this asset (Janus logic) — human / service / machine.</p>
+          <div id="idnBody" style="margin-top:8px"></div>
         </section>
         <section class="card" id="swCard" style="margin-top:16px">
           <div class="toolbar" style="margin:0"><h2 style="margin:0;font-size:15px">📦 Software</h2><span class="chip" id="swCount" style="margin-left:auto"></span></div>
@@ -84,6 +96,12 @@
           <div style="margin-top:8px"><table id="vulnTbl"><colgroup><col style="width:62px"><col style="width:74px"><col><col style="width:50px"><col style="width:120px"></colgroup><thead><tr><th>Sev</th><th>Plugin</th><th>Name</th><th>VPR</th><th>Family</th></tr></thead><tbody></tbody></table></div>
         </section>
 
+        <section class="card" id="webCard" style="margin-top:16px;display:none">
+          <div class="toolbar" style="margin:0"><h2 style="margin:0;font-size:15px">🌐 Captured web pages</h2><span class="chip" id="webCount" style="margin-left:auto"></span></div>
+          <p class="sub" style="margin:4px 0 0">Plugin <span class="mono">24260</span> (and other web plugins) captured the HTTP response — including the page HTML — when it scanned this host. <b>Render now</b> shows it back in a locked sandbox: no scripts run and no external requests are made.</p>
+          <div id="webBody" style="margin-top:8px"></div>
+        </section>
+
         <section class="card" id="liveCard" style="margin-top:16px">
           <div class="toolbar" style="margin:0"><h2 style="margin:0;font-size:15px">🛰 Live · navi explore uuid</h2></div>
           <p class="sub" style="margin:4px 0 8px">Flag-driven per-asset views, straight from the navi CLI (needs navi on the server). Base lookup plus the workhorse views.</p>
@@ -106,8 +124,8 @@
 const API=agentApi('argos');
 let CUR=null;
 const SEV_COLOR={critical:'#f43f5e',high:'#fb923c',medium:'#fbbf24',low:'#6ea8ff',info:'#8a99ad'};
-const BAND_COLOR={critical:'#f43f5e',high:'#fb923c',medium:'#fbbf24',low:'#6ea8ff',info:'#8a99ad',good:'#34d399',clear:'#34d399'};
-function crestFor(agent){ return agent?`<img src="/static/crests/${agent}.png?v=2" onerror="this.style.display='none'">`:''; }
+const BAND_COLOR={critical:'#f43f5e',high:'#fb923c',medium:'#fbbf24',low:'#6ea8ff',info:'#8a99ad',good:'var(--ok)',clear:'var(--ok)'};
+function crestFor(agent){ return agent?`<img src="/static/crests/${agent}.png?v=5" onerror="this.style.display='none'">`:''; }
 
 function ring(score,band){
   const c=BAND_COLOR[band]||'#8a99ad', r=52, C=2*Math.PI*r, off=C*(1-Math.max(0,Math.min(100,score))/100);
@@ -144,7 +162,7 @@ function render(d){
   const H=d.host||{}, hc=document.getElementById('hostCard'), hb=document.getElementById('hostBody');
   if(hb){ if(!H.has_data){ if(hc)hc.style.display='none'; }
     else { if(hc)hc.style.display='';
-      const auth=H.authenticated?(esc(H.last_auth_scan||'—')+' <span style="color:#34d399">✓</span>'):'<span style="color:var(--crit)">never</span>';
+      const auth=H.authenticated?(esc(H.last_auth_scan||'—')+' <span style="color:var(--ok)">✓</span>'):'<span style="color:var(--crit)">never</span>';
       const dur=(H.last_scan_dur_min!=null)?(H.last_scan_dur_min+' min'+(H.last_scan_name?(' <span class="sub">· '+esc(H.last_scan_name)+'</span>'):'')):'—';
       hb.innerHTML=idRow('CPU',esc(H.cpu||''))+idRow('RAM',esc(H.ram||''))+(H.arch?idRow('Arch',esc(H.arch)):'')
         +idRow('Last auth scan',auth)+idRow('Last duration',dur)
@@ -174,25 +192,59 @@ function render(d){
   document.getElementById('cveBody').innerHTML= cves.length? cves.map(c=>`<span class="cvechip">${esc(c)}</span>`).join('')+((d.risk.cve_count>cves.length)?`<span class="sub"> +${d.risk.cve_count-cves.length} more</span>`:'') : '<p class="sub">No CVEs recorded for this asset.</p>';
   // vulns
   const vs=d.top_vulns||[]; document.getElementById('vulnCount').textContent=(d.counts&&d.counts.vulns||0)+' findings';
-  document.querySelector('#vulnTbl tbody').innerHTML= vs.length? vs.map(v=>{
+  hPageReset('vulnTbl'); hPaginate('vulnTbl', vs, v=>{
     const c=SEV_COLOR[v.severity]||'#8a99ad';
     const pid=v.plugin_id!=null?String(v.plugin_id):'';
     return `<tr><td><span class="pill" style="padding:1px 8px;color:${c};border-color:${c}66">${esc(v.severity||'—')}</span></td>
-      <td class="mono">${pid?`<a class="mono" style="cursor:pointer;text-decoration:underline;color:var(--accent)" onclick="pluginOut('${esc(pid)}','${esc(v.plugin_name||'')}')" title="Show this plugin's output on this asset (navi explore uuid --plugin ${esc(pid)})">${esc(pid)}</a>`:'—'}</td>
+      <td class="mono">${pid?`<a class="mono" style="cursor:pointer;text-decoration:underline;color:var(--accent)" onclick="pluginOut('${esc(pid)}','${esc(v.plugin_name||'')}')" title="View this plugin's stored output on this asset (from navi.db — HTML output is rendered)">${esc(pid)}</a>`:'—'}</td>
       <td title="${esc(v.plugin_name||'')}">${pid?`<a style="cursor:pointer;color:var(--ink)" onclick="pluginOut('${esc(pid)}','${esc(v.plugin_name||'')}')">${esc(v.plugin_name||'—')}</a>`:esc(v.plugin_name||'—')}</td><td class="mono">${v.vpr!=null&&v.vpr!==''?esc(v.vpr):'—'}</td>
       <td class="sub">${esc(v.family||'—')}</td></tr>`;
-  }).join('') : '<tr><td colspan="5" class="sub">No findings.</td></tr>';
+  }, {cols:5, empty:'<tr><td colspan="5" class="sub">No findings.</td></tr>'});
+  const tbl=d.tables||{};
+  // when a table isn't in navi.db yet, name the exact command that builds it
+  const needTable=(kind,cmd)=>`<div class="callbox" style="border-left:3px solid var(--warn,#e7c66b)"><b style="color:var(--warn,#e7c66b)">The <span class="mono">${kind}</span> table isn't in navi.db yet.</b><p class="sub" style="margin:4px 0 0">Build it, then re-run Argos:</p><div class="mono" style="margin-top:4px;padding:6px 9px;background:var(--panel2);border:1px solid var(--line);border-radius:7px">${cmd}</div></div>`;
   // software
   const sw=d.software||[]; document.getElementById('swCount').textContent=sw.length;
-  document.getElementById('swBody').innerHTML= sw.length? sw.slice(0,120).map(s=>`<span class="swchip"><b>${esc(s.name)}</b>${s.version?`<span class="ver">${esc(s.version)}</span>`:''}</span>`).join('')+(sw.length>120?`<span class="sub"> +${sw.length-120} more</span>`:'') : '<p class="sub">No software inventory for this asset.</p>';
+  document.getElementById('swBody').innerHTML= sw.length
+    ? sw.slice(0,120).map(s=>`<span class="swchip"><b>${esc(s.name)}</b>${s.version?`<span class="ver">${esc(s.version)}</span>`:''}</span>`).join('')+(sw.length>120?`<span class="sub"> +${sw.length-120} more</span>`:'')
+    : (tbl.software===false ? needTable('software','navi config software') : '<p class="sub">No software inventory for this asset.</p>');
   // certs
   const cs=d.certs||[]; document.getElementById('certCount').textContent=cs.length;
   document.getElementById('certBody').innerHTML= cs.length? cs.map(c=>{
     const weak=c.weak?` <span class="pill" style="padding:1px 7px;color:#fb923c;border-color:rgba(251,146,60,.5)">weak</span>`:'';
     return `<div style="padding:6px 0;border-bottom:1px solid var(--line)"><b>${esc(c.common_name||'(no CN)')}</b>${weak}<br><span class="sub mono" style="font-size:11.5px">exp ${esc(c.expiry_iso||c.not_valid_after||'?')} · ${esc(c.signature_algorithm||'')} ${c.key_length?('· '+esc(c.key_length)+'-bit'):''}</span></div>`;
-  }).join('') : '<p class="sub">No certificates on this asset.</p>';
+  }).join('') : (tbl.certs===false ? needTable('certs','navi config certificates') : '<p class="sub">No certificates on this asset.</p>');
+  // ownership (pie from Owner tags)
+  const own=d.ownership||[];
+  document.getElementById('ownCount').textContent=own.length?(own.length+' owner'+(own.length>1?'s':'')):'unowned';
+  document.getElementById('ownBody').innerHTML=own.length?ownPie(own)
+    :'<p class="sub">No owner assigned. <a class="lnk" href="/web/ownermap.html">Assign in Atlas →</a></p>';
+  // identities on this host
+  const idn=d.identities||[]; const KC2={human:'#8b8fe6',service:'#3fb0c9',nhi:'#a78bfa',machine:'#9aa7b8',system:'#8a99ad'};
+  document.getElementById('idnCount').textContent=idn.length;
+  document.getElementById('idnBody').innerHTML=idn.length?('<div style="overflow:auto"><table style="width:100%"><thead><tr><th>Account</th><th>Class</th><th>Source</th></tr></thead><tbody>'
+    +idn.map(x=>`<tr><td class="mono"><b>${esc(x.user)}</b>${x.authority?'<div class="sub" style="font-size:10px" title="'+esc(x.authority)+'">📖 '+esc(x.authority.length>40?x.authority.slice(0,38)+'…':x.authority)+'</div>':''}</td><td><span class="pill" style="padding:1px 8px;color:${KC2[x.klass]||'#8a99ad'};border-color:${(KC2[x.klass]||'#8a99ad')}66">${esc(x.klass)}</span></td><td class="sub mono" style="font-size:10.5px">${esc((x.plugins||[]).join(', '))}</td></tr>`).join('')
+    +'</tbody></table></div>')
+    :'<p class="sub">No accounts enumerated here — this host may be uncredentialed. Run <a class="lnk" href="/agents/identity/page.html">Janus</a> for the full sweep.</p>';
+  // taxonomy coverage strip
+  const cov=d.coverage||{};
+  const cchip=(ok,label)=>`<span class="pill" style="margin:0 6px 6px 0;padding:2px 9px;color:${ok?'var(--ok)':'#f43f5e'};border-color:${ok?'rgba(52,211,153,.4)':'rgba(244,63,94,.4)'}">${ok?'✓':'✗'} ${label}</span>`;
+  document.getElementById('covStrip').innerHTML='<div class="sub" style="margin-bottom:4px">Taxonomy coverage</div>'
+    +cchip(cov.owned,'Owned')+cchip(cov.classified,'Classified')+cchip(cov.device_typed,'Device-typed')
+    +(!cov.owned?'<a class="chip" href="/web/ownermap.html" style="text-decoration:none">Assign owner →</a> ':'')
+    +(!cov.classified?'<a class="chip" href="/agents/classify/page.html" style="text-decoration:none">Classify →</a>':'');
   document.getElementById('result').style.display='';
   document.getElementById('result').scrollIntoView({behavior:'smooth',block:'start'});
+}
+const OWN_PAL=['#5a5fe0','#3f78c2','#2f9d9d','#2fa06e','#7d64d4','#3f8fb0','#4a6fd0','#2f9e88'];
+function ownPie(owners){
+  const d=owners.map((o,i)=>({l:o.owner,v:Math.max(1,o.count),apps:o.apps||[],c:OWN_PAL[i%OWN_PAL.length]}));
+  const tot=d.reduce((s,x)=>s+x.v,0)||1, R=52,CX=60,CY=60; let a=-Math.PI/2, seg='';
+  d.forEach(x=>{const f=x.v/tot,a2=a+f*2*Math.PI,x1=CX+R*Math.cos(a),y1=CY+R*Math.sin(a),x2=CX+R*Math.cos(a2),y2=CY+R*Math.sin(a2),lg=f>0.5?1:0;
+    seg+=(d.length===1)?`<circle cx="${CX}" cy="${CY}" r="${R}" fill="${x.c}"/>`:`<path d="M${CX},${CY} L${x1.toFixed(1)},${y1.toFixed(1)} A${R},${R} 0 ${lg} 1 ${x2.toFixed(1)},${y2.toFixed(1)} Z" fill="${x.c}"/>`; a=a2;});
+  const leg=d.map(x=>`<div style="display:flex;align-items:center;gap:7px;font-size:12.5px;margin-top:4px"><span style="width:11px;height:11px;border-radius:3px;background:${x.c};flex:0 0 auto"></span><span style="font-weight:600">${esc(x.l)}</span><span class="sub" style="margin-left:auto">${x.v} app${x.v!=1?'s':''}</span></div>`
+    +`<div class="sub" style="font-size:10.5px;margin:1px 0 0 18px">${esc(x.apps.slice(0,4).join(', '))}${x.apps.length>4?' +'+(x.apps.length-4):''}</div>`).join('');
+  return `<div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap"><svg viewBox="0 0 120 120" style="width:118px;height:118px;flex:0 0 auto">${seg}</svg><div style="flex:1;min-width:150px">${leg}</div></div>`;
 }
 
 async function lookup(){
@@ -203,7 +255,54 @@ async function lookup(){
   if(!o||!o.ok){ flash('flash','✗ '+esc((o&&o.error)||'lookup failed'),'crit'); return; }
   if(!o.found){ flash('flash','⚠ '+esc(o.message||'no match'),'warn'); document.getElementById('result').style.display='none'; return; }
   flashClear('flash'); render(o);
+  try{ loadWebPages(t); }catch(e){}
 }
+/* ===== Captured web pages — render the HTTP response HTML a plugin stored (24260 & web
+   plugins), in a locked sandbox: no scripts, no external requests. Moved here from the
+   old asset-detail page. ===== */
+let WEBPAGES=[];
+async function loadWebPages(target){
+  const card=document.getElementById('webCard'), body=document.getElementById('webBody'), cnt=document.getElementById('webCount');
+  WEBPAGES=[]; if(card) card.style.display='none';
+  let o; try{ o=await API.post('webpages',{target}); }catch(e){ return; }
+  if(!o||!o.ok||!o.found||!(o.pages||[]).length) return;
+  WEBPAGES=o.pages;
+  if(cnt) cnt.textContent='('+WEBPAGES.length+')';
+  card.style.display='';
+  body.innerHTML=WEBPAGES.map((p,i)=>{
+    const site=p.url?(' · <a href="'+esc(p.url)+'" target="_blank" rel="noopener" class="mono" style="color:var(--accent)">open in Tenable ↗</a>'):'';
+    const where=p.where?(' · '+esc(p.where)):'';
+    return '<div class="callbox" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center">'
+      +'<span><b>Web page</b> <span class="sub">· plugin <span class="mono">'+esc(p.plugin_id)+'</span> · '+esc(p.plugin_name||'')+where+site+' · '+p.html.length.toLocaleString()+' bytes</span></span>'
+      +'<span style="display:flex;gap:6px"><button class="btn run sm webrender" data-i="'+i+'">▶ Render now</button>'
+      +'<button class="btn ghost sm websrc" data-i="'+i+'">&lt;/&gt; Source</button>'
+      +'<button class="btn ghost sm webclose" data-i="'+i+'" style="display:none">Close</button></span></div>'
+      +'<div class="webmount" id="webmount-'+i+'" style="margin-top:8px"></div></div>';
+  }).join('');
+  body.querySelectorAll('.webrender').forEach(b=>b.onclick=()=>webOpen(+b.dataset.i));
+  body.querySelectorAll('.websrc').forEach(b=>b.onclick=()=>webSource(+b.dataset.i));
+  body.querySelectorAll('.webclose').forEach(b=>b.onclick=()=>webClose(+b.dataset.i));
+}
+function _webToggleClose(i,on){ const c=document.querySelector('.webclose[data-i="'+i+'"]'); if(c)c.style.display=on?'':'none'; }
+function webOpen(i){
+  const p=WEBPAGES[i], mount=document.getElementById('webmount-'+i); if(!p||!mount)return;
+  const csp='<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; img-src data:; font-src data:;">';
+  let doc=p.html;
+  if(/<head[^>]*>/i.test(doc)) doc=doc.replace(/<head([^>]*)>/i,'<head$1>'+csp);
+  else if(/<html[^>]*>/i.test(doc)) doc=doc.replace(/<html([^>]*)>/i,'<html$1><head>'+csp+'</head>');
+  else doc='<head>'+csp+'</head>'+doc;
+  const ifr=document.createElement('iframe');
+  ifr.setAttribute('sandbox',''); ifr.setAttribute('referrerpolicy','no-referrer');
+  ifr.style.cssText='width:100%;height:540px;border:1px solid var(--line);border-radius:10px;background:#fff';
+  ifr.srcdoc=doc; mount.innerHTML=''; mount.appendChild(ifr); _webToggleClose(i,true);
+  mount.scrollIntoView({behavior:'smooth',block:'center'});
+}
+function webSource(i){
+  const p=WEBPAGES[i], mount=document.getElementById('webmount-'+i); if(!p||!mount)return;
+  mount.innerHTML='<pre class="mono" style="font-size:11.5px;white-space:pre-wrap;word-break:break-word;max-height:420px;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--panel-2)">'+esc(p.html.slice(0,200000))+'</pre>';
+  _webToggleClose(i,true); mount.scrollIntoView({behavior:'smooth',block:'center'});
+}
+function webClose(i){ const mount=document.getElementById('webmount-'+i); if(mount)mount.innerHTML=''; _webToggleClose(i,false); }
 async function runLive(view,btn){
   const t=(CUR&&CUR.asset&&CUR.asset.uuid)||(document.getElementById('target').value||'').trim();
   const box=document.getElementById('liveOut'); box.style.display='block'; box.textContent='running navi explore uuid '+(view||'')+' …';
@@ -211,13 +310,52 @@ async function runLive(view,btn){
   if(!o||o.ok===false){ box.textContent='✗ '+((o&&(o.error||o.message))||'failed')+(o&&o.stderr?('\n'+o.stderr):''); return; }
   box.textContent=(o.cmd?('$ '+o.cmd+'\n\n'):'')+(o.stdout||'(no output)');
 }
-/* Click a plugin ID/name in Top findings → show that plugin's output on THIS asset
-   (navi explore uuid <target> --plugin <id>). */
+/* Click a plugin ID/name in Top findings → show that plugin's STORED output on THIS asset,
+   read straight from navi.db (vulns.output) — no navi CLI needed. Web/HTTP plugins (e.g. 24260)
+   carry HTML, so when output looks like HTML we render it in a sandboxed iframe with a Raw
+   toggle; plain output shows as preformatted text. Falls back to the live CLI view if navi.db
+   has no stored output for it. */
 async function pluginOut(id,name){
-  const lc=document.getElementById('liveCard'); lc.scrollIntoView({behavior:'smooth',block:'start'});
+  const lc=document.getElementById('liveCard'); if(lc)lc.scrollIntoView({behavior:'smooth',block:'start'});
   const box=document.getElementById('liveOut'); box.style.display='block';
-  box.textContent='fetching output for plugin '+id+(name?(' — '+name):'')+' on this asset…';
-  await runLive('--plugin '+id);
+  box.textContent='fetching stored output for plugin '+id+(name?(' — '+name):'')+' on this asset…';
+  const t=(CUR&&CUR.asset&&CUR.asset.uuid)||(document.getElementById('target').value||'').trim();
+  let o; try{ o=await API.post('output',{target:t,plugin_id:id}); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o||!o.ok){ box.textContent='✗ '+esc((o&&(o.error||o.message))||'failed'); return; }
+  if(!o.found){
+    box.innerHTML='<span class="sub">'+esc(o.message||'No stored output for this plugin on this asset.')
+      +'</span> <button class="btn ghost sm" id="poLive">Try live navi view</button>';
+    const b=document.getElementById('poLive'); if(b)b.onclick=()=>runLive('--plugin '+id);
+    return;
+  }
+  renderPluginOutput(o);
+}
+function renderPluginOutput(o){
+  const box=document.getElementById('liveOut'); box.style.display='block';
+  const head='Plugin '+esc(o.plugin_id)+(o.plugin_name?(' · '+esc(o.plugin_name)):'')
+    +(o.instances>1?(' · '+o.instances+' instance'+(o.instances==1?'':'s')):'');
+  if(o.is_html){
+    box.innerHTML='<div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;flex-wrap:wrap">'
+      +'<b style="font-family:var(--mono);font-size:12px">'+head+'</b><span class="chip">HTML</span>'
+      +'<span style="margin-left:auto"><button class="btn ghost sm" id="poRendered">🖼 Rendered</button> '
+      +'<button class="btn ghost sm" id="poRaw">{ } Raw</button></span></div>'
+      +'<iframe id="poFrame" sandbox="" referrerpolicy="no-referrer" '
+      +'style="width:100%;min-height:380px;border:1px solid var(--line);border-radius:8px;background:#fff"></iframe>'
+      +'<pre id="poRawPre" style="display:none;white-space:pre-wrap;font-family:var(--mono);font-size:12px;'
+      +'background:var(--bg-2);border:1px solid var(--line);border-radius:8px;padding:12px;max-height:460px;overflow:auto"></pre>';
+    const frame=document.getElementById('poFrame');
+    // Sandboxed (no scripts, no same-origin) so arbitrary plugin HTML can't touch the console.
+    frame.srcdoc='<!doctype html><meta charset="utf-8"><base target="_blank">'
+      +'<style>body{font:13px/1.55 system-ui,Segoe UI,Arial,sans-serif;color:#0d1420;margin:14px;word-break:break-word}'
+      +'table{border-collapse:collapse;max-width:100%}td,th{border:1px solid #cbd5e1;padding:4px 8px;font-size:12.5px;text-align:left}'
+      +'pre{white-space:pre-wrap}img{max-width:100%}a{color:#2563eb}</style>'+o.output;
+    const pre=document.getElementById('poRawPre'); pre.textContent=o.output;
+    document.getElementById('poRaw').onclick=()=>{ frame.style.display='none'; pre.style.display='block'; };
+    document.getElementById('poRendered').onclick=()=>{ frame.style.display=''; pre.style.display='none'; };
+  } else {
+    box.innerHTML='<div style="margin-bottom:8px"><b style="font-family:var(--mono);font-size:12px">'+head+'</b></div>'
+      +'<pre style="white-space:pre-wrap;font-family:var(--mono);font-size:12px;margin:0;line-height:1.45">'+esc(o.output)+'</pre>';
+  }
 }
 document.getElementById('goBtn').onclick=lookup;
 document.getElementById('target').addEventListener('keydown',e=>{ if(e.key==='Enter') lookup(); });

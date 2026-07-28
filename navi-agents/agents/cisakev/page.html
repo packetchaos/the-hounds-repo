@@ -37,14 +37,15 @@
 <script src="/static/console.js"></script>
 <script>
 const API=agentApi('cisakev');
-let DATES=[], WRITES=false;
-function dPicked(){ return [...document.querySelectorAll('#dTbl tbody input.dsel:checked')].map(c=>c.dataset.d); }
+let DATES=[], WRITES=false, _dSel=new Set();
+function dPicked(){ return [..._dSel]; }   // selection survives pagination
 function dSync(){ const n=dPicked().length; document.getElementById('dSel').textContent=n+' selected'; document.getElementById('tagDates').disabled=!n; }
 function renderDates(){
-  document.querySelector('#dTbl tbody').innerHTML=DATES.length?DATES.map(d=>
-    `<tr><td><input type="checkbox" class="dsel" data-d="${esc(d.kev_date)}"></td><td class="mono">${esc(d.kev_date)}</td><td><span class="tagval">${esc(d.value)}</span></td><td>${d.assets}</td><td>${d.findings}</td></tr>`).join('')
-    :'<tr><td colspan="5" class="sub">No CISA KEV findings in navi.db.</td></tr>';
-  document.querySelectorAll('#dTbl tbody input.dsel').forEach(c=>c.onchange=dSync); dSync();
+  hPageReset('dTbl'); hPaginate('dTbl', DATES, d=>
+    `<tr><td><input type="checkbox" class="dsel" data-d="${esc(d.kev_date)}"${_dSel.has(d.kev_date)?' checked':''}></td><td class="mono">${esc(d.kev_date)}</td><td><span class="tagval">${esc(d.value)}</span></td><td>${d.assets}</td><td>${d.findings}</td></tr>`,
+    {cols:5, empty:'<tr><td colspan="5" class="sub">No CISA KEV findings in navi.db.</td></tr>',
+     wire:tb=>{ tb.querySelectorAll('input.dsel').forEach(c=>c.onchange=()=>{ if(c.checked)_dSel.add(c.dataset.d); else _dSel.delete(c.dataset.d); dSync(); }); }});
+  dSync();
 }
 async function load(){
   document.getElementById('load').disabled=true; flash('flash','<span class="spin"></span> reading CISA KEV xrefs from navi.db…','run');
@@ -58,19 +59,33 @@ async function load(){
   if(!s.kev_assets) flash('flash','No CISA KEV findings found — is navi.db fresh? Run a navi update.','warn');
 }
 async function tagVuln(){
+  const btn=document.getElementById('tagVuln'); if(btn&&btn.disabled)return;
   if(!WRITES && !confirm('Writes are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked. Continue?')) return;
+  const fb=document.getElementById('flash');
+  const scroll=()=>{ if(fb)fb.scrollIntoView({behavior:'smooth',block:'center'}); };
+  const reset=()=>{ if(!btn)return; btn.disabled=false; btn.textContent=btn.dataset.label; btn.style.opacity=''; btn.style.transform=''; btn.style.cursor=''; };
+  if(btn){ btn.dataset.label=btn.dataset.label||btn.textContent; btn.disabled=true; btn.textContent='⏳ Sending…'; btn.style.opacity='.6'; btn.style.transform='translateY(1px)'; btn.style.cursor='default'; }
   flash('flash','<span class="spin"></span> queuing CISA KEV : Vulnerable…','run');
+  scroll();
   let o; try{ o=await API.post('tag_vulnerable',{confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
-  if(!o.ok&&!o.queued&&!o.warning){ flash('flash','✗ '+esc(o.error||o.message||'failed'),'crit'); return; }
+  if(!o.ok&&!o.queued&&!o.warning){ flash('flash','✗ '+esc(o.error||o.message||'failed'),'crit'); reset(); scroll(); return; }
   flash('flash','✓ queued CISA KEV : Vulnerable — watch the <a href="/web/tags-log.html">Tagging log</a> (navi --xrefs CISA-KNOWN-EXPLOITED).','ok');
+  scroll(); reset();
 }
 async function tagDates(dates){
+  const btn=document.getElementById('tagDates'); if(btn&&btn.disabled)return;
   dates=dates||dPicked(); if(!dates.length) return;
   if(!WRITES && !confirm('Writes are gated — jobs queue but are blocked. Continue?')) return;
+  const fb=document.getElementById('flash');
+  const scroll=()=>{ if(fb)fb.scrollIntoView({behavior:'smooth',block:'center'}); };
+  const reset=()=>{ if(!btn)return; btn.disabled=false; btn.textContent=btn.dataset.label; btn.style.opacity=''; btn.style.transform=''; btn.style.cursor=''; };
+  if(btn){ btn.dataset.label=btn.dataset.label||btn.textContent; btn.disabled=true; btn.textContent='⏳ Sending…'; btn.style.opacity='.6'; btn.style.transform='translateY(1px)'; btn.style.cursor='default'; }
   flash('flash','<span class="spin"></span> queuing '+dates.length+' KEV date tag(s)…','run');
+  scroll();
   let o; try{ o=await API.post('tag_dates',{dates,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
-  if(!o.ok){ flash('flash','✗ '+esc(o.error||'failed'),'crit'); return; }
+  if(!o.ok){ flash('flash','✗ '+esc(o.error||'failed'),'crit'); reset(); scroll(); return; }
   flash('flash','✓ queued '+o.queued+' date tag(s) — watch the <a href="/web/tags-log.html">Tagging log</a>.','ok');
+  scroll(); reset();
 }
 async function kevNl(){
   const p=(document.getElementById('kevQ').value||'').trim();
@@ -84,8 +99,8 @@ async function kevNl(){
 document.getElementById('load').onclick=load;
 document.getElementById('tagVuln').onclick=tagVuln;
 document.getElementById('tagDates').onclick=()=>tagDates();
-document.getElementById('dAll').onclick=()=>{ document.querySelectorAll('#dTbl tbody input.dsel').forEach(c=>c.checked=true); dSync(); };
-document.getElementById('dNone').onclick=()=>{ document.querySelectorAll('#dTbl tbody input.dsel').forEach(c=>c.checked=false); dSync(); };
+document.getElementById('dAll').onclick=()=>{ DATES.forEach(d=>_dSel.add(d.kev_date)); renderDates(); };
+document.getElementById('dNone').onclick=()=>{ _dSel.clear(); renderDates(); };
 document.getElementById('kevNl').onclick=kevNl;
 mountAgentHeader({icon:'🛡️',name:'CISA KEV Tagging',sub:'Laelaps · tag known-exploited vulns by xref / date'});
 jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});

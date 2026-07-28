@@ -15,32 +15,19 @@
   .loadbar .track{height:11px;border-radius:99px;background:var(--panel-2);overflow:hidden;flex:1}
   .loadbar .fill{height:100%;border-radius:99px}
   table.ownt td,table.ownt th{font-size:13px}
+  .gaprow:hover{background:var(--panel-2)}
 </style>
 </head><body>
 <div class="wrap">
   <header class="top" id="app-header"></header>
-  <section class="card" style="background:radial-gradient(120% 140% at 90% -20%,var(--amber-glow),transparent 60%),var(--panel)">
+  <section class="card" style="background:var(--panel)">
     <div class="toolbar"><div><div class="acode">Atlas Hound</div><h2 style="margin:0">🗺 Ownership Map</h2>
       <p class="sub" style="margin:2px 0 0">Who owns what across the attack surface — every <b>route</b> and <b>path</b> threaded to the <b>owners</b> assigned to it, with the gaps called out: what has <b>no owner</b>, what's only <b>partially</b> owned (too few owners for all its assets), and which <b>assets have no owner</b> at all. Reads <span class="mono">Owner</span> tags in navi.db.</p></div>
-      <button class="btn run sm" id="run" style="margin-left:auto">↻ Refresh</button></div>
+      <span style="margin-left:auto;display:flex;gap:6px">
+        <a class="btn sm" href="/agents/exproute/page.html" title="Open Atlas to assign owners to the gaps below">✍ Assign owners</a>
+        <button class="btn run sm" id="run">↻ Refresh</button></span></div>
     <div id="flash" class="flash"></div>
     <div class="kpi" id="kpi"></div>
-  </section>
-
-  <section class="card" id="graphCard" style="display:none">
-    <div class="toolbar" style="margin:0;flex-wrap:wrap;gap:8px"><h3 style="margin:0">Ownership graph</h3>
-      <span style="display:flex;gap:6px;margin-left:auto"><button class="btn ghost sm gmode active" data-m="threads">🧵 Threads</button><button class="btn ghost sm gmode" data-m="sankey">🔀 Sankey</button></span>
-      <span style="display:flex;gap:6px"><button class="btn ghost sm gfilt active" data-g="both">Both</button><button class="btn ghost sm gfilt" data-g="route">Routes</button><button class="btn ghost sm gfilt" data-g="path">Paths</button></span>
-      <span id="flowCtrls" style="display:flex;gap:8px;align-items:center"><span class="sub">Top</span><select id="flowTop" class="fld" style="font-size:12px"><option>10</option><option selected>15</option><option>20</option><option>25</option><option value="9999">All</option></select></span></div>
-    <div id="legendT" class="legend" style="margin:8px 0 4px"><span><i class="dot" style="background:#34d399"></i> fully owned</span><span><i class="dot" style="background:#e7c66b"></i> partial (too few owners)</span><span><i class="dot" style="background:#f43f5e"></i> no owner</span><span><i class="dot" style="background:var(--accent)"></i> owner</span></div>
-    <p class="sub" id="graphHint" style="margin:0 0 6px">Only routes/paths with an owner draw a thread. Un-owned ones are listed as gaps below. Hover a node to trace its threads.</p>
-    <div id="graph"></div>
-  </section>
-
-  <section class="card" id="loadCard" style="display:none">
-    <h3 style="margin:0 0 4px">Owner workload</h3>
-    <p class="sub" style="margin:0 0 8px">How much each owner carries — routes + paths assigned and the distinct assets behind them. Balance the load: a single owner on a large slice of the surface is a bottleneck.</p>
-    <div style="overflow-x:auto"><table class="ownt" id="loadTbl"><thead><tr><th>Owner</th><th>Routes</th><th>Paths</th><th>Assets</th><th>Load</th></tr></thead><tbody></tbody></table></div>
   </section>
 
   <section class="card" id="linkCard" style="display:none">
@@ -59,10 +46,49 @@
     <div id="orphanBox" style="margin-top:12px"></div>
   </section>
 
+  <section class="card" id="graphCard" style="display:none">
+    <div class="toolbar" style="margin:0;flex-wrap:wrap;gap:8px"><h3 style="margin:0">Ownership graph</h3>
+      <span style="display:flex;gap:6px;margin-left:auto"><button class="btn ghost sm gmode active" data-m="threads">🧵 Threads</button><button class="btn ghost sm gmode" data-m="sankey">🔀 Sankey</button></span>
+      <span style="display:flex;gap:6px"><button class="btn ghost sm gfilt active" data-g="both">Both</button><button class="btn ghost sm gfilt" data-g="route">Routes</button><button class="btn ghost sm gfilt" data-g="path">Paths</button></span>
+      <span id="flowCtrls" style="display:flex;gap:8px;align-items:center"><span class="sub">Top</span><select id="flowTop" class="fld" style="font-size:12px"><option>10</option><option selected>15</option><option>20</option><option>25</option><option>30</option><option>40</option><option>50</option><option value="9999">All</option></select>
+      <button class="btn ghost sm" id="emGraphBtn" title="Email this graph as an attachment (opens in the recipient's browser)">📧 Email graph</button></span></div>
+    <div id="threatCtrls" style="display:none;align-items:center;gap:14px;flex-wrap:wrap;margin:8px 0 0;padding:8px 10px;border:1px solid var(--line);border-radius:9px;background:var(--panel-2)">
+      <span class="sub" style="font-weight:600">🎯 Threat focus <span style="font-weight:400;color:var(--mut)">— the highest score on each route/path wins</span></span>
+      <span class="thr" data-k="vpr" style="display:flex;align-items:center;gap:6px" title="Filter to routes/paths whose highest VPR falls in this range">
+        <span class="sub" style="font-weight:600">VPR</span>
+        <input type="range" class="thmin" min="0" max="10" step="0.1" value="0" style="width:88px">
+        <input type="range" class="thmax" min="0" max="10" step="0.1" value="10" style="width:88px">
+        <span class="sub thrd mono" style="min-width:62px;text-align:right">0.0–10.0</span></span>
+      <span class="thr" data-k="cvss3" style="display:flex;align-items:center;gap:6px" title="Filter to routes/paths whose highest CVSS3 base score falls in this range">
+        <span class="sub" style="font-weight:600">CVSS3</span>
+        <input type="range" class="thmin" min="0" max="10" step="0.1" value="0" style="width:88px">
+        <input type="range" class="thmax" min="0" max="10" step="0.1" value="10" style="width:88px">
+        <span class="sub thrd mono" style="min-width:62px;text-align:right">0.0–10.0</span></span>
+      <span class="sub" id="thrCount" style="margin-left:auto;font-weight:600"></span>
+      <button class="btn ghost sm" id="thrReset" title="Clear the VPR / CVSS3 focus (show all)">Reset</button></div>
+    <div id="emGraphForm" style="display:none;margin:8px 0 0;gap:6px;align-items:center;flex-wrap:wrap">
+      <input id="emGraphTo" class="fld" style="min-width:240px" placeholder="recipient email">
+      <button class="btn run sm" id="emGraphSend">▶ Send graph (gated)</button>
+      <button class="btn ghost sm" id="emGraphCancel">cancel</button>
+      <span id="emGraphRes" class="sub"></span></div>
+    <div id="legendT" class="legend" style="margin:8px 0 4px"><span><i class="dot" style="background:var(--ok)"></i> fully owned</span><span><i class="dot" style="background:#e7c66b"></i> partial (too few owners)</span><span><i class="dot" style="background:#f43f5e"></i> no owner</span><span><i class="dot" style="background:var(--accent)"></i> owner</span><span>✅ mitigated</span><span><i class="dot" style="background:#6ea8ff"></i> ✔ accepted</span><span><i class="dot" style="background:#8a99ad"></i> 🚫 ignored</span></div>
+    <p class="sub" id="graphHint" style="margin:0 0 6px">Only routes/paths with an owner draw a thread. Un-owned ones are listed as gaps below. Hover a node to trace its threads.</p>
+    <div id="graph"></div>
+  </section>
+
+  <section class="card" id="loadCard" style="display:none">
+    <h3 style="margin:0 0 4px">Owner workload</h3>
+    <p class="sub" style="margin:0 0 8px">How much each owner carries — routes + paths assigned and the distinct assets behind them. Balance the load: a single owner on a large slice of the surface is a bottleneck.</p>
+    <div style="overflow-x:auto"><table class="ownt" id="loadTbl"><thead><tr><th>Owner</th><th>Routes</th><th>Paths</th><th>Assets</th><th>Load</th></tr></thead><tbody></tbody></table></div>
+  </section>
+
   <section class="card" id="gapCard" style="display:none">
     <h3 style="margin:0 0 4px">Coverage gaps — <span style="color:var(--crit)">Ownerless Risk</span></h3>
-    <p class="sub" style="margin:0 0 8px"><b>Ownerless Risk</b> is exposure with nobody assigned to it — routes and paths hiding risk because no one is on the hook to fix them. Plus the under-owned surface (too few owners for all its assets). Assign these on the <a href="/agents/exproute/page.html">Ownership Assignment</a> page.</p>
+    <p class="sub" style="margin:0 0 8px"><b>Ownerless Risk</b> is exposure with nobody assigned to it — routes and paths hiding risk because no one is on the hook to fix them. Plus the under-owned surface. <b>Close them right here</b>: click <b>Assign ▾</b> on any gap to set an owner inline, or tick several and assign them together — here, or hand them to the <a href="/agents/exproute/page.html">Atlas</a> agent.</p>
+    <div id="gapSelBar" style="display:none;margin:0 0 10px"></div>
+    <div id="gapFlash" class="flash"></div>
     <div class="gapgrid" id="gaps"></div>
+    <div id="handledBox" style="margin-top:16px"></div>
   </section>
   <footer>Ownership Map · Atlas · reads navi.db Owner tags read-only</footer>
 </div>
@@ -70,8 +96,22 @@
 <script>
 const API=agentApi('exproute');
 let DATA=null, GF='both', MODE='threads';
-const SC={owned:'#34d399',partial:'#e7c66b',unowned:'#f43f5e'};
-const OMPAL=['#d6f84c','#fb923c','#a97fd6','#34d399','#6ea8ff','#f43f5e','#e7c66b','#3fb0c9','#b48ead','#e78ba0','#7ec8a0','#c9a26b','#8ec6ff','#d78ac0','#9ccf5a'];
+/* ===== Threat focus: filter routes/paths by their per-route MAX VPR / CVSS3 (highest wins) ===== */
+const THR={vpr:[0,10], cvss3:[0,10]};
+function _thrOn(k){ return THR[k][0]>0 || THR[k][1]<10; }          // a metric is "active" once narrowed
+function _threatActive(){ return _thrOn('vpr') || _thrOn('cvss3'); }
+function _passMetric(v,k){ if(!_thrOn(k)) return true;             // inactive → everything passes
+  if(v===null||v===undefined) return false;                       // focusing on threats → drop unscored
+  return v>=THR[k][0] && v<=THR[k][1]; }
+function _threatPass(it){ return _passMetric(it.vpr,'vpr') && _passMetric(it.cvss3,'cvss3'); }
+const SC={owned:'var(--ok)',partial:'#e7c66b',unowned:'#f43f5e',mitigated:'var(--ok)',accepted:'#6ea8ff',ignored:'#8a99ad'};
+const DISP_NODE={mitigated:'✅ Mitigated',accepted:'✔ Accepted',ignored:'🚫 Ignored'};
+const RIBBON_C={un:'#f43f5e',owned:'var(--ok)',mitigated:'var(--ok)',accepted:'#6ea8ff',ignored:'#8a99ad'};
+const UN_NODE='⛔ Unassigned';
+const _SPECIAL_NODES=[UN_NODE,'✅ Mitigated','✔ Accepted','🚫 Ignored'];
+function _isSpecialNode(o){ return _SPECIAL_NODES.indexOf(o)>=0; }  // exact match (emoji-safe)
+function _nodeColor(o){ return o===UN_NODE?'#f43f5e':o==='✅ Mitigated'?'var(--ok)':o==='✔ Accepted'?'#6ea8ff':o==='🚫 Ignored'?'#8a99ad':'var(--accent)'; }
+const OMPAL=['#5a5fe0','#3f78c2','#2f9d9d','#2fa06e','#7d64d4','#3f8fb0','#4a6fd0','#2f9e88','#6f73e0','#2f88a8','#5a7fc0','#8a67d6','#3f9db0','#4f9e6e','#6a70d8'];
 async function run(){
   document.getElementById('run').disabled=true; flash('flash','<span class="spin"></span> building the ownership map from navi.db…','run');
   let o; try{ o=await API.post('map'); }catch(e){ o={ok:false,error:e.message}; }
@@ -82,17 +122,60 @@ async function run(){
 }
 function render(){
   const k=DATA.kpi||{};
+  const disp=(n,pct,label,color)=>'<div class="k"><div class="v" style="color:'+color+'">'+(n||0)
+    +' <span style="font-size:13px;color:var(--mut);font-weight:600">'+(pct||0)+'%</span></div><div class="l">'+label+'</div></div>';
   document.getElementById('kpi').innerHTML=
     kbox(k.routes,'routes',SC.owned,k.routes_owned,k.routes_partial,k.routes_unowned)
-    +kbox(k.paths,'paths',SC.owned,k.paths_owned,k.paths_partial,k.paths_unowned)
+    +kbox(k.paths,'paths',SC.owned,k.paths_owned,k.paths_partial,k.paths_unowned,((k.paths_via_route||0)+' owned via route'))
     +'<div class="k"><div class="v">'+(k.owners||0)+'</div><div class="l">owners assigned</div></div>'
     +'<div class="k" style="border-color:var(--crit)"><div class="v" style="color:var(--crit)">'+(k.unowned_assets||0)+'</div><div class="l">Ownerless Risk (assets)</div></div>'
+    +disp(k.mitigated,k.mitigated_pct,'mitigated','var(--ok)')
+    +disp(k.accepted,k.accepted_pct,'risk accepted','#6ea8ff')
+    +disp(k.ignored,k.ignored_pct,'ignored','#8a99ad')
     +'<div class="k"><div class="v">'+(k.asset_scope||0)+'</div><div class="l">assets in scope</div></div>';
   document.getElementById('graphCard').style.display='';
   document.getElementById('loadCard').style.display=(DATA.owner_load||[]).length?'':'none';
   document.getElementById('linkCard').style.display='';
   document.getElementById('gapCard').style.display='';
-  drawViz(); drawLoad(); drawLinkage(); drawGaps();
+  setupThreat();
+  drawViz(); drawLoad(); drawLinkage(); drawGaps(); drawHandled();
+}
+/* Threat-focus controls: show them, disable a metric that has no data, keep readouts in sync. */
+function setupThreat(){
+  const box=document.getElementById('threatCtrls'); if(!box)return;
+  const sc=(DATA&&DATA.scores)||{}; box.style.display='flex';
+  document.querySelectorAll('#threatCtrls .thr').forEach(row=>{
+    const k=row.dataset.k, has=!!sc[k];
+    row.style.opacity=has?'1':'0.4';
+    row.title=has?row.title:('No '+(k==='vpr'?'VPR':'CVSS3')+' data in navi.db — run `navi config update exploits` to populate it.');
+    row.querySelectorAll('input').forEach(i=>i.disabled=!has);
+  });
+  syncThreatReadouts();
+}
+function syncThreatReadouts(){
+  document.querySelectorAll('#threatCtrls .thr').forEach(row=>{
+    const k=row.dataset.k, lo=THR[k][0], hi=THR[k][1];
+    const rd=row.querySelector('.thrd'); if(rd){ rd.textContent=lo.toFixed(1)+'–'+hi.toFixed(1); rd.style.color=_thrOn(k)?'var(--accent)':''; rd.style.fontWeight=_thrOn(k)?'700':''; }
+  });
+  const total=(DATA?((DATA.routes||[]).concat(DATA.paths||[])).filter(it=>GF==='both'||it.type===GF).length:0);
+  const shown=(DATA?((DATA.routes||[]).concat(DATA.paths||[])).filter(it=>(GF==='both'||it.type===GF)&&_threatPass(it)).length:0);
+  const el=document.getElementById('thrCount');
+  if(el)el.textContent=_threatActive()?('showing '+shown+' of '+total+' routes/paths'):'';
+}
+function drawHandled(){
+  const el=document.getElementById('handledBox'); if(!el)return;
+  const items=(DATA.routes||[]).concat(DATA.paths||[]).filter(x=>['ignored','accepted','mitigated'].includes(x.status));
+  if(!items.length){ el.innerHTML=''; return; }
+  const grp={mitigated:[],accepted:[],ignored:[]}; items.forEach(x=>grp[x.status].push(x));
+  const meta={mitigated:['✅ Mitigated','var(--ok)'],accepted:['✔ Risk accepted','#6ea8ff'],ignored:['🚫 Ignored','#8a99ad']};
+  el.innerHTML='<h4 style="margin:4px 0 6px">Handled — off the gap list <span class="sub">(tagged '
+    +'<span class="mono">Owner: &lt;name&gt;: &lt;disposition&gt;</span>)</span></h4><div class="gapgrid">'
+    +Object.keys(meta).map(s=>{ const g=grp[s], lbl=meta[s][0], c=meta[s][1];
+      const rows=g.map(x=>{ const nm=x.name.length>42?('…'+x.name.slice(-41)):x.name;
+        return '<div style="padding:3px 4px;border-bottom:1px solid var(--line);font-size:12.5px"><span class="chip">'+esc(x.type)+'</span> <span class="mono">'+esc(nm)+'</span> <span class="sub">· '+x.assets+' asset(s)</span></div>'; }).join('');
+      return '<div class="callbox" style="border-left:3px solid '+c+'"><b style="color:'+c+'">'+lbl+'</b> <span class="chip">'+g.length+'</span>'
+        +(g.length?'<div style="margin-top:6px;max-height:200px;overflow:auto">'+rows+'</div>':'<p class="sub" style="margin:6px 0 0">None.</p>')+'</div>';
+    }).join('')+'</div>';
 }
 function _fmt(n){ return (n||0).toLocaleString(); }
 /* floor to 1 decimal — never round 99.7% up to 100% (that gap matters in cyber) */
@@ -104,18 +187,20 @@ function drawFunnel(){
     {k:'CVE line-items',v:F.cves||0,c:'#f43f5e',note:'what most teams track — the most duplicated work'},
     {k:'Findings (asset × plugin)',v:F.findings||0,c:'#fb923c',note:'the raw ticket backlog'},
     {k:'Plugins — unique fixes',v:F.plugins||0,c:'#e7c66b',note:'one patch clears many CVEs'},
-    {k:'Apps / routes — own here',v:F.routes||0,c:'#34d399',note:'owner-actionable units'}
+    {k:'Apps / routes — own here',v:F.routes||0,c:'var(--ok)',note:'owner-actionable units'}
   ];
   if(!stages[0].v && !stages[2].v){ wrap.innerHTML='<p class="sub" style="padding:8px">No CVE/plugin data to chart (needs the <span class="mono">plugins</span> table + populated <span class="mono">plugin_list</span>).</p>'; return; }
-  const mx=Math.max(1,...stages.map(s=>s.v)), W=760, h=52, gap=12, padT=14, labelW=190, cx=(W-labelW)/2;
+  const mx=Math.max(1,...stages.map(s=>s.v)), W=980, h=52, gap=12, padT=14, labelW=300, cx=(W-labelW)/2;
   const sc=v=>70+Math.sqrt(v/mx)*((W-labelW)-80), H=padT+stages.length*(h+gap)+8;
   let svg='<svg viewBox="0 0 '+W+' '+H+'" width="100%" style="min-width:560px;font-family:inherit;overflow:visible;display:block">';
   stages.forEach((s,i)=>{
     const y=padT+i*(h+gap), wTop=sc(s.v), wBot=sc(i<stages.length-1?stages[i+1].v:s.v);
     const x1=cx-wTop/2,x2=cx+wTop/2,x3=cx+wBot/2,x4=cx-wBot/2;
     svg+='<polygon points="'+x1+','+y+' '+x2+','+y+' '+x3+','+(y+h)+' '+x4+','+(y+h)+'" fill="'+s.c+'" fill-opacity="0.85" stroke="'+s.c+'" stroke-width="1"/>';
-    svg+='<text x="'+cx+'" y="'+(y+h/2-2)+'" text-anchor="middle" font-size="16" font-weight="700" fill="#0d0f08">'+_fmt(s.v)+'</text>';
-    svg+='<text x="'+cx+'" y="'+(y+h/2+14)+'" text-anchor="middle" font-size="10.5" fill="#0d0f08" fill-opacity="0.8">'+esc(s.k)+'</text>';
+    // only label inside the segment when it's wide enough to hold the name; otherwise show just the number (the name is always on the right)
+    const fits=wTop > (s.k.length*5.6 + 16);
+    svg+='<text x="'+cx+'" y="'+(y+h/2+(fits?-2:6))+'" text-anchor="middle" font-size="16" font-weight="700" fill="#0d0f08">'+_fmt(s.v)+'</text>';
+    if(fits) svg+='<text x="'+cx+'" y="'+(y+h/2+14)+'" text-anchor="middle" font-size="10.5" fill="#0d0f08" fill-opacity="0.8">'+esc(s.k)+'</text>';
     svg+='<text x="'+(W-labelW+8)+'" y="'+(y+h/2-2)+'" font-size="11.5" fill="var(--ink)">'+esc(s.k)+'</text>';
     svg+='<text x="'+(W-labelW+8)+'" y="'+(y+h/2+13)+'" font-size="10.5" fill="var(--mut)">'+esc(s.note)+'</text>';
     if(i>0){ const prev=stages[i-1].v, drop=_pctDown(s.v,prev); svg+='<text x="'+cx+'" y="'+(y-1)+'" text-anchor="middle" font-size="10" fill="var(--mut)">▼ '+drop+'% fewer</text>'; }
@@ -169,7 +254,7 @@ function emailGap(){ const g=window.__GAP; if(!g)return;
   location.href='/agents/email/page.html';
 }
 function drawOrphan(){ const el=document.getElementById('orphanBox'), o=DATA.orphan_paths||[];
-  el.innerHTML='<div class="callbox" style="border-left:3px solid '+(o.length?'#f43f5e':'#34d399')+'"><b>Orphan paths — no covering app</b> <span class="chip">'+o.length+'</span>'
+  el.innerHTML='<div class="callbox" style="border-left:3px solid '+(o.length?'#f43f5e':'var(--ok)')+'"><b>Orphan paths — no covering app</b> <span class="chip">'+o.length+'</span>'
     +'<p class="sub" style="margin:4px 0 0">Paths whose plugin belongs to no app/route. Owning an app won\'t clear them — they need a direct owner.</p>'
     +(o.length?'<div style="margin-top:6px;max-height:180px;overflow:auto">'+o.slice(0,300).map(p=>'<div class="mono" style="font-size:12px;padding:3px 0;border-bottom:1px solid var(--line);word-break:break-all">'+esc(p)+'</div>').join('')+'</div>':'<p class="sub" style="margin:6px 0 0">None — every path rolls up to an app. ✔</p>')+'</div>';
 }
@@ -181,19 +266,29 @@ function drawViz(){
     ? 'A Sankey of the surface flowing to its owners — each route/path streams into the owner(s) assigned to it, band thickness ∝ assets. The red ⛔ Unassigned node is Ownerless Risk. Click a route to drill into its paths & assets (then email the owner via Gabriel).'
     : 'Only routes/paths with an owner draw a thread. Un-owned ones are listed as gaps below. Hover a node to trace its threads.';
   if(sankey) drawSankey(); else drawGraph();
+  syncThreatReadouts();
 }
 /* Sankey: routes/paths → owners. Owned assets split across a route's owners; the un-owned
    remainder flows to a red ⛔ Unassigned node (Ownerless Risk). Built from DATA (no query).
    Click a route node/band → drill into its paths + assets (then email the owner via Gabriel). */
 function drawSankey(){ const wrap=document.getElementById('graph');
   const N=parseInt((document.getElementById('flowTop')||{}).value||'15',10);
-  const items=(DATA.routes||[]).concat(DATA.paths||[]).filter(it=>GF==='both'||it.type===GF).filter(it=>it.assets>0).sort((a,b)=>b.assets-a.assets).slice(0,N);
+  const pool=(DATA.routes||[]).concat(DATA.paths||[]).filter(it=>GF==='both'||it.type===GF).filter(_threatPass).filter(it=>it.assets>0||DISP_NODE[it.status]);
+  // Top-N applies to the REAL routes/paths (owned/partial/unowned) so the size selector is
+  // honoured. Disposition sinks (Mitigated/Accepted/Ignored) are shown ADDITIVELY (also capped
+  // at N) — they must never eat into the budget and starve out unowned / ⛔ Unassigned, which
+  // was the old bug (N-dispItems.length went negative → zero real routes on the Sankey).
+  const dispItems=pool.filter(it=>DISP_NODE[it.status]).sort((a,b)=>b.assets-a.assets);
+  const restItems=pool.filter(it=>!DISP_NODE[it.status]).sort((a,b)=>b.assets-a.assets);
+  const items=restItems.slice(0,N).concat(dispItems.slice(0,N)).sort((a,b)=>b.assets-a.assets);
   if(!items.length){ wrap.innerHTML='<p class="sub" style="padding:14px">No routes/paths with assets to chart.</p>'; return; }
   const links=[], ownerTot={}, UN='⛔ Unassigned';
-  items.forEach(it=>{ const owned=Math.max(0,it.owned_assets||0), un=Math.max(0,(it.assets||0)-owned), ow=(it.owners&&it.owners.length)?it.owners:[];
-    if(ow.length&&owned>0){ const per=owned/ow.length; ow.forEach(o=>{ links.push({fi:items.indexOf(it),to:o,v:per,kind:'owned'}); ownerTot[o]=(ownerTot[o]||0)+per; }); }
-    if(un>0){ links.push({fi:items.indexOf(it),to:UN,v:un,kind:'un'}); ownerTot[UN]=(ownerTot[UN]||0)+un; } });
-  const owners=Object.keys(ownerTot).sort((a,b)=> a===UN?1 : b===UN?-1 : (ownerTot[b]-ownerTot[a]));
+  items.forEach(it=>{ const fi=items.indexOf(it);
+    if(DISP_NODE[it.status]){ const node=DISP_NODE[it.status]; links.push({fi,to:node,v:it.assets,kind:it.status}); ownerTot[node]=(ownerTot[node]||0)+it.assets; return; }
+    const owned=Math.max(0,it.owned_assets||0), un=Math.max(0,(it.assets||0)-owned), ow=(it.owners&&it.owners.length)?it.owners:[];
+    if(ow.length&&owned>0){ const per=owned/ow.length; ow.forEach(o=>{ links.push({fi,to:o,v:per,kind:'owned'}); ownerTot[o]=(ownerTot[o]||0)+per; }); }
+    if(un>0){ links.push({fi,to:UN,v:un,kind:'un'}); ownerTot[UN]=(ownerTot[UN]||0)+un; } });
+  const owners=Object.keys(ownerTot).sort((a,b)=>{ const sa=_isSpecialNode(a),sb=_isSpecialNode(b); if(sa!==sb)return sa?1:-1; if(a===UN)return 1; if(b===UN)return -1; return ownerTot[b]-ownerTot[a]; });
   const sumL=items.reduce((s,it)=>s+it.assets,0), sumR=owners.reduce((s,o)=>s+ownerTot[o],0);
   const gap=8, maxNodes=Math.max(items.length,owners.length), bandH=Math.max(340,maxNodes*26);
   const scale=(bandH-Math.max(items.length-1,owners.length-1)*gap)/Math.max(sumL,sumR,1);
@@ -202,11 +297,11 @@ function drawSankey(){ const wrap=document.getElementById('graph');
   const rY={},rH={}; let ry=top; owners.forEach(o=>{ const h=Math.max(3,ownerTot[o]*scale); rY[o]=ry; rH[o]=h; ry+=h+gap; });
   const H=Math.max(yy,ry)+14, lOff={},rOff={}; let ribbons='';
   links.forEach(lk=>{ const th=Math.max(1,lk.v*scale), sy=lY[lk.fi]+(lOff[lk.fi]||0)+th/2; lOff[lk.fi]=(lOff[lk.fi]||0)+th;
-    const dy=rY[lk.to]+(rOff[lk.to]||0)+th/2; rOff[lk.to]=(rOff[lk.to]||0)+th; const mx=(leftX+nodeW+rightX)/2, c=lk.kind==='un'?'#f43f5e':'#34d399';
+    const dy=rY[lk.to]+(rOff[lk.to]||0)+th/2; rOff[lk.to]=(rOff[lk.to]||0)+th; const mx=(leftX+nodeW+rightX)/2, c=RIBBON_C[lk.kind]||'var(--ok)';
     ribbons+='<path d="M'+(leftX+nodeW)+' '+sy.toFixed(1)+' C '+mx+' '+sy.toFixed(1)+', '+mx+' '+dy.toFixed(1)+', '+rightX+' '+dy.toFixed(1)+'" fill="none" stroke="'+c+'" stroke-opacity="0.42" stroke-width="'+th.toFixed(1)+'" data-i="'+lk.fi+'" data-o="'+esc(lk.to)+'"/>'; });
   const short=s=>{s=String(s);return s.length>30?('…'+s.slice(-29)):s;}; let ln='',rn='';
   items.forEach((it,i)=>{ const c=SC[it.status]||'#888'; ln+='<g class="skl" data-i="'+i+'" style="cursor:pointer"><rect x="'+leftX+'" y="'+lY[i].toFixed(1)+'" width="'+nodeW+'" height="'+lH[i].toFixed(1)+'" rx="2" fill="'+c+'"/><text x="'+(leftX-8)+'" y="'+(lY[i]+lH[i]/2+4).toFixed(1)+'" text-anchor="end" font-size="12" fill="var(--ink)">'+esc(short(it.name))+'</text><text x="'+(leftX-8)+'" y="'+(lY[i]+lH[i]/2+16).toFixed(1)+'" text-anchor="end" font-size="9.5" fill="var(--mut)">'+it.owned_assets+'/'+it.assets+'</text></g>'; });
-  owners.forEach(o=>{ const un=o===UN; rn+='<g class="sko" data-o="'+esc(o)+'" style="cursor:pointer"><rect x="'+rightX+'" y="'+rY[o].toFixed(1)+'" width="'+nodeW+'" height="'+rH[o].toFixed(1)+'" rx="2" fill="'+(un?'#f43f5e':'var(--accent)')+'"/><text x="'+(rightX+nodeW+8)+'" y="'+(rY[o]+rH[o]/2+4).toFixed(1)+'" font-size="12" font-weight="600" fill="'+(un?'#f43f5e':'var(--accent)')+'">'+esc(o)+' <tspan font-weight="400" fill="var(--mut)">'+Math.round(ownerTot[o])+'</tspan></text></g>'; });
+  owners.forEach(o=>{ const nc=_nodeColor(o); rn+='<g class="sko" data-o="'+esc(o)+'" style="cursor:pointer"><rect x="'+rightX+'" y="'+rY[o].toFixed(1)+'" width="'+nodeW+'" height="'+rH[o].toFixed(1)+'" rx="2" fill="'+nc+'"/><text x="'+(rightX+nodeW+8)+'" y="'+(rY[o]+rH[o]/2+4).toFixed(1)+'" font-size="12" font-weight="600" fill="'+nc+'">'+esc(o)+' <tspan font-weight="400" fill="var(--mut)">'+Math.round(ownerTot[o])+'</tspan></text></g>'; });
   wrap.innerHTML='<svg viewBox="0 0 '+W+' '+H+'" width="100%" style="min-width:700px"><text x="'+leftX+'" y="14" text-anchor="end" font-size="10.5" fill="var(--mut)">ROUTES / PATHS →</text><text x="'+(rightX+nodeW)+'" y="14" font-size="10.5" fill="var(--mut)">OWNERS</text>'+ribbons+ln+rn+'</svg>';
   const svg=wrap.querySelector('svg'), pth=svg.querySelectorAll('path');
   const hi=pred=>pth.forEach(p=>p.setAttribute('stroke-opacity',pred(p)?0.9:0.05)), reset=()=>pth.forEach(p=>p.setAttribute('stroke-opacity','0.42'));
@@ -220,7 +315,7 @@ function omFlow(){
   const wrap=document.getElementById('graph');
   const N=parseInt((document.getElementById('flowTop')||{}).value||'15',10);
   const rightKey=(document.getElementById('flowRight')||{}).value||'owned_assets';
-  let items=(DATA.routes||[]).concat(DATA.paths||[]).filter(it=>GF==='both'||it.type===GF);
+  let items=(DATA.routes||[]).concat(DATA.paths||[]).filter(it=>GF==='both'||it.type===GF).filter(_threatPass);
   items=items.filter(it=>it.assets>0).sort((a,b)=>b.assets-a.assets).slice(0,N);
   if(items.length<2){ wrap.innerHTML='<p class="sub" style="padding:14px">Not enough '+(GF==='both'?'routes/paths':GF+'s')+' with assets to chart. Pick a broader filter or refresh.</p>'; return; }
   items.forEach((it,i)=>it._c=OMPAL[i%OMPAL.length]);
@@ -242,15 +337,17 @@ function omFlow(){
   const reset=()=>svg.querySelectorAll('path').forEach(p=>p.setAttribute('stroke-opacity','0.8'));
   svg.querySelectorAll('.omrow').forEach(g=>{g.onmouseenter=()=>hi(g.dataset.k);g.onmouseleave=reset;});
 }
-function kbox(total,label,c,owned,partial,unowned){
+function kbox(total,label,c,owned,partial,unowned,extra){
   return '<div class="k"><div class="v">'+(total||0)+'</div><div class="l">'+label+'</div>'
     +'<div style="font-size:10.5px;margin-top:3px">'
-    +'<span style="color:#34d399">'+(owned||0)+' owned</span> · <span style="color:#e7c66b">'+(partial||0)+' partial</span> · <span style="color:#f43f5e">'+(unowned||0)+' none</span></div></div>';
+    +'<span style="color:var(--ok)">'+(owned||0)+' owned</span> · <span style="color:#e7c66b">'+(partial||0)+' partial</span> · <span style="color:#f43f5e">'+(unowned||0)+' none</span></div>'
+    +(extra?('<div style="font-size:10.5px;margin-top:2px;color:#a78bfa">'+extra+'</div>'):'')
+    +'</div>';
 }
 /* ===== the bipartite network-thread graph ===== */
 function drawGraph(){
   const wrap=document.getElementById('graph');
-  let items=(DATA.routes||[]).concat(DATA.paths||[]).filter(it=>GF==='both'||it.type===GF);
+  let items=(DATA.routes||[]).concat(DATA.paths||[]).filter(it=>GF==='both'||it.type===GF).filter(_threatPass);
   const N=parseInt((document.getElementById('flowTop')||{}).value||'15',10);
   const withOwners=items.filter(it=>it.owner_count>0).sort((a,b)=>b.assets-a.assets).slice(0,N);
   if(!withOwners.length){ wrap.innerHTML='<p class="sub" style="padding:14px">No '+(GF==='both'?'routes/paths':GF+'s')+' have an owner yet — assign owners on the <a href="/agents/exproute/page.html">Ownership Assignment</a> page, then refresh.</p>'; return; }
@@ -293,20 +390,174 @@ function drawLoad(){
       <td><div class="loadbar" style="display:flex;align-items:center;gap:8px"><div class="track"><div class="fill" style="width:${w}%;background:${load>=Math.max(3,mx*0.6)?'var(--crit)':'var(--accent)'}"></div></div><span class="sub">${load}</span></div></td></tr>`;
   }).join(''):'<tr><td colspan="5" class="sub">No owners assigned yet.</td></tr>';
 }
+let GAPS=[], SEL=new Set();
 function drawGaps(){
   const un=arr=>arr.filter(x=>x.status==='unowned'), pa=arr=>arr.filter(x=>x.status==='partial');
-  const box=(title,items,color,fmt)=>`<div class="callbox" style="border-left:3px solid ${color}"><b>${title}</b> <span class="chip">${items.length}</span>`
-    +(items.length?'<div style="margin-top:6px;max-height:230px;overflow:auto">'+items.slice(0,200).map(fmt).join('')+'</div>':'<p class="sub" style="margin:6px 0 0">None — all covered. ✔</p>')+'</div>';
-  const li=(x)=>`<div style="padding:3px 0;border-bottom:1px solid var(--line);font-size:12.5px"><span class="mono">${esc(x.name.length>44?('…'+x.name.slice(-43)):x.name)}</span> <span class="sub">· ${x.assets} asset(s)${x.status==='partial'?(' · '+x.owned_assets+'/'+x.assets+' owned · '+x.owner_count+' owner(s)'):''}</span></div>`;
+  GAPS=[]; SEL.clear();
+  const add=(items,kind)=>items.slice(0,200).map(x=>{ const i=GAPS.length;
+    GAPS.push({idx:i,kind,name:x.name,assets:x.assets,status:x.status,owned_assets:x.owned_assets,owner_count:x.owner_count}); return i; });
+  const box=(title,items,color,kind)=>{ const idxs=add(items,kind);
+    return `<div class="callbox" style="border-left:3px solid ${color}"><b>${title}</b> <span class="chip">${items.length}</span>`
+      +(items.length?'<div style="margin-top:6px;max-height:240px;overflow:auto">'+idxs.map(gapRow).join('')+'</div>':'<p class="sub" style="margin:6px 0 0">None — all covered. ✔</p>')+'</div>'; };
   document.getElementById('gaps').innerHTML=
-    box('🚫 Ownerless Risk — routes',un(DATA.routes||[]),'#f43f5e',li)
-    +box('🚫 Ownerless Risk — paths',un(DATA.paths||[]),'#f43f5e',li)
-    +box('⚠ Under-owned routes (partial)',pa(DATA.routes||[]),'#e7c66b',li)
-    +box('⚠ Under-owned paths (partial)',pa(DATA.paths||[]),'#e7c66b',li);
+    box('🚫 Ownerless Risk — routes',un(DATA.routes||[]),'#f43f5e','route')
+    +box('🚫 Ownerless Risk — paths',un(DATA.paths||[]),'#f43f5e','path')
+    +box('⚠ Under-owned routes (partial)',pa(DATA.routes||[]),'#e7c66b','route')
+    +box('⚠ Under-owned paths (partial)',pa(DATA.paths||[]),'#e7c66b','path');
+  wireGaps(); updateSelBar();
 }
+function gapRow(i){ const x=GAPS[i]; const nm=x.name.length>40?('…'+x.name.slice(-39)):x.name;
+  return `<div class="gaprow" data-i="${i}" style="padding:4px 6px;border-bottom:1px solid var(--line);font-size:12.5px;border-radius:6px">`
+    +`<div style="display:flex;align-items:center;gap:8px"><input type="checkbox" class="gsel" data-i="${i}">`
+    +`<span style="flex:1"><span class="mono">${esc(nm)}</span> <span class="sub">· ${x.assets} asset(s)${x.status==='partial'?(' · '+x.owned_assets+'/'+x.assets+' owned'):''}</span></span>`
+    +`<button class="btn ghost sm gassign" data-i="${i}">Assign ▾</button>`
+    +`<button class="btn ghost sm gdisp" data-i="${i}" data-d="Mitigated" title="Mitigated — being / already fixed">✅</button>`
+    +`<button class="btn ghost sm gdisp" data-i="${i}" data-d="Accepted" title="Accept the risk — tracked, not assigned">✔</button>`
+    +`<button class="btn ghost sm gdisp" data-i="${i}" data-d="Ignored" title="Ignore — noise, no owner needed">🚫</button></div>`
+    +`<div class="ginline" id="ginline-${i}" style="display:none;margin-top:6px;padding-left:26px"></div>`
+    +`<div id="gdres-${i}" class="sub" style="padding-left:26px"></div></div>`;
+}
+function wireGaps(){
+  document.querySelectorAll('#gaps .gsel').forEach(c=>c.onchange=()=>{ const i=+c.dataset.i; c.checked?SEL.add(i):SEL.delete(i); updateSelBar(); });
+  document.querySelectorAll('#gaps .gassign').forEach(b=>b.onclick=()=>toggleInline(+b.dataset.i));
+  document.querySelectorAll('#gaps .gdisp').forEach(b=>b.onclick=()=>disposeGap(+b.dataset.i, b.dataset.d));
+}
+const DISP_C={Mitigated:'var(--ok)',Accepted:'#6ea8ff',Ignored:'#8a99ad'};
+async function disposeGap(i, disp){ const g=GAPS[i]; const res=document.getElementById('gdres-'+i);
+  if(res)res.innerHTML='<span class="spin"></span> marking '+disp.toLowerCase()+'…';
+  const r=await tagGap(g, disp);   // apply bypasses owner-resolution for a disposition
+  if(res)res.innerHTML=r.ok?('<span style="color:'+(DISP_C[disp]||'#8a99ad')+'">'+disp+' ✓ — ↻ Refresh to move it to Handled</span>'):r.html;
+  if(r.ok){ const row=document.querySelector('.gaprow[data-i="'+i+'"]'); if(row)row.style.opacity='0.5'; }
+}
+function toggleInline(i){ const el=document.getElementById('ginline-'+i); if(!el)return;
+  if(el.style.display!=='none'){ el.style.display='none'; el.innerHTML=''; return; }
+  el.style.display='';
+  el.innerHTML='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input class="fld ginp" style="min-width:200px" placeholder="owner — user, email, or group"><button class="btn run sm gtag">▶ Tag (gated)</button><span class="gres sub"></span></div>';
+  const inp=el.querySelector('.ginp'), btn=el.querySelector('.gtag'), res=el.querySelector('.gres');
+  const go=async()=>{ const owner=(inp.value||'').trim(); if(!owner){ res.textContent='enter an owner'; return; } btn.disabled=true; res.innerHTML='<span class="spin"></span> queueing…';
+    const r=await tagGap(GAPS[i],owner); res.innerHTML=r.html; btn.disabled=false;
+    if(r.ok){ const row=document.querySelector('.gaprow[data-i="'+i+'"]'); if(row)row.style.opacity='0.55'; } };
+  btn.onclick=go; inp.addEventListener('keydown',e=>{ if(e.key==='Enter')go(); }); inp.focus();
+}
+async function tagGap(g,owner){
+  const payload={owner,app:g.name,confirm:true}; if(g.kind==='path')payload.path=g.name;
+  let o; try{ o=await API.post('apply',payload); }catch(e){ o={ok:false,error:e.message}; }
+  if(!(o.ok||o.queued||o.warning)) return {ok:false,html:'<span style="color:var(--crit)">✗ '+esc(o.message||o.error||'rejected')+'</span>'};
+  const jid=o.job_id||(o.result&&o.result.job_id);
+  const j=(await pollJobs([jid]))[String(jid)];
+  if(j&&j.status==='done'&&j.ok!==false&&!(j.result&&j.result.warning)) return {ok:true,html:'<span style="color:var(--ok)">✓ tagged → '+esc(o.owner_resolved||owner)+'</span>'};
+  if(j&&j.status==='error') return {ok:false,html:'<span style="color:var(--crit)">✗ '+esc(j.message||'failed')+'</span>'};
+  return {ok:true,html:'queued — see <a href="/web/tags-log.html">Tagging log</a>'};
+}
+function updateSelBar(){ const bar=document.getElementById('gapSelBar'); if(!bar)return;
+  if(!SEL.size){ bar.style.display='none'; bar.innerHTML=''; return; }
+  bar.style.display='';
+  bar.innerHTML='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:8px 10px;border:1px solid var(--accent);border-radius:8px;background:var(--panel-2)">'
+    +'<b>'+SEL.size+' selected</b>'
+    +'<input id="selOwner" class="fld" style="min-width:210px" placeholder="one owner for all selected">'
+    +'<button class="btn run sm" id="selTagHere">▶ Tag selected here (gated)</button>'
+    +'<button class="btn sm" id="selSend">Send '+SEL.size+' to Atlas →</button>'
+    +'<button class="btn ghost sm" id="selClear">clear</button>'
+    +'<span id="selRes" class="sub"></span></div>';
+  document.getElementById('selTagHere').onclick=tagSelectedHere;
+  document.getElementById('selSend').onclick=sendSelectedToAtlas;
+  document.getElementById('selClear').onclick=()=>{ SEL.clear(); document.querySelectorAll('#gaps .gsel').forEach(c=>c.checked=false); updateSelBar(); };
+}
+async function tagSelectedHere(){ const owner=(document.getElementById('selOwner').value||'').trim(); const res=document.getElementById('selRes');
+  if(!owner){ res.textContent='enter an owner'; return; }
+  const btn=document.getElementById('selTagHere'); const lbl=btn&&btn.textContent;
+  if(btn){ btn.disabled=true; btn.textContent='⏳ Sending…'; btn.style.opacity='.6'; btn.style.transform='translateY(1px)'; btn.style.cursor='default'; }
+  const scroll=()=>{ if(res)res.scrollIntoView({behavior:'smooth',block:'center'}); };
+  const items=[...SEL].map(i=>GAPS[i]); let done=0,failed=0;
+  res.innerHTML='<span style="color:var(--ok);font-weight:600"><span class="spin"></span> Tags being sent to the Tagging log…</span>'; scroll();
+  for(const g of items){ const r=await tagGap(g,owner); r.ok?done++:failed++; }
+  res.innerHTML='<span style="color:'+(failed?'#e7c66b':'var(--ok)')+';font-weight:600">✓ Tags sent to the Tagging log — '+done+(failed?', '+failed+' failed':'')+'. Click ↻ Refresh to see the map update.</span>'; scroll();
+  if(btn){ btn.disabled=false; btn.textContent=lbl; btn.style.opacity=''; btn.style.transform=''; btn.style.cursor=''; }
+}
+/* hand the selected gaps to Atlas' batch quick-assign and jump there — the shared loop */
+function sendSelectedToAtlas(){ const items=[...SEL].map(i=>({kind:GAPS[i].kind,name:GAPS[i].name}));
+  if(!items.length)return;
+  try{ sessionStorage.setItem('atlas_assign',JSON.stringify({items})); }catch(e){}
+  location.href='/agents/exproute/page.html';
+}
+async function pollJobs(ids, timeoutMs=25000){
+  const want=[...new Set((ids||[]).filter(x=>x!=null).map(String))]; let map={}; if(!want.length)return map;
+  const t0=Date.now();
+  while(Date.now()-t0<timeoutMs){
+    let o; try{ o=await jpost('/api/explore/tag_jobs',{}); }catch(e){ break; }
+    map={}; (o.jobs||[]).forEach(j=>{ map[String(j.id)]=j; });
+    if(!want.filter(id=>{const j=map[id];return !j||(j.status!=='done'&&j.status!=='error');}).length) break;
+    await new Promise(r=>setTimeout(r,900));
+  }
+  return map;
+}
+/* ===== Email the current graph (Sankey or Threads) as a self-contained HTML attachment.
+   Email clients strip <svg>, so we send it as a file the recipient opens in a browser. ===== */
+const EMAIL_API=agentApi('email');
+const _VARMAP={'var(--ink)':'#e6edf3','var(--ink-2)':'#c7cede','var(--ink-3)':'#9aa7b8','var(--mut)':'#8a99ad','var(--accent)':'#6d70e6','var(--line)':'#24303f','var(--panel-2)':'#1a2230','var(--panel)':'#0d1420','var(--crit)':'#f43f5e','var(--amber)':'#e7c66b'};
+function _graphTitle(){ return MODE==='sankey'?'Ownership Sankey':'Ownership threads'; }
+function _standaloneGraphHtml(){
+  const svg=document.querySelector('#graph svg'); if(!svg)return null;
+  let xml=new XMLSerializer().serializeToString(svg);
+  Object.keys(_VARMAP).forEach(k=>{ xml=xml.split(k).join(_VARMAP[k]); });   // resolve CSS vars → hex
+  const title=_graphTitle();
+  return '<!DOCTYPE html><html><head><meta charset="utf-8"><title>'+title+'</title></head>'
+    +'<body style="margin:0;background:#0d1420;padding:20px;font-family:system-ui,Segoe UI,Arial,sans-serif">'
+    +'<div style="color:#e6edf3;font-weight:800;font-size:18px;margin-bottom:4px">🗺 '+title+'</div>'
+    +'<div style="color:#8a99ad;font-size:12px;margin-bottom:14px">The Hounds · Ownership Map · generated '+new Date().toLocaleString()+'</div>'
+    +'<div style="max-width:920px;overflow:auto">'+xml+'</div></body></html>';
+}
+/* rasterize the current graph SVG → PNG data URL so it shows INLINE in the email body
+   (email clients strip <svg>). CSS vars are resolved to hex first, else they'd render black. */
+function _graphToPng(cb){
+  const svg=document.querySelector('#graph svg'); if(!svg){ cb(null); return; }
+  let xml=new XMLSerializer().serializeToString(svg);
+  Object.keys(_VARMAP).forEach(k=>{ xml=xml.split(k).join(_VARMAP[k]); });
+  if(!/xmlns=/.test(xml)) xml=xml.replace('<svg','<svg xmlns="http://www.w3.org/2000/svg"');
+  const vb=svg.viewBox&&svg.viewBox.baseVal;
+  const w=Math.round((vb&&vb.width)||svg.clientWidth||900), h=Math.round((vb&&vb.height)||svg.clientHeight||520);
+  const url='data:image/svg+xml;base64,'+btoa(unescape(encodeURIComponent(xml)));
+  const img=new Image();
+  img.onload=()=>{ try{ const s=2, c=document.createElement('canvas'); c.width=w*s; c.height=h*s;
+    const ctx=c.getContext('2d'); ctx.fillStyle='#0d1420'; ctx.fillRect(0,0,c.width,c.height); ctx.setTransform(s,0,0,s,0,0); ctx.drawImage(img,0,0,w,h);
+    cb(c.toDataURL('image/png')); }catch(e){ cb(null); } };
+  img.onerror=()=>cb(null);
+  img.src=url;
+}
+async function emailGraph(){
+  const to=(document.getElementById('emGraphTo').value||'').trim(), res=document.getElementById('emGraphRes');
+  if(!to){ res.innerHTML='<span style="color:var(--crit)">enter a recipient</span>'; return; }
+  if(!document.querySelector('#graph svg')){ res.innerHTML='<span style="color:var(--crit)">build the graph first (↻ Refresh)</span>'; return; }
+  res.innerHTML='<span class="spin"></span> rendering + sending…';
+  _graphToPng(async png=>{
+    if(!png){ res.innerHTML='<span style="color:var(--crit)">couldn\'t render the graph image — try again</span>'; return; }
+    let o; try{ o=await EMAIL_API.post('graph',{to,subject:'[Tenable] '+_graphTitle(),title:_graphTitle(),png,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+    if(o&&o.ok){ res.innerHTML='<span style="color:var(--ok)">✓ sent to '+esc(to)+' — graph attached as '+esc(o.attached||'image')+' (mail clients strip embedded images)</span>'; }
+    else if(o&&o.blocked){ res.innerHTML='<span style="color:#e7c66b">email disabled — '+esc(o.reason||'set NAVI_ALLOW_WRITES=1 and NAVI_EMAIL=1')+'</span>'; }
+    else { res.innerHTML='<span style="color:var(--crit)">✗ '+esc((o&&(o.error||o.message))||'failed')+'</span>'; }
+  });
+}
+document.getElementById('emGraphBtn').onclick=()=>{ const f=document.getElementById('emGraphForm'); const show=f.style.display==='none'; f.style.display=show?'flex':'none'; if(show)document.getElementById('emGraphTo').focus(); };
+document.getElementById('emGraphSend').onclick=emailGraph;
+document.getElementById('emGraphCancel').onclick=()=>{ document.getElementById('emGraphForm').style.display='none'; document.getElementById('emGraphRes').innerHTML=''; };
+document.getElementById('emGraphTo').addEventListener('keydown',e=>{ if(e.key==='Enter')emailGraph(); });
 document.querySelectorAll('.gfilt').forEach(b=>b.onclick=()=>{ document.querySelectorAll('.gfilt').forEach(x=>x.classList.remove('active')); b.classList.add('active'); GF=b.dataset.g; if(DATA)drawViz(); });
 document.querySelectorAll('.gmode').forEach(b=>b.onclick=()=>{ document.querySelectorAll('.gmode').forEach(x=>x.classList.remove('active')); b.classList.add('active'); MODE=b.dataset.m; if(DATA)drawViz(); });
 document.getElementById('flowTop').onchange=()=>{ if(DATA)drawViz(); };
+/* Threat-focus sliders: clamp min≤max, keep the live count in sync, re-render the current graph. */
+document.querySelectorAll('#threatCtrls .thr').forEach(row=>{
+  const k=row.dataset.k, mn=row.querySelector('.thmin'), mx=row.querySelector('.thmax');
+  const upd=()=>{ let lo=parseFloat(mn.value), hi=parseFloat(mx.value);
+    if(lo>hi){ if(document.activeElement===mn){ hi=lo; mx.value=hi; } else { lo=hi; mn.value=lo; } }
+    THR[k]=[lo,hi]; syncThreatReadouts(); if(DATA)drawViz(); };
+  mn.addEventListener('input',upd); mx.addEventListener('input',upd);
+});
+document.getElementById('thrReset').onclick=()=>{
+  THR.vpr=[0,10]; THR.cvss3=[0,10];
+  document.querySelectorAll('#threatCtrls .thmin').forEach(i=>i.value=0);
+  document.querySelectorAll('#threatCtrls .thmax').forEach(i=>i.value=10);
+  syncThreatReadouts(); if(DATA)drawViz();
+};
 document.getElementById('run').onclick=run;
 mountAgentHeader({id:'exproute',icon:'🗺',name:'Ownership Map',sub:'Atlas · routes/paths ↔ owners'});
 /* no auto-run — user clicks Run (protects a busy navi.db) */
