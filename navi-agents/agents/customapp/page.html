@@ -9,7 +9,7 @@
   <header class="top" id="app-header"></header>
 
   <!-- Tag-by-sentence pinned to the TOP so it never gets buried under the routes/paths -->
-  <section class="card" style="background:radial-gradient(120% 140% at 90% -20%,var(--amber-glow),transparent 60%),var(--panel)">
+  <section class="card" style="background:var(--panel)">
     <h2 style="margin:0">🏷 Tag a custom app — just say it</h2>
     <p class="sub" style="margin:2px 0 8px">e.g. <span class="mono">Tag my custom app navi</span> → finds the name, searches <b>both</b> <span class="mono">vuln_route</span> (by app name) and <span class="mono">vuln_paths</span> (by path), shows matches, then gated-tags <span class="tagval">Custom App : &lt;name&gt;</span> — paths via <span class="mono">--query</span>, routes via <span class="mono">--route_id</span>.</p>
     <div id="cappFlash" class="flash"></div>
@@ -25,14 +25,16 @@
       <p class="sub" style="margin:2px 0 0">Software the inventory misses, mined from vuln <b>routes</b> &amp; <b>paths</b> vs the <span class="mono">software</span> table. Click <b>Search &amp; tag</b> on any row (or use the box above).</p></div>
       <button class="btn run sm" id="runCapp" style="margin-left:auto">▶ Run discovery</button></div>
     <div class="toolbar" style="margin:0 0 6px"><span class="chip" id="cappShown"></span><span class="chip" id="cappHidden" style="display:none"></span></div>
-    <div style="overflow-x:auto"><table id="cappTbl" style="width:100%"><thead><tr><th style="width:1%;white-space:nowrap">Source</th><th>Candidate</th><th style="width:1%">Evidence</th><th>Example path</th><th style="width:1%"></th></tr></thead><tbody><tr><td colspan="5" class="sub">Run discovery…</td></tr></tbody></table></div>
+    <table id="cappTbl" style="width:100%;table-layout:fixed"><colgroup><col style="width:64px"><col style="width:24%"><col style="width:96px"><col><col style="width:176px"></colgroup><thead><tr><th style="white-space:nowrap">Source</th><th>Candidate</th><th>Evidence</th><th>Example path</th><th></th></tr></thead><tbody><tr><td colspan="5" class="sub">Run discovery…</td></tr></tbody></table>
     <div id="cappPager" class="toolbar" style="margin-top:8px;display:none"></div>
   </section>
 
   <section class="card">
     <div class="toolbar"><div><h2 style="margin:0">🚫 Ignore list <span class="sub" id="cappIgnoreCount"></span></h2>
       <p class="sub" style="margin:2px 0 0">False positives — web pages &amp; noise that show up as “apps”. Ignored terms are hidden from discovery on every run and persisted server-side (<span class="mono">agents/customapp/ignore.json</span>). Match is by candidate name/keyword or substring.</p></div></div>
-    <div class="toolbar"><input id="cappIgnoreInput" class="fld" style="flex:1;min-width:240px" placeholder="add a term to ignore (e.g. wordpress, /healthcheck, login)"><button class="btn sm" id="cappIgnoreAdd">+ Ignore</button></div>
+    <div class="toolbar"><input id="cappIgnoreInput" class="fld" style="flex:1;min-width:240px" placeholder="add a term to ignore (e.g. wordpress, /healthcheck, login)"><button class="btn sm" id="cappIgnoreAdd">+ Ignore</button>
+      <button class="btn ghost sm" id="cappIgnoreExport" title="Download the ignore list as CSV">⤓ Export CSV</button>
+      <label class="btn ghost sm" style="cursor:pointer" title="Import ignore terms from a CSV (merges with the current list)">⤒ Import CSV<input id="cappIgnoreImport" type="file" accept=".csv,text/csv,text/plain" style="display:none"></label></div>
     <div id="cappIgnoreList" style="margin-top:10px"></div>
   </section>
   <footer>Custom App Name Agent · gated <span class="mono">navi enrich tag</span></footer>
@@ -80,7 +82,7 @@ function renderCapp(){if(!CAPP)return;const tb=document.querySelector('#cappTbl 
     : '<tr><td colspan="5" class="sub">Nothing outside inventory. ✔</td></tr>';
   const pages=Math.max(1,Math.ceil(cand.length/PER)); if(CAPP_PAGE>=pages)CAPP_PAGE=pages-1;
   const slice=cand.slice(CAPP_PAGE*PER,(CAPP_PAGE+1)*PER);
-  tb.innerHTML=cand.length?slice.map(c=>`<tr><td><span class="dtype ${c.source==='route'?'t-app':'t-iot'}">${c.source}</span></td><td><b>${esc(c.name)}</b></td><td class="mono">${c.evidence}</td><td class="mono" style="font-size:11px;color:var(--mut);max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(c.example)}">${esc(_shortPath(c.example))}</td><td style="white-space:nowrap"><button class="btn sm" data-k="${esc(c.keyword)}" data-n="${esc(c.name)}">Search &amp; tag</button> <button class="btn ghost sm" data-ign="${esc(c.keyword||c.name)}" title="Hide from future runs">🚫 Ignore</button></td></tr>`).join(''):emptyMsg;
+  tb.innerHTML=cand.length?slice.map(c=>`<tr><td><span class="dtype ${c.source==='route'?'t-app':'t-iot'}">${c.source}</span></td><td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(c.name)}"><b>${esc(c.name)}</b></td><td class="mono" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(String(c.evidence))}">${c.evidence}</td><td class="mono" style="font-size:11px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(c.example)}">${esc(_shortPath(c.example))}</td><td><button class="btn sm" data-k="${esc(c.keyword)}" data-n="${esc(c.name)}">Search &amp; tag</button> <button class="btn ghost sm" data-ign="${esc(c.keyword||c.name)}" title="Hide from future runs">🚫 Ignore</button></td></tr>`).join(''):emptyMsg;
   tb.querySelectorAll('button[data-n]').forEach(x=>x.onclick=()=>{document.getElementById('cappPrompt').value='Tag my custom app '+x.dataset.n;cappSearch(x.dataset.n,x.dataset.k);});
   tb.querySelectorAll('button[data-ign]').forEach(x=>x.onclick=()=>ignAdd(x.dataset.ign));
   makePager(document.getElementById('cappPager'), cand.length, CAPP_PAGE, p=>{CAPP_PAGE=p;renderCapp();document.getElementById('cappTbl').scrollIntoView({behavior:'smooth',block:'start'});});}
@@ -112,30 +114,70 @@ async function cappSearch(name,keyword,fb){flash('cappFlash',`<span class="spin"
   // jump to the results so it's obvious something happened (match table + Tag button)
   try{ res.scrollIntoView({behavior:'smooth',block:'start'}); const t=document.getElementById('cT'); if(t) setTimeout(()=>{try{t.focus({preventScroll:true});}catch(e){}},300); }catch(e){}}
 async function cappTag(){
+  const btn=document.getElementById('cT'); if(btn&&btn.disabled)return;
   const r=document.getElementById('cR'); if(!r)return;
+  const scroll=()=>{ try{ r.scrollIntoView({behavior:'smooth',block:'center'}); }catch(e){} };
+  const reset=()=>{ if(!btn)return; btn.disabled=false; btn.textContent=btn.dataset.label; btn.style.opacity=''; btn.style.transform=''; btn.style.cursor=''; };
   const nEl=document.getElementById('cN'), kEl=document.getElementById('cK');
   const name=(nEl&&nEl.value.trim())||'', keyword=(kEl&&kEl.value.trim())||'';
-  if(!name||!keyword){ r.innerHTML='<div class="callbox" style="color:var(--warn)">Enter a tag value and a keyword first.</div>'; return; }
+  if(!name||!keyword){ r.innerHTML='<div class="callbox" style="color:var(--warn)">Enter a tag value and a keyword first.</div>'; scroll(); return; }
+  if(btn){ btn.dataset.label=btn.dataset.label||btn.textContent; btn.disabled=true; btn.textContent='⏳ Sending…'; btn.style.opacity='.6'; btn.style.transform='translateY(1px)'; btn.style.cursor='default'; }
   r.innerHTML='<div class="callbox"><span class="spin"></span> tagging paths (--query) + routes (--route_id)…</div>';
+  scroll();
   let o; try{ o=await API.post('tag',{name,keyword,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
   o=o||{ok:false,error:'no response from server'};
   const detail=o.ok?` — ${o.path_tags||0} path-tag + ${o.route_tags||0} route-tag call(s)`+(o.writes_enabled?'. Allow ~30 min for Tenable.':' (gated — set NAVI_ALLOW_WRITES=1 and put navi on PATH).'):'';
   const msg=o.message||o.error||o.stderr||'failed';
-  r.innerHTML='<div class="callbox" style="color:'+(o.ok?'#7ee2a8':'#ffb4c6')+'">'+(o.ok?`✓ Custom App:${name} tagged`+detail:'✗ '+esc(msg))+'</div>'
+  r.innerHTML='<div class="callbox" style="color:'+(o.ok?'var(--ok)':'#ffb4c6')+'">'+(o.ok?`✓ Custom App:${name} tagged`+detail:'✗ '+esc(msg))+'</div>'
     +((!o.ok&&o.needs_setup)?'<div class="sub" style="margin-top:6px;color:var(--warn)">Populate the routing tables first: <span class="mono">navi config update route</span> then <span class="mono">navi config update paths</span>, then re-sync navi.db.</div>':'');
-  try{ r.scrollIntoView({behavior:'smooth',block:'center'}); }catch(e){}
+  reset();
+  scroll();
 }
 document.getElementById('runCapp').onclick=runCapp;document.getElementById('cappFind').onclick=cappFind;
 {const ia=document.getElementById('cappIgnoreAdd'),ii=document.getElementById('cappIgnoreInput');
  if(ia&&ii){const go=()=>{ignAdd(ii.value);ii.value='';};ia.onclick=go;ii.addEventListener('keydown',e=>{if(e.key==='Enter')go();});}}
+/* ---- ignore list: CSV export / import (for migrations) ---- */
+function ignExportCsv(){
+  const list=(CAPP&&CAPP.ignored)||[];
+  const csv='ignore_term\n'+list.map(t=>{const s=String(t);return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;}).join('\n')+'\n';
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));
+  a.download='customapp-ignore-'+new Date().toISOString().slice(0,10)+'.csv';
+  document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(a.href);
+}
+function _parseCsvTerms(text){
+  const out=[];
+  String(text||'').split(/\r?\n/).forEach(line=>{
+    line.split(',').forEach(cell=>{
+      let v=cell.trim().replace(/^"(.*)"$/,'$1').replace(/""/g,'"').trim().toLowerCase();
+      if(v&&v!=='ignore_term'&&v!=='term') out.push(v);
+    });
+  });
+  return [...new Set(out)];
+}
+async function ignImportCsv(file){
+  if(!file)return;
+  const text=await file.text();
+  const terms=_parseCsvTerms(text);
+  if(!terms.length){flash('cappFlash','No terms found in that CSV.','warn');return;}
+  try{
+    const o=await API.post('ignore_import',{terms,mode:'merge'});
+    if(o.ok){ if(CAPP)CAPP.ignored=o.ignored;
+      flash('cappFlash','✓ Imported '+o.imported+' term(s) — ignore list now '+o.total+'. Re-running discovery…','ok');
+      await runCapp(); }
+    else flash('cappFlash','✗ '+(o.error||'import failed'),'crit');
+  }catch(e){flash('cappFlash','✗ '+e.message,'crit');}
+}
+{const ex=document.getElementById('cappIgnoreExport'),im=document.getElementById('cappIgnoreImport');
+ if(ex)ex.onclick=ignExportCsv;
+ if(im)im.onchange=e=>{const f=e.target.files&&e.target.files[0];ignImportCsv(f);e.target.value='';};}
 mountAgentHeader({icon:'🧩',name:'Custom App Name Agent',sub:'routes/paths discovery · NL tagging'});
-(async()=>{
-  await runCapp();
+(async()=>{                       // explicit-run: nothing scans navi.db until ▶ Run discovery
   const h=handoffParams();
   if(h.focus){
     document.getElementById('cappPrompt').value='Tag my custom app '+h.focus;
-    if(h.run) cappSearch(h.focus, h.focus);
-    flash('cappFlash','Handoff — searching paths for “'+h.focus+'”.','run');
+    if(h.run){ await runCapp(); cappSearch(h.focus, h.focus); }
+    flash('cappFlash','Handoff — “'+h.focus+'”. Click ▶ Run discovery to scan routes/paths.','run');
   }
 })();
 </script>

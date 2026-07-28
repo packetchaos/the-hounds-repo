@@ -161,7 +161,10 @@ def build(prompt: str, db_path: str = None) -> dict:
         return {"ok": False, "error": f"query failed: {e}", "sql": clean}
     cols = list(rows[0].keys()) if rows else []
     viz = spec.get("viz", "table")
-    if viz not in ("kpi", "bar", "line", "pie", "table"):
+    _VIZ = ("kpi", "bar", "column", "stacked", "grouped", "pie", "donut", "line",
+            "multiline", "area", "combo", "scatter", "bubble", "heatmap", "treemap",
+            "funnel", "waterfall", "radar", "gauge", "progress", "histogram", "table")
+    if viz not in _VIZ:
         viz = "table"
     return {"ok": True, "prompt": prompt, "title": spec.get("title", "Dashboard"),
             "viz": viz, "label_col": spec.get("label_col"),

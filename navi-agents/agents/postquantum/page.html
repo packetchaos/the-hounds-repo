@@ -63,7 +63,7 @@
     <div id="pqaRes"></div>
   </section>
 
-  <section class="card" style="background:radial-gradient(120% 140% at 90% -20%,var(--amber-glow),transparent 60%),var(--panel)">
+  <section class="card" style="background:var(--panel)">
     <div class="toolbar"><div><h3 style="margin:0">🎯 Crown-jewel crypto correlation + migration roadmap</h3>
       <p class="sub" style="margin:2px 0 0">Correlates three quantum-risk signals straight out of navi.db — <b>certificate crypto</b> (RSA/ECC/DSA are broken by Shor; long-lived broken certs are the harvest-now-decrypt-later surface), <b>transport crypto</b> (TLS/SSH classical-only key exchange, no PQ ciphers, SHA-1 MACs, deprecated TLS), and <b>crypto-agility</b> (OpenSSH/OpenSSL version tiers) — then weights each asset by <b>ACR</b> and <b>CISA-KEV</b> so the highest-value, most-exposed assets rise to the top of the migration queue. Read-only; gated tagging.</p></div>
       <button class="btn run sm" id="pqrRun" style="margin-left:auto">▶ Build migration roadmap</button></div>
@@ -105,34 +105,48 @@ async function load(){
   document.getElementById('kpi').innerHTML=`<div class="k"><div class="v">${DATA.assets||0}</div><div class="l">quantum-vulnerable assets</div></div><div class="k"><div class="v">${DATA.cert_assets||0}</div><div class="l">via certificates</div></div><div class="k"><div class="v">${DATA.transport_assets||0}</div><div class="l">via transport crypto</div></div><div class="k"><div class="v">${DATA.pqc_plugin_assets||0}</div><div class="l">via PQC plugins</div></div>`;
   document.getElementById('tagBtn').disabled=false;
   const KIND={cert:'🔐',transport:'🔀',plugin:'⚛️'};
-  document.querySelector('#pTbl tbody').innerHTML=(DATA.plugins||[]).map(p=>`<tr><td>${KIND[p.kind]||''} <b>${esc(p.plugin_name)}</b> ${p.kind==='plugin'?'<span class="mono sub">#'+esc(p.plugin_id)+'</span>':''}</td><td class="sub">${esc(p.role)}</td><td class="mono">${p.assets}</td></tr>`).join('');
+  hPageReset('pTbl'); hPaginate('pTbl', (DATA.plugins||[]), p=>`<tr><td>${KIND[p.kind]||''} <b>${esc(p.plugin_name)}</b> ${p.kind==='plugin'?'<span class="mono sub">#'+esc(p.plugin_id)+'</span>':''}</td><td class="sub">${esc(p.role)}</td><td class="mono">${p.assets}</td></tr>`, {cols:3});
   document.getElementById('plugCard').style.display='block';
   if(DATA.note) flash('flash','ℹ '+esc(DATA.note),'warn');
   else if(!DATA.assets) flash('flash','No quantum-vulnerable crypto found in navi.db yet — refresh navi.db after a scan (needs the certs table and/or TLS/SSH plugins).','warn');
 }
 async function tagAll(){
+  const btn=document.getElementById('tagBtn'); if(btn&&btn.disabled)return;
   if(!WRITES && !confirm('Writes are gated (NAVI_ALLOW_WRITES not set) — jobs queue but are blocked. Continue?')) return;
+  const fb=document.getElementById('flash');
+  const scroll=()=>{ if(fb)fb.scrollIntoView({behavior:'smooth',block:'center'}); };
+  const reset=()=>{ if(!btn)return; btn.disabled=false; btn.textContent=btn.dataset.label; btn.style.opacity=''; btn.style.transform=''; btn.style.cursor=''; };
+  if(btn){ btn.dataset.label=btn.dataset.label||btn.textContent; btn.disabled=true; btn.textContent='⏳ Sending…'; btn.style.opacity='.6'; btn.style.transform='translateY(1px)'; btn.style.cursor='default'; }
   flash('flash','<span class="spin"></span> queuing Post-Quantum : Cipher Analysis (3 plugins)…','run');
+  scroll();
   let o; try{ o=await API.post('tag',{confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
-  if(!o.ok){ flash('flash','✗ '+esc(o.error||'failed'),'crit'); return; }
+  if(!o.ok){ flash('flash','✗ '+esc(o.error||'failed'),'crit'); reset(); scroll(); return; }
   flash('flash','✓ queued '+o.queued+' tag job(s) — watch the <a href="/web/tags-log.html">Tagging log</a>. All three plugins tag the same Post-Quantum : Cipher Analysis.','ok');
+  scroll(); reset();
 }
 document.getElementById('load').onclick=load;
 document.getElementById('tagBtn').onclick=tagAll;
 
 /* ===== shared gated tag for the algorithm / harvest / transport / agility panels ===== */
-const VCOLOR={broken:'#f43f5e',unknown:'#e7c66b',safe:'#34d399'};
-const TIERCOLOR={'PQC-ready':'#34d399','Upgradable':'#e7c66b','Legacy':'var(--crit)'};
-async function pqTag(category,value,uuids,flashId,note){
+const VCOLOR={broken:'#f43f5e',unknown:'#e7c66b',safe:'var(--ok)'};
+const TIERCOLOR={'PQC-ready':'var(--ok)','Upgradable':'#e7c66b','Legacy':'var(--crit)'};
+async function pqTag(category,value,uuids,flashId,note,btn){
   const fid=flashId||'flash';
+  if(btn&&btn.disabled)return;
   if(!uuids||!uuids.length){ flash(fid,'Nothing to tag.','warn'); return; }
   const nv=prompt('Tag '+uuids.length+' asset(s) under "'+category+' : "\nValue (edit if you like):', value);
   if(nv===null) return;
+  const fb=document.getElementById(fid);
+  const scroll=()=>{ if(fb)fb.scrollIntoView({behavior:'smooth',block:'center'}); };
+  const reset=()=>{ if(!btn)return; btn.disabled=false; btn.textContent=btn.dataset.label; btn.style.opacity=''; btn.style.transform=''; btn.style.cursor=''; };
+  if(btn){ btn.dataset.label=btn.dataset.label||btn.textContent; btn.disabled=true; btn.textContent='⏳ Sending…'; btn.style.opacity='.6'; btn.style.transform='translateY(1px)'; btn.style.cursor='default'; }
   flash(fid,'<span class="spin"></span> queuing '+esc(category)+' : '+esc(nv)+' ('+uuids.length+')…','run');
+  scroll();
   let o; try{ o=await API.post('tag_uuids',{category,value:nv,uuids,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
-  if(!o||!o.ok){ flash(fid,'✗ '+esc((o&&(o.error||(o.result&&o.result.message)))||'tag failed'),'crit'); return; }
+  if(!o||!o.ok){ flash(fid,'✗ '+esc((o&&(o.error||(o.result&&o.result.message)))||'tag failed'),'crit'); reset(); scroll(); return; }
   const gated=!o.writes_enabled;
   flash(fid,'✓ queued '+esc(category)+' : '+esc(nv)+' on '+o.count+' asset(s)'+(note?(' — '+esc(note)):'')+(gated?' <span class="sub">(gated — set NAVI_ALLOW_WRITES=1)</span>':' — see the <a href="/web/tags-log.html">Tagging log</a>.'),gated?'warn':'ok');
+  scroll(); reset();
 }
 
 /* ===== #1 cert crypto inventory + #2 harvest-now ===== */
@@ -146,15 +160,16 @@ async function pqcRun(){
   if(PQC.note){ flash('pqcFlash','ℹ '+esc(PQC.note),'warn'); } else flashClear('pqcFlash');
   document.getElementById('pqcKpi').innerHTML='<div class="k"><div class="v">'+(k.certs||0)+'</div><div class="l">certificates</div></div>'
     +'<div class="k" style="border-color:var(--crit)"><div class="v" style="color:var(--crit)">'+(k.vulnerable||0)+'</div><div class="l">quantum-vulnerable assets</div></div>'
-    +'<div class="k"><div class="v" style="color:#34d399">'+(k.safe||0)+'</div><div class="l">PQC-safe certs</div></div>'
+    +'<div class="k"><div class="v" style="color:var(--ok)">'+(k.safe||0)+'</div><div class="l">PQC-safe certs</div></div>'
     +'<div class="k" style="border-color:var(--crit)"><div class="v" style="color:var(--crit)">'+(k.harvest_now||0)+'</div><div class="l">🌾 harvest-now certs</div></div>';
   // inventory
   const inv=PQC.inventory||[];
-  document.querySelector('#pqcInvTbl tbody').innerHTML=inv.length?inv.map((r,i)=>'<tr><td class="mono" style="font-size:12px">'+esc(r.algo)+'</td>'
+  hPageReset('pqcInvTbl'); hPaginate('pqcInvTbl', inv, r=>'<tr><td class="mono" style="font-size:12px">'+esc(r.algo)+'</td>'
     +'<td><span class="tagval" style="color:'+(VCOLOR[r.verdict]||'var(--mut)')+'">'+esc(r.verdict)+'</span> <span class="sub">'+esc(r.fam)+'</span></td>'
     +'<td class="mono">'+esc((r.keys||[]).join(', ')||'—')+'</td><td class="mono">'+r.certs+'</td><td class="mono">'+r.assets+'</td>'
-    +'<td>'+(r.verdict==='broken'?'<button class="btn sm" data-inv="'+i+'">Tag '+esc(r.fam)+'</button>':'')+'</td></tr>').join(''):'<tr><td colspan="6" class="sub">No certificates.</td></tr>';
-  document.querySelectorAll('#pqcInvTbl button[data-inv]').forEach(b=>b.onclick=()=>{const r=inv[+b.dataset.inv]; pqTag('PQC Risk','Vulnerable : '+r.fam,r.uuids,'pqcFlash');});
+    +'<td>'+(r.verdict==='broken'?'<button class="btn sm" data-inv="'+esc(String(r.algo))+'">Tag '+esc(r.fam)+'</button>':'')+'</td></tr>',
+    {cols:6, empty:'<tr><td colspan="6" class="sub">No certificates.</td></tr>',
+     wire:tb=>{ tb.querySelectorAll('button[data-inv]').forEach(b=>b.onclick=()=>{const r=inv.find(o=>String(o.algo)===b.dataset.inv); if(r)pqTag('PQC Risk','Vulnerable : '+r.fam,r.uuids,'pqcFlash',null,b);}); }});
   document.getElementById('pqcInvCard').style.display=inv.length?'':'none';
   document.getElementById('pqcHnCard').style.display=(PQC.harvest_now||[]).length?'':'none';
   pqcRenderHn();
@@ -163,12 +178,12 @@ function pqcRenderHn(){
   if(!PQC)return; const hz=parseFloat((document.getElementById('pqcHorizon')||{}).value||'3');
   const hn=(PQC.harvest_now||[]).filter(h=>h.years>hz);
   document.getElementById('pqcHnCount').textContent=hn.length+' cert(s) beyond '+(hz||0)+'y';
-  document.querySelector('#pqcHnTbl tbody').innerHTML=hn.length?hn.slice(0,300).map(h=>'<tr><td><b>'+esc(h.host)+'</b></td><td class="mono" style="font-size:11px">'+esc(h.cn||'—')+'</td><td class="mono" style="font-size:11px">'+esc(h.fam)+'</td><td class="mono">'+esc(String(h.key||''))+'</td><td class="mono" style="font-size:11px">'+esc(h.expiry||'')+'</td><td class="mono">'+h.years+'</td><td class="mono">'+(h.acr||'—')+'</td><td><b>'+h.urgency+'</b></td></tr>').join(''):'<tr><td colspan="8" class="sub">No certs beyond this horizon.</td></tr>';
+  hPageReset('pqcHnTbl'); hPaginate('pqcHnTbl', hn, h=>'<tr><td><b>'+esc(h.host)+'</b></td><td class="mono" style="font-size:11px">'+esc(h.cn||'—')+'</td><td class="mono" style="font-size:11px">'+esc(h.fam)+'</td><td class="mono">'+esc(String(h.key||''))+'</td><td class="mono" style="font-size:11px">'+esc(h.expiry||'')+'</td><td class="mono">'+h.years+'</td><td class="mono">'+(h.acr||'—')+'</td><td><b>'+h.urgency+'</b></td></tr>', {cols:8, empty:'<tr><td colspan="8" class="sub">No certs beyond this horizon.</td></tr>'});
   window.__pqcHn=hn;
 }
 document.getElementById('pqcRun').onclick=pqcRun;
 document.getElementById('pqcHorizon').onchange=pqcRenderHn;
-document.getElementById('pqcTagHn').onclick=()=>{const hn=window.__pqcHn||[]; const uu=[...new Set(hn.map(h=>h.uuid).filter(Boolean))]; pqTag('PQC Harvest-Now','Priority',uu,'pqcFlash','then raise ACR');};
+document.getElementById('pqcTagHn').onclick=function(){const hn=window.__pqcHn||[]; const uu=[...new Set(hn.map(h=>h.uuid).filter(Boolean))]; pqTag('PQC Harvest-Now','Priority',uu,'pqcFlash','then raise ACR',this);};
 document.getElementById('pqcAcrHn').onclick=()=>{document.getElementById('pqcHnRes').innerHTML='<div class="callbox" style="color:#e7c66b;margin-top:8px">⚖ Recommended AI Contract rule: <b>PQC Harvest-Now : Priority → set ACR 9</b>. Tag the hit-list first, then add this rule on the <a href="/agents/contract/page.html">AI Contract</a> page so the contract raises their ACR on its next armed cycle.</div>';};
 
 /* ===== #3 transport signals + #4 crypto-agility ===== */
@@ -182,24 +197,26 @@ async function pqtRun(){
   document.getElementById('pqtKpi').innerHTML='<div class="k" style="border-color:var(--crit)"><div class="v" style="color:var(--crit)">'+(k.high_assets||0)+'</div><div class="l">high-sev transport assets</div></div>'
     +'<div class="k"><div class="v">'+(k.signals||0)+'</div><div class="l">signal classes present</div></div>'
     +'<div class="k" style="border-color:var(--crit)"><div class="v" style="color:var(--crit)">'+(k.legacy||0)+'</div><div class="l">legacy crypto stacks</div></div>'
-    +'<div class="k"><div class="v" style="color:#34d399">'+(k.ready||0)+'</div><div class="l">PQC-ready stacks</div></div>';
+    +'<div class="k"><div class="v" style="color:var(--ok)">'+(k.ready||0)+'</div><div class="l">PQC-ready stacks</div></div>';
   const sig=(PQT.signals||[]).filter(s=>s.assets);
-  document.querySelector('#pqtTbl tbody').innerHTML=sig.length?sig.map((s,i)=>'<tr><td><b>'+esc(s.key)+'</b><br><span class="sub" style="font-size:11px">'+esc(s.note)+'</span></td><td><span class="badge" style="color:'+(s.sev==='high'?'var(--crit)':'#e7c66b')+'">'+esc(s.sev)+'</span></td><td class="mono">'+s.assets+'</td><td><button class="btn sm" data-sig="'+i+'">Tag</button></td></tr>').join(''):'<tr><td colspan="4" class="sub">No quantum-weak transport signals found.</td></tr>';
-  document.querySelectorAll('#pqtTbl button[data-sig]').forEach(b=>b.onclick=()=>{const s=sig[+b.dataset.sig]; pqTag('PQC Transport',s.key,s.uuids,'pqtFlash');});
+  hPageReset('pqtTbl'); hPaginate('pqtTbl', sig, s=>'<tr><td><b>'+esc(s.key)+'</b><br><span class="sub" style="font-size:11px">'+esc(s.note)+'</span></td><td><span class="badge" style="color:'+(s.sev==='high'?'var(--crit)':'#e7c66b')+'">'+esc(s.sev)+'</span></td><td class="mono">'+s.assets+'</td><td><button class="btn sm" data-sig="'+esc(String(s.key))+'">Tag</button></td></tr>',
+    {cols:4, empty:'<tr><td colspan="4" class="sub">No quantum-weak transport signals found.</td></tr>',
+     wire:tb=>{ tb.querySelectorAll('button[data-sig]').forEach(b=>b.onclick=()=>{const s=sig.find(o=>String(o.key)===b.dataset.sig); if(s)pqTag('PQC Transport',s.key,s.uuids,'pqtFlash',null,b);}); }});
   document.getElementById('pqtCard').style.display=sig.length?'':'none';
   // agility
   const ag=PQT.agility||{tiers:{},hosts:[]}; const hosts=ag.hosts||[];
   document.getElementById('pqaSummary').textContent=(ag.tiers['PQC-ready']||0)+' ready · '+(ag.tiers['Upgradable']||0)+' upgradable · '+(ag.tiers['Legacy']||0)+' legacy';
-  document.querySelector('#pqaTbl tbody').innerHTML=hosts.length?hosts.map(h=>'<tr><td><b>'+esc(h.host)+'</b></td><td class="mono">'+esc(h.ssh||'—')+'</td><td class="mono">'+esc(h.ssl||'—')+'</td><td><span class="badge" style="color:'+(TIERCOLOR[h.tier]||'var(--mut)')+'">'+esc(h.tier)+'</span></td><td><button class="btn sm" data-tier="'+esc(h.tier)+'" data-u="'+esc(h.uuid)+'">Tag</button></td></tr>').join(''):'<tr><td colspan="5" class="sub">No OpenSSH/OpenSSL versions detected.</td></tr>';
-  document.querySelectorAll('#pqaTbl button[data-tier]').forEach(b=>b.onclick=()=>{ const tier=b.dataset.tier; const uu=hosts.filter(h=>h.tier===tier).map(h=>h.uuid); pqTag('PQC Agility',tier,uu,'pqtFlash','all '+tier+' hosts'); });
+  hPageReset('pqaTbl'); hPaginate('pqaTbl', hosts, h=>'<tr><td><b>'+esc(h.host)+'</b></td><td class="mono">'+esc(h.ssh||'—')+'</td><td class="mono">'+esc(h.ssl||'—')+'</td><td><span class="badge" style="color:'+(TIERCOLOR[h.tier]||'var(--mut)')+'">'+esc(h.tier)+'</span></td><td><button class="btn sm" data-tier="'+esc(h.tier)+'" data-u="'+esc(h.uuid)+'">Tag</button></td></tr>',
+    {cols:5, empty:'<tr><td colspan="5" class="sub">No OpenSSH/OpenSSL versions detected.</td></tr>',
+     wire:tb=>{ tb.querySelectorAll('button[data-tier]').forEach(b=>b.onclick=()=>{ const tier=b.dataset.tier; const uu=hosts.filter(h=>h.tier===tier).map(h=>h.uuid); pqTag('PQC Agility',tier,uu,'pqtFlash','all '+tier+' hosts',b); }); }});
   document.getElementById('pqaCard').style.display=hosts.length?'':'none';
 }
 document.getElementById('pqtRun').onclick=pqtRun;
 
 /* ===== Crown-jewel crypto correlation + migration roadmap ===== */
 let PQR=null;
-const plink=(u,txt)=>u?`<a class="plink" href="/web/asset.html?asset=${encodeURIComponent(u)}" style="color:var(--accent);text-decoration:none">${esc(txt)}</a>`:esc(txt);
-const AGC={'PQC-ready':'#34d399','Upgradable':'#e7c66b','Legacy':'var(--crit)'};
+const plink=(u,txt)=>u?`<a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(u)}" style="color:var(--accent);text-decoration:none">${esc(txt)}</a>`:esc(txt);
+const AGC={'PQC-ready':'var(--ok)','Upgradable':'#e7c66b','Legacy':'var(--crit)'};
 async function pqrRun(){
   const b=document.getElementById('pqrRun'); b.disabled=true;
   flash('pqrFlash','<span class="spin"></span> correlating cert crypto · transport · agility with ACR + KEV…','run');
@@ -239,7 +256,7 @@ function pqrRender(){
 function pqrShow(o,label,value){ const r=document.getElementById('pqrTagRes');
   if(!o||!o.ok){ r.innerHTML='<div class="callbox" style="color:var(--crit)">✗ '+esc((o&&(o.error||o.message))||'failed')+'</div>'; return; }
   const res=o.result||{}; const ok=res.ok!==false;
-  r.innerHTML='<div class="callbox" style="color:'+(ok?'#7ee2a8':'#ffb4c6')+'">'+(ok
+  r.innerHTML='<div class="callbox" style="color:'+(ok?'var(--ok)':'#ffb4c6')+'">'+(ok
     ?'✓ tagged '+(o.count||0)+' '+esc(label)+' → PQC Priority : '+esc(value)+(res.warning?' — '+esc(res.warning):'')
     :'✗ '+esc(res.message||res.stderr||'write rejected'))+'</div>'
     +(o.writes_enabled?'':'<div class="sub" style="margin-top:6px;color:var(--warn)">Writes are gated — set <span class="mono">NAVI_ALLOW_WRITES=1</span> to apply. Tags show in the <a href="/web/tags-log.html">Tagging log</a> after a navi.db sync.</div>'); }

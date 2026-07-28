@@ -7,15 +7,42 @@ supported write path.
 """
 import os
 import sqlite3
+import time
+import urllib.request
+
+from . import qprofile
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _DISCOVERED = None
+
+# Optional wall-clock budget per query. DEFAULT OFF (0): on a huge navi.db a real
+# query may legitimately take minutes, and aborting it means "no query ever runs".
+# We rely on PAGINATION to keep result sets small and let slow queries finish (the
+# server is threaded, so one slow query doesn't block other pages). Set
+# NAVI_QUERY_BUDGET_MS to re-enable an abort deadline; callers may still pass an
+# explicit `budget=` (health does, for its tiny always-on probe).
+_BUDGET_S = float(os.environ.get("NAVI_QUERY_BUDGET_MS", "0")) / 1000.0
+
+
+class QueryTimeout(Exception):
+    pass
+
+
+def _ro_uri(p):
+    """Build a valid read-only SQLite file: URI on BOTH POSIX and Windows.
+
+    A Windows path like ``C:\\Users\\me\\navi.db`` is NOT a valid URI —
+    ``file:C:\\Users\\...`` fails. It must be ``file:///C:/Users/me/navi.db``.
+    pathname2url handles the drive letter + slash conversion + escaping on every
+    platform, so navi.db opens whether the operator is on macOS, Linux or Windows.
+    """
+    return "file:" + urllib.request.pathname2url(os.path.abspath(p)) + "?mode=ro"
 
 
 def _asset_count(p):
     """Assets in a navi.db (a proxy for 'this is the real synced db'). -1 if unreadable."""
     try:
-        con = sqlite3.connect(f"file:{p}?mode=ro", uri=True)
+        con = sqlite3.connect(_ro_uri(p), uri=True)
         try:
             n = con.execute("SELECT count(*) FROM assets").fetchone()[0] or 0
         except Exception:
@@ -69,22 +96,52 @@ def connect(path: str | None = None) -> sqlite3.Connection:
     p = path or db_path()
     if not os.path.exists(p):
         raise FileNotFoundError(f"navi.db not found at {p!r} (set NAVI_DB_PATH)")
-    con = sqlite3.connect(f"file:{p}?mode=ro", uri=True, check_same_thread=False)
+    con = sqlite3.connect(_ro_uri(p), uri=True, check_same_thread=False)
     con.row_factory = sqlite3.Row
+    # perf tuning for large navi.db files (read-only; safe)
+    for pragma in ("PRAGMA temp_store=MEMORY", "PRAGMA cache_size=-131072",
+                   "PRAGMA mmap_size=1073741824", "PRAGMA busy_timeout=3000"):
+        try:
+            con.execute(pragma)
+        except Exception:
+            pass
     return con
 
 
-def query(sql: str, params: tuple = (), path: str | None = None) -> list[dict]:
+def _arm_budget(con, budget):
+    """Abort a query after `budget` seconds so a full scan can't hang the app."""
+    if not budget or budget <= 0:
+        return
+    deadline = time.monotonic() + budget
+    con.set_progress_handler(lambda: 1 if time.monotonic() > deadline else 0, 20000)
+
+
+def query(sql: str, params: tuple = (), path: str | None = None,
+          budget: float | None = -1) -> list[dict]:
     con = connect(path)
+    _arm_budget(con, _BUDGET_S if budget == -1 else budget)
+    _t0 = time.monotonic()
     try:
         cur = con.execute(sql, params)
         return [dict(r) for r in cur.fetchall()]
+    except sqlite3.OperationalError as e:
+        if "interrupt" in str(e).lower():
+            raise QueryTimeout(f"query exceeded time budget: {sql[:80]}") from e
+        raise
     finally:
+        try:                        # profile real data queries (skip introspection)
+            head = sql.lstrip()[:8].upper()
+            if not (head.startswith("EXPLAIN") or head.startswith("PRAGMA")
+                    or "sqlite_master" in sql.lower()):
+                qprofile.record(sql, (time.monotonic() - _t0) * 1000.0)
+        except Exception:
+            pass
         con.close()
 
 
-def scalar(sql: str, params: tuple = (), path: str | None = None):
-    rows = query(sql, params, path)
+def scalar(sql: str, params: tuple = (), path: str | None = None,
+           budget: float | None = -1):
+    rows = query(sql, params, path, budget=budget)
     if not rows:
         return None
     return next(iter(rows[0].values()))

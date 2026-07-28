@@ -10,6 +10,18 @@
   .exrow{display:flex;flex-wrap:wrap;gap:7px;margin:8px 0}
   .ex{cursor:pointer}
   .sqlbox{font-family:var(--mono);font-size:11.5px;white-space:pre-wrap;color:var(--ink-2)}
+  /* Starter-metrics card grid */
+  .pctrl{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px}
+  .pctrl select{padding:7px 10px;border-radius:8px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink);font-size:13px;min-width:210px}
+  .pgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(212px,1fr));gap:10px}
+  .pcard{position:relative;border:1px solid var(--line);border-radius:10px;padding:9px 12px 11px;background:var(--panel);cursor:pointer;display:flex;flex-direction:column;gap:4px;min-height:84px;transition:border-color .12s,transform .12s,background .12s}
+  .pcard:hover{border-color:var(--accent);background:var(--panel-2);transform:translateY(-1px)}
+  .pcard-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:1px}
+  .vbadge{font-size:9px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;padding:2px 7px;border-radius:999px;border:1px solid}
+  .pcard .ppin{font-size:11px;color:var(--mut)}
+  .pcard:hover .ppin{color:var(--accent)}
+  .pcard .ptitle{font-weight:700;font-size:13px;line-height:1.25}
+  .pcard .pnote{font-size:11px;color:var(--mut);line-height:1.4}
 </style>
 </head><body>
 <div class="wrap">
@@ -27,11 +39,18 @@
     <div class="no-llm-note callbox" style="display:none;color:var(--warn,#e7c66b)">The Dashboard Builder needs a language model to turn your request into SQL. Set <span class="mono">ANTHROPIC_API_KEY</span> on the server and reload to enable it.</div>
   </section>
 
+  <section class="card" id="presetCard">
+    <div class="toolbar" style="flex-wrap:wrap;gap:8px"><div><h2 style="margin:0">📊 Starter metrics</h2>
+      <p class="sub" style="margin:2px 0 0">One-click, ready-to-pin views over navi.db — <b>no model needed</b>. Click a metric to run its query and pin it below; re-chart or edit after. Or drop a whole board in at once.</p></div>
+      <span style="margin-left:auto;display:flex;gap:6px;align-items:center"><button class="btn sm" id="boardLeadership">+ Leadership board</button><button class="btn sm" id="boardSE">+ SE / working board</button><span id="presetFlash" class="sub"></span></span></div>
+    <div id="presetLib" style="margin-top:8px"></div>
+  </section>
+
   <section class="card" id="out" style="display:none">
     <div class="toolbar"><div><h2 style="margin:0" id="dTitle">Dashboard</h2>
       <p class="sub" style="margin:2px 0 0" id="dNote"></p></div>
       <span style="margin-left:auto;display:flex;gap:6px;align-items:center">
-        <span class="sub">Chart</span><select id="dChartType" title="Chart type" style="padding:6px 8px;border-radius:7px;border:1px solid var(--line);background:var(--panel2);color:var(--ink);font-size:12px"><option value="auto">Auto</option><option value="bar">Bar</option><option value="column">Column</option><option value="pie">Pie</option><option value="donut">Donut</option><option value="line">Line</option><option value="gauge">Gauge</option><option value="kpi">KPI</option><option value="table">Table</option></select>
+        <span class="sub">Chart</span><select id="dChartType" title="Chart type" style="padding:6px 8px;border-radius:7px;border:1px solid var(--line);background:var(--panel2);color:var(--ink);font-size:12px"><option value="auto">Auto</option><optgroup label="Ranking & composition"><option value="bar">Bar</option><option value="column">Column</option><option value="stacked">Stacked</option><option value="grouped">Grouped</option><option value="treemap">Treemap</option><option value="funnel">Funnel</option><option value="waterfall">Waterfall</option><option value="pie">Pie</option><option value="donut">Donut</option></optgroup><optgroup label="Trend"><option value="line">Line</option><option value="multiline">Multi-line</option><option value="area">Area</option><option value="combo">Combo (bar+line)</option></optgroup><optgroup label="Relationship"><option value="scatter">Scatter</option><option value="bubble">Bubble</option><option value="heatmap">Heatmap</option></optgroup><optgroup label="Comparison & distribution"><option value="radar">Radar</option><option value="gauge">Gauge</option><option value="progress">Progress</option><option value="histogram">Histogram</option></optgroup><option value="kpi">KPI</option><option value="table">Table</option></select>
         <button class="btn ghost sm" id="dashCsv">⤓ CSV</button>
         <button class="btn sm" id="dashAdd">📌 Add to dashboard</button>
         <button class="btn ghost sm" id="toggleSql">View SQL</button></span></div>
@@ -39,10 +58,11 @@
     <div id="viz"></div>
   </section>
 
+  <div id="dashTabs"></div>
   <section class="card" id="dashGridWrap" style="display:none">
-    <div class="toolbar"><div><h2 style="margin:0">📌 My dashboard</h2>
+    <div class="toolbar"><div><h2 style="margin:0" id="dashBoardName">📌 My dashboard</h2>
       <p class="sub" style="margin:2px 0 0">Pinned components — saved in this browser. Generate a view above and click <b>Add to dashboard</b> to keep building a multi-panel board.</p></div>
-      <span style="margin-left:auto;display:flex;gap:6px;align-items:center"><span class="chip" id="dashGridCount"></span><a class="btn run sm" href="/web/customdash.html" title="Open these pinned components as a standalone, refreshable Custom Dashboard page">🚀 Promote to dashboard</a><button class="btn ghost sm" id="dashClearAll">Clear all</button></span></div>
+      <span style="margin-left:auto;display:flex;gap:6px;align-items:center"><span class="chip" id="dashGridCount"></span><button class="btn sm" id="dashEmail">📧 Email dashboard</button><a class="btn run sm" href="/web/customdash.html" title="Open these pinned components as a standalone, refreshable Custom Dashboard page">🚀 Promote to dashboard</a><button class="btn ghost sm" id="dashClearAll">Clear all</button></span></div>
     <div id="dashGrid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:14px"></div>
   </section>
   <footer>Dashboard Builder · read-only navi.db · model writes the SQL, you see it before it renders · pin components to a saved multi-panel board</footer>
@@ -59,15 +79,16 @@ const EX=["Top 10 plugins by number of affected assets",
 const exWrap=document.getElementById('examples');
 EX.forEach(t=>{const c=document.createElement('span');c.className='chip ex';c.textContent=t;c.onclick=()=>{document.getElementById('prompt').value=t;go();};exWrap.appendChild(c);});
 
-const DPAL=['#f5a623','#3ea6ff','#34d399','#e0607e','#a78bfa','#fbbf24','#22d3ee','#f97362','#84cc16','#c084fc','#2dd4bf','#fb923c'];
+const DPAL=['#5a5fe0','#3f78c2','#2f9d9d','#2fa06e','#7d64d4','#3f8fb0','#4a6fd0','#2f9e88','#6f73e0','#2f88a8','#5a7fc0','#8a67d6'];
 const _num=v=>v!==null&&v!==''&&!isNaN(parseFloat(v))&&isFinite(v);
 const _isDate=v=>typeof v==='string'&&/^\d{4}(-\d{2}(-\d{2})?)?([ T]\d|$)/.test(v.trim());
 function dPickViz(r,cols,rows){
   const numCols=cols.filter(c=>rows.slice(0,30).filter(x=>x[c]!=null&&x[c]!=='').every(x=>_num(x[c]))&&rows.some(x=>_num(x[c])));
   const lc=cols.includes(r.label_col)?r.label_col:(cols.find(c=>!numCols.includes(c))||cols[0]);
   const vc=(cols.includes(r.value_col)&&numCols.includes(r.value_col))?r.value_col:(numCols.find(c=>c!==lc)||numCols[0]);
-  let viz=['kpi','bar','line','pie','table'].includes(r.viz)?r.viz:'';
+  let viz=(r.viz&&r.viz!=='auto'&&(typeof DASH_TYPES==='undefined'?['kpi','bar','line','pie','table']:DASH_TYPES).includes(r.viz))?r.viz:'';
   if(!viz){ if(rows.length===1&&numCols.length)viz='kpi'; else if(vc&&lc&&rows.every(x=>_isDate(x[lc])))viz='line'; else if(vc&&lc&&rows.length<=8&&rows.every(x=>(parseFloat(x[vc])||0)>=0))viz='pie'; else if(vc&&lc)viz='bar'; else viz='table'; }
+  if(['bubble','scatter','heatmap','treemap','radar','gauge','waterfall','funnel','histogram','progress','pareto','stacked','grouped','column','donut','multiline','area','combo'].includes(viz)) return {viz,lc,vc};
   if(viz==='pie'&&(!vc||rows.length>12||rows.some(x=>(parseFloat(x[vc])||0)<0)))viz='bar';
   if((viz==='line'||viz==='bar')&&!vc)viz='table';
   return {viz,lc,vc};
@@ -108,25 +129,313 @@ function svgGaugeD(rows,lc,vc){ const vals=rows.map(x=>Math.max(0,parseFloat(x[v
   const lbl=rows.length?esc(String(rows[0][lc]))+' = '+first+(tot&&tot!==first?(' of '+tot):''):'';
   return '<div style="text-align:center"><svg viewBox="0 0 160 98" width="100%" style="max-width:240px">'+arc(Math.PI,2*Math.PI,'var(--line)')+arc(Math.PI,a1,col)+'<text x="80" y="74" text-anchor="middle" font-size="26" font-weight="800" fill="'+col+'">'+(pct<10?pct.toFixed(1):Math.round(pct))+'%</text></svg><div class="sub" style="margin-top:2px">'+lbl+'</div></div>';
 }
+/* ===== unified chart engine (shared with artifact + email) ===== */
+/* ============================================================================
+ * dashSVG — one email-safe SVG chart engine for the Dashboard builder.
+ * Same function in the artifact and the repo. All colours are hardcoded hex
+ * (no CSS vars) so charts render identically in the dark UI and in email.
+ *
+ *   dashSVG(type, cols, rows, spec) -> SVG/HTML string
+ *
+ * Data model: rows are objects keyed by cols. spec = {label_col, value_col}.
+ * Single-series types read 1 label + 1 value. Multi-series types (stacked,
+ * grouped, multiline, combo, heatmap, scatter, bubble) read either several
+ * numeric columns, or a long (label, series, value) triple that we pivot.
+ * ==========================================================================*/
+var DS_PAL=['#5a5fe0','#3f78c2','#2f9d9d','#2fa06e','#7d64d4','#3f8fb0','#4a6fd0','#2f9e88','#6f73e0','#2f88a8','#5a7fc0','#8a67d6'];
+var DS_AXIS='#64748b', DS_LABEL='#94a3b8', DS_GRID='rgba(148,163,184,.22)';
+function _dsEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function _dsNum(v){ var n=parseFloat(v); return isFinite(n)?n:NaN; }
+function _dsIsNumCol(rows,c){ var k=0,t=0; rows.forEach(function(r){ if(r[c]!=null&&r[c]!==''){ t++; if(isFinite(_dsNum(r[c]))) k++; } }); return t>0 && k/t>=0.7; }
+function _dsFmt(n){ if(!isFinite(n)) return String(n); var a=Math.abs(n); if(a>=1e9)return (n/1e9).toFixed(1)+'B'; if(a>=1e6)return (n/1e6).toFixed(1)+'M'; if(a>=1e3)return (n/1e3).toFixed(1)+'k'; return (Math.round(n*100)/100).toString(); }
+
+/* shape detection -> {lc, series:[{name, values:[...]}], labels:[...]} */
+function dashData(cols, rows, spec){
+  cols=cols&&cols.length?cols:(rows.length?Object.keys(rows[0]):[]);
+  var numCols=cols.filter(function(c){ return _dsIsNumCol(rows,c); });
+  var lc=(spec&&spec.label_col&&cols.indexOf(spec.label_col)>=0)?spec.label_col
+        :(cols.filter(function(c){return numCols.indexOf(c)<0;})[0]||cols[0]);
+  var valCols=numCols.filter(function(c){ return c!==lc; });
+  var textCols=cols.filter(function(c){ return c!==lc && numCols.indexOf(c)<0; });
+  // long format: label + one text (series) + one value  ->  pivot to wide
+  if(valCols.length===1 && textCols.length>=1){
+    var sc=textCols[0], vc=valCols[0], labels=[], sers={}, order=[];
+    rows.forEach(function(r){ var L=String(r[lc]==null?'':r[lc]); if(labels.indexOf(L)<0)labels.push(L);
+      var S=String(r[sc]==null?'':r[sc]); if(!sers[S]){sers[S]={};order.push(S);} sers[S][L]=_dsNum(r[vc])||0; });
+    return {lc:lc, labels:labels, series:order.map(function(S){ return {name:S, values:labels.map(function(L){return sers[S][L]||0;})}; }), pivoted:true};
+  }
+  var labs=rows.map(function(r){ return String(r[lc]==null?'':r[lc]); });
+  if(!valCols.length) return {lc:lc, labels:labs, series:[], none:true};
+  return {lc:lc, labels:labs, series:valCols.map(function(c){ return {name:c, values:rows.map(function(r){return _dsNum(r[c])||0;})}; })};
+}
+
+function _dsWrap(inner, w, h){ return '<svg viewBox="0 0 '+w+' '+h+'" width="100%" style="max-width:'+w+'px;height:auto;font-family:system-ui,Segoe UI,Arial,sans-serif" xmlns="http://www.w3.org/2000/svg">'+inner+'</svg>'; }
+function _dsLegend(names){ if(names.length<2)return ''; return '<div style="display:flex;flex-wrap:wrap;gap:12px;margin-top:8px;font-size:12px;color:'+DS_LABEL+'">'+names.map(function(n,i){return '<span><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:'+DS_PAL[i%DS_PAL.length]+';vertical-align:middle;margin-right:5px"></span>'+_dsEsc(n)+'</span>';}).join('')+'</div>'; }
+
+/* ---- individual renderers (each returns an <svg> …) ---- */
+function _dsColumn(d,stacked,grouped){
+  var W=680,H=300,pad=40,bottom=48,left=48,plotW=W-left-pad,plotH=H-bottom-20,n=d.labels.length;
+  var totals=d.labels.map(function(_,i){ return stacked? d.series.reduce(function(s,se){return s+(se.values[i]||0);},0) : Math.max.apply(null,d.series.map(function(se){return se.values[i]||0;})); });
+  var max=Math.max.apply(null,totals.concat([1]));
+  var g='', gw=plotW/n, ns=d.series.length;
+  var ticks=4, tick='';
+  for(var t=0;t<=ticks;t++){ var yv=max*t/ticks, y=20+plotH-plotH*t/ticks; tick+='<line x1="'+left+'" y1="'+y+'" x2="'+(left+plotW)+'" y2="'+y+'" stroke="'+DS_GRID+'"/><text x="'+(left-6)+'" y="'+(y+3)+'" text-anchor="end" font-size="10" fill="'+DS_AXIS+'">'+_dsFmt(yv)+'</text>'; }
+  d.labels.forEach(function(L,i){ var x0=left+i*gw;
+    if(stacked){ var acc=0; d.series.forEach(function(se,si){ var v=se.values[i]||0, bh=plotH*v/max, y=20+plotH-acc-bh; acc+=bh; if(v>0)g+='<rect x="'+(x0+gw*0.18)+'" y="'+y+'" width="'+(gw*0.64)+'" height="'+Math.max(0,bh)+'" fill="'+DS_PAL[si%DS_PAL.length]+'"><title>'+_dsEsc(se.name)+' · '+_dsEsc(L)+': '+v+'</title></rect>'; }); }
+    else { var bw=(gw*0.64)/ns; d.series.forEach(function(se,si){ var v=se.values[i]||0, bh=plotH*v/max, y=20+plotH-bh, x=x0+gw*0.18+si*bw; g+='<rect x="'+x+'" y="'+y+'" width="'+Math.max(0,bw-1)+'" height="'+Math.max(0,bh)+'" fill="'+DS_PAL[si%DS_PAL.length]+'"><title>'+_dsEsc(se.name)+' · '+_dsEsc(L)+': '+v+'</title></rect>'; }); }
+    var lab=L.length>10?L.slice(0,9)+'…':L; g+='<text x="'+(x0+gw/2)+'" y="'+(H-bottom+16)+'" text-anchor="middle" font-size="10.5" fill="'+DS_LABEL+'">'+_dsEsc(lab)+'</text>'; });
+  return _dsWrap(tick+g,W,H)+_dsLegend(d.series.map(function(s){return s.name;}));
+}
+function _dsBar(d){ // horizontal, single or grouped
+  var rowsN=d.labels.length, ns=d.series.length, rh=Math.max(20,Math.min(34,240/Math.max(1,rowsN))), gap=8;
+  var W=680,left=170,right=54,plotW=W-left-right,H=rowsN*(rh+gap)+20;
+  var max=Math.max.apply(null,[].concat.apply([1],d.series.map(function(s){return s.values;})));
+  var g='';
+  d.labels.forEach(function(L,i){ var y=10+i*(rh+gap); var sh=rh/ns;
+    d.series.forEach(function(se,si){ var v=se.values[i]||0, bw=plotW*v/max; var yy=y+si*sh;
+      g+='<rect x="'+left+'" y="'+yy+'" width="'+Math.max(0,bw)+'" height="'+Math.max(0,sh-1)+'" rx="3" fill="'+DS_PAL[(ns>1?si:i)%DS_PAL.length]+'"><title>'+_dsEsc(L)+': '+v+'</title></rect>';
+      if(ns===1)g+='<text x="'+(left+bw+6)+'" y="'+(yy+sh/2+4)+'" font-size="12" fill="'+DS_LABEL+'">'+_dsFmt(v)+'</text>'; });
+    var lab=L.length>24?L.slice(0,23)+'…':L; g+='<text x="'+(left-8)+'" y="'+(y+rh/2+4)+'" text-anchor="end" font-size="12.5" fill="'+DS_LABEL+'">'+_dsEsc(lab)+'</text>'; });
+  return _dsWrap(g,W,H)+(ns>1?_dsLegend(d.series.map(function(s){return s.name;})):'');
+}
+function _dsLine(d,area,combo){
+  var W=680,H=290,left=48,right=20,top=16,bottom=42,plotW=W-left-right,plotH=H-top-bottom,n=d.labels.length;
+  var allv=[].concat.apply([],d.series.map(function(s){return s.values;})); var max=Math.max.apply(null,allv.concat([1])),min=Math.min.apply(null,allv.concat([0])); if(min>0)min=0;
+  var xf=function(i){return left+(n<=1?plotW/2:plotW*i/(n-1));}, yf=function(v){return top+plotH-plotH*(v-min)/((max-min)||1);};
+  var tick='';for(var t=0;t<=4;t++){var yv=min+(max-min)*t/4,y=top+plotH-plotH*t/4;tick+='<line x1="'+left+'" y1="'+y+'" x2="'+(left+plotW)+'" y2="'+y+'" stroke="'+DS_GRID+'"/><text x="'+(left-6)+'" y="'+(y+3)+'" text-anchor="end" font-size="10" fill="'+DS_AXIS+'">'+_dsFmt(yv)+'</text>';}
+  var g='';
+  d.series.forEach(function(se,si){ if(combo&&si===0){ // first series as columns
+      var gw=plotW/n; se.values.forEach(function(v,i){ var bh=plotH*(v-min)/((max-min)||1),y=top+plotH-bh; g+='<rect x="'+(xf(i)-gw*0.3)+'" y="'+y+'" width="'+(gw*0.6)+'" height="'+Math.max(0,bh)+'" fill="'+DS_PAL[0]+'" opacity="0.85"/>'; }); return; }
+    var pts=se.values.map(function(v,i){return xf(i)+','+yf(v);}).join(' '); var col=DS_PAL[si%DS_PAL.length];
+    if(area&&d.series.length===1){ g+='<polygon points="'+left+','+(top+plotH)+' '+pts+' '+(left+plotW)+','+(top+plotH)+'" fill="'+col+'" opacity="0.18"/>'; }
+    g+='<polyline points="'+pts+'" fill="none" stroke="'+col+'" stroke-width="2.5"/>';
+    se.values.forEach(function(v,i){ g+='<circle cx="'+xf(i)+'" cy="'+yf(v)+'" r="3" fill="'+col+'"><title>'+_dsEsc(se.name)+' · '+_dsEsc(d.labels[i])+': '+v+'</title></circle>'; }); });
+  var step=Math.ceil(n/8); d.labels.forEach(function(L,i){ if(i%step)return; var lab=L.length>10?L.slice(0,9)+'…':L; g+='<text x="'+xf(i)+'" y="'+(H-bottom+18)+'" text-anchor="middle" font-size="10.5" fill="'+DS_LABEL+'">'+_dsEsc(lab)+'</text>'; });
+  return _dsWrap(tick+g,W,H)+_dsLegend(d.series.map(function(s){return s.name;}));
+}
+function _dsPie(d,donut){
+  var s=d.series[0]; if(!s) return '<p style="color:'+DS_LABEL+'">No numeric data.</p>';
+  var data=d.labels.map(function(L,i){return {l:L,v:Math.max(0,s.values[i]||0)};}).filter(function(x){return x.v>0;});
+  var tot=data.reduce(function(a,b){return a+b.v;},0)||1, cx=150,cy=150,r=120,ir=donut?64:0,ang=-Math.PI/2,g='';
+  data.forEach(function(x,i){ var a2=ang+2*Math.PI*x.v/tot, x1=cx+r*Math.cos(ang),y1=cy+r*Math.sin(ang),x2=cx+r*Math.cos(a2),y2=cy+r*Math.sin(a2),big=(a2-ang)>Math.PI?1:0,col=DS_PAL[i%DS_PAL.length];
+    if(ir){ var xi1=cx+ir*Math.cos(a2),yi1=cy+ir*Math.sin(a2),xi2=cx+ir*Math.cos(ang),yi2=cy+ir*Math.sin(ang);
+      g+='<path d="M'+x1+' '+y1+' A'+r+' '+r+' 0 '+big+' 1 '+x2+' '+y2+' L'+xi1+' '+yi1+' A'+ir+' '+ir+' 0 '+big+' 0 '+xi2+' '+yi2+' Z" fill="'+col+'"><title>'+_dsEsc(x.l)+': '+x.v+' ('+Math.round(x.v/tot*100)+'%)</title></path>'; }
+    else g+='<path d="M'+cx+' '+cy+' L'+x1+' '+y1+' A'+r+' '+r+' 0 '+big+' 1 '+x2+' '+y2+' Z" fill="'+col+'"><title>'+_dsEsc(x.l)+': '+x.v+' ('+Math.round(x.v/tot*100)+'%)</title></path>';
+    ang=a2; });
+  if(donut)g+='<text x="'+cx+'" y="'+(cy-2)+'" text-anchor="middle" font-size="26" font-weight="700" fill="'+DS_LABEL+'">'+_dsFmt(tot)+'</text><text x="'+cx+'" y="'+(cy+16)+'" text-anchor="middle" font-size="11" fill="'+DS_AXIS+'">total</text>';
+  return _dsWrap(g,300,300)+_dsLegend(data.map(function(x){return x.l;}));
+}
+function _dsTreemap(d){
+  var s=d.series[0]; if(!s)return''; var W=680,H=320;
+  var items=d.labels.map(function(L,i){return {l:L,v:Math.max(0,s.values[i]||0)};}).filter(function(x){return x.v>0;}).sort(function(a,b){return b.v-a.v;}).slice(0,24);
+  var tot=items.reduce(function(a,b){return a+b.v;},0)||1, g='';
+  // simple row-based squarify
+  var x=0,y=0,rowH,i=0; var area=W*H; items.forEach(function(it){it.a=it.v/tot*area;});
+  while(i<items.length){ var remW=W-x; var row=[],sum=0; // greedily fill a row spanning remaining width
+    var rh=Math.max(28, Math.sqrt(items[i].a)); rh=Math.min(rh,H-y);
+    var acc=0; while(i<items.length && acc< remW*rh*0.98){ row.push(items[i]); acc+=items[i].a; i++; if(acc>=remW*rh) break; }
+    var rowSum=row.reduce(function(a,b){return a+b.a;},0); var rowh=Math.min(H-y, rowSum/remW); if(rowh<24)rowh=Math.min(H-y,24);
+    var cx=x; row.forEach(function(it,k){ var w=it.a/rowSum*remW; var col=DS_PAL[(items.indexOf(it))%DS_PAL.length];
+      g+='<rect x="'+cx+'" y="'+y+'" width="'+Math.max(0,w-2)+'" height="'+Math.max(0,rowh-2)+'" fill="'+col+'" rx="3"><title>'+_dsEsc(it.l)+': '+it.v+'</title></rect>';
+      if(w>52&&rowh>24){ g+='<text x="'+(cx+5)+'" y="'+(y+16)+'" font-size="11.5" fill="#10131a" font-weight="700">'+_dsEsc(it.l.length>Math.floor(w/8)?it.l.slice(0,Math.floor(w/8))+'…':it.l)+'</text><text x="'+(cx+5)+'" y="'+(y+30)+'" font-size="10.5" fill="#10131a">'+_dsFmt(it.v)+'</text>'; }
+      cx+=w; }); y+=rowh; if(y>=H)break; }
+  return _dsWrap(g,W,H);
+}
+function _dsFunnel(d){
+  var s=d.series[0]; if(!s)return''; var W=560, items=d.labels.map(function(L,i){return {l:L,v:Math.max(0,s.values[i]||0)};});
+  var max=Math.max.apply(null,items.map(function(x){return x.v;}).concat([1])), rh=44,gap=8,H=items.length*(rh+gap)+10,g='';
+  items.forEach(function(it,i){ var w=(W-160)*it.v/max, x=(W-160-w)/2+130, y=10+i*(rh+gap); var col=DS_PAL[i%DS_PAL.length];
+    var wN=i<items.length-1?(W-160)*items[i+1].v/max:w, xN=(W-160-wN)/2+130;
+    g+='<polygon points="'+x+','+y+' '+(x+w)+','+y+' '+(xN+wN)+','+(y+rh)+' '+xN+','+(y+rh)+'" fill="'+col+'"><title>'+_dsEsc(it.l)+': '+it.v+'</title></polygon>';
+    g+='<text x="122" y="'+(y+rh/2+4)+'" text-anchor="end" font-size="12.5" fill="'+DS_LABEL+'">'+_dsEsc(it.l.length>18?it.l.slice(0,17)+'…':it.l)+'</text>';
+    g+='<text x="'+(W/2)+'" y="'+(y+rh/2+5)+'" text-anchor="middle" font-size="13" font-weight="700" fill="#10131a">'+_dsFmt(it.v)+'</text>'; });
+  return _dsWrap(g,W,H);
+}
+function _dsWaterfall(d){
+  var s=d.series[0]; if(!s)return''; var W=680,H=300,left=48,bottom=48,top=16,plotW=W-left-20,plotH=H-top-bottom;
+  var vals=d.labels.map(function(L,i){return s.values[i]||0;}); var run=0,cum=[0]; vals.forEach(function(v){run+=v;cum.push(run);});
+  var mx=Math.max.apply(null,cum),mn=Math.min.apply(null,cum.concat([0])); var yf=function(v){return top+plotH-plotH*(v-mn)/((mx-mn)||1);};
+  var gw=plotW/vals.length,g='';
+  vals.forEach(function(v,i){ var y0=yf(cum[i]),y1=yf(cum[i+1]),x=left+i*gw+gw*0.2,w=gw*0.6,col=v>=0?'var(--ok)':'#e0607e';
+    g+='<rect x="'+x+'" y="'+Math.min(y0,y1)+'" width="'+w+'" height="'+Math.max(1,Math.abs(y1-y0))+'" fill="'+col+'"><title>'+_dsEsc(d.labels[i])+': '+(v>=0?'+':'')+v+'</title></rect>';
+    var lab=d.labels[i]; g+='<text x="'+(x+w/2)+'" y="'+(H-bottom+16)+'" text-anchor="middle" font-size="10" fill="'+DS_LABEL+'">'+_dsEsc(lab.length>8?lab.slice(0,7)+'…':lab)+'</text>'; });
+  return _dsWrap(g,W,H);
+}
+function _dsRadar(d){
+  var W=340,H=340,cx=170,cy=170,R=120,n=d.labels.length; if(n<3)return _dsBar(d);
+  var max=Math.max.apply(null,[].concat.apply([1],d.series.map(function(s){return s.values;})));
+  var ang=function(i){return -Math.PI/2+2*Math.PI*i/n;}, g='';
+  for(var t=1;t<=4;t++){ var pts=d.labels.map(function(_,i){var r=R*t/4;return (cx+r*Math.cos(ang(i)))+','+(cy+r*Math.sin(ang(i)));}).join(' '); g+='<polygon points="'+pts+'" fill="none" stroke="'+DS_GRID+'"/>'; }
+  d.labels.forEach(function(L,i){ g+='<line x1="'+cx+'" y1="'+cy+'" x2="'+(cx+R*Math.cos(ang(i)))+'" y2="'+(cy+R*Math.sin(ang(i)))+'" stroke="'+DS_GRID+'"/><text x="'+(cx+(R+14)*Math.cos(ang(i)))+'" y="'+(cy+(R+14)*Math.sin(ang(i)))+'" text-anchor="middle" font-size="10.5" fill="'+DS_LABEL+'">'+_dsEsc(L.length>10?L.slice(0,9)+'…':L)+'</text>'; });
+  d.series.forEach(function(se,si){ var pts=se.values.map(function(v,i){var r=R*(v/max);return (cx+r*Math.cos(ang(i)))+','+(cy+r*Math.sin(ang(i)));}).join(' '); var col=DS_PAL[si%DS_PAL.length]; g+='<polygon points="'+pts+'" fill="'+col+'" fill-opacity="0.18" stroke="'+col+'" stroke-width="2"/>'; });
+  return _dsWrap(g,W,H)+_dsLegend(d.series.map(function(s){return s.name;}));
+}
+function _dsScatter(d,bubble){
+  var xs=d.series[0], ys=d.series[1]; if(!xs||!ys)return '<p style="color:'+DS_LABEL+'">Scatter needs two numeric columns.</p>';
+  var zs=bubble?d.series[2]:null; var W=680,H=320,left=52,bottom=44,top=16,plotW=W-left-20,plotH=H-top-bottom;
+  var xmax=Math.max.apply(null,xs.values.concat([1])),ymax=Math.max.apply(null,ys.values.concat([1])),zmax=zs?Math.max.apply(null,zs.values.concat([1])):1;
+  var xf=function(v){return left+plotW*v/xmax;},yf=function(v){return top+plotH-plotH*v/ymax;},g='';
+  for(var t=0;t<=4;t++){var y=top+plotH-plotH*t/4;g+='<line x1="'+left+'" y1="'+y+'" x2="'+(left+plotW)+'" y2="'+y+'" stroke="'+DS_GRID+'"/><text x="'+(left-6)+'" y="'+(y+3)+'" text-anchor="end" font-size="10" fill="'+DS_AXIS+'">'+_dsFmt(ymax*t/4)+'</text>';}
+  xs.values.forEach(function(v,i){ var r=zs?4+10*Math.sqrt((zs.values[i]||0)/zmax):4; g+='<circle cx="'+xf(v)+'" cy="'+yf(ys.values[i]||0)+'" r="'+r+'" fill="'+DS_PAL[1]+'" fill-opacity="0.6" stroke="'+DS_PAL[1]+'"><title>'+_dsEsc(d.labels[i])+': ('+v+', '+(ys.values[i]||0)+(zs?', '+(zs.values[i]||0):'')+')</title></circle>'; });
+  g+='<text x="'+(left+plotW/2)+'" y="'+(H-6)+'" text-anchor="middle" font-size="11" fill="'+DS_AXIS+'">'+_dsEsc(xs.name)+'</text>';
+  return _dsWrap(g,W,H);
+}
+function _dsHeatmap(d){
+  if(!d.pivoted && d.series.length<2) return _dsBar(d);
+  var cols=d.series.map(function(s){return s.name;}), rowsL=d.labels;
+  var left=158, top=52, cellH=50;
+  var cellW=Math.max(92,Math.min(190,Math.round((760-left)/Math.max(1,cols.length))));
+  var W=left+cols.length*cellW+16, H=top+rowsL.length*cellH+18;
+  var mx=Math.max.apply(null,[].concat.apply([1],d.series.map(function(s){return s.values;}))),g='';
+  cols.forEach(function(c,j){ g+='<text x="'+(left+j*cellW+cellW/2)+'" y="'+(top-14)+'" text-anchor="middle" font-size="12.5" font-weight="600" fill="'+DS_LABEL+'">'+_dsEsc(c.length>16?c.slice(0,15)+'…':c)+'</text>'; });
+  rowsL.forEach(function(L,i){ g+='<text x="'+(left-12)+'" y="'+(top+i*cellH+cellH/2+4)+'" text-anchor="end" font-size="13" fill="'+DS_LABEL+'">'+_dsEsc(L.length>22?L.slice(0,21)+'…':L)+'</text>';
+    d.series.forEach(function(se,j){ var v=se.values[i]||0, a=mx?v/mx:0; g+='<rect x="'+(left+j*cellW+3)+'" y="'+(top+i*cellH+3)+'" width="'+(cellW-6)+'" height="'+(cellH-6)+'" rx="5" fill="#3ea6ff" fill-opacity="'+(0.10+0.85*a).toFixed(2)+'"><title>'+_dsEsc(L)+' · '+_dsEsc(se.name)+': '+v+'</title></rect><text x="'+(left+j*cellW+cellW/2)+'" y="'+(top+i*cellH+cellH/2+4)+'" text-anchor="middle" font-size="12.5" font-weight="600" fill="'+(a>0.5?'#07131f':'#c8d6e8')+'">'+_dsFmt(v)+'</text>'; }); });
+  return _dsWrap(g,W,H);
+}
+function _dsGauge(d){
+  var s=d.series[0]; var v=s?(s.values[0]||0):0; var max=Math.max.apply(null,(s?s.values:[1]).concat([1])); var pct=Math.max(0,Math.min(1,v/(max||1)));
+  var cx=150,cy=160,r=110,a0=Math.PI,a1=Math.PI*(1-pct); var x0=cx+r*Math.cos(Math.PI),y0=cy,x1=cx+r*Math.cos(a1),y1=cy+r*Math.sin(-a1)*0+cy-r*Math.sin(a1);
+  var arc=function(a,col,wdt){ var xa=cx+r*Math.cos(Math.PI),ya=cy; var xb=cx+r*Math.cos(a),yb=cy-r*Math.sin(a); var big=(Math.PI-a)>Math.PI?1:0; return '<path d="M'+xa+' '+ya+' A'+r+' '+r+' 0 '+big+' 1 '+xb+' '+yb+'" fill="none" stroke="'+col+'" stroke-width="'+wdt+'" stroke-linecap="round"/>'; };
+  var g=arc(0,DS_GRID,16)+arc(Math.PI*(1-pct),'var(--ok)',16)+'<text x="'+cx+'" y="'+(cy-6)+'" text-anchor="middle" font-size="34" font-weight="700" fill="'+DS_LABEL+'">'+_dsFmt(v)+'</text><text x="'+cx+'" y="'+(cy+16)+'" text-anchor="middle" font-size="12" fill="'+DS_AXIS+'">'+_dsEsc(d.labels[0]||'')+'</text>';
+  return _dsWrap(g,300,190);
+}
+function _dsProgress(d){
+  var s=d.series[0]; if(!s)return''; var max=Math.max.apply(null,s.values.concat([1])),W=680,rh=30,gap=12,H=d.labels.length*(rh+gap)+8,g='';
+  d.labels.forEach(function(L,i){ var v=s.values[i]||0,w=(W-220)*v/max,y=8+i*(rh+gap),pct=Math.round(v/max*100);
+    g+='<text x="8" y="'+(y+rh/2+4)+'" font-size="12.5" fill="'+DS_LABEL+'">'+_dsEsc(L.length>24?L.slice(0,23)+'…':L)+'</text>';
+    g+='<rect x="170" y="'+y+'" width="'+(W-220)+'" height="'+rh+'" rx="6" fill="'+DS_GRID+'"/><rect x="170" y="'+y+'" width="'+Math.max(2,w)+'" height="'+rh+'" rx="6" fill="'+DS_PAL[i%DS_PAL.length]+'"><title>'+_dsEsc(L)+': '+v+'</title></rect>';
+    g+='<text x="'+(W-42)+'" y="'+(y+rh/2+4)+'" font-size="12" fill="'+DS_LABEL+'">'+_dsFmt(v)+'</text>'; });
+  return _dsWrap(g,W,H);
+}
+/* Pareto — fix leverage. Sorted bars = findings killed per action (plugin); overlaid line =
+   cumulative % of the grand total; dashed marker at 60%. A second constant column (e.g.
+   total_critical) gives the true grand total so the long tail beyond the shown top-N counts.
+   Renders a plain-English headline: "K actions remove X% of the N critical findings". */
+function _dsPareto(d, rows){
+  var s=d.series[0]; if(!s) return _dsBar(d);
+  var items=d.labels.map(function(L,i){return {l:String(L), v:Math.max(0,s.values[i]||0)};}).filter(function(x){return x.v>0;}).sort(function(a,b){return b.v-a.v;});
+  if(!items.length) return '<p style="color:'+DS_LABEL+'">No findings to rank.</p>';
+  var shown=items.reduce(function(a,b){return a+b.v;},0);
+  var grand=shown; if(d.series[1] && d.series[1].values.length){ var t=Math.max.apply(null,d.series[1].values.filter(isFinite).concat([0])); if(t>grand)grand=t; }
+  var noun=(d.series[0].name||'finding').toLowerCase();
+  var W=680,H=340,left=52,right=48,top=16,bottom=104,plotW=W-left-right,plotH=H-top-bottom,n=items.length;
+  var max=items[0].v, gw=plotW/n;
+  var cum=0, cumPct=items.map(function(it){ cum+=it.v; return grand?100*cum/grand:0; });
+  var target=60, kAt=0; for(var i=0;i<cumPct.length;i++){ if(cumPct[i]>=target){ kAt=i+1; break; } }
+  var kActions=kAt||items.length, headPct=Math.round(kAt?cumPct[kAt-1]:cumPct[cumPct.length-1]);
+  var head='<div style="font-size:15.5px;font-weight:800;color:#e8ecff;margin:0 0 8px;line-height:1.35">'
+    +kActions+' action'+(kActions===1?'':'s')+' remove <span style="color:#2fa06e">'+headPct+'%</span> of the '+_dsFmt(grand)+' '+_dsEsc(noun)+(grand===1?'':'s')
+    +'<div style="font-size:11.5px;font-weight:400;color:'+DS_LABEL+';margin-top:2px">Bars = '+_dsEsc(noun)+'s killed by remediating that plugin · line = cumulative %</div></div>';
+  var g='', yfP=function(p){ return top+plotH-plotH*Math.min(100,p)/100; };
+  for(var t2=0;t2<=4;t2++){ var y=top+plotH-plotH*t2/4;
+    g+='<line x1="'+left+'" y1="'+y+'" x2="'+(left+plotW)+'" y2="'+y+'" stroke="'+DS_GRID+'"/>'
+      +'<text x="'+(left-6)+'" y="'+(y+3)+'" text-anchor="end" font-size="10" fill="'+DS_AXIS+'">'+_dsFmt(max*t2/4)+'</text>'
+      +'<text x="'+(left+plotW+6)+'" y="'+(y+3)+'" font-size="10" fill="'+DS_AXIS+'">'+(25*t2)+'%</text>'; }
+  var y60=yfP(60); g+='<line x1="'+left+'" y1="'+y60+'" x2="'+(left+plotW)+'" y2="'+y60+'" stroke="#e0b341" stroke-dasharray="4 3" stroke-opacity="0.75"/><text x="'+(left+plotW)+'" y="'+(y60-4)+'" text-anchor="end" font-size="9.5" fill="#e0b341">60%</text>';
+  items.forEach(function(it,i){ var bh=plotH*it.v/max, x=left+i*gw+gw*0.15, y=top+plotH-bh, bw=gw*0.7;
+    g+='<rect x="'+x.toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+bw.toFixed(1)+'" height="'+Math.max(0,bh).toFixed(1)+'" rx="2.5" fill="'+DS_PAL[0]+'"><title>'+_dsEsc(it.l)+': '+_dsFmt(it.v)+' · cumulative '+Math.round(cumPct[i])+'%</title></rect>';
+    var cx=x+bw/2, ly=H-bottom+12, lab=it.l.length>22?it.l.slice(0,21)+'…':it.l;
+    g+='<text x="'+cx.toFixed(1)+'" y="'+ly+'" text-anchor="end" font-size="9" fill="'+DS_LABEL+'" transform="rotate(-38 '+cx.toFixed(1)+' '+ly+')">'+_dsEsc(lab)+'</text>'; });
+  var pts=items.map(function(it,i){ return (left+i*gw+gw/2).toFixed(1)+','+yfP(cumPct[i]).toFixed(1); }).join(' ');
+  g+='<polyline points="'+pts+'" fill="none" stroke="#2fa06e" stroke-width="2.5"/>';
+  items.forEach(function(it,i){ g+='<circle cx="'+(left+i*gw+gw/2).toFixed(1)+'" cy="'+yfP(cumPct[i]).toFixed(1)+'" r="3" fill="#2fa06e"><title>cumulative '+Math.round(cumPct[i])+'% after '+(i+1)+' action(s)</title></circle>'; });
+  return head+_dsWrap(g,W,H);
+}
+function _dsHistogram(d){ // bucket a single numeric series' VALUES into bins
+  var s=d.series[0]; if(!s)return''; var vals=s.values.filter(function(v){return isFinite(v);}); if(!vals.length)return'';
+  var mn=Math.min.apply(null,vals),mx=Math.max.apply(null,vals),bins=Math.min(12,Math.max(4,Math.round(Math.sqrt(vals.length)))),bw=(mx-mn)/bins||1;
+  var counts=new Array(bins).fill(0); vals.forEach(function(v){var b=Math.min(bins-1,Math.floor((v-mn)/bw));counts[b]++;});
+  var dd={lc:'bin',labels:counts.map(function(_,i){return _dsFmt(mn+i*bw);}),series:[{name:'count',values:counts}]};
+  return _dsColumn(dd,false,false);
+}
+/* Sankey / threads — a flow between two categories. Reuses the long-format pivot
+   (label=source, series=target, value=flow). threads=true draws thin curved links
+   instead of proportional ribbons. */
+function _dsSankey(d, threads){
+  if(!d.pivoted || !d.series.length){ return _dsBar(d); }
+  var srcs=d.labels, tgts=d.series.map(function(s){return s.name;});
+  var F=srcs.map(function(_,i){ return d.series.map(function(s){ return Math.max(0,_dsNum(s.values[i])||0); }); });
+  var outSum=F.map(function(row){ return row.reduce(function(a,b){return a+b;},0); });
+  var inSum=tgts.map(function(_,j){ var s=0; F.forEach(function(row){ s+=row[j]; }); return s; });
+  var total=outSum.reduce(function(a,b){return a+b;},0)||1;
+  var maxN=Math.max(srcs.length,tgts.length);
+  var W=980, top=22, ng=16, nw=17, ph=Math.max(360, maxN*64);
+  var scale=(ph-(maxN-1)*ng)/total, lx=210, rx=W-210, xm=(lx+nw+rx)/2;
+  var ly=[], yy=top; for(var i=0;i<srcs.length;i++){ ly[i]=yy; yy+=Math.max(2,outSum[i]*scale)+ng; }
+  var ry=[], zz=top; for(var j=0;j<tgts.length;j++){ ry[j]=zz; zz+=Math.max(2,inSum[j]*scale)+ng; }
+  var H=Math.max(yy,zz)-ng+8, loff=ly.slice(), roff=ry.slice(), g='';
+  for(var i2=0;i2<srcs.length;i2++){ var col=DS_PAL[i2%DS_PAL.length];
+    for(var j2=0;j2<tgts.length;j2++){ var f=F[i2][j2]; if(f<=0)continue; var th=Math.max(0.8,f*scale);
+      var a1=loff[i2], a2=roff[j2]; loff[i2]+=th; roff[j2]+=th;
+      var tt='<title>'+_dsEsc(srcs[i2])+' → '+_dsEsc(tgts[j2])+': '+_dsFmt(f)+'</title>';
+      if(threads){ var c1=a1+th/2, c2=a2+th/2;
+        g+='<path d="M'+(lx+nw)+' '+c1+' C'+xm+' '+c1+' '+xm+' '+c2+' '+rx+' '+c2+'" fill="none" stroke="'+col+'" stroke-width="'+th.toFixed(1)+'" stroke-opacity="0.5" stroke-linecap="round">'+tt+'</path>';
+      } else {
+        g+='<path d="M'+(lx+nw)+' '+a1+' C'+xm+' '+a1+' '+xm+' '+a2+' '+rx+' '+a2+' L'+rx+' '+(a2+th)+' C'+xm+' '+(a2+th)+' '+xm+' '+(a1+th)+' '+(lx+nw)+' '+(a1+th)+' Z" fill="'+col+'" fill-opacity="0.42">'+tt+'</path>';
+      }
+    }
+  }
+  for(var i3=0;i3<srcs.length;i3++){ var h=Math.max(2,outSum[i3]*scale);
+    g+='<rect x="'+lx+'" y="'+ly[i3]+'" width="'+nw+'" height="'+h+'" rx="2" fill="'+DS_PAL[i3%DS_PAL.length]+'"/><text x="'+(lx-7)+'" y="'+(ly[i3]+h/2+4)+'" text-anchor="end" font-size="13" fill="'+DS_LABEL+'">'+_dsEsc(srcs[i3].length>28?srcs[i3].slice(0,27)+'…':srcs[i3])+'</text>'; }
+  for(var j3=0;j3<tgts.length;j3++){ var h2=Math.max(2,inSum[j3]*scale);
+    g+='<rect x="'+rx+'" y="'+ry[j3]+'" width="'+nw+'" height="'+h2+'" rx="2" fill="'+DS_GRID+'"/><text x="'+(rx+nw+7)+'" y="'+(ry[j3]+h2/2+4)+'" text-anchor="start" font-size="13" fill="'+DS_LABEL+'">'+_dsEsc(tgts[j3].length>28?tgts[j3].slice(0,27)+'…':tgts[j3])+'</text>'; }
+  return _dsWrap(g, W, H);
+}
+function dashTableHTML(cols,rows,limit){ cols=cols&&cols.length?cols:(rows.length?Object.keys(rows[0]):[]); var rs=rows.slice(0,limit||50);
+  return '<table style="border-collapse:collapse;width:100%;font-size:12.5px"><thead><tr>'+cols.map(function(c){return '<th style="text-align:left;padding:5px 8px;border-bottom:1px solid '+DS_GRID+';color:'+DS_LABEL+'">'+_dsEsc(c)+'</th>';}).join('')+'</tr></thead><tbody>'+rs.map(function(r){return '<tr>'+cols.map(function(c){return '<td style="padding:5px 8px;border-bottom:1px solid '+DS_GRID+';color:'+DS_LABEL+'">'+_dsEsc(r[c])+'</td>';}).join('')+'</tr>';}).join('')+'</tbody></table>'+(rows.length>rs.length?'<div style="font-size:11px;color:'+DS_AXIS+';margin-top:4px">… '+(rows.length-rs.length)+' more row(s)</div>':''); }
+
+/* ---- the single entry point ---- */
+function dashSVG(type, cols, rows, spec){
+  if(!rows||!rows.length) return '<p style="color:'+DS_LABEL+'">No rows.</p>';
+  var d=dashData(cols,rows,spec);
+  switch(String(type||'').toLowerCase()){
+    case 'kpi': { var r0=rows[0];
+      // A column named __coverage (or __cov*) is NOT a headline number — it's a confidence
+      // qualifier: how much of the fleet this metric actually sees. Render it as a small chip.
+      var kbig=cols.filter(function(c){return String(c).indexOf('__cov')!==0;});
+      var kcov=cols.filter(function(c){return String(c).indexOf('__cov')===0;});
+      var main='<div style="display:flex;gap:14px;flex-wrap:wrap">'+kbig.map(function(c){return '<div style="min-width:110px"><div style="font-size:26px;font-weight:800;color:'+DS_PAL[1]+'">'+_dsEsc(r0[c])+'</div><div style="font-size:11px;color:'+DS_LABEL+'">'+_dsEsc(c)+'</div></div>';}).join('')+'</div>';
+      var chip='';
+      if(kcov.length){ var cv=r0[kcov[0]]; if(cv!=null&&cv!==''){ var cvn=parseFloat(cv); var dot=(cvn>=85?'#2fa06e':cvn>=60?'#e0b341':'#e0607e');
+        chip='<div style="margin-top:9px"><span title="Credentialed-scan coverage of the fleet. Uncovered assets can hide risk, so this headline number is a floor, not the whole picture." style="display:inline-flex;align-items:center;gap:6px;font-size:11px;padding:3px 10px;border-radius:99px;border:1px solid '+DS_GRID+';color:'+DS_LABEL+'"><span style="width:7px;height:7px;border-radius:50%;background:'+dot+'"></span>coverage '+_dsEsc(cv)+'% — sees '+_dsEsc(cv)+'% of the fleet</span></div>'; } }
+      return main+chip; }
+    case 'bar': return _dsBar(d);
+    case 'pareto': return _dsPareto(d, rows);
+    case 'column': return _dsColumn(d,false,false);
+    case 'grouped': case 'grouped_bar': case 'group': return d.series.length>1?_dsColumn(d,false,true):_dsColumn(d,false,false);
+    case 'stacked': case 'stacked_bar': case 'stackedcolumn': return _dsColumn(d,true,false);
+    case 'pie': return _dsPie(d,false);
+    case 'donut': return _dsPie(d,true);
+    case 'line': return _dsLine(d,false,false);
+    case 'multiline': case 'multi_line': return _dsLine(d,false,false);
+    case 'area': return _dsLine(d,true,false);
+    case 'combo': return _dsLine(d,false,true);
+    case 'gauge': return _dsGauge(d);
+    case 'radar': return _dsRadar(d);
+    case 'treemap': return _dsTreemap(d);
+    case 'funnel': return _dsFunnel(d);
+    case 'waterfall': return _dsWaterfall(d);
+    case 'scatter': return _dsScatter(d,false);
+    case 'bubble': return _dsScatter(d,true);
+    case 'heatmap': case 'matrix': return _dsHeatmap(d);
+    case 'sankey': case 'flow': return _dsSankey(d,false);
+    case 'threads': case 'thread': return _dsSankey(d,true);
+    case 'progress': case 'bullet': return _dsProgress(d);
+    case 'histogram': return _dsHistogram(d);
+    case 'table': return dashTableHTML(cols,rows);
+    default: return d.series.length? _dsBar(d) : dashTableHTML(cols,rows);
+  }
+}
+var DASH_TYPES=['auto','bar','column','stacked','grouped','pie','donut','line','multiline','area','combo','scatter','bubble','heatmap','sankey','threads','treemap','funnel','waterfall','radar','gauge','progress','pareto','histogram','kpi','table'];
+
 function vizHTML(r){
   const rows=r.rows||[], cols=r.columns||[];
   if(!rows.length) return '<p class="sub">No rows returned for that query. If you just applied tags/ACR or expected results, your local navi.db may be stale — refresh with <span class="mono">navi update assets</span> / <span class="mono">navi update vulns</span> (tags land in navi.db only after a sync).</p>';
-  let {viz,lc,vc}=dPickViz(r,cols,rows);
+  let {viz}=dPickViz(r,cols,rows);
   const ov=(document.getElementById('dChartType')||{}).value||'auto'; if(ov&&ov!=='auto') viz=ov;
-  if(viz==='donut') return svgDonutD(rows,lc,vc)+`<details style="margin-top:12px"><summary class="sub" style="cursor:pointer">Show data table</summary>${tableHtml(r)}</details>`;
-  if(viz==='column') return svgColumnD(rows,lc,vc)+`<details style="margin-top:12px"><summary class="sub" style="cursor:pointer">Show data table</summary>${tableHtml(r)}</details>`;
-  if(viz==='gauge') return svgGaugeD(rows,lc,vc)+`<details style="margin-top:12px"><summary class="sub" style="cursor:pointer">Show data table</summary>${tableHtml(r)}</details>`;
-  if(viz==='kpi'){ const row=rows[0];
-    return '<div class="kpi">'+cols.map(c=>`<div class="k"><div class="v">${esc(String(row[c]))}</div><div class="l">${esc(c)}</div></div>`).join('')+'</div>'+(rows.length>1?tableHtml(r):''); }
-  if(viz==='pie') return svgPie(rows,lc,vc)+`<details style="margin-top:12px"><summary class="sub" style="cursor:pointer">Show data table</summary>${tableHtml(r)}</details>`;
-  if(viz==='line') return svgLine(rows,lc,vc)+`<details style="margin-top:12px"><summary class="sub" style="cursor:pointer">Show data table</summary>${tableHtml(r)}</details>`;
-  if(viz==='bar'){
-    const max=Math.max(1,...rows.map(x=>parseFloat(x[vc])||0));
-    return rows.map((x,i)=>{const val=parseFloat(x[vc])||0;const w=Math.max(3,Math.round(val/max*100));
-      return `<div class="barrow"><div class="bl" title="${esc(String(x[lc]))}">${esc(String(x[lc]))}</div><div class="h2bar" style="width:${w}%;background:${DPAL[i%DPAL.length]};color:#10131a;border-radius:5px">${val}</div><div class="bv">${esc(String(x[vc]))}</div></div>`;}).join('')+
-      `<details style="margin-top:12px"><summary class="sub" style="cursor:pointer">Show data table</summary>${tableHtml(r)}</details>`;
-  }
-  return tableHtml(r);
+  var html=dashSVG(viz,cols,rows,{label_col:r.label_col,value_col:r.value_col,viz:viz});
+  if(viz!=='table'&&viz!=='kpi') html+=`<details style="margin-top:12px"><summary class="sub" style="cursor:pointer">Show data table</summary>${tableHtml(r)}</details>`;
+  return html;
 }
 function renderViz(r){
   const v=document.getElementById('viz'); const rows=r.rows||[]; window.__dLast=r;
@@ -136,29 +445,197 @@ function renderViz(r){
 (function(){ const dt=document.getElementById('dChartType'); if(dt) dt.onchange=()=>{ if(window.__dLast) renderViz(window.__dLast); }; })();
 
 /* ===== Pinned multi-component dashboard (saved in this browser) ===== */
-let _dashCurrent=null, DASHBOARD=[];
-try{ DASHBOARD=JSON.parse(localStorage.getItem('navi-dashboard')||'[]')||[]; }catch(e){ DASHBOARD=[]; }
-function saveDash(){ try{ localStorage.setItem('navi-dashboard',JSON.stringify(DASHBOARD)); }catch(e){} }
+let _dashCurrent=null, DASHBOARD=dashGetItems();
+function saveDash(){ dashSetItems(DASHBOARD); }
+function reloadDashB(){ DASHBOARD=dashGetItems(); mountDashTabs('dashTabs', reloadDashB); renderDashGrid(); }
+/* A pinned component keeps its OWN chart type (incl. advanced ones — bubble, heatmap,
+   treemap…). Render it with the full dashSVG engine and its stored viz, NOT dPickViz (whose
+   whitelist is only kpi/bar/line/pie/table) and NOT the builder's live chart-type dropdown. */
+function pinnedViz(r){
+  const rows=r.rows||[], cols=r.columns||[];
+  if(!rows.length) return '<p class="sub">No rows in the current navi.db snapshot.</p>';
+  let viz=(r.viz&&r.viz!=='auto')?r.viz:dPickViz(r,cols,rows).viz;
+  let html=dashSVG(viz,cols,rows,{label_col:r.label_col,value_col:r.value_col,viz:viz});
+  if(viz!=='table'&&viz!=='kpi') html+=`<details style="margin-top:12px"><summary class="sub" style="cursor:pointer">Show data table</summary>${tableHtml(r)}</details>`;
+  return html;
+}
+function vzOptions(sel){ return ['auto'].concat(DASH_TYPES.filter(function(t){return t!=='auto';})).map(function(t){ return '<option value="'+t+'"'+((t===(sel||'auto'))?' selected':'')+'>'+t+'</option>'; }).join(''); }
 function renderDashGrid(){
   const g=document.getElementById('dashGrid'), wrap=document.getElementById('dashGridWrap'); if(!g||!wrap)return;
   wrap.style.display=DASHBOARD.length?'block':'none';
+  const nm=document.getElementById('dashBoardName'); if(nm){ try{ nm.textContent='📌 '+dashActive().name; }catch(e){} }
   const cnt=document.getElementById('dashGridCount'); if(cnt)cnt.textContent=DASHBOARD.length+' component'+(DASHBOARD.length===1?'':'s');
-  g.innerHTML=DASHBOARD.map((d,i)=>`<section class="card" style="margin:0"><div class="toolbar"><div><h3 style="margin:0">${esc(d.title||'Component')}</h3>${d.note?'<p class="sub" style="margin:2px 0 0">'+esc(d.note)+'</p>':''}</div><span style="margin-left:auto;display:flex;gap:6px"><button class="btn ghost sm" data-dcsv="${i}">⤓ CSV</button><button class="btn ghost sm" data-dsql="${i}">SQL</button><button class="btn ghost sm" data-drm="${i}" title="Remove">✕</button></span></div><div class="callbox" data-dsqlw="${i}" style="display:none;margin-bottom:10px"><div class="sqlbox">${esc(d.sql||'')}</div></div><div>${vizHTML(d.r||{})}</div></section>`).join('');
+  g.innerHTML=DASHBOARD.map((d,i)=>`<section class="card" style="margin:0"><div class="toolbar"><div><h3 style="margin:0">${esc(d.title||'Component')}</h3>${d.note?'<p class="sub" style="margin:2px 0 0">'+esc(d.note)+'</p>':''}</div><span style="margin-left:auto;display:flex;gap:6px;align-items:center"><select class="fld" data-dvz="${i}" title="Change chart type" style="font-size:11px;padding:3px 6px">${vzOptions((d.r&&d.r.viz)||'')}</select><button class="btn ghost sm" data-dcsv="${i}">⤓ CSV</button><button class="btn ghost sm" data-dsql="${i}">SQL</button><button class="btn ghost sm" data-drm="${i}" title="Remove">✕</button></span></div><div class="callbox" data-dsqlw="${i}" style="display:none;margin-bottom:10px"><div class="sqlbox">${esc(d.sql||'')}</div></div><div>${pinnedViz(d.r||{})}</div></section>`).join('');
+  g.querySelectorAll('[data-dvz]').forEach(s=>s.onchange=()=>{const i=+s.dataset.dvz; if(DASHBOARD[i]){DASHBOARD[i].r=DASHBOARD[i].r||{}; DASHBOARD[i].r.viz=s.value==='auto'?'':s.value; saveDash(); renderDashGrid();}});
   g.querySelectorAll('[data-drm]').forEach(b=>b.onclick=()=>{DASHBOARD.splice(+b.dataset.drm,1);saveDash();renderDashGrid();});
   g.querySelectorAll('[data-dsql]').forEach(b=>b.onclick=()=>{const w=g.querySelector('[data-dsqlw="'+b.dataset.dsql+'"]');if(w)w.style.display=w.style.display==='none'?'block':'none';});
   g.querySelectorAll('[data-dcsv]').forEach(b=>b.onclick=()=>{const d=DASHBOARD[+b.dataset.dcsv];downloadCSV((d.title||'component')+'.csv',(d.r&&d.r.columns)||[],(d.r&&d.r.rows)||[]);});
 }
 function addToDashboard(){ if(!_dashCurrent){flash('flash','Generate a dashboard first.','warn');return;}
+  var _ov=(document.getElementById('dChartType')||{}).value||'auto';   // bake the chosen chart type
+  if(_ov&&_ov!=='auto'){ _dashCurrent.r=_dashCurrent.r||{}; _dashCurrent.r.viz=_ov; }
   DASHBOARD.push(JSON.parse(JSON.stringify(_dashCurrent))); saveDash(); renderDashGrid();
-  flash('flash','✓ pinned to “My dashboard” below — generate another to keep building.','ok');
+  flash('flash','✓ pinned to “'+dashActive().name+'” below — generate another to keep building.','ok');
   const w=document.getElementById('dashGridWrap'); if(w)w.scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+/* compose the pinned board as an HTML email (chart + small table each) and hand off to Gabriel */
+function emailDashboard(){
+  if(!DASHBOARD.length){ alert('Pin at least one component with “Add to dashboard” first.'); return; }
+  var subject='[Tenable] Custom dashboard — '+DASHBOARD.length+' component'+(DASHBOARD.length!=1?'s':'');
+  var H=['<p>Custom navi.db dashboard — <b>'+DASHBOARD.length+'</b> component(s). Read-only; generated from navi.db.</p>'];
+  var T=['Custom navi.db dashboard — '+DASHBOARD.length+' component(s). Read-only.',''];
+  DASHBOARD.forEach(function(d,i){ var r=d.r||{}, cols=r.columns||[], rows=r.rows||[], viz=r.viz;
+    if(!viz||viz==='auto'){ try{ viz=dPickViz(r,cols,rows).viz; }catch(e){ viz='bar'; } }
+    var chart=''; try{ chart=dashSVG(viz,cols,rows,{label_col:r.label_col,value_col:r.value_col}); }catch(e){}
+    H.push('<div style="margin:14px 0;border:1px solid rgba(148,163,184,.25);border-radius:10px;padding:12px"><div style="font-weight:800;font-size:15px">'+esc(d.title||'Component')+'</div>'+(d.note?'<div style="color:#64748b;font-size:12px">'+esc(d.note)+'</div>':'')+'<div style="margin:8px 0">'+chart+'</div><div style="margin-top:6px">'+dashTableHTML(cols,rows,12)+'</div></div>');
+    T.push((i+1)+'. '+(d.title||'Component')+(d.note?(' — '+d.note):'')); if(cols.length&&rows.length){ T.push('   '+cols.join(' | ')); rows.slice(0,10).forEach(function(x){T.push('   '+cols.map(function(c){return String(x[c]==null?'':x[c]);}).join(' | '));}); if(rows.length>10)T.push('   … +'+(rows.length-10)+' more'); } T.push('');
+  });
+  var msg={to:'',owner:'Dashboard',subject:subject,body_text:T.join('\n'),
+    body_html:'<div style="font-family:system-ui,Segoe UI,Arial,sans-serif">'+H.join('')+'</div>',needs_address:true};
+  sessionStorage.setItem('gabriel_handoff', JSON.stringify({report:'custom_dashboard', messages:[msg]}));
+  location.href='/agents/email/page.html';
 }
 (function dashGridInit(){
   const ab=document.getElementById('dashAdd'); if(ab){ab.disabled=true;ab.onclick=addToDashboard;}
   const cb=document.getElementById('dashCsv'); if(cb)cb.onclick=()=>{ if(_dashCurrent&&_dashCurrent.r)downloadCSV((_dashCurrent.title||'dashboard')+'.csv',_dashCurrent.r.columns||[],_dashCurrent.r.rows||[]); else alert('Generate a dashboard first.'); };
   const ca=document.getElementById('dashClearAll'); if(ca)ca.onclick=()=>{ if(DASHBOARD.length&&confirm('Remove all '+DASHBOARD.length+' pinned component(s)?')){DASHBOARD=[];saveDash();renderDashGrid();} };
-  renderDashGrid();
+  const de=document.getElementById('dashEmail'); if(de)de.onclick=emailDashboard;
+  reloadDashB();
 })();
+
+/* ===== Starter metrics — verified navi.db SQL presets, one click to pin (no model) ===== */
+const PRESETS=[
+ {g:'Leadership',title:'KEV-exposed assets',note:'Assets carrying a CISA Known-Exploited finding — with a scan-coverage qualifier (this number only sees credentialed hosts).',viz:'kpi',
+  sql:`SELECT COUNT(DISTINCT asset_uuid) AS "KEV-exposed assets", (SELECT COALESCE(ROUND(100.0*COUNT(DISTINCT CASE WHEN lower(output) LIKE '%credentialed checks : yes%' THEN asset_uuid END)/NULLIF(COUNT(DISTINCT asset_uuid),0)),0) FROM vulns WHERE plugin_id='19506') AS "__coverage" FROM vulns WHERE xrefs LIKE '%KNOWN-EXPLOITED%'`},
+ {g:'Leadership',title:'Crown-jewel risk',note:'Assets that are BOTH critical and KEV-exploitable — with a scan-coverage qualifier on the number.',viz:'kpi',
+  sql:`SELECT COUNT(*) AS "Crown-jewel assets (critical + KEV)", (SELECT COALESCE(ROUND(100.0*COUNT(DISTINCT CASE WHEN lower(output) LIKE '%credentialed checks : yes%' THEN asset_uuid END)/NULLIF(COUNT(DISTINCT asset_uuid),0)),0) FROM vulns WHERE plugin_id='19506') AS "__coverage" FROM (SELECT asset_uuid FROM vulns WHERE lower(severity)='critical' INTERSECT SELECT asset_uuid FROM vulns WHERE xrefs LIKE '%KNOWN-EXPLOITED%')`},
+ {g:'Leadership',title:'Unpatchable risk %',note:'Share of the fleet on EOL / unsupported software — risk a patch can never fix. The only remedy is a replacement project; this is the number that unlocks budget.',viz:'kpi',
+  sql:`SELECT ROUND(100.0 * (SELECT COUNT(DISTINCT asset_uuid) FROM vulns WHERE lower(plugin_name) LIKE '%unsupported%' OR lower(plugin_name) LIKE '%end of life%' OR lower(plugin_name) LIKE '%end-of-life%' OR lower(plugin_name) LIKE '%seol%') / NULLIF((SELECT COUNT(*) FROM assets),0), 1) AS "Unpatchable fleet % (EOL)"`},
+ {g:'Leadership',title:'Data trust score',note:'Confidence in your risk numbers — the mean of credentialed-scan coverage, asset freshness (≤30d) and clean-credential rate. Every competitor silently assumes 100%.',viz:'progress',label_col:'metric',value_col:'pct',
+  sql:`SELECT metric, pct FROM (SELECT 'Data Trust Score' AS metric, CAST(ROUND(((SELECT COALESCE(ROUND(100.0*COUNT(DISTINCT CASE WHEN lower(output) LIKE '%credentialed checks : yes%' THEN asset_uuid END)/NULLIF(COUNT(DISTINCT asset_uuid),0)),0) FROM vulns WHERE plugin_id='19506')+(SELECT COALESCE(ROUND(100.0*SUM(CASE WHEN substr(last_found,1,10) >= date('now','-30 day') THEN 1 ELSE 0 END)/NULLIF(COUNT(*),0)),0) FROM assets)+(SELECT COALESCE(ROUND(100.0*(1.0 - CAST((SELECT COUNT(DISTINCT asset_uuid) FROM vulns WHERE plugin_id='104410') AS REAL)/NULLIF((SELECT COUNT(DISTINCT asset_uuid) FROM vulns WHERE plugin_id='19506'),0))),0)))/3.0) AS INTEGER) AS pct, 0 AS o UNION ALL SELECT 'Credentialed coverage', (SELECT COALESCE(ROUND(100.0*COUNT(DISTINCT CASE WHEN lower(output) LIKE '%credentialed checks : yes%' THEN asset_uuid END)/NULLIF(COUNT(DISTINCT asset_uuid),0)),0) FROM vulns WHERE plugin_id='19506'), 1 UNION ALL SELECT 'Assets fresh (≤30d)', (SELECT COALESCE(ROUND(100.0*SUM(CASE WHEN substr(last_found,1,10) >= date('now','-30 day') THEN 1 ELSE 0 END)/NULLIF(COUNT(*),0)),0) FROM assets), 2 UNION ALL SELECT 'Clean credential scans', (SELECT COALESCE(ROUND(100.0*(1.0 - CAST((SELECT COUNT(DISTINCT asset_uuid) FROM vulns WHERE plugin_id='104410') AS REAL)/NULLIF((SELECT COUNT(DISTINCT asset_uuid) FROM vulns WHERE plugin_id='19506'),0))),0)), 3) ORDER BY o`},
+ {g:'Leadership',title:'Ownerless assets',note:'Assets with no Owner tag — Ownerless Risk',viz:'kpi',
+  sql:`SELECT COUNT(*) AS "Ownerless assets" FROM assets WHERE uuid NOT IN (SELECT asset_uuid FROM tags WHERE tag_key='Owner' AND asset_uuid IS NOT NULL)`},
+ {g:'Leadership',title:'Blind hosts (no creds)',note:'Reachable but scanned without credentials (110723 / 104410)',viz:'kpi',
+  sql:`SELECT COUNT(DISTINCT asset_uuid) AS "Blind hosts (no creds)" FROM vulns WHERE plugin_id IN ('110723','104410')`},
+ {g:'Leadership',title:'Findings by severity',note:'Open findings split by severity',viz:'pie',label_col:'severity',value_col:'findings',
+  sql:`SELECT CASE lower(severity) WHEN 'critical' THEN 'Critical' WHEN 'high' THEN 'High' WHEN 'medium' THEN 'Medium' WHEN 'low' THEN 'Low' END AS severity, COUNT(*) AS findings FROM vulns WHERE lower(severity) IN ('critical','high','medium','low') GROUP BY lower(severity) ORDER BY findings DESC`},
+ {g:'Leadership',title:'Ownership coverage',note:'Owned vs ownerless assets',viz:'pie',label_col:'coverage',value_col:'assets',
+  sql:`SELECT CASE WHEN uuid IN (SELECT asset_uuid FROM tags WHERE tag_key='Owner') THEN 'Owned' ELSE 'Ownerless' END AS coverage, COUNT(*) AS assets FROM assets GROUP BY coverage`},
+
+ {g:'Exposure',title:'Findings by VPR band',note:'Priority mix by Vulnerability Priority Rating',viz:'bar',label_col:'vpr_band',value_col:'findings',
+  sql:`SELECT CASE WHEN score>=9 THEN '9.0-10 Critical' WHEN score>=7 THEN '7.0-8.9 High' WHEN score>=4 THEN '4.0-6.9 Medium' WHEN score>0 THEN '0.1-3.9 Low' ELSE 'Unscored' END AS vpr_band, COUNT(*) AS findings FROM vulns GROUP BY vpr_band ORDER BY findings DESC`},
+ {g:'Exposure',title:'Top 15 assets by findings',note:'Where the vulnerabilities concentrate',viz:'bar',label_col:'host',value_col:'findings',
+  sql:`SELECT COALESCE(NULLIF(asset_hostname,''), asset_ip) AS host, COUNT(*) AS findings FROM vulns GROUP BY asset_uuid ORDER BY findings DESC LIMIT 15`},
+ {g:'Exposure',title:'Top 15 reduction plugins',note:'Critical/High plugins by asset count — fix these first',viz:'bar',label_col:'plugin_name',value_col:'assets',
+  sql:`SELECT plugin_name, COUNT(DISTINCT asset_uuid) AS assets FROM vulns WHERE lower(severity) IN ('critical','high') GROUP BY plugin_id ORDER BY assets DESC LIMIT 15`},
+ {g:'Exposure',title:'Fix leverage (Pareto)',note:'Plugins ranked by the critical findings each one kills, with cumulative coverage. Root-cause remediation ranking — the headline names how few actions clear the majority.',viz:'pareto',label_col:'plugin',value_col:'critical findings',
+  sql:`SELECT plugin_name AS "plugin", COUNT(*) AS "critical findings", (SELECT COUNT(*) FROM vulns WHERE lower(severity)='critical') AS "total_critical" FROM vulns WHERE lower(severity)='critical' GROUP BY plugin_id ORDER BY "critical findings" DESC LIMIT 20`},
+ {g:'Exposure',title:'Exploitable findings',note:'Findings with a public exploit available',viz:'kpi',
+  sql:`SELECT COUNT(*) AS "Exploitable findings" FROM vulns WHERE lower(exploit)='true'`},
+ {g:'Exposure',title:'Average / peak VPR',note:'How dangerous the open backlog is',viz:'kpi',
+  sql:`SELECT ROUND(AVG(score),1) AS "Avg VPR", MAX(score) AS "Max VPR" FROM vulns WHERE score>0`},
+ {g:'Exposure',title:'Findings by plugin family',note:'Which subsystems drive the finding count',viz:'bar',label_col:'plugin_family',value_col:'findings',
+  sql:`SELECT plugin_family, COUNT(*) AS findings FROM vulns WHERE plugin_family IS NOT NULL AND plugin_family!='' GROUP BY plugin_family ORDER BY findings DESC LIMIT 12`},
+
+ {g:'Ownership & Identity',title:'Assets per owner',note:'Owner workload — spot the bottleneck',viz:'bar',label_col:'owner',value_col:'assets',
+  sql:`SELECT tag_value AS owner, COUNT(DISTINCT asset_uuid) AS assets FROM tags WHERE tag_key='Owner' GROUP BY tag_value ORDER BY assets DESC LIMIT 15`},
+ {g:'Ownership & Identity',title:'Credentialed scan coverage',note:'Credentialed vs uncredentialed hosts (plugin 19506)',viz:'pie',label_col:'scan',value_col:'assets',
+  sql:`SELECT CASE WHEN lower(output) LIKE '%credentialed checks : yes%' THEN 'Credentialed' ELSE 'Uncredentialed' END AS scan, COUNT(DISTINCT asset_uuid) AS assets FROM vulns WHERE plugin_id='19506' GROUP BY scan`},
+
+ {g:'Hygiene & lifecycle',title:'Assets by OS family',note:'Windows / Linux / macOS / Other',viz:'bar',label_col:'os_family',value_col:'assets',
+  sql:`SELECT CASE WHEN operating_system LIKE '%Windows%' THEN 'Windows' WHEN operating_system LIKE '%Linux%' OR operating_system LIKE '%CentOS%' OR operating_system LIKE '%Ubuntu%' OR operating_system LIKE '%Red Hat%' OR operating_system LIKE '%Debian%' THEN 'Linux' WHEN operating_system LIKE '%Mac%' THEN 'macOS' ELSE 'Other' END AS os_family, COUNT(*) AS assets FROM assets GROUP BY os_family ORDER BY assets DESC`},
+ {g:'Hygiene & lifecycle',title:'Unsupported / EOL products',note:'End-of-life software by plugin',viz:'bar',label_col:'plugin_name',value_col:'assets',
+  sql:`SELECT plugin_name, COUNT(DISTINCT asset_uuid) AS assets FROM vulns WHERE lower(plugin_name) LIKE '%unsupported%' OR lower(plugin_name) LIKE '%end of life%' OR lower(plugin_name) LIKE '%seol%' GROUP BY plugin_id ORDER BY assets DESC LIMIT 15`},
+ {g:'Hygiene & lifecycle',title:'Top 15 software',note:'Most-installed software strings',viz:'bar',label_col:'software_string',value_col:'installs',
+  sql:`SELECT software_string, COUNT(DISTINCT asset_uuid) AS installs FROM software WHERE software_string IS NOT NULL AND software_string!='' GROUP BY software_string ORDER BY installs DESC LIMIT 15`},
+ {g:'Hygiene & lifecycle',title:'Certificate signature algorithms',note:'SHA-1 vs SHA-256 etc. across your certs',viz:'bar',label_col:'algorithm',value_col:'certs',
+  sql:`SELECT COALESCE(NULLIF(signature_algorithm,''),'(unknown)') AS algorithm, COUNT(*) AS certs FROM certs GROUP BY algorithm ORDER BY certs DESC`},
+ {g:'Hygiene & lifecycle',title:'Weak-key certificates',note:'Certs with an RSA key under 2048 bits',viz:'kpi',
+  sql:`SELECT COUNT(*) AS "Weak-key certs (<2048)" FROM certs WHERE key_length IS NOT NULL AND CAST(key_length AS INTEGER) BETWEEN 1 AND 2047`},
+ {g:'Hygiene & lifecycle',title:'Cert expiry × signature (heatmap)',note:'Certificates by expiry window and signature algorithm — where renewal pressure and crypto risk overlap.',viz:'heatmap',label_col:'expiry',
+  sql:`SELECT CASE WHEN substr(not_valid_after,1,10) < date('now') THEN 'Expired' WHEN substr(not_valid_after,1,10) < date('now','+30 day') THEN '≤ 30 days' WHEN substr(not_valid_after,1,10) < date('now','+90 day') THEN '≤ 90 days' WHEN substr(not_valid_after,1,10) < date('now','+365 day') THEN '≤ 1 year' ELSE '> 1 year' END AS expiry, COALESCE(NULLIF(signature_algorithm,''),'(unknown)') AS algorithm, COUNT(*) AS certs FROM certs WHERE not_valid_after IS NOT NULL AND not_valid_after!='' GROUP BY expiry, algorithm ORDER BY CASE expiry WHEN 'Expired' THEN 1 WHEN '≤ 30 days' THEN 2 WHEN '≤ 90 days' THEN 3 WHEN '≤ 1 year' THEN 4 ELSE 5 END, certs DESC`},
+ {g:'Hygiene & lifecycle',title:'Stale assets (>30d)',note:'Not seen in the last 30 days',viz:'kpi',
+  sql:`SELECT COUNT(*) AS "Stale assets (>30d)" FROM assets WHERE substr(last_found,1,10) < date('now','-30 day')`},
+
+ {g:'Advanced views',title:'Remediation quadrant',note:'Critical/High plugins — VPR (x) × affected assets (y), bubble size = exploitable. Top-right, big = fix first.',viz:'bubble',label_col:'plugin',value_col:'assets',
+  sql:`SELECT plugin_name AS plugin, MAX(score) AS vpr, COUNT(DISTINCT asset_uuid) AS assets, SUM(CASE WHEN lower(exploit)='true' THEN 1 ELSE 0 END) AS exploitable FROM vulns WHERE lower(severity) IN ('critical','high') AND score IS NOT NULL GROUP BY plugin_id ORDER BY assets DESC LIMIT 40`},
+ {g:'Advanced views',title:'Remediation funnel',note:'Findings → plugins → assets → critical → KEV — how the surface narrows.',viz:'funnel',label_col:'stage',value_col:'n',
+  sql:`SELECT stage, n FROM (SELECT 'Findings' stage, COUNT(*) n, 1 o FROM vulns UNION ALL SELECT 'Distinct plugins', COUNT(DISTINCT plugin_id), 2 FROM vulns UNION ALL SELECT 'Affected assets', COUNT(DISTINCT asset_uuid), 3 FROM vulns UNION ALL SELECT 'Critical findings', COUNT(*), 4 FROM vulns WHERE lower(severity)='critical' UNION ALL SELECT 'KEV findings', COUNT(*), 5 FROM vulns WHERE xrefs LIKE '%KNOWN-EXPLOITED%') ORDER BY o`},
+ {g:'Advanced views',title:'Coverage progress',note:'Loop-closure — credentialed scan %, owned %, classified % of the fleet.',viz:'progress',label_col:'metric',value_col:'pct',
+  sql:`SELECT metric, pct FROM (SELECT 'Credentialed scan %' metric, ROUND(100.0*COUNT(DISTINCT CASE WHEN lower(output) LIKE '%credentialed checks : yes%' THEN asset_uuid END)/NULLIF(COUNT(DISTINCT asset_uuid),0),0) pct, 1 o FROM vulns WHERE plugin_id='19506' UNION ALL SELECT 'Owned %', ROUND(100.0*(SELECT COUNT(DISTINCT asset_uuid) FROM tags WHERE tag_key='Owner')/NULLIF((SELECT COUNT(*) FROM assets),0),0), 2 UNION ALL SELECT 'Classified %', ROUND(100.0*(SELECT COUNT(DISTINCT asset_uuid) FROM tags WHERE tag_key='Class' OR tag_key='Asset Inventory')/NULLIF((SELECT COUNT(*) FROM assets),0),0), 3) ORDER BY o`},
+ {g:'Advanced views',title:'Software footprint (treemap)',note:'Most-installed software, sized by asset count.',viz:'treemap',label_col:'software',value_col:'installs',
+  sql:`SELECT software_string AS software, COUNT(DISTINCT asset_uuid) AS installs FROM software WHERE software_string IS NOT NULL AND software_string!='' GROUP BY software_string ORDER BY installs DESC LIMIT 20`},
+ {g:'Advanced views',title:'Severity mix (donut)',note:'Open findings by severity — donut.',viz:'donut',label_col:'severity',value_col:'findings',
+  sql:`SELECT CASE lower(severity) WHEN 'critical' THEN 'Critical' WHEN 'high' THEN 'High' WHEN 'medium' THEN 'Medium' WHEN 'low' THEN 'Low' END AS severity, COUNT(*) AS findings FROM vulns WHERE lower(severity) IN ('critical','high','medium','low') GROUP BY lower(severity) ORDER BY findings DESC`},
+ {g:'Advanced views',title:'Severity by class (stacked)',note:'Stacked bars — severity composition per asset class.',viz:'stacked',label_col:'os_family',value_col:'findings',
+  sql:`SELECT os_family, severity, findings FROM (SELECT CASE WHEN a.uuid IN (SELECT asset_uuid FROM tags WHERE (tag_key='Class' AND (tag_value LIKE 'IoT%' OR tag_value LIKE 'OT%')) OR (tag_key='Asset Inventory' AND (tag_value LIKE 'Device Type:%' OR tag_value LIKE 'IoT:%' OR tag_value LIKE 'OT:%'))) THEN 'IoT / OT' WHEN a.operating_system LIKE '%Windows%' THEN 'Windows' WHEN a.operating_system LIKE '%Linux%' OR a.operating_system LIKE '%CentOS%' OR a.operating_system LIKE '%Ubuntu%' OR a.operating_system LIKE '%Red Hat%' OR a.operating_system LIKE '%Debian%' THEN 'Linux' WHEN a.operating_system LIKE '%Mac%' THEN 'macOS' ELSE 'Other' END AS os_family, CASE lower(v.severity) WHEN 'critical' THEN 'Critical' WHEN 'high' THEN 'High' WHEN 'medium' THEN 'Medium' WHEN 'low' THEN 'Low' END AS severity, CASE lower(v.severity) WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 END AS sev_rank, COUNT(*) AS findings FROM vulns v JOIN assets a ON a.uuid=v.asset_uuid WHERE lower(v.severity) IN ('critical','high','medium','low') GROUP BY os_family, sev_rank ORDER BY sev_rank)`},
+ {g:'Advanced views',title:'VPR distribution (histogram)',note:'Shape of the backlog — VPR scores binned (sample of up to 500 findings).',viz:'histogram',label_col:'grp',value_col:'vpr',
+  sql:`SELECT 'VPR' AS grp, score AS vpr FROM vulns WHERE score>0 LIMIT 500`},
+ {g:'Advanced views',title:'Exposure heatmap (class × severity)',note:'Where risk concentrates — finding count by asset class (IoT/OT split out) and severity.',viz:'heatmap',label_col:'os_family',value_col:'findings',
+  sql:`SELECT os_family, severity, findings FROM (SELECT CASE WHEN a.uuid IN (SELECT asset_uuid FROM tags WHERE (tag_key='Class' AND (tag_value LIKE 'IoT%' OR tag_value LIKE 'OT%')) OR (tag_key='Asset Inventory' AND (tag_value LIKE 'Device Type:%' OR tag_value LIKE 'IoT:%' OR tag_value LIKE 'OT:%')) OR tag_key IN ('IoT','Device Type')) THEN 'IoT / OT' WHEN a.operating_system LIKE '%Windows%' THEN 'Windows' WHEN a.operating_system LIKE '%Linux%' OR a.operating_system LIKE '%CentOS%' OR a.operating_system LIKE '%Ubuntu%' OR a.operating_system LIKE '%Red Hat%' OR a.operating_system LIKE '%Debian%' THEN 'Linux' WHEN a.operating_system LIKE '%Mac%' THEN 'macOS' ELSE 'Other' END AS os_family, CASE lower(v.severity) WHEN 'critical' THEN 'Critical' WHEN 'high' THEN 'High' WHEN 'medium' THEN 'Medium' WHEN 'low' THEN 'Low' END AS severity, CASE lower(v.severity) WHEN 'critical' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 END AS sev_rank, COUNT(*) AS findings FROM vulns v JOIN assets a ON a.uuid=v.asset_uuid WHERE lower(v.severity) IN ('critical','high','medium','low') GROUP BY os_family, sev_rank ORDER BY sev_rank, os_family)`},
+ {g:'Advanced views',title:'Severity → asset class (Sankey)',note:'Flow of findings from severity into OS / asset class — band thickness ∝ finding count.',viz:'sankey',label_col:'severity',
+  sql:`SELECT CASE lower(v.severity) WHEN 'critical' THEN 'Critical' WHEN 'high' THEN 'High' WHEN 'medium' THEN 'Medium' WHEN 'low' THEN 'Low' END AS severity, CASE WHEN a.operating_system LIKE '%Windows%' THEN 'Windows' WHEN a.operating_system LIKE '%Linux%' OR a.operating_system LIKE '%CentOS%' OR a.operating_system LIKE '%Ubuntu%' OR a.operating_system LIKE '%Red Hat%' OR a.operating_system LIKE '%Debian%' THEN 'Linux' WHEN a.operating_system LIKE '%Mac%' THEN 'macOS' ELSE 'Other' END AS os_family, COUNT(*) AS findings FROM vulns v JOIN assets a ON a.uuid=v.asset_uuid WHERE lower(v.severity) IN ('critical','high','medium','low') GROUP BY severity, os_family ORDER BY findings DESC`},
+ {g:'Advanced views',title:'Owner → severity (threads)',note:'Each owner threaded to the severities they carry (top 12 owners) — needs Owner: tags from Atlas.',viz:'threads',label_col:'owner',
+  sql:`SELECT t.tag_value AS owner, CASE lower(v.severity) WHEN 'critical' THEN 'Critical' WHEN 'high' THEN 'High' WHEN 'medium' THEN 'Medium' WHEN 'low' THEN 'Low' END AS severity, COUNT(*) AS findings FROM tags t JOIN vulns v ON v.asset_uuid=t.asset_uuid WHERE t.tag_key='Owner' AND t.tag_value IN (SELECT tag_value FROM tags WHERE tag_key='Owner' GROUP BY tag_value ORDER BY COUNT(DISTINCT asset_uuid) DESC LIMIT 12) AND lower(v.severity) IN ('critical','high','medium','low') GROUP BY owner, severity ORDER BY findings DESC`},
+];
+const BOARDS={
+ leadership:['KEV-exposed assets','Crown-jewel risk','Unpatchable risk %','Data trust score','Ownerless assets','Blind hosts (no creds)','Findings by severity','Ownership coverage'],
+ se:['Fix leverage (Pareto)','Findings by VPR band','Top 15 assets by findings','Top 15 reduction plugins','Exploitable findings','Findings by plugin family','Credentialed scan coverage','Unsupported / EOL products']
+};
+// viz-type → clean badge label + RGB accent (Iris palette). Drives the card badge.
+const VMETA={
+  kpi:{l:'KPI',c:'139,143,230'}, bar:{l:'Bar',c:'62,166,255'}, pie:{l:'Pie',c:'63,176,201'},
+  donut:{l:'Donut',c:'63,176,201'}, bubble:{l:'Bubble',c:'231,198,107'},
+  funnel:{l:'Funnel',c:'167,127,214'}, progress:{l:'Progress',c:'82,200,140'},
+  treemap:{l:'Treemap',c:'62,166,255'}, histogram:{l:'Histogram',c:'139,143,230'},
+  heatmap:{l:'Heatmap',c:'244,63,94'}, stacked:{l:'Stacked',c:'62,166,255'},
+  sankey:{l:'Sankey',c:'125,100,212'}, threads:{l:'Threads',c:'47,158,136'}
+};
+let CUR_CAT=null;
+function _presetCard(p){
+  const i=PRESETS.indexOf(p); const m=VMETA[p.viz]||{l:(p.viz||'chart'),c:'150,150,160'};
+  return `<div class="pcard preset" data-i="${i}" title="Click to run + pin · ${esc(p.note)}">`
+    +`<div class="pcard-top"><span class="vbadge" style="color:rgb(${m.c});border-color:rgba(${m.c},.5);background:rgba(${m.c},.10)">${esc(m.l)}</span><span class="ppin">+ Pin</span></div>`
+    +`<div class="ptitle">${esc(p.title)}</div><div class="pnote">${esc(p.note)}</div></div>`;
+}
+function renderPresets(){
+  const box=document.getElementById('presetLib'); if(!box)return;
+  const groups=[...new Set(PRESETS.map(p=>p.g))];
+  if(!groups.includes(CUR_CAT)) CUR_CAT=groups[0];       // one category at a time — pick via the dropdown
+  const items=PRESETS.filter(p=>p.g===CUR_CAT);
+  box.innerHTML='<div class="pctrl">'
+    +'<label class="sub" style="font-weight:600;margin:0">Category</label>'
+    +'<select id="presetCat">'+groups.map(g=>`<option value="${esc(g)}"${g===CUR_CAT?' selected':''}>${esc(g)} (${PRESETS.filter(p=>p.g===g).length})</option>`).join('')+'</select>'
+    +`<button class="btn sm" id="addAllCat" style="margin-left:auto" title="Pin every metric in this category">+ Add all (${items.length})</button>`
+    +'</div>'
+    +'<div class="pgrid">'+items.map(_presetCard).join('')+'</div>';
+  document.getElementById('presetCat').onchange=e=>{ CUR_CAT=e.target.value; renderPresets(); };
+  document.getElementById('addAllCat').onclick=e=>addBoard(items.map(p=>p.title), e.currentTarget);
+  box.querySelectorAll('.preset').forEach(b=>b.onclick=()=>addPreset(PRESETS[+b.dataset.i],b));
+}
+async function addPreset(p,btn){
+  if(!p)return;
+  const pin=btn&&btn.querySelector?btn.querySelector('.ppin'):null; const oldPin=pin?pin.textContent:'';
+  if(btn){ btn.style.pointerEvents='none'; btn.style.opacity='.7'; } if(pin)pin.textContent='running…';
+  let o; try{ o=await runSql(p.sql); }catch(e){ o={ok:false,message:e.message}; }
+  if(btn){ btn.style.pointerEvents=''; btn.style.opacity=''; } if(pin)pin.textContent=oldPin;
+  if(!o||!o.ok){ pflash('✗ '+esc(p.title)+': '+esc((o&&(o.message||o.error))||'query failed'),'crit'); return; }
+  const d={title:p.title,note:p.note,sql:p.sql,r:{columns:o.columns||[],rows:o.rows||[],viz:p.viz||'',label_col:p.label_col||'',value_col:p.value_col||''}};
+  DASHBOARD.push(d); saveDash(); renderDashGrid();
+  document.getElementById('dashGridWrap').scrollIntoView({behavior:'smooth',block:'nearest'});
+  if(pin){ pin.textContent='✓ pinned'; setTimeout(()=>{ if(pin)pin.textContent=oldPin; },1200); }
+  pflash('✓ pinned “'+esc(p.title)+'” ('+(o.rows||[]).length+' row(s))','ok');
+}
+async function addBoard(names,btn){
+  if(btn)btn.disabled=true;
+  let n=0; for(const nm of names){ const p=PRESETS.find(x=>x.title===nm); if(p){ await addPreset(p,null); n++; } }
+  if(btn)btn.disabled=false;
+  pflash('✓ added '+n+' component(s) to your dashboard','ok');
+}
+function pflash(msg,kind){ const el=document.getElementById('presetFlash'); if(!el)return; el.innerHTML='<span style="color:'+(kind==='crit'?'var(--crit)':'var(--ok)')+'">'+msg+'</span>'; }
+document.getElementById('boardLeadership').onclick=e=>addBoard(BOARDS.leadership,e.currentTarget);
+document.getElementById('boardSE').onclick=e=>addBoard(BOARDS.se,e.currentTarget);
+renderPresets();
 function tableHtml(r){
   const cols=r.columns||[]; const rows=r.rows||[];
   return '<table><thead><tr>'+cols.map(c=>`<th>${esc(c)}</th>`).join('')+'</tr></thead><tbody>'+

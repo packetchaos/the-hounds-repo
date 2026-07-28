@@ -4,7 +4,7 @@
   "icon": "\ud83d\udce1",
   "order": 2,
   "category": "Discovery",
-  "summary": "Four cooperating agents: discover IoT devices, expand plugins, cross-reference, and learn new detections (HITL).",
+  "summary": "Four cooperating agents: discover IoT devices, harvest carrier plugins, cross-term hunt the population, and learn new detections (HITL).",
   "needs_backend": true,
   "page": "page.html",
   "actions": [
@@ -12,6 +12,7 @@
     "tags_apply",
     "tag_candidate",
     "detections_decide",
+    "detections_export",
     "registry"
   ],
   "codename": "Cerberus Hound"

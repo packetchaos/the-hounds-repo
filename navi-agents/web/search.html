@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Search Hounds — The Hounds</title>
+<link rel="stylesheet" href="/static/console.css">
+<style>
+  .sgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;margin-top:14px}
+  .scard{display:block;text-decoration:none;border:1px solid var(--line);border-radius:12px;padding:14px 15px;background:var(--panel);transition:border-color .12s,transform .12s,background .12s}
+  .scard:hover{border-color:var(--accent);background:var(--panel-2);transform:translateY(-1px)}
+  .scard .t{font-weight:800;font-size:15px;color:var(--ink)}
+  .scard .n{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;margin:1px 0 6px}
+  .scard .d{font-size:12.5px;color:var(--ink-2);line-height:1.45}
+</style>
+</head><body>
+<div class="wrap">
+  <header class="top">
+    <div class="logo"><span class="hcrest brand" role="img" aria-label="The Hounds"></span></div>
+    <h1>Search Hounds <small>NAVI.DB SEARCH PACK</small></h1>
+    <div class="meta" id="meta"></div>
+  </header>
+
+  <section class="card">
+    <div class="toolbar"><div><h2 style="margin:0">🔎 Search the estate</h2>
+      <p class="sub" style="margin:2px 0 0">Jump to any search hound from the bar above — it follows you onto every search page so you can hop between assets, vulns, plugins, routes, and paths without coming back here. Each reads navi.db (read-only).</p></div></div>
+    <div class="sgrid" id="sgrid"></div>
+  </section>
+
+  <footer>Search Hounds · read-only navi.db search · the bar above is on every search page</footer>
+</div>
+
+<script src="/static/console.js"></script>
+<script>
+const CARDS=[
+  {t:'🔦 Argos', n:'Asset deep-dive', d:'One asset across every table — identity, risk, tags, CVEs, software, certificates — assembled into a single dossier. Live navi explore uuid on demand.', href:'/agents/argos/page.html'},
+  {t:'🧠 Advanced search', n:'Cross-table', d:'Ask in plain English or SQL across the whole navi.db, joining assets ⋈ vulns ⋈ software ⋈ tags. The widest net.', href:'/web/advanced.html'},
+  {t:'🔎 Assets', n:'Bloodhound', d:'Search the asset inventory — by host, IP, OS, tag, or any asset column.', href:'/agents/ex_assets/page.html'},
+  {t:'🔎 Vulns', n:'Hellhound', d:'Search findings by plugin, CVE, severity, VPR, or KEV cross-reference.', href:'/agents/ex_vulns/page.html'},
+  {t:'🔎 Plugins', n:'Foxhound', d:'Search Tenable plugins — by id, name, family, or the assets they fired on.', href:'/agents/ex_plugins/page.html'},
+  {t:'🔎 Routes', n:'Wolfhound', d:'Search exposure routes (vuln_route) — app routes and where they concentrate risk.', href:'/agents/ex_routes/page.html'},
+  {t:'🔎 Paths', n:'Greyhound', d:'Search filesystem paths (vuln_paths) — the fix locations behind the findings.', href:'/agents/ex_paths/page.html'},
+];
+document.getElementById('sgrid').innerHTML=CARDS.map(c=>
+  '<a class="scard" href="'+c.href+'"><div class="t">'+c.t+'</div><div class="n">'+c.n+'</div><div class="d">'+c.d+'</div></a>').join('');
+</script>
+</body></html>

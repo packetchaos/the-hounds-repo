@@ -1,0 +1,12 @@
+{
+  "id": "alert",
+  "name": "Alerting",
+  "icon": "🚨",
+  "order": 21,
+  "category": "Health",
+  "codename": "Alert Raven",
+  "summary": "Alert Raven watches navi.db for conditions worth waking a human — credentialed-scan coverage drops, scans over 3 hours, new CISA KEV, expiring certs, new criticals and more. Like the raven that rides with the wolf pack and calls out where the danger is, it reports alert metrics, suggests patterns to alert on, lets you craft an alert in plain English and TEST it before saving, then emails a digest when something fires. Alerts fire on change (once, until they clear); evaluation runs in the AI Contract loop; email delivery is gated (NAVI_EMAIL).",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": ["run", "metrics", "list", "suggest", "test", "save", "delete", "toggle", "add_template", "craft", "evaluate", "history"]
+}

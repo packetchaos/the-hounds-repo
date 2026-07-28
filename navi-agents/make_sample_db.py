@@ -9,7 +9,13 @@ deployment you point NAVI_DB_PATH at navi's own navi.db instead — no sample ne
 import os
 import sqlite3
 
-OUT = os.environ.get("NAVI_DB_PATH", os.path.join(os.path.dirname(__file__), "sample_navi.db"))
+# SAMPLE_ASSETS scales the fixture up to N assets so you can test decent-sized
+# environments (the IoT squad's √ signal floor, cross-term discovery, pagination)
+# without a big file — outputs stay short, so 5,000 assets is only a few MB.
+#   SAMPLE_ASSETS=5000 python make_sample_db.py   -> ./sample_navi_5k.db
+SAMPLE_ASSETS = int(os.environ.get("SAMPLE_ASSETS", "0"))
+_DEFAULT_OUT = ("sample_navi_5k.db" if SAMPLE_ASSETS else "sample_navi.db")
+OUT = os.environ.get("NAVI_DB_PATH", os.path.join(os.path.dirname(__file__), _DEFAULT_OUT))
 
 CERTS = [
  ("17b20844-9c41-48ba-a0c2-242c685c9702","tenable.io","192.168.128.22","Nessus Certification Authority","Nessus Users United","Nessus Certification Authority","Dec 12 20:57:22 2023 GMT","SHA-256 With RSA Encryption","2048 bits"),
@@ -261,6 +267,23 @@ def build():
         ("56a71fb6-d55c-413a-afd2-8c7d2e334d52", "10107", "HTTP Server Type and Version", "Apache/2.2.14 (Unix) mod_ssl/2.2.14 OpenSSL/0.9.8l PHP/5.3.1"),
         ("718e9bec-44e0-4925-8aaa-e2d6b3c3e933", "10107", "HTTP Server Type and Version", "nginx (pfSense webConfigurator)"),
         ("093be672-7236-4678-9ac8-119b87993d8b", "10719", "MySQL Server Detection", "MySQL Server detected on port 3306"),
+        # 24260 HTTP Information — captured the actual response BODY (HTML), so the asset
+        # page can render "what the scanner saw" in a locked sandbox.
+        ("718e9bec-44e0-4925-8aaa-e2d6b3c3e933", "24260", "HTTP Information",
+         "Response Code : HTTP/1.1 200 OK\nProtocol version : HTTP/1.1\nSSL : yes\nKeep-Alive : no\n"
+         "Headers :\n\n  Content-Type: text/html; charset=utf-8\n  Server: nginx (pfSense webConfigurator)\n"
+         "  Cache-Control: no-cache\n\nResponse Body :\n"
+         "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>pfSense - Login</title>"
+         "<style>body{font-family:-apple-system,Segoe UI,sans-serif;background:#1b2a3a;color:#e8eef5;"
+         "margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center}"
+         ".box{background:#22344a;border:1px solid #34506e;border-radius:12px;padding:34px 40px;width:300px;text-align:center}"
+         "h1{margin:0 0 4px;font-size:26px;color:#7ec8ff}.sub{color:#9fb3c8;font-size:13px;margin-bottom:18px}"
+         "input{width:100%;box-sizing:border-box;margin:6px 0;padding:9px;border-radius:7px;border:1px solid #3a5068;"
+         "background:#16222f;color:#e8eef5}button{width:100%;margin-top:12px;padding:10px;border:0;border-radius:7px;"
+         "background:#2e78c9;color:#fff;font-weight:600;cursor:pointer}.f{margin-top:16px;color:#6f8298;font-size:11px}</style>"
+         "</head><body><div class=\"box\"><h1>pfSense</h1><div class=\"sub\">webConfigurator &mdash; sign in to continue</div>"
+         "<form><input placeholder=\"Username\"><input type=\"password\" placeholder=\"Password\"><button>Sign In</button></form>"
+         "<div class=\"f\">&copy; Netgate &middot; 192.168.113.1</div></div></body></html>"),
         # EOL / Unsupported lifecycle plugins (for the EOL agent demo)
         ("56a71fb6-d55c-413a-afd2-8c7d2e334d52", "33850", "Unix Operating System Unsupported Version Detection", "The remote OS is no longer supported."),
         ("16d18078-d259-4b20-a403-bc250ec334bc", "108797", "VMware ESXi Unsupported Version Detection", "ESXi 5.5 is unsupported."),
@@ -564,10 +587,106 @@ def build():
         sev = 3 if pid == "319296" else _rnd.choice([0, 1, 2, 2, 3, 3, 4, 2, 1])  # 0=info … 4=critical
         c.execute("INSERT INTO plugins VALUES (?,?,?,?)", (pid, _names.get(pid, "Plugin " + pid), _cvelist(n), sev))
 
+    if SAMPLE_ASSETS:
+        final_n = scale_up(c, SAMPLE_ASSETS)
+    else:
+        final_n = None
+
     con.commit()
     con.close()
-    print(f"wrote {OUT}  (assets={len(seen)+len(pad_uuids)}, certs={len(CERTS)}, "
-          f"cert-issue plugins={len(MATRIX)})")
+    if final_n:
+        print(f"wrote {OUT}  (SCALED to assets={final_n:,}, "
+              f"vulns={_count(OUT,'vulns'):,}, size={os.path.getsize(OUT)/1e6:.1f} MB)")
+    else:
+        print(f"wrote {OUT}  (assets={len(seen)+len(pad_uuids)}, certs={len(CERTS)}, "
+              f"cert-issue plugins={len(MATRIX)})")
+
+
+def _count(path, table):
+    con = sqlite3.connect(path); n = con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]; con.close()
+    return n
+
+
+def scale_up(c, target):
+    """Clone the fixture's SHAPE up to `target` assets — realistic size, tiny on disk.
+
+    Every synthetic host gets a device profile. Known devices (pfSense/Ubiquiti/
+    Chromecast/TeraStation) carry their registry detector so Agent 1 confirms them.
+    Crucially, a SHARED carrier plugin — HTTP banner 10107 — carries each device's
+    identity string in its output, INCLUDING two devices NOT in the registry
+    (Raspberry Pi, Sonos). So Agent 2 harvests 10107 off a confirmed host, and
+    Agent 3's cross-term sweep finds 'raspberry'/'sonos' inside 10107 across the
+    population and proposes them as NEW devices — the exact scenario the squad is
+    built for, now at scale. The base fixture's vulns:assets ratio is preserved."""
+    import random as _r
+    _r.seed(1337)
+    cur = c.execute("SELECT COUNT(*) FROM assets").fetchone()[0]
+    nv = c.execute("SELECT COUNT(*) FROM vulns").fetchone()[0]
+    ratio = min(12, max(6, round(nv / max(1, cur))))
+    need = target - cur
+    if need <= 0:
+        return cur
+    ts = "2026-06-15T00:00:00Z"
+
+    def addv(u, pid, pn, out, sev, score, fam="General"):
+        c.execute("INSERT INTO vulns (asset_uuid,plugin_id,plugin_name,output,last_found,"
+                  "severity,score,plugin_family) VALUES (?,?,?,?,?,?,?,?)",
+                  (u, pid, pn, out, ts, sev, score, fam))
+
+    # known devices: (name, weight, detector_pid, detector_name, detector_output,
+    #                 http_banner_10107, oui_vendor)
+    KNOWN = [
+        ("pfSense", 6, "55786", "pfSense Detection", "pfSense webConfigurator self-signed",
+         "Server: nginx (pfSense webConfigurator)", "Netgate"),
+        ("Ubiquiti", 5, "131732", "Ubiquiti Device Detection", "UniFi controller (Ubiquiti)",
+         "Server: UniFi/7.5 (Ubiquiti Networks)", "Ubiquiti Inc"),
+        ("Chromecast", 5, "66717", "mDNS Detection (Local Network)", "Chromecast _googlecast._tcp.local.",
+         "Server: Chromecast/1.42", "Google, Inc."),
+        ("TeraStation", 4, "76423", "Buffalo TeraStation NAS Detection", "TeraStation series NAS",
+         "Server: TeraStation webAccess", "BUFFALO.INC"),
+    ]
+    # devices the registry does NOT know — only discoverable via the shared carrier
+    UNKNOWN = [
+        ("Raspberry Pi", 4, "Server: lighttpd (Raspberry Pi OS)", "Raspberry Pi Foundation"),
+        ("Sonos", 3, "Server: Linux UPnP/1.0 Sonos/74.0-42060", "Sonos, Inc."),
+    ]
+    GENERIC_W = 62
+    FILL = [("51192", "SSL Certificate Cannot Be Trusted", "High", 8.1),
+            ("57582", "SSL Self-Signed Certificate", "Medium", 5.4),
+            ("10180", "Ping the remote host", "Info", 0.0),
+            ("22964", "Service Detection", "Info", 0.0),
+            ("104410", "Authentication Failure - Local Checks Not Run", "Medium", 5.4)]
+
+    bag = []
+    for name, w, dp, dn, do, banner, oui in KNOWN:
+        bag += [("known", name, dp, dn, do, banner, oui)] * w
+    for name, w, banner, oui in UNKNOWN:
+        bag += [("new", name, None, None, None, banner, oui)] * w
+    bag += [("generic", None, None, None, None, None, None)] * GENERIC_W
+
+    tiers = ["Production", "Staging", "Development"]
+    for i in range(need):
+        u = f"scale-{i:06d}"
+        ip = f"10.{(i >> 8) & 255}.{i & 255}.{_r.randint(1, 254)}"
+        acr = _r.choice([2, 3, 4, 5, 6, 7, 8])
+        c.execute("INSERT INTO assets (uuid,hostname,ip_address,acr,aes) VALUES (?,?,?,?,?)",
+                  (u, f"dev-{i:06d}", ip, str(acr), acr * 80))
+        kind, name, dp, dn, do, banner, oui = _r.choice(bag)
+        used = 0
+        if kind in ("known", "new"):
+            addv(u, "10107", "HTTP Server Type and Version", banner, "Info", 0.0, "Web Servers")
+            addv(u, "35716", "Ethernet Card Manufacturer Detection",
+                 "The following card manufacturers were identified :\n00:11:22:xx:xx:xx : " + oui, "Info", 0.0)
+            used = 2
+            if kind == "known":
+                addv(u, dp, dn, do, "Info", 0.0)
+                used = 3
+        for _ in range(max(0, ratio - used)):
+            fp = _r.choice(FILL)
+            addv(u, fp[0], fp[1], "", fp[2], fp[3])
+        c.execute("INSERT INTO tags (asset_uuid,asset_ip,tag_key,tag_uuid,tag_value,tag_added_date) "
+                  "VALUES (?,?,?,?,?,?)", (u, ip, "Environment", "scale", _r.choice(tiers), ts))
+    return target
 
 
 if __name__ == "__main__":

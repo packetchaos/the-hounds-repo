@@ -428,12 +428,49 @@ def scan(db_path=None):
     _machine("41028", "SNMP default community", "default secret")
     _machine("10859", "Windows host SID", "machine identity")
 
-    # account reuse across many hosts (lateral-movement risk)
+    # Nessus SCAN credentials (plugin 19506 "Nessus Scan Information"). The account used for
+    # credentialed checks naturally lands on every host it scans — that's scanning, NOT lateral
+    # movement — so a high host-count on the scan account is a false "reuse" alarm. Parse
+    #   "Credentialed checks : yes, as 'root' via ssh"
+    # per asset, keyed by BARE username (domain-stripped, case-insensitive), and subtract that
+    # footprint before flagging reuse.
+    scan_hosts_by_user, scan_via_by_user = {}, {}
+    _scan_re = re.compile(r"credentialed checks\s*:\s*yes,\s*as\s+'([^']+)'\s+via\s+(\w+)", re.I)
+    for r in db.query("SELECT asset_uuid, output FROM vulns WHERE plugin_id='19506' "
+                      "AND lower(output) LIKE '%credentialed checks : yes, as%'", path=db_path):
+        m = _scan_re.search(r.get("output") or "")
+        if not m:
+            continue
+        key = m.group(1).split("\\")[-1].strip().lower()
+        au = r.get("asset_uuid")
+        if key:
+            if au:
+                scan_hosts_by_user.setdefault(key, set()).add(au)
+            scan_via_by_user.setdefault(key, set()).add(m.group(2).strip().lower())
+
+    # account reuse across many hosts (lateral-movement risk), minus the scan-credential footprint
     for a in acct.values():
-        if a["klass"] != "machine":
-            n = len(a["asset_uuids"])
-            if n >= 5 and not any(x.startswith("reused") for x in a["flags"]):
-                _flag(a, "reused ×" + str(n))
+        if a["klass"] == "machine":
+            continue
+        key = a["user"].split("\\")[-1].strip().lower()
+        sset = scan_hosts_by_user.get(key)
+        if sset:
+            eff = len([u for u in a["asset_uuids"] if u not in sset])   # hosts NOT explained by scanning
+            a["scan_credential"] = {"hosts": len(sset & set(a["asset_uuids"])) or len(sset),
+                                    "via": sorted(scan_via_by_user.get(key, []))}
+            if "scan credential" not in a["flags"]:
+                _flag(a, "scan credential")
+        else:
+            eff = len(a["asset_uuids"])
+        if eff >= 5 and not any(x.startswith("reused") for x in a["flags"]):
+            _flag(a, "reused ×" + str(eff))
+
+    scan_creds = sorted(
+        ({"user": next((x["user"] for x in acct.values()
+                        if x["user"].split("\\")[-1].strip().lower() == k), k),
+          "hosts": len(v), "via": sorted(scan_via_by_user.get(k, []))}
+         for k, v in scan_hosts_by_user.items()),
+        key=lambda x: -x["hosts"])
 
     # correlate identities to exploitable hosts (KEV / critical = crown jewels)
     def _corr(sql, flag):
@@ -468,15 +505,101 @@ def scan(db_path=None):
 
     order = {"machine": 0, "nhi": 1, "human": 2, "service": 3}
     accounts = sorted(acct.values(), key=lambda x: (order.get(x["klass"], 9), x["user"]))
+    def _risky(a):   # flags that actually indicate risk — a bare scan credential is expected
+        return [f for f in a["flags"] if f != "scan credential"]
+
+    def _is_reused(a):   # reuse across ≥5 hosts, scanner footprint already subtracted
+        return any(f.startswith("reused") for f in a["flags"])
+    reused_hosts = {u for a in accounts if _is_reused(a) for u in a["asset_uuids"]}
     counts = {"total": len(accounts),
               "nhi": sum(1 for a in accounts if a["klass"] == "nhi"),
               "human": sum(1 for a in accounts if a["klass"] == "human"),
               "service": sum(1 for a in accounts if a["klass"] == "service"),
               "machine": sum(1 for a in accounts if a["klass"] == "machine"),
-              "flagged": sum(1 for a in accounts if a["flags"])}
+              "flagged": sum(1 for a in accounts if _risky(a)),
+              "scan_creds": sum(1 for a in accounts if a.get("scan_credential")),
+              "reused": sum(1 for a in accounts if _is_reused(a)),
+              "reused_hosts": len(reused_hosts)}
     return {"accounts": accounts, "counts": counts, "blind": blind, "fresh": fresh,
             "sshHosts": sshHosts, "weakHosts": weakHosts, "kevHostN": kevHostN,
-            "critHostN": critHostN, "dcHosts": dcHosts, "adHosts": adHosts}
+            "critHostN": critHostN, "dcHosts": dcHosts, "adHosts": adHosts,
+            "scan_creds": scan_creds}
+
+
+_HI_USER = re.compile(r"^\s*User(?:name)?\s*[:=]\s*([A-Za-z_][A-Za-z0-9_.\-\$]{1,31})", re.I)
+_HI_DASH = re.compile(r"^\s*-\s*([A-Za-z_][A-Za-z0-9_.\-\$]{1,31})\b")
+_HI_UID = re.compile(r"^\s*(?:UID|Uid)\s*[:=]\s*(\d+)")
+
+
+def _klass_for(user, section=""):
+    """Best-effort class for ONE enumerated account (Argos per-host view). External
+    authority (well-known SID/RID, AD `$`, UID convention) wins; otherwise fall back to the
+    guess lists and the system-account convention."""
+    k, auth = authority_class(user)
+    if k:
+        return k, auth
+    lu = (user or "").strip().lower()
+    if lu in HUM:
+        return "human", ""
+    if lu in NHI:
+        return "nhi", ""
+    if lu in SVC:
+        return "service", ""
+    if _is_system(lu) or section == "system":
+        return "service", "system / pseudo account"
+    return "human", ""
+
+
+def host_identities(uuid, db_path=None):
+    """Identities enumerated ON one asset — for the Argos deep-dive. Parses the local-user
+    enumeration plugins for this asset_uuid and classifies each account the same way Janus
+    does (external authority first). Scoped to one host, so it's cheap. Returns a list of
+    ``{user, klass, authority, plugins}`` ordered machine → NHI → service → human → system."""
+    if not uuid:
+        return []
+    try:
+        rows = db.query("SELECT plugin_id, output FROM vulns WHERE asset_uuid=? "
+                        "AND plugin_id IN ('95928','10860','10785','83303','10914','10915') "
+                        "AND output IS NOT NULL AND output<>''", (uuid,), path=db_path)
+    except Exception:
+        return []
+    found = {}
+    for r in rows:
+        pid = str(r.get("plugin_id") or "")
+        section, last = "", None
+        for raw in (r.get("output") or "").splitlines():
+            line = raw.strip()
+            low = line.lower()
+            if "[" in line and "user accounts" in low:
+                section = "user"; last = None; continue
+            if "[" in line and "system accounts" in low:
+                section = "system"; last = None; continue
+            m = _HI_USER.match(line)
+            if not m and pid in ("10860", "10785"):
+                m = _HI_DASH.match(line)
+            if m:
+                u = m.group(1)
+                if not _valid_account(u):
+                    last = None; continue
+                k = u.lower()
+                if k not in found:
+                    kl, auth = _klass_for(u, section)
+                    found[k] = {"user": u, "klass": kl, "authority": auth or "", "plugins": [pid]}
+                elif pid not in found[k]["plugins"]:
+                    found[k]["plugins"].append(pid)
+                last = k
+                continue
+            um = _HI_UID.match(line)
+            if um and last and last in found:
+                try:
+                    kl, auth = authority_class(found[last]["user"], uid=int(um.group(1)))
+                    if kl:
+                        found[last]["klass"] = kl
+                        found[last]["authority"] = auth
+                except ValueError:
+                    pass
+    order = {"machine": 0, "nhi": 1, "service": 2, "human": 3, "system": 4}
+    return sorted(found.values(), key=lambda x: (order.get(x["klass"], 9), x["user"].lower()))
 
 
 def selector_for(asset_uuids):

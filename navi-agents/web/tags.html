@@ -20,7 +20,7 @@
 </head><body>
 <div class="wrap">
   <header class="top" id="app-header"></header>
-  <section class="card" style="background:radial-gradient(120% 140% at 90% -20%,var(--amber-glow),transparent 60%),var(--panel)">
+  <section class="card" style="background:var(--panel)">
     <div class="toolbar"><div><h2 style="margin:0">🏷 Tags — Tenable ⇄ navi.db</h2>
       <p class="sub" style="margin:2px 0 0">Every tag in the <b>Tenable platform</b> (live <span class="mono">navi explore info tags</span>) and in <span class="mono">navi.db</span>'s <span class="mono">tags</span> table, side by side. The <b>delta</b> shows what's in one but not the other — i.e. what hasn't synced.</p></div>
       <span style="margin-left:auto;display:flex;gap:6px"><button class="btn ghost sm" id="csv" style="display:none">⤓ CSV</button><button class="btn run sm" id="cmp">▶ Compare</button></span></div>
@@ -42,7 +42,11 @@ const API=agentApi('explore'); let DATA=null, filter='all';
 // _SEP is a global from console.js — do NOT redeclare (dupe const = SyntaxError that kills this script + the Compare button)
 const sqlLit=s=>String(s==null?'':s).replace(/'/g,"''");
 let MAP={}, TEN_OK=false, TEN_MSG='', TEN_PENDING=false;
-const keyOf=(c,v)=>String(c||'').toLowerCase()+_SEP+String(v||'').toLowerCase();
+// reconcile key: lowercase, collapse any whitespace (incl. NBSP/tabs) to one space,
+// trim, and drop trailing path separators — so navi.db and Tenable copies of the SAME
+// tag (e.g. a Windows path that differs only by a trailing "\" or a stray space) match.
+function _normTag(s){ return String(s==null?'':s).toLowerCase().replace(/\s+/g,' ').trim().replace(/[\\/\s]+$/,''); }
+const keyOf=(c,v)=>_normTag(c)+_SEP+_normTag(v);
 function build(){
   const rows=Object.values(MAP).sort((a,b)=>String(a.cat+a.val).toLowerCase().localeCompare(String(b.cat+b.val).toLowerCase()));
   DATA={rows,tenPending:TEN_PENDING,tenOk:TEN_OK,tenMsg:TEN_MSG,counts:{
@@ -112,7 +116,7 @@ async function drill(a){
   const rows=o.rows||[];
   td.innerHTML='<div class="drill"><b>'+esc(cat)+' : '+esc(val)+'</b> — '+rows.length+' asset(s)'+
     (rows.length?'<div style="overflow-x:auto;margin-top:6px"><table><thead><tr><th>Host</th><th>IP</th></tr></thead><tbody>'+
-      rows.map(r=>'<tr><td>'+(r.uuid?'<a class="tagl" href="/web/asset.html?asset='+encodeURIComponent(r.uuid)+'">'+esc(r.hostname||r.uuid)+'</a>':esc(r.hostname||''))+'</td><td class="mono">'+esc(r.ip_address||'')+'</td></tr>').join('')+
+      rows.map(r=>'<tr><td>'+(r.uuid?'<a class="tagl" href="/agents/argos/page.html?target='+encodeURIComponent(r.uuid)+'">'+esc(r.hostname||r.uuid)+'</a>':esc(r.hostname||''))+'</td><td class="mono">'+esc(r.ip_address||'')+'</td></tr>').join('')+
       '</tbody></table></div>':' (none in navi.db)')+'</div>';
 }
 document.getElementById('cmp').onclick=compare;

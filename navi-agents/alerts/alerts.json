@@ -1,0 +1,50 @@
+[
+  {
+    "name": "End-of-life / unsupported software rising",
+    "severity": "warning",
+    "op": "rise_abs",
+    "threshold": 1,
+    "unit": "asset(s)",
+    "source": "sql",
+    "builtin": null,
+    "metric_sql": "SELECT COUNT(DISTINCT asset_uuid) FROM vulns WHERE lower(plugin_name) LIKE '%unsupported%' OR lower(plugin_name) LIKE '%end of life%' OR lower(plugin_name) LIKE '%end-of-life%'",
+    "detail_sql": null,
+    "params": {},
+    "template": "eol_rise",
+    "enabled": true,
+    "id": "al19fa4150e9b5291",
+    "created": "2026-07-27T14:57:51Z"
+  },
+  {
+    "name": "Ownerless assets rising",
+    "severity": "warning",
+    "op": "rise_abs",
+    "threshold": 1,
+    "unit": "asset(s)",
+    "source": "sql",
+    "builtin": null,
+    "metric_sql": "SELECT COUNT(uuid) FROM assets WHERE uuid NOT IN (SELECT DISTINCT asset_uuid FROM tags WHERE tag_key='Owner')",
+    "detail_sql": null,
+    "params": {},
+    "template": "ownerless_rise",
+    "enabled": true,
+    "id": "al19fa54d5c57731d",
+    "created": "2026-07-27T20:38:58Z"
+  },
+  {
+    "name": "New CISA KEV exposure",
+    "severity": "critical",
+    "op": "rise_abs",
+    "threshold": 1,
+    "unit": "asset(s)",
+    "source": "sql",
+    "builtin": null,
+    "metric_sql": "SELECT COUNT(DISTINCT asset_uuid) FROM vulns WHERE xrefs LIKE '%CISA-KNOWN-EXPLOITED%'",
+    "detail_sql": "SELECT DISTINCT a.hostname AS host, a.ip_address AS ip FROM vulns v LEFT JOIN assets a ON a.uuid=v.asset_uuid WHERE v.xrefs LIKE '%CISA-KNOWN-EXPLOITED%' LIMIT 100",
+    "params": {},
+    "template": "kev_new",
+    "enabled": true,
+    "id": "al19fa54db22d2ca0",
+    "created": "2026-07-27T20:39:20Z"
+  }
+]

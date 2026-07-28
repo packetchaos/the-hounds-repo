@@ -130,25 +130,33 @@ async function load(){
   if(!TAGS.length) flash('flash','No tags found. '+esc((o.result&&o.result.message)||''),'warn');
 }
 async function removeSel(){
+  const btn=document.getElementById('removeBtn'); if(btn&&btn.disabled)return;
   const tags=selected(); if(!tags.length) return;
+  const fb=document.getElementById('flash');
+  const scroll=()=>{ if(fb)fb.scrollIntoView({behavior:'smooth',block:'center'}); };
+  const reset=()=>{ if(!btn)return; btn.disabled=false; btn.textContent=btn.dataset.label; btn.style.opacity=''; btn.style.transform=''; btn.style.cursor=''; };
+  if(btn){ btn.dataset.label=btn.dataset.label||btn.textContent; btn.disabled=true; btn.textContent='⏳ Sending…'; btn.style.opacity='.6'; btn.style.transform='translateY(1px)'; btn.style.cursor='default'; }
   // FORCE a fresh compare so the operator can't remove against a stale tags table.
   flash('flash','<span class="spin"></span> forcing a tag compare before removal…','run');
+  scroll();
   await compare(); flashClear('flash');
   const ghostSel = CMP ? tags.filter(t=>CMP.ghosts.some(g=>keyOf(g.cat,g.val)===keyOf(t.category,t.value))) : [];
   if(CMP && !CMP.tenOk){
-    if(!confirm('The Tenable side of the tag compare did not load, so navi.db\'s sync state is unknown. A -remove may clear nothing if navi.db is behind. Continue anyway?')) return;
+    if(!confirm('The Tenable side of the tag compare did not load, so navi.db\'s sync state is unknown. A -remove may clear nothing if navi.db is behind. Continue anyway?')){ reset(); scroll(); return; }
   } else if(ghostSel.length){
     if(!confirm(ghostSel.length+' of your selected tag(s) are LIVE in Tenable but navi.db shows 0 / missing assets for them:\n\n'+
       ghostSel.slice(0,10).map(g=>' • '+(g.category||'')+' : '+(g.value||'')).join('\n')+
       (ghostSel.length>10?'\n …and '+(ghostSel.length-10)+' more':'')+
-      '\n\nnavi -remove clears what navi.db believes the tag carries, so removing these now will do NOTHING and the live tags will remain. Update assets first (button in the banner), wait for it to finish, then Re-compare.\n\nQueue the removals anyway?')) return;
+      '\n\nnavi -remove clears what navi.db believes the tag carries, so removing these now will do NOTHING and the live tags will remain. Update assets first (button in the banner), wait for it to finish, then Re-compare.\n\nQueue the removals anyway?')){ reset(); scroll(); return; }
   }
-  if(!WRITES && !confirm('Writes are gated on the server (NAVI_ALLOW_WRITES not set). The remove jobs will queue but be blocked. Continue anyway?')) return;
-  if(!confirm('Remove '+tags.length+' tag(s) from every asset that carries them? This runs navi -remove and cannot be undone from here.')) return;
+  if(!WRITES && !confirm('Writes are gated on the server (NAVI_ALLOW_WRITES not set). The remove jobs will queue but be blocked. Continue anyway?')){ reset(); scroll(); return; }
+  if(!confirm('Remove '+tags.length+' tag(s) from every asset that carries them? This runs navi -remove and cannot be undone from here.')){ reset(); scroll(); return; }
   flash('flash','<span class="spin"></span> queuing '+tags.length+' removal(s)…','run');
+  scroll();
   let o; try{ o=await API.post('remove',{tags,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
-  if(!o.ok){ flash('flash','✗ '+esc(o.error||'failed'),'crit'); return; }
+  if(!o.ok){ flash('flash','✗ '+esc(o.error||'failed'),'crit'); reset(); scroll(); return; }
   flash('flash','✓ queued '+o.queued+' removal job(s) — watch them in the <a href="/web/tags-log.html">Tagging log</a> (they appear as <b>remove</b>). Allow the ~30-min propagation window, run an <b>assets update</b>, then <b>Re-compare</b> here to confirm the tags cleared.','ok');
+  scroll(); reset();
 }
 async function toContract(){
   const tags=selected(); if(!tags.length) return;

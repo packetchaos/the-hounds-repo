@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Settings — The Hounds</title>
+<link rel="stylesheet" href="/static/console.css">
+<style>
+  .envgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px;margin-top:12px}
+  .envf label.lbl{display:block;font-size:12px;color:var(--mut);margin:0 0 5px;text-transform:uppercase;letter-spacing:.05em}
+  .envf .help{font-size:11.5px;color:var(--mut);margin:5px 0 0;line-height:1.45}
+  .envf .fld,.envf select.fld{width:100%;padding:9px 12px;border-radius:8px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink);font-size:13.5px;font-family:var(--mono)}
+  .statline{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+  .dbgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;margin-top:12px}
+  .dbtile{border:1px solid var(--line);border-radius:11px;padding:12px 13px;background:var(--panel)}
+  .dbtile .row1{display:flex;align-items:center;gap:8px}
+  .dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
+  .dot.ok{background:var(--ok)} .dot.empty{background:#e7c66b} .dot.missing{background:var(--crit)}
+  .dbtile .n{font-size:22px;font-weight:800;margin:6px 0 0}
+  .dbtile .lbl{font-size:11px;color:var(--mut)}
+  .dbtile .help{font-size:11px;color:var(--mut);margin:6px 0 8px;line-height:1.4;min-height:28px}
+  .cli{font-family:var(--mono);font-size:12px;line-height:1.5;color:#c9d4e5;background:#0c0e13;border:1px solid var(--line);
+       border-radius:10px;padding:12px 14px;white-space:pre-wrap;word-break:break-word;max-height:min(74vh,760px);overflow:auto;min-height:160px}
+  .cli .cmd{color:var(--accent);font-weight:700}
+  .cli .ok{color:var(--ok)} .cli .err{color:var(--crit)}
+  .kpis{display:flex;flex-wrap:wrap;gap:18px;margin-top:10px}
+  .kpi .v{font-size:26px;font-weight:800} .kpi .l{font-size:11px;color:var(--mut)}
+</style>
+</head><body>
+<div class="wrap">
+  <header class="top">
+    <div class="logo"><span class="hcrest brand" role="img" aria-label="The Hounds"></span></div>
+    <h1>Settings <small>ENVIRONMENT · NAVI.DB · CLI · USAGE</small></h1>
+    <div class="meta" id="meta"></div>
+  </header>
+
+  <!-- ENV VARS -->
+  <section class="card">
+    <div class="toolbar"><div><h2 style="margin:0">🔑 Environment</h2>
+      <p class="sub" style="margin:2px 0 0">Read &amp; set the variables the app uses. Changes take effect <b>live for this running server</b> — to persist them across restarts, put them in a <span class="mono">.env</span> in the repo root (run.py loads it). A blank API-key field leaves the existing key unchanged.</p></div>
+      <button class="btn run" id="saveEnv" style="margin-left:auto">💾 Save</button></div>
+    <div class="statline" id="statChips"></div>
+    <div class="envgrid" id="envGrid"></div>
+    <div id="envFlash" class="flash" style="margin-top:10px"></div>
+  </section>
+
+  <!-- NAVI.DB CHECKS -->
+  <section class="card">
+    <div class="toolbar"><div><h2 style="margin:0">🗄 navi.db tables</h2>
+      <p class="sub" style="margin:2px 0 0">Is each table populated? <span class="dot ok" style="display:inline-block"></span> has rows · <span class="dot empty" style="display:inline-block"></span> exists but empty · <span class="dot missing" style="display:inline-block"></span> missing. Routes &amp; Paths aren't part of a normal full sync — update them here. <span class="mono" id="dbmeta"></span></p></div>
+      <span style="margin-left:auto;display:flex;gap:6px">
+        <button class="btn ghost sm" id="dbRefresh">↻ Re-check</button>
+        <button class="btn run sm" id="updEverything" title="navi config update everything — refresh every table in one run (~30+ min)">☕ Update everything</button>
+        <button class="btn ghost sm" id="optimize" title="navi config optimize — build SQL indexes for faster tagging">⚙ Optimize indexes</button></span></div>
+    <div class="dbgrid" id="dbGrid"></div>
+  </section>
+
+  <!-- LIVE CLI -->
+  <section class="card">
+    <div class="toolbar"><div><h2 style="margin:0">🖥 navi CLI <span id="cliStatus" class="chip" style="margin-left:6px;display:none"></span></h2>
+      <p class="sub" style="margin:2px 0 0">Long <span class="mono">navi config update &lt;table&gt;</span> runs stream here. They run <b>in the background on the server</b> — a vulns sync can take hours, so you can close this tab or reload and the job keeps going. Come back and reattach from <b>Recent runs</b> below.</p></div>
+      <button class="btn ghost sm" id="cliClear" style="margin-left:auto">Clear</button></div>
+    <div class="cli" id="cli"><span class="sub">Pick a table above and click <b>↻ Update</b>, or <b>⚙ Optimize indexes</b>, to run navi here.</span></div>
+    <div id="naviJobs" style="margin-top:12px"></div>
+  </section>
+
+  <!-- TOKEN USAGE -->
+  <section class="card">
+    <div class="toolbar"><div><h2 style="margin:0">📊 API token usage</h2>
+      <p class="sub" style="margin:2px 0 0">Anthropic tokens consumed by the editable-prompt AI since this server started (in-memory; resets on restart).</p></div>
+      <button class="btn ghost sm" id="resetUsage" style="margin-left:auto">Reset</button></div>
+    <div class="kpis" id="usageKpis"></div>
+  </section>
+
+  <footer>Settings · repo-only control panel · env vars are process-live · navi updates stream from <span class="mono">navi config update</span></footer>
+</div>
+
+<script src="/static/console.js"></script>
+<script>
+// direct jpost (not agentApi) — a settings screen shouldn't feed the Gabriel finding-harvester
+const API={post:(action,body)=>jpost('/api/settings/'+action, body||{})};
+let STAT=null;
+
+function chip(label, good, txt){ const c=good===true?'var(--ok)':good===false?'var(--crit)':'#e7c66b';
+  return '<span class="chip" style="border-color:'+c+';color:'+c+'">'+label+': '+esc(txt)+'</span>'; }
+
+function renderStat(){
+  const s=STAT; if(!s)return;
+  const w=s.writes_enabled, em=s.email_enabled, ai=s.llm&&s.llm.available;
+  document.getElementById('statChips').innerHTML=
+    chip('Tag writes', w, w?'enabled':'gated')
+    + chip('Email', em, em?'enabled':'gated')
+    + chip('navi CLI', s.navi_available, s.navi_available?(s.navi_path||'found'):'not found')
+    + chip('AI', ai, ai?('key detected · '+esc(s.llm.model)):'no key')
+    + chip('Max tokens', null, String(s.llm?s.llm.max_tokens:'—'))
+    + '<span class="chip" title="navi.db in use">🗄 '+esc(s.db_path||'—')+'</span>'
+    + chip('navi runs in', !!s.navi_cwd, s.navi_cwd||'server dir — set NAVI_DB_PATH')
+    + (s.navi_available?'':' <span class="chip" style="border-color:#e7c66b;color:#e7c66b">'+esc(s.write_gate_reason||'')+'</span>');
+}
+function renderEnv(){
+  const g=document.getElementById('envGrid'); g.innerHTML=STAT.env.map(f=>{
+    let input;
+    if(f.bool){ const on=/^(1|true|yes|on|y|t|enabled)$/i.test(f.masked||'');
+      input='<select class="fld" data-k="'+f.key+'"><option value="1"'+(on?' selected':'')+'>1 — writes allowed</option><option value="0"'+(!on?' selected':'')+'>0 — gated</option></select>'; }
+    else if(f.secret){ input='<input class="fld" type="password" data-k="'+f.key+'" placeholder="'+(f.set?('•••• '+esc(f.masked)+' — leave blank to keep'):'not set — paste sk-ant-…')+'">'; }
+    else if(f.num){ input='<input class="fld" type="number" min="1" data-k="'+f.key+'" value="'+esc(f.value||'')+'" placeholder="8000">'; }
+    else { input='<input class="fld" data-k="'+f.key+'" value="'+esc(f.value||'')+'" placeholder="'+(f.key==='NAVI_DB_PATH'?'blank = bundled sample':'')+'">'; }
+    return '<div class="envf"><label class="lbl">'+esc(f.label)+'</label>'+input+'<p class="help">'+f.help+'</p></div>';
+  }).join('');
+}
+async function loadStatus(){
+  let o; try{ o=await API.post('status'); }catch(e){ return; }
+  if(!o||!o.ok)return; STAT=o; renderStat(); renderEnv(); renderUsage(o.usage);
+}
+document.getElementById('saveEnv').onclick=async()=>{
+  const env={}; document.querySelectorAll('#envGrid [data-k]').forEach(el=>{ env[el.dataset.k]=el.value; });
+  flash('envFlash','<span class="spin"></span> applying…','run');
+  let o; try{ o=await API.post('set_env',{env}); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o||!o.ok){ flash('envFlash','✗ '+esc((o&&o.error)||'failed'),'crit'); return; }
+  STAT=o; renderStat(); renderEnv(); renderUsage(o.usage);
+  flash('envFlash','✓ applied '+(o.applied||[]).join(', ')+' — live now'+((o.applied||[]).some(k=>k==='ANTHROPIC_MODEL'||k==='ANTHROPIC_MAX_TOKENS')?' (model/cap changes apply to new calls)':''),'ok');
+};
+
+// ---- navi.db table checks ----
+async function loadDb(){
+  const g=document.getElementById('dbGrid');
+  let o; try{ o=await API.post('db_checks'); }catch(e){ return; }
+  if(!o||!o.ok){ g.innerHTML='<p class="sub">Could not read navi.db.</p>'; return; }
+  document.getElementById('dbmeta').textContent=o.db_path||'';
+  g.innerHTML=o.tables.map(t=>{
+    const cls=t.populated?'ok':(t.exists?'empty':'missing');
+    const state=t.populated?(t.rows.toLocaleString()+' rows'):(t.exists?'empty':'missing');
+    return '<div class="dbtile"><div class="row1"><span class="dot '+cls+'"></span><b>'+esc(t.name)+'</b>'
+      +'<span class="mono sub" style="margin-left:auto;font-size:10.5px">'+esc(t.table)+'</span></div>'
+      +'<div class="n">'+(t.populated?t.rows.toLocaleString():'—')+'</div><div class="lbl">'+state+'</div>'
+      +'<p class="help">'+esc(t.help||'')+'</p>'
+      +'<button class="btn ghost sm updbtn" data-kind="'+esc(t.update)+'">↻ Update</button></div>';
+  }).join('');
+  g.querySelectorAll('.updbtn').forEach(b=>b.onclick=()=>startNavi({kind:b.dataset.kind}, b));
+}
+
+// ---- live CLI window (background jobs; reattachable) ----
+let CLI_JOB=null, CLI_CUR=0, CLI_TOKEN=0, POLL_MS=300, CLI_ELB=0, CLI_ELAT=0, CLI_RUN=false, CLI_HINT=false;
+function setCliStatus(txt,kind){ const c=document.getElementById('cliStatus'); c.style.display=''; c.textContent=txt;
+  c.style.borderColor=kind==='ok'?'var(--ok)':kind==='err'?'var(--crit)':'var(--accent)'; c.style.color=c.style.borderColor; }
+function fmtDur(s){ s=Math.max(0,s|0); if(s<60)return s+'s'; const m=Math.floor(s/60); if(m<60)return m+'m '+(s%60)+'s'; const h=Math.floor(m/60); return h+'h '+(m%60)+'m'; }
+
+// Attach the window to a job id (running OR finished) and stream it from the start.
+function attachJob(jobId){
+  CLI_JOB=jobId; CLI_CUR=0; POLL_MS=300; CLI_RUN=false; CLI_HINT=false; CLI_ELB=0; CLI_ELAT=Date.now(); const tok=++CLI_TOKEN;
+  document.getElementById('cli').innerHTML='<span id="cliHead" style="color:var(--accent)"></span><span id="cliOut"></span><span id="cliHint" style="color:var(--mut)"></span><span id="cliLive"></span>';
+  pollNavi(tok);
+}
+async function startNavi(payload, btn, note){
+  const lbl=btn&&btn.textContent;
+  if(btn){ btn.disabled=true; btn.textContent='⏳ starting…'; }
+  let o; try{ o=await API.post('navi_start',payload); }catch(e){ o={ok:false,error:e.message}; }
+  if(btn){ btn.disabled=false; btn.textContent=lbl; }   // re-enable — the job runs in the background
+  if(!o||!o.ok){ document.getElementById('cli').innerHTML='<span style="color:var(--crit)">✗ '+esc((o&&o.error)||'failed to start')+'</span>'; return; }
+  attachJob(o.job.id);
+  // upfront expectation-setter — the job runs in the background and can be quiet for a while
+  const h=document.getElementById('cliHint');
+  if(h){ h.innerHTML=(note||'<span style="color:var(--ok)">✓ Started in the background.</span> Safe to leave this page — it keeps running on the server. navi can go <b>quiet for many minutes</b> while Tenable prepares a large export (vulns especially); this window updates as navi reports and shows the total time when it finishes.')+'\n\n'; }
+  CLI_HINT=true;   // don't also fire the delayed silence note
+  loadJobs();
+}
+async function pollNavi(tok){
+  if(tok!==CLI_TOKEN)return;                    // a newer attach supersedes this poller
+  let o; try{ o=await API.post('navi_poll',{job_id:CLI_JOB, since:CLI_CUR}); }catch(e){ o=null; }
+  if(tok!==CLI_TOKEN)return;
+  let changed=false;
+  if(o&&o.ok){ const j=o.job;
+    const head=document.getElementById('cliHead'); if(head && !head.dataset.set){ head.textContent='$ '+j.cmd+'\n'; head.dataset.set='1'; }
+    if(j.lines&&j.lines.length){ const out=document.getElementById('cliOut'); if(out) out.textContent += j.lines.join('\n')+'\n'; changed=true; }
+    CLI_CUR=j.n_lines;
+    const live=document.getElementById('cliLive');
+    if(j.status!=='running'){
+      CLI_RUN=false;
+      const okZero=j.returncode===0;
+      if(live){ live.textContent=(j.cur?j.cur+'\n':'')+(okZero?'✓ done':'✗ exit '+j.returncode); live.style.color=okZero?'var(--ok)':'var(--crit)'; }
+      setCliStatus((okZero?'done':('exit '+j.returncode))+' · '+fmtDur(j.elapsed||0), okZero?'ok':'err');
+      document.getElementById('cli').scrollTop=1e9; loadDb(); loadJobs();
+      return;
+    }
+    const nc=j.cur||''; if(live && live.textContent!==nc){ live.textContent=nc; changed=true; }   // live overwriting line
+    setCliStatus('running','run');
+    if(!CLI_HINT && j.n_lines<=2 && (j.elapsed||0)>=12){       // silent so far → reassure once
+      CLI_HINT=true; const h=document.getElementById('cliHint');
+      if(h) h.textContent='(navi is preparing the export on Tenable — big tables like vulns can be silent for a bit before output. This keeps running in the background.)\n\n';
+    }
+    document.getElementById('cli').scrollTop=1e9;
+  }
+  // snappy while output is flowing, back off to 2s when idle — responsive without hammering over hours
+  POLL_MS = changed ? 300 : Math.min(2000, Math.round(POLL_MS*1.4));
+  setTimeout(()=>pollNavi(tok), POLL_MS);
+}
+// Recent runs — reattach any job (and auto-reattach a still-running one after a reload).
+async function loadJobs(){
+  const box=document.getElementById('naviJobs'); if(!box)return;
+  let o; try{ o=await API.post('navi_jobs'); }catch(e){ return; }
+  const jobs=(o&&o.jobs)||[];
+  if(!jobs.length){ box.innerHTML=''; return; }
+  const now=Date.now()/1000;
+  box.innerHTML='<div class="sub" style="font-weight:600;margin:0 0 5px">Recent runs <span class="sub">· click to reattach</span></div>'+jobs.map(j=>{
+    const run=j.status==='running';
+    const st=run?'<span style="color:var(--accent)"><span class="spin"></span> running</span>':(j.returncode===0?'<span style="color:var(--ok)">✓ done</span>':'<span style="color:var(--crit)">✗ exit '+esc(String(j.returncode))+'</span>');
+    const dur=fmtDur((j.finished||now)-j.started);
+    const on=(j.id===CLI_JOB)?'border-color:var(--accent);':'';
+    return '<div class="jrow" data-j="'+j.id+'" data-run="'+(run?1:0)+'" style="display:flex;gap:10px;align-items:center;padding:6px 9px;border:1px solid var(--line);'+on+'border-radius:8px;margin-bottom:5px;cursor:pointer"><b class="mono" style="font-size:12px">#'+j.id+'</b><span style="flex:1">'+esc(j.label)+'</span>'+st+'<span class="sub jdur" data-start="'+j.started+'">'+dur+'</span></div>';
+  }).join('');
+  box.querySelectorAll('.jrow').forEach(r=>r.onclick=()=>attachJob(+r.dataset.j));
+  const running=jobs.find(j=>j.status==='running');
+  if(running && CLI_JOB==null) attachJob(running.id);   // reattach a live job on fresh load
+}
+document.getElementById('updEverything').onclick=(e)=>{
+  if(!confirm('Update EVERY navi.db table (navi config update everything)? This takes at least 30 minutes — it runs in the background, so you can leave the page.')) return;
+  startNavi({kind:'everything'}, e.currentTarget,
+    '<span style="color:var(--ok)">☕ Updating <b>everything</b> — every table in one run.</span> This takes <b>at least 30 minutes</b> (the vulns export alone is often 10–15+ min while Tenable prepares it). Grab a cup of coffee. It runs in the background — leave the page and come back; reattach from <b>Recent runs</b>, and it shows the total time when it finishes.');
+};
+document.getElementById('optimize').onclick=(e)=>startNavi({optimize:true}, e.currentTarget);
+document.getElementById('cliClear').onclick=()=>{ CLI_TOKEN++; CLI_JOB=null; document.getElementById('cli').innerHTML='<span class="sub">Cleared.</span>'; document.getElementById('cliStatus').style.display='none'; };
+document.getElementById('dbRefresh').onclick=loadDb;
+setInterval(loadJobs, 5000);   // refresh Recent-runs list + durations every 5s (no jittery per-second tick)
+
+// ---- token usage ----
+function renderUsage(u){ if(!u)return; const el=document.getElementById('usageKpis');
+  const cost=null; // no pricing table shipped; show raw tokens
+  el.innerHTML=
+    '<div class="kpi"><div class="v">'+(u.calls||0).toLocaleString()+'</div><div class="l">calls</div></div>'
+   +'<div class="kpi"><div class="v" style="color:#8b8fe6">'+(u.input_tokens||0).toLocaleString()+'</div><div class="l">input tokens</div></div>'
+   +'<div class="kpi"><div class="v" style="color:#3fb0c9">'+(u.output_tokens||0).toLocaleString()+'</div><div class="l">output tokens</div></div>'
+   +'<div class="kpi"><div class="v">'+(u.total_tokens||0).toLocaleString()+'</div><div class="l">total tokens</div></div>'
+   +'<div class="kpi"><div class="v" style="font-size:14px;font-family:var(--mono);padding-top:9px">'+esc(u.model||'')+'</div><div class="l">current model</div></div>';
+}
+document.getElementById('resetUsage').onclick=async()=>{ let o; try{ o=await API.post('reset_usage'); }catch(e){ return; } if(o&&o.ok)renderUsage(o.usage); };
+
+loadStatus(); loadDb(); loadJobs();
+</script>
+</body></html>

@@ -17,7 +17,7 @@
 </head><body>
 <div class="wrap">
   <header class="top" id="app-header"></header>
-  <section class="card" style="background:radial-gradient(120% 140% at 90% -20%,var(--amber-glow),transparent 60%),var(--panel)">
+  <section class="card" style="background:var(--panel)">
     <div class="toolbar"><div><h2 style="margin:0">🐝 Unknown Unknowns</h2>
       <p class="sub" style="margin:2px 0 0">The unknown-unknowns hiding in <span class="mono">navi.db</span> — press <b>Run</b> to aggregate, then click any tile to dig in.</p></div>
       <button class="btn run sm" id="run" style="margin-left:auto">▶ Run</button></div>
@@ -53,8 +53,9 @@ const API=agentApi('insights');
 const CAPI=agentApi('certificate'); let CERTMODEL=null;
 const C='var(--crit)',H='var(--high,#ff8a3d)',A='var(--amber,#f5a623)',CY='var(--cyan,#4dd0e1)';
 async function run(){
-  flash('flash','<span class="spin"></span> aggregating from navi.db…','run');
-  let o; try{ o=await API.post('run'); }catch(e){ o={ok:false,error:e.message}; }
+  flash('flash','<span class="spin"></span> aggregating from navi.db — running in the background (safe to keep browsing; watch the Runs log)…','run');
+  const o=await runAgentJob('insights','run',{},{label:'On the Scent overview', onError:msg=>flash('flash','✗ '+msg,'crit')});
+  if(!o){ return; }                       // error already flashed by onError
   if(!o.ok){ flash('flash','✗ '+(o.error||'failed'),'crit'); return; }
   const r=o.result; flashClear('flash');
   const tiles=[
@@ -79,7 +80,7 @@ async function run(){
     renderHeat(); } }catch(e){}
 }
 /* ===== graphical stories — hand-rolled SVG, no deps ===== */
-const _SPAL=['#f43f5e','#fb923c','#e7c66b','#34d399','#3fb0c9','#6ea8ff','#a97fd6','#d78ac0'];
+const _SPAL=['#5a5fe0','#3f78c2','#2f9d9d','#2fa06e','#7d64d4','#3f8fb0','#4a6fd0','#2f9e88'];
 function _n(x){ return (typeof x==='number'&&isFinite(x))?x.toLocaleString():'—'; }
 function _card(t,s,inner,href){ const foot=href?'<div class="sub" style="margin-top:10px;display:flex;justify-content:flex-end;color:var(--accent);font-weight:600">Open the data →</div>':'';
   const oc=href?(' onclick="location.href=\''+href.replace(/'/g,"&#39;")+'\'" style="margin:0;cursor:pointer"'):' style="margin:0"';
@@ -101,7 +102,7 @@ function _hbars(pairs){ pairs=pairs.filter(p=>p&&p.v>0); if(!pairs.length)return
   const mx=Math.max(...pairs.map(p=>p.v)); return '<div style="display:flex;flex-direction:column;gap:7px">'+pairs.map((p,i)=>{const w=Math.max(2,Math.round(p.v/mx*100)),c=p.c||_SPAL[i%_SPAL.length];
     return '<div style="display:grid;grid-template-columns:130px 1fr auto;gap:8px;align-items:center"><div style="font-size:12px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="'+esc(p.l)+'">'+esc(p.l)+'</div><div style="height:18px;border-radius:5px;background:color-mix(in srgb,'+c+' 15%,transparent);overflow:hidden"><div style="width:'+w+'%;height:100%;background:'+c+';border-radius:5px"></div></div><b class="mono" style="font-size:12px;color:'+c+'">'+_n(p.v)+'</b></div>';}).join('')+'</div>';
 }
-function _funnel(F){ const st=[{k:'CVEs',v:F.cves||0,c:'#f43f5e'},{k:'Findings',v:F.findings||0,c:'#fb923c'},{k:'Plugins',v:F.plugins||0,c:'#e7c66b'},{k:'Apps',v:F.routes||0,c:'#34d399'}];
+function _funnel(F){ const st=[{k:'CVEs',v:F.cves||0,c:'#f43f5e'},{k:'Findings',v:F.findings||0,c:'#fb923c'},{k:'Plugins',v:F.plugins||0,c:'#e7c66b'},{k:'Apps',v:F.routes||0,c:'var(--ok)'}];
   const mx=Math.max(1,...st.map(s=>s.v)),W=260,h=32,gap=8,padT=6,cx=W/2,sc=v=>50+Math.sqrt(v/mx)*(W-96),H=padT+st.length*(h+gap);
   let s='<svg viewBox="0 0 '+W+' '+H+'" width="100%" style="max-width:320px;display:block;margin:0 auto">';
   st.forEach((x,i)=>{const y=padT+i*(h+gap),wt=sc(x.v),wb=sc(i<st.length-1?st[i+1].v:x.v);
@@ -115,11 +116,11 @@ function renderStories(S,r){ const host=document.getElementById('stories'),card=
   const ordS=['Critical','High','Medium','Low','Info']; sevSeg.sort((a,b)=>ordS.indexOf(a.l)-ordS.indexOf(b.l));
   if(sevSeg.length) cards.push(_card('🎯 Findings by severity','Every open finding across the estate.',_donut(sevSeg,{center:_n(sevSeg.reduce((a,s)=>a+s.v,0)),centerLabel:'findings'}),_DQ('Count of findings grouped by severity')));
   cards.push(_card('🔥 CISA KEV exposure','Assets carrying a Known-Exploited vuln.',_gauge(tot?(S.kev||0)/tot*100:0,{color:'#f43f5e',label:_n(S.kev||0)+' of '+_n(tot)+' assets actively exploited'}),'/agents/cisakev/page.html'));
-  const AB=S.acr_bands||{},acrPairs=[['Critical (9-10)','crit','#f43f5e'],['High (7-8)','high','#fb923c'],['Medium (4-6)','med','#e7c66b'],['Low (1-3)','low','#34d399'],['Unrated','unrated','#64748b']].map(x=>({l:x[0],v:AB[x[1]]||0,c:x[2]})).filter(p=>p.v>0);
+  const AB=S.acr_bands||{},acrPairs=[['Critical (9-10)','crit','#f43f5e'],['High (7-8)','high','#fb923c'],['Medium (4-6)','med','#e7c66b'],['Low (1-3)','low','var(--ok)'],['Unrated','unrated','#64748b']].map(x=>({l:x[0],v:AB[x[1]]||0,c:x[2]})).filter(p=>p.v>0);
   if(acrPairs.length) cards.push(_card('🏷 Assets by criticality (ACR)','How the estate is rated.',_hbars(acrPairs),'/agents/acr/page.html'));
-  cards.push(_card('🗺 Ownership coverage','Owned vs Ownerless Risk.',_donut([{l:'Owned',c:'#34d399',v:S.owned||0},{l:'Ownerless Risk',c:'#f43f5e',v:Math.max(0,tot-(S.owned||0))}],{center:(tot?Math.floor((S.owned||0)/tot*1000)/10:0)+'%',centerLabel:'owned'}),'/web/ownermap.html'));
+  cards.push(_card('🗺 Ownership coverage','Owned vs Ownerless Risk.',_donut([{l:'Owned',c:'var(--ok)',v:S.owned||0},{l:'Ownerless Risk',c:'#f43f5e',v:Math.max(0,tot-(S.owned||0))}],{center:(tot?Math.floor((S.owned||0)/tot*1000)/10:0)+'%',centerLabel:'owned'}),'/web/ownermap.html'));
   cards.push(_card('🩺 Scan-health blind spots','Assets with credential failures.',_gauge(tot?(S.credfail||0)/tot*100:0,{color:'#fb923c',label:_n(S.credfail||0)+' of '+_n(tot)+' with credential issues'}),'/agents/scan_eval/page.html'));
-  cards.push(_card('📦 Software-inventory coverage','Inventory vs shadow.',_donut([{l:'In inventory',c:'#34d399',v:S.inventory||0},{l:'Shadow (none)',c:'#f43f5e',v:Math.max(0,tot-(S.inventory||0))}],{center:(tot?Math.floor((S.inventory||0)/tot*1000)/10:0)+'%',centerLabel:'covered'}),'/agents/customapp/page.html'));
+  cards.push(_card('📦 Software-inventory coverage','Inventory vs shadow.',_donut([{l:'In inventory',c:'var(--ok)',v:S.inventory||0},{l:'Shadow (none)',c:'#f43f5e',v:Math.max(0,tot-(S.inventory||0))}],{center:(tot?Math.floor((S.inventory||0)/tot*1000)/10:0)+'%',centerLabel:'covered'}),'/agents/customapp/page.html'));
   const tr=(S.top_routes||[]).map((x,i)=>({l:x.app||'—',v:x.vulns||0,c:_SPAL[i%_SPAL.length]})).filter(p=>p.v>0);
   if(tr.length) cards.push(_card('🧭 Top apps / routes by exposure','Where vulnerabilities concentrate.',_hbars(tr),'/agents/exproute/page.html'));
   if(S.funnel&&S.funnel.cves) cards.push(_card('📉 The reduction — CVE → app','Chase CVEs, or own a handful of apps.',_funnel(S.funnel),'/web/ownermap.html'));
@@ -127,7 +128,7 @@ function renderStories(S,r){ const host=document.getElementById('stories'),card=
   const catSeg=[{l:'Unmanaged surface',c:'#fb923c',v:(r.shadow_assets||0)+(r.iot_devices||0)+(r.custom_apps||0)+(r.docker_hosts||0)+(r.web_apps||0)},{l:'Identity & access',c:'#3fb0c9',v:(r.identities||0)+(r.ai_assets||0)},{l:'Risk & lifecycle',c:'#f43f5e',v:(r.certs_failing||0)+(r.mitre_high_acr||0)}].filter(s=>s.v>0);
   if(catSeg.length) cards.push(_card('🗂 Unknown-unknowns by category','The blind-spot surface, grouped.',_donut(catSeg,{})));
   cards.push(_card('☁️ Cloud vs on-prem','Where the estate lives.',_donut([{l:'Cloud (AWS/GCP/Azure)',c:'#6ea8ff',v:r.cloud_assets||0},{l:'On-prem / other',c:'#a97fd6',v:Math.max(0,tot-(r.cloud_assets||0))}],{center:_n(tot),centerLabel:'assets'}),_DQ('List cloud assets: hostname and ip where aws_id or gcp_instance_id or azure_vm_id is set')));
-  const pq=S.pq||{}; if((pq.vuln||0)+(pq.safe||0)>0) cards.push(_card('🔮 Post-quantum readiness','Certificates a quantum computer could break.',_donut([{l:'Quantum-vulnerable',c:'#f43f5e',v:pq.vuln||0},{l:'Quantum-safe',c:'#34d399',v:pq.safe||0}],{center:((pq.vuln||0)+(pq.safe||0)?Math.floor((pq.vuln||0)/((pq.vuln||0)+(pq.safe||0))*1000)/10:0)+'%',centerLabel:'at risk'}),'/agents/postquantum/page.html'));
+  const pq=S.pq||{}; if((pq.vuln||0)+(pq.safe||0)>0) cards.push(_card('🔮 Post-quantum readiness','Certificates a quantum computer could break.',_donut([{l:'Quantum-vulnerable',c:'#f43f5e',v:pq.vuln||0},{l:'Quantum-safe',c:'var(--ok)',v:pq.safe||0}],{center:((pq.vuln||0)+(pq.safe||0)?Math.floor((pq.vuln||0)/((pq.vuln||0)+(pq.safe||0))*1000)/10:0)+'%',centerLabel:'at risk'}),'/agents/postquantum/page.html'));
   host.innerHTML=cards.length?('<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;margin-top:12px">'+cards.join('')+'</div>'):'<p class="sub">No chartable data yet.</p>';
 }
 document.getElementById('run').onclick=run;
@@ -165,7 +166,7 @@ function showMonth(i){
   const b=CERTMODEL.heatmap_months[i]; const panel=document.getElementById('monthPanel');
   if(!b||!b.count){panel.innerHTML='';return;}
   const assets=(b.assets||[]).slice().sort((x,y)=>(x.expiry_iso||'').localeCompare(y.expiry_iso||''));
-  const arow=a=>{const host=a.asset_uuid?`<a class="plink" href="/web/asset.html?asset=${encodeURIComponent(a.asset_uuid)}">${esc((a.hostname&&a.hostname.trim())||a.cn||'asset')}</a>`:esc(a.hostname||a.cn||'');
+  const arow=a=>{const host=a.asset_uuid?`<a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(a.asset_uuid)}">${esc((a.hostname&&a.hostname.trim())||a.cn||'asset')}</a>`:esc(a.hostname||a.cn||'');
     return `<tr><td class="mono">${esc((a.date||'').replace(' GMT',''))}</td><td class="mono">${esc(a.ip||'')}</td><td>${host}</td><td class="mono">${esc(a.cn||'')}</td><td><span class="tagval">${esc(a.tag||'')}</span></td></tr>`;};
   panel.innerHTML=`<div class="mp"><div class="toolbar" style="margin:0 0 8px"><b>${esc(b.label)} — ${b.count} certificate(s) failing</b>`+
     `<button class="btn ghost sm" id="mpClose" style="margin-left:auto">Close</button></div>`+
@@ -183,11 +184,14 @@ function showMonth(i){
 async function applyCertIssues(){
   const picks=[...document.querySelectorAll('#h2 .certsel:checked')].map(c=>({plugin_id:c.dataset.p,plugin_name:c.dataset.nm}));
   if(!picks.length)return;
-  const btn=document.getElementById('certTagSel'); if(btn)btn.disabled=true;
+  const btn=document.getElementById('certTagSel');
+  const reset=()=>{ if(!btn)return; btn.disabled=false; btn.textContent=btn.dataset.label||'Tag selected'; btn.style.opacity=''; btn.style.transform=''; btn.style.cursor=''; };
+  if(btn){ btn.dataset.label=btn.dataset.label||btn.textContent; btn.disabled=true; btn.textContent='⏳ Sending…'; btn.style.opacity='.6'; btn.style.transform='translateY(1px)'; btn.style.cursor='default'; }
   const res=document.getElementById('certIssueRes');
-  res.innerHTML='<div class="callbox"><span class="spin"></span> applying '+picks.length+' cert-issue tag(s) via navi --plugin…</div>';
+  res.innerHTML='<div class="callbox" style="color:var(--ok);border:1px solid var(--ok);background:var(--okbg,rgba(78,200,140,.10));font-weight:600"><span class="spin"></span> Tags being sent to the Tagging log…</div>';
+  res.scrollIntoView({behavior:'smooth',block:'center'});
   let o; try{o=await CAPI.post('tags_issues',{issues:picks,confirm:true});}catch(e){o={ok:false,error:e.message};}
-  if(!o.ok){res.innerHTML='<div class="callbox" style="color:var(--crit)">✗ '+esc(o.error||'failed')+'</div>';if(btn)btn.disabled=false;return;}
+  if(!o.ok){res.innerHTML='<div class="callbox" style="color:var(--crit)">✗ '+esc(o.error||'failed')+'</div>';reset();res.scrollIntoView({behavior:'smooth',block:'center'});return;}
   const results=o.results||[];
   const jm=await pollJobs(results.map(r=>r.job_id));   // wait for the queued writes to finish
   let anyOk=false;
@@ -195,18 +199,21 @@ async function applyCertIssues(){
     const finished=j&&(j.status==='done'||j.status==='error');
     const ok=j?(j.status==='done'&&j.ok!==false):(r.ok===true&&r.queued!==true&&!r.error);
     if(ok)anyOk=true;
-    if(ok) return '<div class="callbox" style="color:#7ee2a8">✓ Cert Issue : '+esc(r.value||r.plugin_id)+' tagged'+((j&&j.result&&j.result.warning)?(' — '+esc(j.result.warning)):'')+'</div>';
+    if(ok) return '<div class="callbox" style="color:var(--ok)">✓ Cert Issue : '+esc(r.value||r.plugin_id)+' tagged'+((j&&j.result&&j.result.warning)?(' — '+esc(j.result.warning)):'')+'</div>';
     if(j&&!finished) return '<div class="callbox" style="color:#e7c66b">⏳ Cert Issue : '+esc(r.value||r.plugin_id)+' still running — check the Tagging log</div>';
     const msg=j?(j.message||(j.result&&(j.result.message||j.result.stderr))||j.status):(r.message||r.stderr||'write rejected');
     return '<div class="callbox" style="color:#ffb4c6">✗ '+esc(r.value||r.plugin_id)+': '+esc(msg)+'</div>'; }).join('')
     +(!o.writes_enabled?('<div class="sub" style="margin-top:6px;color:var(--warn,#e7c66b)"><b>Nothing was written.</b> '+esc(o.write_gate_reason||'Writes are gated — set NAVI_ALLOW_WRITES=1')+'.</div>')
       :(anyOk?'<div class="sub" style="margin-top:6px;color:var(--ink-3)">Submitted via <span class="mono">navi enrich tag --plugin</span>. Allow ~30 min for Tenable + a <span class="mono">navi update</span> before it shows in navi.db. See the <a href="/web/tags-log.html">Tagging log</a>.</div>':''));
+  if(!o.writes_enabled || !anyOk){ reset(); }
+  else { const ok=document.createElement('div'); ok.className='callbox'; ok.style.cssText='color:var(--ok);border:1px solid var(--ok);background:var(--okbg,rgba(78,200,140,.10));font-weight:600;margin-bottom:6px'; ok.textContent='✓ Tags sent to the Tagging log'; res.insertBefore(ok,res.firstChild); if(btn){ btn.textContent='✓ Sent'; btn.style.opacity=''; btn.style.transform=''; } }
+  res.scrollIntoView({behavior:'smooth',block:'center'});
   document.querySelectorAll('#h2 .certsel').forEach(c=>c.checked=false);
   const cc=document.getElementById('certSelCount'); if(cc)cc.textContent='0 selected';
 }
 async function pollJobs(ids, timeoutMs=25000){
   const want=[...new Set((ids||[]).filter(x=>x!=null).map(String))];
-  let map={}; if(!want.size) return map;
+  let map={}; if(!want.length) return map;
   const t0=Date.now();
   while(Date.now()-t0<timeoutMs){
     let o; try{ o=await jpost('/api/explore/tag_jobs',{}); }catch(e){ break; }

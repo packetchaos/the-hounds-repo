@@ -101,6 +101,15 @@
   </section>
 
   <section class="card">
+    <div class="toolbar"><h3 style="margin:0">📧 Run summary email (Gabriel)</h3><span class="chip" id="notifyChip" style="margin-left:auto"></span></div>
+    <p class="sub" style="margin:2px 0 8px">Every cycle, Gabriel emails a summary of what the contract did — tags queued, ACR applied, tags removed, and any Alert Raven alerts that fired. On by default; uncheck to stop getting an email each run. Sending is still gated by <span class="mono">NAVI_EMAIL</span>, so a gated inbox just records what would have gone out.</p>
+    <div class="toolbar">
+      <label class="sub"><input type="checkbox" id="notifyEnabled"> email a summary via Gabriel each cycle</label>
+      <label class="sub">to <input id="notifyTo" type="email" class="fld" placeholder="blank → default alert email" style="width:260px"></label>
+    </div>
+  </section>
+
+  <section class="card">
     <div class="toolbar"><h3 style="margin:0">Loop log</h3></div>
     <div id="loop"><p class="sub">No cycles yet.</p></div>
   </section>
@@ -124,7 +133,15 @@ function gather(){ // pull edits from the form back into C
   C.removal.pause_minutes=+document.getElementById('remPause').value||0;
   C.removal.navi_update=document.getElementById('remNaviupd').checked;
   C.removal.tags=[...document.querySelectorAll('#remList .remrow')].map(r=>({category:r.querySelector('.rc').value.trim(),value:r.querySelector('.rv').value.trim()})).filter(x=>x.category&&x.value);
+  C.notify=C.notify||{};
+  C.notify.enabled=document.getElementById('notifyEnabled').checked;
+  C.notify.to=(document.getElementById('notifyTo').value||'').trim();
   return C;
+}
+function renderNotify(){ const n=C.notify||{enabled:true,to:''};
+  document.getElementById('notifyEnabled').checked=(n.enabled!==false);
+  document.getElementById('notifyTo').value=n.to||'';
+  const c=document.getElementById('notifyChip'); if(c)c.textContent=(n.enabled!==false)?('on'+(n.to?(' · '+n.to):' · default')):'off';
 }
 function remRow(t){ t=t||{category:'',value:''};
   return `<div class="arow remrow"><span></span><div class="toolbar" style="margin:0">
@@ -158,7 +175,7 @@ function acrRow(r){ r=r||{category:'',value:'',score:8,mod:'set',reasons:['busin
 function renderAcr(){ const box=document.getElementById('acr'); box.innerHTML=(C.acr&&C.acr.length?C.acr:[]).map(acrRow).join('')||'<p class="sub">No ACR rules. ACR is never auto-ranked — add explicit rules here.</p>';
   box.querySelectorAll('.acrdel').forEach(b=>b.onclick=()=>{b.closest('.acrrow').remove();}); }
 function renderForm(){ document.getElementById('hours').value=C.schedule_hours; document.getElementById('wait').value=C.wait_minutes; document.getElementById('topn').value=C.defaults.top_n; document.getElementById('naviupd').checked=!!C.navi_update; document.getElementById('optimizeChk').checked=(C.optimize!==false);
-  renderAgents(); renderAcr(); renderRemoval(); renderArm();
+  renderAgents(); renderAcr(); renderRemoval(); renderNotify(); renderArm();
   document.getElementById('kpi').innerHTML=`<div class="k"><div class="v">${AGENTS.filter(([id])=>C.agents[id]&&C.agents[id].enabled).length}</div><div class="l">agents enabled</div></div><div class="k"><div class="v">${C.defaults.top_n}</div><div class="l">default top-N (risk)</div></div><div class="k"><div class="v">${C.schedule_hours}h</div><div class="l">cadence</div></div><div class="k"><div class="v" style="color:${WRITES?'var(--ok)':'var(--mut)'}">${WRITES?'on':'gated'}</div><div class="l">writes</div></div>`; }
 async function refresh(){ const o=await API.post('get'); C=o.contract; WRITES=o.writes_enabled; renderForm(); renderLoop(o.scheduler); }
 function renderPlan(p){ LASTPLAN=p; LASTARMED=!!(p&&p.armed); const blocks=p.agents||[]; document.getElementById('planCount').textContent=blocks.reduce((s,b)=>s+(b.selected||0),0)+' tags planned';
@@ -200,7 +217,22 @@ function parseCsv(text){
 document.getElementById('planBtn').onclick=async()=>{ await push(); flash('flash','<span class="spin"></span> planning…','run'); const o=await API.post('plan'); flashClear('flash'); renderPlan(o.plan); };
 document.getElementById('exportBtn').onclick=async()=>{ await push(); flash('flash','<span class="spin"></span> building navi script…','run'); let o; try{o=await API.post('export');}catch(e){o={ok:false}} flashClear('flash'); if(!o.ok){flash('flash','✗ export failed','crit');return;} const blob=new Blob([o.script],{type:'text/x-shellscript'}); const u=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=u; a.download=(C.name||'navi-contract')+'.sh'; a.click(); setTimeout(()=>URL.revokeObjectURL(u),2000); flash('flash','Exported navi script — run it where navi can write.','ok'); };
 document.getElementById('runBtn').onclick=async()=>{ await push(); flash('flash','<span class="spin"></span> running one cycle…','run'); const o=await API.post('run_now'); flashClear('flash'); renderPlan((o.cycle&&o.cycle.plan)||{agents:[]}); refresh(); flash('flash','Cycle complete — queued '+((o.cycle&&o.cycle.queued_tags)||0)+' tag(s). See loop log + Tag log.','ok'); };
-document.getElementById('armBtn').onclick=async()=>{ await push(); if(C.armed){ await API.post('disarm'); } else { if(!WRITES && !confirm('Writes are gated (NAVI_ALLOW_WRITES not set), so armed cycles will be planned but not executed. Arm anyway?'))return; await API.post('arm'); } refresh(); };
+document.getElementById('armBtn').onclick=async()=>{
+  const btn=document.getElementById('armBtn'); const lbl=btn.textContent; btn.disabled=true; btn.textContent='…';
+  try{
+    try{ await push(); }catch(e){ /* a save hiccup shouldn't block arm/disarm */ }
+    if(C && C.armed){
+      let o; try{ o=await API.post('disarm'); }catch(e){ o={ok:false,error:e.message}; }
+      flash('flash', (o&&o.ok)?'○ Disarmed — planning only.':('✗ '+esc((o&&(o.error||o.message))||'disarm failed')), (o&&o.ok)?'warn':'crit');
+    } else {
+      if(!WRITES && !confirm('Writes are gated (NAVI_ALLOW_WRITES not set), so armed cycles will be planned but not executed. Arm anyway?')){ btn.disabled=false; btn.textContent=lbl; return; }
+      let o; try{ o=await API.post('arm'); }catch(e){ o={ok:false,error:e.message}; }
+      if(o&&o.ok) flash('flash','● Armed — the autonomous loop is running'+(o.writes_enabled?'':' (writes gated — it will plan but not execute until NAVI_ALLOW_WRITES=1)')+'.','ok');
+      else flash('flash','✗ Arm failed: '+esc((o&&(o.error||o.message))||'unknown error'),'crit');
+    }
+  }catch(e){ flash('flash','✗ '+esc(e.message||'failed'),'crit'); }
+  btn.disabled=false; await refresh();
+};
 document.getElementById('emailSummaryBtn').onclick=async()=>{
   // If there's no plan yet, build one so the summary reflects this contract.
   if(!LASTPLAN){ await push(); flash('flash','<span class="spin"></span> planning for the summary…','run'); try{ const o=await API.post('plan'); renderPlan(o.plan); }catch(e){} flashClear('flash'); }
@@ -221,6 +253,8 @@ document.getElementById('cFile').onchange=(e)=>{ const f=e.target.files&&e.targe
 document.getElementById('acrAdd').onclick=()=>{ const box=document.getElementById('acr'); if(box.querySelector('.sub'))box.innerHTML=''; box.insertAdjacentHTML('beforeend',acrRow()); box.querySelectorAll('.acrdel').forEach(b=>b.onclick=()=>b.closest('.acrrow').remove()); };
 document.getElementById('remAdd').onclick=()=>{ const box=document.getElementById('remList'); if(box.querySelector('.sub'))box.innerHTML=''; box.insertAdjacentHTML('beforeend',remRow()); box.querySelectorAll('.remdel').forEach(b=>b.onclick=()=>b.closest('.remrow').remove()); };
 document.getElementById('remClear').onclick=()=>{ C.removal=C.removal||{}; C.removal.tags=[]; renderRemoval(); };
+document.getElementById('notifyEnabled').onchange=()=>{ C.notify=C.notify||{}; C.notify.enabled=document.getElementById('notifyEnabled').checked; C.notify.to=(document.getElementById('notifyTo').value||'').trim(); renderNotify(); };
+document.getElementById('notifyTo').onblur=()=>{ C.notify=C.notify||{}; C.notify.to=(document.getElementById('notifyTo').value||'').trim(); renderNotify(); };
 /* ---- AI-authored bulk ACR inside the contract (reuses /api/acr run + interpret) ---- */
 let C_ACR_TAGS=null, C_ACR_AI={changes:[]};
 function cAcrAiReasons(){ return [...document.querySelectorAll('#cAcrReasons input:checked')].map(x=>x.value); }
