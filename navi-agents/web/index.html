@@ -98,10 +98,11 @@ function tagsFor(a){ return TAG_MAP[a.id] || [a.category||'Agent']; }
 /* Guided-flow order (see AGENT_FLOW in console.js): Highlight the Signal — Fast, then
    Deeper Analysis, then Organize the Work, then Operationalize. Non-flow hounds trail after. */
 const PACK=['mitre','cisakev','eol','certificate',
-            'ai','identity','software','customapp','attackpath',
-            'agentgroup','classify','exproute',
+            'iot_squad','postquantum',
+            'ai','identity','software','customapp','attackpath','scan_eval',
+            'agentgroup','classify','exproute','acr',
             'email','alert','tagremoval',
-            'iot_squad','argos','acr','scan_eval','postquantum'];
+            'argos'];
 const METRIC_LABEL={
   certificate:'Failing certs (12mo)', iot_squad:'IoT devices', acr:'Tags available',
   customapp:'Candidates', exproute:'Routes mapped', mitre:'Tag writes', eol:'Lifecycle assets',
