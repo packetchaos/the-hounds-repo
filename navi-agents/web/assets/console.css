@@ -255,3 +255,42 @@ section.card,.agent,.acard,.itile{
 .dashtabs .dsep{width:1px;height:20px;background:var(--line);margin:0 3px}
 .dashtabs .dtab-io{background:transparent;border:1px solid var(--line);color:var(--mut);padding:6px 10px;border-radius:999px;font-size:12px;cursor:pointer;white-space:nowrap;font-family:inherit}
 .dashtabs .dtab-io:hover{border-color:var(--accent);color:var(--ink)}
+
+/* ===== Left-nav shell (fixed top bar + grouped left sidebar) — v1.29.32x ===== */
+:root{--sbw:242px;--tbh:52px}
+body{padding-top:var(--tbh)}
+/* the shared header becomes a fixed, full-width top bar (brand · status chips) */
+header.top,#app-header{position:fixed;top:0;left:0;right:0;height:var(--tbh);z-index:60;
+  margin:0;padding:0 16px;border-bottom:1px solid var(--line);background:var(--bg-2);
+  display:flex;align-items:center;gap:10px;flex-wrap:nowrap;overflow:hidden}
+header.top .logo,#app-header .logo{flex:0 0 auto}
+header.top h1,#app-header h1{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:0 1 auto}
+header.top h1 small,#app-header h1 small{display:none}
+header.top .meta,#app-header .meta{margin-left:auto;flex-wrap:nowrap;overflow-x:auto}
+.side-collapse{background:transparent;border:1px solid var(--line);color:var(--ink-3);border-radius:8px;
+  width:30px;height:30px;cursor:pointer;flex:0 0 auto;font-size:13px;line-height:1}
+.side-collapse:hover{border-color:var(--accent);color:var(--ink)}
+/* #topnav is built by mountTopNav() as a grouped vertical sidebar under the bar */
+#topnav{position:fixed;top:var(--tbh);left:0;width:var(--sbw);height:calc(100vh - var(--tbh));z-index:40;
+  margin:0;padding:12px 10px 22px;display:block;overflow-y:auto;overflow-x:hidden;
+  background:var(--bg-2);border-right:1px solid var(--line);transition:width .16s ease}
+#topnav .navsep{display:none}
+#topnav .navgrp{font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--ink-3);padding:0 9px;margin:15px 0 4px}
+#topnav .navgrp:first-child{margin-top:2px}
+#topnav button{display:flex;align-items:center;gap:10px;width:100%;justify-content:flex-start;text-align:left;
+  padding:8px 10px;margin:1px 0;border-radius:9px;font-size:13.5px;white-space:nowrap;overflow:hidden;
+  background:transparent;border:1px solid transparent;color:var(--ink-2);cursor:pointer;font-family:var(--body)}
+#topnav button:hover{color:var(--ink);background:var(--panel)}
+#topnav button.active{color:var(--ink);background:var(--panel);border-color:var(--line);box-shadow:inset 3px 0 0 var(--accent)}
+#topnav button .ico{width:20px;flex:0 0 auto;text-align:center;font-size:14px;display:inline-flex;align-items:center;justify-content:center}
+#topnav button .ico .hcrest.sm{width:18px;height:18px}
+#topnav button .lbl{overflow:hidden;text-overflow:ellipsis}
+/* content column clears the fixed bar + sidebar */
+.wrap{max-width:none;margin:0;padding:16px 26px 60px calc(var(--sbw) + 26px)}
+/* collapsed to icons */
+body.navcollapsed #topnav{width:62px}
+body.navcollapsed #topnav .navgrp,body.navcollapsed #topnav button .lbl{display:none}
+body.navcollapsed #topnav button{justify-content:center;padding:9px 0;gap:0}
+body.navcollapsed .wrap{padding-left:calc(62px + 26px)}
+@media(max-width:920px){:root{--sbw:212px}}

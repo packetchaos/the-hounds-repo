@@ -64,7 +64,27 @@ def pip_install(*pkgs):
         return False
 
 
-if not os.path.exists(os.environ["NAVI_DB_PATH"]) and os.path.exists("make_sample_db.py"):
+def _fixture_needs_build(p):
+    """True if the DB at p is missing, empty, or an invalid fixture (no assets table/rows)."""
+    if not os.path.exists(p) or os.path.getsize(p) == 0:
+        return True
+    try:
+        import sqlite3
+        con = sqlite3.connect(p)
+        try:
+            n = con.execute("SELECT count(*) FROM assets").fetchone()[0]
+        finally:
+            con.close()
+        return not n
+    except Exception:
+        return True
+
+
+# Auto-(re)build the bundled sample when it's missing or empty (a 0-byte/partial file
+# used to slip through the old exists-only check and surface as "no assets table").
+# Guarded to the sample filename so a real navi.db the user points NAVI_DB_PATH at is never clobbered.
+_dbp = os.environ["NAVI_DB_PATH"]
+if os.path.basename(_dbp) == "sample_navi.db" and os.path.exists("make_sample_db.py") and _fixture_needs_build(_dbp):
     print("building sample dataset…")
     subprocess.run([sys.executable, "make_sample_db.py"], check=True)
 

@@ -756,42 +756,85 @@ function mountDashTabs(containerId, onChange){
     done();
   });
 }
+/* Left-sidebar navigation model — grouped, guided-flow order. Item: [iconHTML, label, href]. */
+const _SIDE_GROUPS=[
+  [null,[
+    ['🐾','On the Scent','/agents/insights/page.html'],
+    ['<span class="hcrest sm" aria-hidden="true"></span>','Release the Hounds','/'],
+  ]],
+  ['Fast signal',[
+    ['🎯','MITRE ATT&CK','/agents/mitre/page.html'],
+    ['🛡️','CISA KEV','/agents/cisakev/page.html'],
+    ['🔩','EOL / Unsupported','/agents/eol/page.html'],
+    ['🔐','Certificates','/agents/certificate/page.html'],
+  ]],
+  ['Deeper analysis',[
+    ['🐾','IoT Discovery','/agents/iot_squad/page.html'],
+    ['⚛️','Post-Quantum','/agents/postquantum/page.html'],
+    ['🤖','AI Inventory','/agents/ai/page.html'],
+    ['🪪','Identity','/agents/identity/page.html'],
+    ['📦','Software','/agents/software/page.html'],
+    ['🏷️','Custom Apps','/agents/customapp/page.html'],
+    ['🕸️','Attack Paths','/agents/attackpath/page.html'],
+    ['🩺','Scan Evaluations','/agents/scan_eval/page.html'],
+  ]],
+  ['Organize',[
+    ['🛰️','Agent Groups','/agents/agentgroup/page.html'],
+    ['📇','Asset Classification','/agents/classify/page.html'],
+    ['🧭','Exposure Routes','/agents/exproute/page.html'],
+    ['⚖️','ACR Calibration','/agents/acr/page.html'],
+  ]],
+  ['Operationalize',[
+    ['📧','Email · Gabriel','/agents/email/page.html'],
+    ['🐦‍⬛','Alert Raven','/agents/alert/page.html'],
+    ['🗑️','Tag Removal','/agents/tagremoval/page.html'],
+  ]],
+  ['Views',[
+    ['📊','Dashboards','/web/dashboards.html'],
+    ['🔦','Argos Deep-Dive','/agents/argos/page.html'],
+    ['📜','AI Contract','/agents/contract/page.html'],
+  ]],
+  ['System',[
+    ['🔎','Search Hounds','/web/search.html'],
+    ['🛠','Tools','/web/tools.html'],
+  ]],
+];
 function mountTopNav(){
   const wrap = document.querySelector('.wrap'); if(!wrap) return;
-  _navddStyle();
+  _navddStyle();   // injects .searchsub styling used by the Dashboards/Search/Tools sub-bars
+  try{ if(localStorage.getItem('naviNavCollapsed')==='1') document.body.classList.add('navcollapsed'); }catch(e){}
   const old = document.getElementById('topnav'); if(old) old.remove();
   const p = location.pathname;
   const active = href => href === '/' ? (p === '/' || p === '/index.html')
                                       : (p === href || p.endsWith(href));
   const nav = document.createElement('nav'); nav.className = 'tabs'; nav.id = 'topnav';
-  nav.innerHTML = _NAV_ITEMS.map(it => {
-    if(it[0] === 'SEP') return '<span class="navsep"></span>';
-    if(Array.isArray(it[1])){
-      const anyActive = it[1].some(s => active(s[1]));
-      const menu = it[1].map(s => '<button class="navdd-item' + (active(s[1]) ? ' active' : '') +
-        '" data-href="' + s[1] + '">' + s[0] + '</button>').join('');
-      return '<span class="navdd"><button class="navdd-btn' + (anyActive ? ' active' : '') +
-        '">' + it[0] + ' <span class="navdd-caret">▾</span></button>' +
-        '<div class="navdd-menu">' + menu + '</div></span>';
-    }
-    const cls = (it[2] ? 'lens ' : '') + (active(it[1]) ? 'active' : '');
-    return '<button class="' + cls.trim() + '" data-href="' + it[1] + '">' + it[0] + '</button>';
+  nav.innerHTML = _SIDE_GROUPS.map(g => {
+    const head = g[0] ? '<div class="navgrp">' + g[0] + '</div>' : '';
+    const items = g[1].map(it => {
+      const lbl = String(it[1]).replace(/&/g,'&amp;');
+      return '<button class="' + (active(it[2]) ? 'active' : '') + '" data-href="' + it[2] + '">' +
+        '<span class="ico">' + it[0] + '</span><span class="lbl">' + lbl + '</span></button>';
+    }).join('');
+    return head + items;
   }).join('');
   const anchor = document.querySelector('header.top, #app-header, header');
   if(anchor && anchor.parentNode) anchor.insertAdjacentElement('afterend', nav);
   else wrap.prepend(nav);
   nav.querySelectorAll('button[data-href]').forEach(b => b.onclick = (e) => {
-    e.stopPropagation();
-    if(b.dataset.href === '#refresh'){ if(typeof naviRefresh==='function') naviRefresh(b); return; }
-    location.href = b.dataset.href;
+    e.stopPropagation(); location.href = b.dataset.href;
   });
-  nav.querySelectorAll('.navdd-btn').forEach(b => b.onclick = (e) => {
-    e.stopPropagation(); const dd = b.parentNode; const wasOpen = dd.classList.contains('open');
-    nav.querySelectorAll('.navdd').forEach(x => x.classList.remove('open'));
-    if(!wasOpen) dd.classList.add('open');
-  });
-  if(!window.__navddDocClose){ window.__navddDocClose = true;
-    document.addEventListener('click', () => { const n=document.getElementById('topnav'); if(n) n.querySelectorAll('.navdd').forEach(x=>x.classList.remove('open')); });
+  // collapse toggle lives in the top bar (header)
+  const hdr = document.querySelector('header.top, #app-header');
+  if(hdr && !hdr.querySelector('.side-collapse')){
+    const cb = document.createElement('button');
+    cb.className = 'side-collapse'; cb.type = 'button';
+    cb.title = 'Collapse navigation'; cb.setAttribute('aria-label','Collapse navigation');
+    cb.textContent = '⇔';
+    cb.onclick = () => {
+      document.body.classList.toggle('navcollapsed');
+      try{ localStorage.setItem('naviNavCollapsed', document.body.classList.contains('navcollapsed') ? '1' : '0'); }catch(e){}
+    };
+    hdr.insertBefore(cb, hdr.firstChild);
   }
   mountDashboardsNav();                 // horizontal Dashboards bar on dashboard pages + the hub
   mountSearchNav();                     // horizontal Search-Hounds bar on search pages + the hub
@@ -815,12 +858,15 @@ function claudeChip(h){
    next logical one. Highlight the Signal (fast → deeper) → Organize the Work → Operationalize,
    ending on the AI Contract. Agents not in the flow simply show no Next link. ===== */
 const AGENT_FLOW=['mitre','cisakev','eol','certificate',
-                  'ai','identity','software','customapp','attackpath',
-                  'agentgroup','classify','exproute',
+                  'iot_squad','postquantum',
+                  'ai','identity','software','customapp','attackpath','scan_eval',
+                  'agentgroup','classify','exproute','acr',
                   'email','alert','tagremoval','contract'];
 const AGENT_FLOW_LABEL={mitre:'MITRE ATT&CK',cisakev:'CISA KEV',eol:'EOL / Unsupported',certificate:'Certificates',
+  iot_squad:'IoT Discovery',postquantum:'Post-Quantum',
   ai:'AI Inventory',identity:'Identity Inventory',software:'Software Analyzer',customapp:'Custom Apps',
-  attackpath:'Attack Paths',agentgroup:'Agent Groups',classify:'Asset Classification',exproute:'Exposure Routes',
+  attackpath:'Attack Paths',scan_eval:'Scan Evaluations',agentgroup:'Agent Groups',classify:'Asset Classification',
+  exproute:'Exposure Routes',acr:'ACR Calibration',
   email:'Email & Reports',alert:'Alert Raven',tagremoval:'Tag Removal',contract:'AI Contract'};
 function _flowCurrentId(){
   const m=(location.pathname||'').match(/\/agents\/([^\/]+)\//);
