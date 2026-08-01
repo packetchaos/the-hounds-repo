@@ -1,0 +1,12 @@
+{
+  "id": "ex_fixed",
+  "name": "Fixed Explorer",
+  "icon": "🩹",
+  "order": 26,
+  "category": "Explore",
+  "codename": "Coonhound",
+  "summary": "Search the fixed table — remediation history + Pass/Fail SLA verdicts. Filter by severity, state, and SLA outcome. Read-only navi.db search.",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": ["search"]
+}

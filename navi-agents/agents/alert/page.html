@@ -8,9 +8,9 @@
   .akpi .k{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:10px 14px;min-width:104px}
   .akpi .k .v{font-size:24px;font-weight:800;line-height:1}.akpi .k .l{font-size:11px;color:var(--mut);margin-top:2px}
   .sev{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:2px 7px;border-radius:999px;border:1px solid}
-  .sev.critical{color:#f43f5e;border-color:rgba(244,63,94,.5);background:rgba(244,63,94,.10)}
-  .sev.warning{color:#e7c66b;border-color:rgba(231,198,107,.5);background:rgba(231,198,107,.10)}
-  .sev.info{color:#6ea8ff;border-color:rgba(110,168,255,.5);background:rgba(110,168,255,.10)}
+  .sev.critical{color:var(--cx-f43f5e);border-color:rgba(244,63,94,.5);background:rgba(244,63,94,.10)}
+  .sev.warning{color:var(--cx-e7c66b);border-color:rgba(231,198,107,.5);background:rgba(231,198,107,.10)}
+  .sev.info{color:var(--cx-6ea8ff);border-color:rgba(110,168,255,.5);background:rgba(110,168,255,.10)}
   .acard{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--panel);margin-bottom:10px}
   .acard .top{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
   .arow{display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:9px 0;border-bottom:1px solid var(--line)}
@@ -88,13 +88,13 @@ function renderMetrics(m){
   const bs=m.by_severity||{};
   document.getElementById('metrics').innerHTML=
     stat(m.defined||0,'defined')+stat(m.enabled||0,'enabled','var(--accent)')
-    +stat(m.firing_now||0,'firing now',(m.firing_now?'#f43f5e':''))
+    +stat(m.firing_now||0,'firing now',(m.firing_now?'var(--cx-f43f5e)':''))
     +stat(m.fired_7d||0,'fired · 7d')+stat(m.fired_30d||0,'fired · 30d')
-    +stat((bs.critical||0),'critical','#f43f5e')+stat((bs.warning||0),'warning','#e7c66b');
+    +stat((bs.critical||0),'critical','var(--cx-f43f5e)')+stat((bs.warning||0),'warning','var(--cx-e7c66b)');
   const de=document.getElementById('defEmail'); if(de && document.activeElement!==de) de.value=m.recipient||'';
   document.getElementById('emailNote').innerHTML = m.email_enabled
     ? '<span style="color:var(--ok)">✓ email enabled (NAVI_EMAIL)</span>'
-    : '<span style="color:#e7c66b">email disabled — set <span class="mono">NAVI_EMAIL=1</span> in <a href="/web/settings.html">Settings</a> to send digests</span>';
+    : '<span style="color:var(--cx-e7c66b)">email disabled — set <span class="mono">NAVI_EMAIL=1</span> in <a href="/web/settings.html">Settings</a> to send digests</span>';
 }
 function stat(v,l,c){ return '<div class="k"><div class="v"'+(c?(' style="color:'+c+'"'):'')+'>'+v+'</div><div class="l">'+l+'</div></div>'; }
 
@@ -142,7 +142,7 @@ async function sendTestEmail(id,el,btn){
   if(t.ok){
     el.innerHTML='<div class="callbox" style="margin-top:2px;color:var(--ok)">✉ Test email sent to <b>'+esc(t.recipient||'')+'</b>. Check that inbox to confirm delivery.'+(t.would_fire?' <span class="sub">(this alert currently would fire)</span>':' <span class="sub">(sent even though it isn\'t firing right now — it\'s a delivery test)</span>')+'</div>';
   } else {
-    el.innerHTML='<div class="callbox" style="margin-top:2px;color:#e7c66b">✗ Not sent — '+esc(t.reason||'email gated')+(String(t.reason||'').toLowerCase().indexOf('recipient')>=0?' Set a default alert email above.':' Enable it in <a href="/web/settings.html">Settings</a> (NAVI_EMAIL).')+'</div>';
+    el.innerHTML='<div class="callbox" style="margin-top:2px;color:var(--cx-e7c66b)">✗ Not sent — '+esc(t.reason||'email gated')+(String(t.reason||'').toLowerCase().indexOf('recipient')>=0?' Set a default alert email above.':' Enable it in <a href="/web/settings.html">Settings</a> (NAVI_EMAIL).')+'</div>';
   }
 }
 
@@ -152,7 +152,7 @@ async function testAlert(id,el){
   el.innerHTML=testHtml(t);
 }
 function testHtml(t){
-  const fireTxt=t.would_fire?'<span style="color:#f43f5e;font-weight:700">● WOULD FIRE</span>':'<span style="color:var(--ok)">○ would not fire</span>';
+  const fireTxt=t.would_fire?'<span style="color:var(--cx-f43f5e);font-weight:700">● WOULD FIRE</span>':'<span style="color:var(--ok)">○ would not fire</span>';
   const aff=(t.affected||[]).slice(0,8).map(a=>'<div class="sub mono" style="font-size:11.5px">— '+esc(a.host||'')+(a.ip?(' ('+esc(a.ip)+')'):'')+(a.hours!=null?(' · '+a.hours+'h'):'')+(a.account?(' · '+esc(a.account)):'')+'</div>').join('');
   return '<div class="callbox" style="margin-top:2px">'+fireTxt+' &nbsp; <span class="mono">'+esc(t.message||'')+'</span>'
     +(t.note?('<div class="sub" style="margin-top:3px">'+esc(t.note)+'</div>'):'')
@@ -184,7 +184,7 @@ function renderEditor(note){
     +builtinNote
     +(d.source==='builtin'?'':'<div style="margin-top:8px"><div class="sub">Metric query (read-only SELECT → a number or row count)</div><textarea id="edSql" class="fld2" rows="3">'+esc(d.metric_sql||'')+'</textarea>'
       +'<div class="sub" style="margin-top:6px">Affected-assets query (optional — host, ip)</div><textarea id="edDet" class="fld2" rows="2">'+esc(d.detail_sql||'')+'</textarea></div>')
-    +(note?('<div class="sub" style="margin-top:6px;color:#e7c66b">'+esc(note)+'</div>'):'')
+    +(note?('<div class="sub" style="margin-top:6px;color:var(--cx-e7c66b)">'+esc(note)+'</div>'):'')
     +'<div class="toolbar" style="margin:10px 0 0"><button class="btn run sm" id="edTest">🔎 Test now</button><button class="btn sm" id="edSave">💾 Save alert</button><button class="btn ghost sm" id="edCancel">cancel</button></div>'
     +'<div class="testout" id="edOut" style="margin-top:8px"></div></div>';
   document.getElementById('edCancel').onclick=()=>{ box.style.display='none'; DRAFT=null; };
@@ -211,7 +211,7 @@ async function runEval(send){
   const nf=r.newly_fired||[], still=r.still_firing||[];
   let msg='Evaluated '+((r.evaluated||[]).length)+' alert(s) · <b>'+nf.length+' newly fired</b>'+(still.length?(' · '+still.length+' still firing'):'');
   if(send){ const s=r.sent; msg+= s&&s.ok ? ' · <span style="color:var(--ok)">✉ digest sent to '+esc(r.recipient||'')+'</span>'
-    : (nf.length? ' · <span style="color:#e7c66b">not sent — '+esc((s&&s.reason)||'email gated')+'</span>' : ' · nothing new to send'); }
+    : (nf.length? ' · <span style="color:var(--cx-e7c66b)">not sent — '+esc((s&&s.reason)||'email gated')+'</span>' : ' · nothing new to send'); }
   flash('flash',msg, nf.length?'run':'ok');
   load();
 }

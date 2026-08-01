@@ -55,7 +55,7 @@ function render(){
   if(AP_PAGE>pages)AP_PAGE=pages;
   const start=(AP_PAGE-1)*AP_SIZE, pageRows=paths.slice(start,start+AP_SIZE);
   tb.innerHTML=paths.length?pageRows.map(p=>{const e=p.entry,t=p.target;
-    const eb=(e.kev?'<span class="badge" style="color:var(--crit);border-color:var(--crit)">🔥 KEV</span>':(e.crit?'<span class="badge" style="color:#ff9a4d;border-color:#ff9a4d">critical</span>':''))+(e.weak?' <span class="badge" style="color:var(--warn)">'+esc(e.weakWhy)+'</span>':'');
+    const eb=(e.kev?'<span class="badge" style="color:var(--crit);border-color:var(--crit)">🔥 KEV</span>':(e.crit?'<span class="badge" style="color:var(--cx-ff9a4d);border-color:var(--cx-ff9a4d)">critical</span>':''))+(e.weak?' <span class="badge" style="color:var(--warn)">'+esc(e.weakWhy)+'</span>':'');
     const piv='→ same subnet <span class="mono">'+esc(p.subnet)+'.0/24</span>'+(p.pivotWeak?' · <span style="color:var(--warn)">credential pivot</span>':'')+(p.altEntries>0?' · <span class="sub">+'+p.altEntries+' entr'+(p.altEntries>1?'ies':'y')+'</span>':'')+' →';
     const tbadge='ACR <b style="color:var(--crit)">'+t.acr+'</b>'+(t.kev?' <span class="badge" style="color:var(--crit);border-color:var(--crit)">🔥 KEV</span>':'');
     return `<tr><td><b>${plink(e.uuid,e.host)}</b><div class="sub" style="font-size:12px">${esc(e.entryReason||'exposed')}</div>${eb}</td>`+
@@ -91,7 +91,7 @@ function showTagResult(o,label){ const r=document.getElementById('tagRes');
   const scroll=()=>{ if(r)r.scrollIntoView({behavior:'smooth',block:'center'}); };
   if(!o||!o.ok){ r.innerHTML='<div class="callbox" style="color:var(--crit)">✗ '+esc((o&&(o.error||o.message))||'failed')+'</div>'; scroll(); return; }
   const res=o.result||{}; const ok=res.ok!==false;
-  r.innerHTML='<div class="callbox" style="color:'+(ok?'var(--ok)':'#ffb4c6')+'">'+(ok
+  r.innerHTML='<div class="callbox" style="color:'+(ok?'var(--ok)':'var(--cx-ffb4c6)')+'">'+(ok
     ?'✓ tagged '+(o.count||0)+' '+esc(label)+' → Attack Path : '+esc(o.value||'')+(res.warning?' — '+esc(res.warning):'')
     :'✗ '+esc(res.message||res.stderr||'write rejected'))+'</div>'
     +(o.writes_enabled?'':'<div class="sub" style="margin-top:6px;color:var(--warn)">Writes are gated — set <span class="mono">NAVI_ALLOW_WRITES=1</span> to apply. Tags show in the <a href="/web/tags-log.html">Tagging log</a> after a navi.db sync.</div>');

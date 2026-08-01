@@ -91,7 +91,7 @@ function nlTag(){
   raw.forEach(r=>{ const hit=byLower[r.toLowerCase()]; if(hit) matched.push(hit); else missed.push(r); });
   document.getElementById('nlMatch').textContent=matched.length+' matched'+(missed.length?(' · '+missed.length+' unmatched'):'');
   if(!matched.length){ flash('nlFlash','None of those names match a loaded agent group. Unmatched: '+esc(missed.slice(0,6).join(', ')),'crit'); return; }
-  tagNames([...new Set(matched)],'nlFlash',document.getElementById('nlTag')).then(()=>{ if(missed.length) flash('nlFlash',document.getElementById('nlFlash').innerHTML+' <span style="color:var(--warn,#e7c66b)">(unmatched: '+esc(missed.slice(0,6).join(', '))+')</span>','ok'); });
+  tagNames([...new Set(matched)],'nlFlash',document.getElementById('nlTag')).then(()=>{ if(missed.length) flash('nlFlash',document.getElementById('nlFlash').innerHTML+' <span style="color:var(--warn,var(--cx-e7c66b))">(unmatched: '+esc(missed.slice(0,6).join(', '))+')</span>','ok'); });
 }
 async function tagAll(){
   const btn=document.getElementById('tagAll'); if(btn&&btn.disabled)return;

@@ -13,7 +13,7 @@
   .dot{width:12px;height:12px;border-radius:3px;display:inline-block;vertical-align:middle}
   .chip2{display:inline-block;font-size:11px;background:var(--panel-2);border:1px solid var(--line);border-radius:99px;padding:1px 8px;margin:2px 3px 0 0}
   .pill{font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:5px}
-  .p-kev{background:rgba(244,63,94,.16);color:#fb7185}.p-crit{background:rgba(251,146,60,.16);color:#fb923c}.p-cloud{background:rgba(110,168,255,.14);color:#6ea8ff}
+  .p-kev{background:rgba(244,63,94,.16);color:var(--cx-fb7185)}.p-crit{background:rgba(251,146,60,.16);color:var(--cx-fb923c)}.p-cloud{background:rgba(110,168,255,.14);color:var(--cx-6ea8ff)}
   table{table-layout:fixed;width:100%}td,th{overflow:hidden;text-overflow:ellipsis}
   /* Content links (asset drill-downs, members, breadcrumb) had no color rule, so they fell
      back to the browser's default blue — unreadable on the dark theme. Use the theme accent. */
@@ -32,7 +32,7 @@
   .vhero .v{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:8px 12px;min-width:92px}
   .vhero .v b{font-size:22px;font-weight:800;display:block;line-height:1}
   .vhero .v span{font-size:11px;color:var(--mut)}
-  .contchip{display:inline-block;font-family:var(--mono);font-size:11px;background:#0d1524;border:1px solid #23406e;color:#7ec8ff;border-radius:6px;padding:1px 7px;margin:2px 3px 0 0}
+  .contchip{display:inline-block;font-family:var(--mono);font-size:11px;background:#0d1524;border:1px solid #23406e;color:var(--cx-7ec8ff);border-radius:6px;padding:1px 7px;margin:2px 3px 0 0}
   #sunTip{position:fixed;pointer-events:none;z-index:50;background:#0d0f14;border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:12px;color:var(--ink);box-shadow:0 6px 24px rgba(0,0,0,.5);display:none;max-width:300px}
   #memPanel{border:1px solid var(--line);border-radius:12px;padding:12px;min-height:120px}
   .memrow{display:flex;justify-content:space-between;gap:8px;padding:5px 4px;border-bottom:1px solid var(--line);font-size:12.5px}
@@ -150,7 +150,7 @@
 <script>
 const API=agentApi('classify');
 let DATA=null, CUR=null;
-const COL={"Windows":"#6ea8ff","Linux":"#e7c66b","macOS":"#9aa7b8","IoT":"#a78bfa","OT":"#f43f5e","Network":"#3fb0c9","Virtual Infrastructure":"var(--ok)","Cloud":"#6ea8ff","Unclassified":"#f43f5e"};
+const COL={"Windows":"var(--cx-6ea8ff)","Linux":"var(--cx-e7c66b)","macOS":"#9aa7b8","IoT":"var(--cx-a78bfa)","OT":"var(--cx-f43f5e)","Network":"var(--cx-3fb0c9)","Virtual Infrastructure":"var(--ok)","Cloud":"var(--cx-6ea8ff)","Unclassified":"var(--cx-f43f5e)"};
 const col=c=>COL[c]||"#8a99ad";
 
 async function run(){
@@ -167,15 +167,15 @@ function render(){
   document.getElementById('cov').innerHTML=
     `<div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center;width:100%">`
     +stat((s.total||0).toLocaleString(),'total assets')
-    +stat((s.servers||0).toLocaleString(),'servers','#6ea8ff')
-    +stat((s.workstations||0).toLocaleString(),'workstations','#e7c66b')
-    +stat((s.iot||0).toLocaleString(),'IoT','#a78bfa')
-    +(s.ot?stat((s.ot||0).toLocaleString(),'OT','#f43f5e'):'')
-    +stat((s.unclassified||0).toLocaleString(),'unclassified','#f43f5e')
-    +stat((s.unclassified_pct||0)+'%','unclassified','#f43f5e')
+    +stat((s.servers||0).toLocaleString(),'servers','var(--cx-6ea8ff)')
+    +stat((s.workstations||0).toLocaleString(),'workstations','var(--cx-e7c66b)')
+    +stat((s.iot||0).toLocaleString(),'IoT','var(--cx-a78bfa)')
+    +(s.ot?stat((s.ot||0).toLocaleString(),'OT','var(--cx-f43f5e)'):'')
+    +stat((s.unclassified||0).toLocaleString(),'unclassified','var(--cx-f43f5e)')
+    +stat((s.unclassified_pct||0)+'%','unclassified','var(--cx-f43f5e)')
     +`</div>`
     +`<div style="width:100%;margin-top:8px"><div class="cbar">${(DATA.classes||[]).map(c=>`<i style="width:${(c.count/DATA.total*100).toFixed(2)}%;background:${col(c.cls)}" title="${esc(c.cls)}: ${c.count}"></i>`).join('')}</div></div>`
-    +(!DATA.tagged_any?`<div class="callbox" style="width:100%;border-left:3px solid var(--warn,#e7c66b);margin-top:10px"><b style="color:var(--warn,#e7c66b)">No classification tags yet.</b> Classification is driven only by tags. Use <b>📡 OS Signals</b> below to detect and tag your environment — everything fills in as you tag.</div>`:'');
+    +(!DATA.tagged_any?`<div class="callbox" style="width:100%;border-left:3px solid var(--warn,var(--cx-e7c66b));margin-top:10px"><b style="color:var(--warn,var(--cx-e7c66b))">No classification tags yet.</b> Classification is driven only by tags. Use <b>📡 OS Signals</b> below to detect and tag your environment — everything fills in as you tag.</div>`:'');
   renderSignals();
   document.getElementById('signalsCard').style.display='';   // OS Signals + "Describe the OS tagging" prompt
   document.getElementById('classCard').style.display='';
@@ -412,7 +412,7 @@ function wireSun(arcs){
   const focus=FOCUS[FOCUS.length-1], tot=focus.value||1;
   svg.querySelectorAll('path.arc').forEach(p=>{ const s=arcs[+p.dataset.i];
     p.onmouseenter=e=>{ svg.querySelectorAll('path.arc').forEach(q=>q.style.opacity=(q===p?1:0.32));
-      tip.style.display='block'; tip.innerHTML=`<b>${esc(s.node.name)}</b><br>${(s.node.value||0).toLocaleString()} asset(s) · ${(s.node.value/tot*100).toFixed(1)}%`+(s.node.children?'<br><span style="color:#7ec8ff">click to zoom</span>':'<br><span style="color:#7ec8ff">click to list assets</span>'); };
+      tip.style.display='block'; tip.innerHTML=`<b>${esc(s.node.name)}</b><br>${(s.node.value||0).toLocaleString()} asset(s) · ${(s.node.value/tot*100).toFixed(1)}%`+(s.node.children?'<br><span style="color:var(--cx-7ec8ff)">click to zoom</span>':'<br><span style="color:var(--cx-7ec8ff)">click to list assets</span>'); };
     p.onmousemove=e=>{ tip.style.left=(e.clientX+14)+'px'; tip.style.top=(e.clientY+12)+'px'; };
     p.onmouseleave=()=>{ svg.querySelectorAll('path.arc').forEach(q=>q.style.opacity=1); tip.style.display='none'; };
     p.onclick=()=>{ tip.style.display='none'; if(s.node.children&&s.node.children.length){ FOCUS.push(s.node); drawSun(); } else { loadMembers(s.node); } };
@@ -516,7 +516,7 @@ async function writeTag(facet,value,uuids,resEl,count){
   const anyErr=jids.some(id=>{ const j=jm[String(id)]; return j&&j.status==='error'; });
   if(doneAll){ if(resEl)resEl.innerHTML='<span style="color:var(--ok)">✓ '+esc('Asset Inventory: '+facet+': '+value)+' · '+(o.asset_count||'')+' assets'+((o.chunks||1)>1?(' ('+o.chunks+' batches)'):'')+' — <span class="spin"></span> updating the classification pies…</span>'; return true; }
   if(anyErr){ const j=jids.map(id=>jm[String(id)]).find(x=>x&&x.status==='error'); if(resEl)resEl.innerHTML='<span style="color:var(--crit)">✗ '+esc((j&&j.message)||'failed')+' (see <a href="/web/tags-log.html">log</a>)</span>'; return false; }
-  if(!o.writes_enabled){ if(resEl)resEl.innerHTML='<span style="color:#e7c66b"><b>Nothing written.</b> '+esc(o.write_gate_reason||'writes gated — set NAVI_ALLOW_WRITES=1')+'</span>'; return false; }
+  if(!o.writes_enabled){ if(resEl)resEl.innerHTML='<span style="color:var(--cx-e7c66b)"><b>Nothing written.</b> '+esc(o.write_gate_reason||'writes gated — set NAVI_ALLOW_WRITES=1')+'</span>'; return false; }
   if(resEl)resEl.innerHTML='queued'+((o.chunks||1)>1?(' ('+o.chunks+' batches)'):'')+' — see <a href="/web/tags-log.html">Tagging log</a>'; return true;
 }
 
@@ -529,7 +529,7 @@ async function postTag(facet,value,uuids,resEl,count){
   let o; try{ o=await API.post('tag',{facet,value,uuids,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
   if(!(o.ok||o.queued||o.warning)){ if(resEl)resEl.innerHTML='<span style="color:var(--crit)">✗ '+esc(o.error||o.message||'rejected')+'</span>'; return {ok:false,jids:[],o}; }
   const jids=(o.job_ids&&o.job_ids.length)?o.job_ids:[o.job_id||(o.result&&o.result.job_id)].filter(x=>x!=null);
-  if(!jids.length && !o.writes_enabled){ if(resEl)resEl.innerHTML='<span style="color:#e7c66b"><b>Nothing written.</b> '+esc(o.write_gate_reason||'writes gated — set NAVI_ALLOW_WRITES=1')+'</span>'; return {ok:false,jids:[],o}; }
+  if(!jids.length && !o.writes_enabled){ if(resEl)resEl.innerHTML='<span style="color:var(--cx-e7c66b)"><b>Nothing written.</b> '+esc(o.write_gate_reason||'writes gated — set NAVI_ALLOW_WRITES=1')+'</span>'; return {ok:false,jids:[],o}; }
   if(resEl)resEl.innerHTML='<span style="color:var(--ok)">✓ sent to the <a href="/web/tags-log.html">Tagging log</a>'+((o.chunks||1)>1?(' ('+o.chunks+' batches)'):'')+'</span>';
   return {ok:true,jids,o};
 }
@@ -598,7 +598,7 @@ async function bulkTag(level){
   // fire all at once so they queue together and appear in the log immediately
   const results=await Promise.all(jobs.map(j=>postTag(j.facet,j.value,j.uuids,null,j.count)));
   const ok=results.filter(r=>r&&r.ok).length;
-  res.innerHTML=`<span style="color:${ok?'var(--ok)':'#e7c66b'};font-weight:600">✓ ${ok}/${jobs.length} OS tag(s) sent to the Tagging log</span> — <span class="spin"></span> updating the pies… <a href="/web/tags-log.html">Tagging log</a>`; scroll();
+  res.innerHTML=`<span style="color:${ok?'var(--ok)':'var(--cx-e7c66b)'};font-weight:600">✓ ${ok}/${jobs.length} OS tag(s) sent to the Tagging log</span> — <span class="spin"></span> updating the pies… <a href="/web/tags-log.html">Tagging log</a>`; scroll();
   if(btn){ btn.disabled=false; btn.innerHTML=lbl; btn.style.opacity=''; btn.style.transform=''; btn.style.cursor=''; }
   if(ok) afterTag();
 }

@@ -10,7 +10,7 @@
 .agent .nm{font-weight:700;font-size:13px}.agent .ds{color:var(--mut);font-size:11px;margin-top:6px}
 .plink{color:var(--accent);text-decoration:none}.plink:hover{text-decoration:underline}
 .kind{font-size:10px;font-weight:800;padding:2px 7px;border-radius:5px;text-transform:uppercase;letter-spacing:.3px}
-.k-confirm{background:rgba(52,211,153,.16);color:var(--ok)}.k-cross{background:rgba(62,166,255,.15);color:var(--accent)}.k-new{background:rgba(231,198,107,.16);color:#e7c66b}
+.k-confirm{background:rgba(52,211,153,.16);color:var(--ok)}.k-cross{background:rgba(62,166,255,.15);color:var(--accent)}.k-new{background:rgba(231,198,107,.16);color:var(--cx-e7c66b)}
 .src{font-size:10px;color:var(--mut);border:1px solid var(--line);border-radius:4px;padding:1px 5px}
 .note{background:var(--panel2);border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:8px;padding:9px 11px;font-size:12px;color:var(--ink-2);margin:6px 0}
 .switch{display:inline-flex;align-items:center;gap:7px;font-size:12px;cursor:pointer;user-select:none}
@@ -18,7 +18,7 @@
 .cov .c{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:11.5px}
 .cov .c b{font-size:14px;color:var(--txt)}
 table{table-layout:fixed;width:100%}td,th{overflow:hidden;text-overflow:ellipsis}
-.warnpill{color:#e7c66b;font-size:11px}
+.warnpill{color:var(--cx-e7c66b);font-size:11px}
 </style>
 </head><body>
 <div class="wrap">
@@ -184,7 +184,7 @@ function renderQA(){
   document.getElementById('covCards').innerHTML=cards.map(c=>`<div class="c"><b>${c[1]!=null?c[1]:'—'}</b><br>${c[0]}</div>`).join('');
   const flags=qa.flags||[];
   document.getElementById('sqQa').innerHTML=`Checks: ${(qa.checks||[]).join(', ')} · flags: <b>${flags.length}</b>`
-    +(flags.length?'<div class="callbox" style="color:#ffd28a;white-space:pre-wrap">'+flags.map(f=>`${f.type}: ${f.plugin_id||''} ${(f.iot_names||[]).join(' / ')} — ${f.detail||''}`).join('\n')+'</div>':'');
+    +(flags.length?'<div class="callbox" style="color:var(--cx-ffd28a);white-space:pre-wrap">'+flags.map(f=>`${f.type}: ${f.plugin_id||''} ${(f.iot_names||[]).join(' / ')} — ${f.detail||''}`).join('\n')+'</div>':'');
   const led=qa.ledger||[];
   document.getElementById('ledgerHead').innerHTML=`Coverage ledger — every combination that was tested but <b>not</b> proposed (nothing silently skipped): <b>${led.length}</b> shown`;
   hPaginate('sqLedger', led, l=>`<tr><td class="mono"><a class="plink" href="/web/vuln.html?plugin=${encodeURIComponent(l.plugin_id)}">#${esc(l.plugin_id)}</a></td>`
@@ -221,7 +221,7 @@ function renderQueue(){
     if(!o||!o.ok){ res.innerHTML='<div class="callbox" style="color:var(--crit)">✗ '+esc((o&&(o.error||o.message))||'failed')+'</div>'; reset(); res.scrollIntoView({behavior:'smooth',block:'center'}); return; }
     const results=o.results||[];
     // Writes gated → nothing was queued; say so plainly and stop.
-    if(!o.writes_enabled){ res.innerHTML='<div class="callbox" style="color:var(--warn,#e7c66b)"><b>Nothing was written.</b> '+esc(o.write_gate_reason||'Writes are gated — set NAVI_ALLOW_WRITES=1')+'.</div>'; reset(); res.scrollIntoView({behavior:'smooth',block:'center'}); return; }
+    if(!o.writes_enabled){ res.innerHTML='<div class="callbox" style="color:var(--warn,var(--cx-e7c66b))"><b>Nothing was written.</b> '+esc(o.write_gate_reason||'Writes are gated — set NAVI_ALLOW_WRITES=1')+'.</div>'; reset(); res.scrollIntoView({behavior:'smooth',block:'center'}); return; }
     // The queue + Tagging log are the source of truth: each tag is COMMITTED the moment it's
     // queued. "Execute all" can enqueue many navi commands that run in the background longer
     // than one poll window — so report the send as done up front, then upgrade rows as jobs
@@ -242,9 +242,9 @@ function renderQueue(){
       const label=r.tag_value||('Asset Inventory : '+(r.facet||'Device Type')+': '+r.value);
       const d=document.createElement('div');d.className='callbox';
       if(anyOkTag){ IOT_SUBMITTED.add(r.value); delete iotAppr[r.value]; saveIot(); d.style.color='var(--ok)'; d.textContent='✓ '+label+' applied ('+nCmd+' navi command'+(nCmd>1?'s':'')+')'; }
-      else if(!allFinished){ IOT_SUBMITTED.add(r.value); delete iotAppr[r.value]; saveIot(); d.style.color='#9ad9ff'; d.textContent='↻ '+label+' queued — navi is still running it (see Tagging log)'; }
-      else if(anyErr){ d.style.color='#ffb4c6'; const em=jobs.filter(j=>j.status==='error').map(j=>j.message).filter(Boolean).join('; '); d.textContent='✗ '+label+': '+esc(em||'failed'); }
-      else { d.style.color='#e7c66b'; d.textContent='⚠ '+label+' — navi ran but matched no assets in navi.db yet (updates after a navi update)'; }
+      else if(!allFinished){ IOT_SUBMITTED.add(r.value); delete iotAppr[r.value]; saveIot(); d.style.color='var(--cx-9ad9ff)'; d.textContent='↻ '+label+' queued — navi is still running it (see Tagging log)'; }
+      else if(anyErr){ d.style.color='var(--cx-ffb4c6)'; const em=jobs.filter(j=>j.status==='error').map(j=>j.message).filter(Boolean).join('; '); d.textContent='✗ '+label+': '+esc(em||'failed'); }
+      else { d.style.color='var(--cx-e7c66b)'; d.textContent='⚠ '+label+' — navi ran but matched no assets in navi.db yet (updates after a navi update)'; }
       rowsEl.appendChild(d); });
     const g=document.createElement('div');g.className='sub';g.style.cssText='margin-top:6px;color:var(--ink-3)';g.innerHTML='navi.db reflects new tags only after a <span class="mono">navi update</span> (~30 min for Tenable). See the <a href="/web/tags-log.html">Tagging log</a>.';rowsEl.appendChild(g);
     if(typeof loadAppliedTags==='function')loadAppliedTags().then(renderTags);};

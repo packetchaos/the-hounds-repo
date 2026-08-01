@@ -315,7 +315,7 @@ def _owner_message(owner, entry, template, domain, min_rank):
             lines.append(f"    Open in Tenable: {url}")
         hrow = (f"<b>{_esc(host)}</b> <span style='color:#8a99ad'>({_esc(m.get('ip_address') or '—')}"
                 f"{' · ACR '+_esc(acr) if acr else ''})</span>"
-                + (" <span style='color:#f43f5e'>🔥 CISA KEV</span>" if u in kev else "")
+                + (" <span style='color:#c81e3f'>🔥 CISA KEV</span>" if u in kev else "")
                 + (f" — <a href='{_esc(url)}'>open in Tenable ↗</a>" if url else ""))
         if template == "technical":
             vs = vulns.get(u, [])
@@ -421,7 +421,7 @@ def _cert_message(days, to):
         dl = c.get("days_left")
         when = f"{dl}d" if dl is not None else c.get("expiry", "?")
         lines.append(f"• {cn} — {when} left (expires {c.get('expiry','?')})")
-        hrows.append(f"<li><b>{_esc(cn)}</b> — <span style='color:#fb923c'>{_esc(when)} left</span>"
+        hrows.append(f"<li><b>{_esc(cn)}</b> — <span style='color:#d9772b'>{_esc(when)} left</span>"
                      f" (expires {_esc(c.get('expiry','?'))})</li>")
     # graphic: certs bucketed by urgency
     buck = {"≤7 days": 0, "8–30 days": 0, "31–90 days": 0, "91+ days": 0}
@@ -637,10 +637,10 @@ def _contract_summary_message(payload, to):
         f"<div style='display:inline-block;min-width:120px;margin:6px 10px 6px 0;padding:10px 14px;"
         f"border:1px solid #e2e8f0;border-radius:10px;background:#fbfcfe'><div style='font-size:26px;font-weight:800;color:{col}'>{val}</div>"
         f"<div style='color:#64748b;font-size:12px'>{_esc(lab)}</div></div>"
-        for lab, val, col in [("tags deployed", total_tags, "#65a30d"),
-                              ("categories", len(tag_pairs), "#2563eb"),
-                              ("~assets tagged", total_assets, "#16a34a"),
-                              ("errors", total_err + len(errored_agents), "#e11d48" if (total_err or errored_agents) else "#64748b")])
+        for lab, val, col in [("tags deployed", total_tags, "#0b6b47"),
+                              ("categories", len(tag_pairs), "#3559b3"),
+                              ("~assets tagged", total_assets, "#0b6b47"),
+                              ("errors", total_err + len(errored_agents), "#c81e3f" if (total_err or errored_agents) else "#64748b")])
     hcat = "".join(f"<li><b>{_esc(c)}</b> — {v['deployed']} tag{'s' if v['deployed']!=1 else ''}"
                    + (f" · ~{apc.get(c,0)} assets" if apc.get(c) else "")
                    + (f" · <span style='color:#e11d48'>{v['errors']} error(s)</span>" if v['errors'] else "") + "</li>"
@@ -654,7 +654,7 @@ def _contract_summary_message(payload, to):
     if errored_agents or errors:
         items = "".join(f"<li>{_esc(a)}: {_esc(e)}</li>" for a, e in errored_agents) + \
                 "".join(f"<li>{_esc(x['category'])} : {_esc(x['value'])} — {_esc(x['message'])}</li>" for x in errors[:20])
-        err_html = f"<p style='color:#f43f5e;margin-bottom:4px'><b>Errors</b></p><ul>{items}</ul>"
+        err_html = f"<p style='color:#c81e3f;margin-bottom:4px'><b>Errors</b></p><ul>{items}</ul>"
     inner = (f"<p><b>AI Contract — run summary</b> · {'ARMED · executed' if armed else 'PLAN · preview'}</p>"
              + hstat
              + (f"<div style='margin:12px 0'>{tch}</div>" if tch else "")
@@ -768,7 +768,7 @@ def _findings_message(payload, template, domain, to):
     asset_rows = "".join(
         f"<li><b>{_esc((meta.get(u,{}) or {}).get('hostname') or (meta.get(u,{}) or {}).get('ip_address') or u)}</b>"
         f" <span style='color:#8a99ad'>({_esc((meta.get(u,{}) or {}).get('ip_address') or '—')})</span>"
-        + (" <span style='color:#f43f5e'>🔥 KEV</span>" if u in kev else "")
+        + (" <span style='color:#c81e3f'>🔥 KEV</span>" if u in kev else "")
         + (f" — <a href='{_esc((meta.get(u,{}) or {}).get('url'))}'>open ↗</a>" if (meta.get(u,{}) or {}).get('url') else "")
         + "</li>" for u in ordered[:40])
     inner = (f"<p><b>{_esc(hound)}</b> identified <b>{n}</b> asset{'s' if n!=1 else ''}"
@@ -794,7 +794,7 @@ def _findings_message(payload, template, domain, to):
 #     and HTML-capable mail clients). No external libraries, no images to attach.
 # --------------------------------------------------------------------------- #
 _BLK = "█"
-_SVG_PALETTE = ["#6d70e6", "#fbbf24", "#fb923c", "#f43f5e", "#6ea8ff", "#34d399", "#a78bfa", "#22d3ee"]
+_SVG_PALETTE = ["#3559b3", "#c05a25", "#0d9488", "#b7791f", "#b23a72", "#0b6b47", "#6a5bc4", "#c81e3f"]
 
 
 def _bars_text(pairs, width=22):
@@ -813,7 +813,10 @@ def _bars_text(pairs, width=22):
 
 # Light, email-client-safe palette (SVG isn't rendered by Gmail/Outlook, so charts are
 # built from plain <div>/<table> with inline styles instead).
-_HTML_PALETTE = ["#2563eb", "#e11d48", "#f59e0b", "#16a34a", "#7c3aed", "#0891b2", "#db2777", "#65a30d"]
+_HTML_PALETTE = ["#3559b3", "#c05a25", "#0d9488", "#b7791f", "#b23a72", "#0b6b47", "#6a5bc4", "#c81e3f"]
+
+# Hounds Signature severity — semantic colors so severity charts read red→slate, not by index.
+_SEV_HTML = {"critical": "#c81e3f", "high": "#d9772b", "medium": "#b7791f", "low": "#2f6fb0", "info": "#5b6580"}
 
 
 def _bars_svg(pairs, title="", unit=""):
@@ -829,7 +832,7 @@ def _bars_svg(pairs, title="", unit=""):
         rows.append(f"<div style='font-size:13px;font-weight:700;color:#0f172a;margin:2px 0 8px'>{_esc(title)}</div>")
     for i, (l, v) in enumerate(pairs):
         pct = int(round(v / mx * 100)) if v else 0
-        c = _HTML_PALETTE[i % len(_HTML_PALETTE)]
+        c = _SEV_HTML.get(l.strip().lower().split()[0] if l.strip() else "", _HTML_PALETTE[i % len(_HTML_PALETTE)])
         val = int(v) if v == int(v) else round(v, 1)
         rows.append(
             f"<div style='margin:6px 0'>"
@@ -838,8 +841,8 @@ def _bars_svg(pairs, title="", unit=""):
             f"<div style='height:13px;background:#eef2f7;border-radius:6px;overflow:hidden'>"
             f"<div style='width:{max(pct, 2) if v else 0}%;height:100%;background:{c};border-radius:6px'></div>"
             f"</div></div>")
-    return ("<div style='border:1px solid #e2e8f0;border-radius:10px;padding:10px 12px;"
-            "margin:6px 0;background:#fbfcfe'>" + "".join(rows) + "</div>")
+    return ("<div style='border:1px solid #e2e8f0;border-left:3px solid #8b8fe6;border-radius:10px;"
+            "padding:10px 12px;margin:6px 0;background:#fbfcfe'>" + "".join(rows) + "</div>")
 
 
 def _sev_counts(uuids):
@@ -881,8 +884,11 @@ def _sign_html():
 def _html_wrap(subject, inner):
     # Light theme — reads well in an email client (dark background looked bad in mail).
     return (f"<div style='font-family:system-ui,Segoe UI,Arial,sans-serif;max-width:640px;"
-            f"color:#0f172a;background:#ffffff;border:1px solid #e2e8f0;border-radius:12px;"
-            f"padding:18px 20px'><div style='font-weight:800;font-size:16px;margin-bottom:8px;"
+            f"color:#0f172a;background:#ffffff;border:1px solid #e2e8f0;border-top:4px solid #8b8fe6;"
+            f"border-radius:12px;padding:18px 20px'>"
+            f"<div style='font-family:ui-monospace,Menlo,monospace;font-size:10px;letter-spacing:.14em;"
+            f"text-transform:uppercase;color:#5457cc;font-weight:700;margin-bottom:6px'>\U0001F43E The Hounds</div>"
+            f"<div style='font-weight:800;font-size:16px;margin-bottom:8px;"
             f"color:#0f172a'>{_esc(subject)}</div>{inner}</div>")
 
 
@@ -1277,9 +1283,93 @@ def dashboard(p):
             "components": len(comps), "cmd": r.get("cmd"), **_gate()}, 200
 
 
+def data(p):
+    """DOUBLE-gated send of ONE widget's query result. Threshold rule (per the operator):
+    a small result — UNDER 100 rows — is rendered inline in the HTML email body as a table;
+    100 rows or more ride along as a generated CSV attachment with a short body note. Same
+    gate as the other sends (confirm=True AND NAVI_ALLOW_WRITES=1 + NAVI_EMAIL=1)."""
+    from core import navi_cli
+    import tempfile, os, csv, re as _re
+    if not p.get("confirm"):
+        return {"ok": False, "error": "confirm=true required to send email"}, 400
+    if not navi_cli.email_enabled():
+        return {"ok": False, "blocked": True, "reason": navi_cli.email_gate_reason(), **_gate()}, 200
+    to = (p.get("to") or "").strip()
+    if not to:
+        return {"ok": False, "error": "recipient (to) required"}, 400
+    rows = p.get("rows") or []
+    if not rows:
+        return {"ok": False, "error": "no rows to send"}, 400
+    cols = p.get("columns") or []
+    if not cols:                                    # derive from the first row if not supplied
+        cols = list(rows[0].keys()) if isinstance(rows[0], dict) else []
+    title = p.get("title") or "Query data"
+    note = p.get("note") or ""
+    sql = p.get("sql") or ""
+    subject = p.get("subject") or f"[Tenable] {title}"
+    n = len(rows)
+    INLINE_MAX = 100                                # under 100 → inline body; 100+ → CSV attachment
+
+    intro = (f"<p style='margin:0 0 6px'><b>{_esc(title)}</b></p>"
+             + (f"<p style='margin:0 0 10px;color:#475569'>{_esc(note)}</p>" if note else "")
+             + f"<p style='margin:0 0 12px;color:#475569'>{n} row(s) · {len(cols)} column(s) — "
+               f"a point-in-time navi.db snapshot.</p>")
+    sql_block = (f"<div style='font-family:ui-monospace,Menlo,monospace;font-size:11.5px;white-space:pre-wrap;"
+                 f"color:#334155;background:#f1f5f9;border:1px solid #e2e8f0;border-radius:8px;padding:10px 12px;"
+                 f"margin:0 0 14px'>{_esc(sql)}</div>" if sql else "")
+
+    bpath, cpath, tmpdir, attached, mode = "", "", "", None, "body"
+    try:
+        if n < INLINE_MAX:
+            body_inner = intro + sql_block + _dash_table(cols, rows, cap=INLINE_MAX) + _sign_html()
+            body = _html_wrap(subject, body_inner)
+            bfd, bpath = tempfile.mkstemp(prefix="hounds_data_", suffix=".html")
+            with os.fdopen(bfd, "w", encoding="utf-8") as fh:
+                fh.write(body)
+            r = navi_cli.mail(to=to, subject=subject,
+                              message=f"{title} — {n} row(s). Open in an HTML mail client.",
+                              html=bpath, agent="email")
+        else:
+            mode = "attachment"
+            safe = _re.sub(r"[^A-Za-z0-9]+", "-", title).strip("-") or "query-data"
+            attached = f"{safe}.csv"
+            tmpdir = tempfile.mkdtemp(prefix="hounds_data_")
+            cpath = os.path.join(tmpdir, attached)
+            with open(cpath, "w", newline="", encoding="utf-8-sig") as fh:
+                w = csv.writer(fh)
+                w.writerow(cols)
+                for row in rows:
+                    w.writerow([(row.get(c, "") if isinstance(row, dict) else "") for c in cols])
+            body_inner = (intro + sql_block
+                          + f"<p style='margin:0 0 10px;color:#475569'>The full result — <b>{n} rows</b> — is "
+                            f"attached as <b>{_esc(attached)}</b> (too large to render inline).</p>"
+                          + _sign_html())
+            body = _html_wrap(subject, body_inner)
+            bfd, bpath = tempfile.mkstemp(prefix="hounds_data_", suffix=".html")
+            with os.fdopen(bfd, "w", encoding="utf-8") as fh:
+                fh.write(body)
+            r = navi_cli.mail(to=to, subject=subject,
+                              message=f"{title} — {n} row(s), attached as {attached}.",
+                              html=bpath, file=cpath, agent="email")
+    finally:
+        for pth in (bpath, cpath):
+            if pth:
+                try:
+                    os.unlink(pth)
+                except Exception:
+                    pass
+        if tmpdir:
+            try:
+                os.rmdir(tmpdir)
+            except Exception:
+                pass
+    return {"ok": bool(r.get("ok")), "message": r.get("message"), "to": to, "rows": n,
+            "mode": mode, "attached": attached, "cmd": r.get("cmd"), **_gate()}, 200
+
+
 def run(p):
     return {"ok": True, "agent": _agent().meta(), "result": _agent().run(), **_gate()}, 200
 
 
 ACTIONS = {"run": run, "status": status, "recipients": recipients,
-           "preview": preview, "send": send, "graph": graph, "dashboard": dashboard}
+           "preview": preview, "send": send, "graph": graph, "dashboard": dashboard, "data": data}

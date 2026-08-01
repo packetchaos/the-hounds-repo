@@ -60,7 +60,7 @@
 <script>
 const API=agentApi('identity'); let IDENT=null, WRITES=false, IDENT_FILTER='all';
 const idCat=k=>k==='nhi'?'NHI':k==='machine'?'Machine ID':'Identity';
-const KC={human:'#8b8fe6',service:'#3fb0c9',nhi:'#3fb0c9',machine:'#a97fd6'};
+const KC={human:'var(--cx-8b8fe6)',service:'var(--cx-3fb0c9)',nhi:'var(--cx-3fb0c9)',machine:'var(--cx-a97fd6)'};
 const plat=u=>u?`<a href="${esc(u)}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none">Open ↗</a>`:'<span class="sub">—</span>';
 
 async function run(){
@@ -79,9 +79,9 @@ function render(){
   const reused=a.filter(x=>x.flags&&x.flags.some(fl=>fl.indexOf('reused')===0)).length;
   document.getElementById('kpi').innerHTML=
     `<div class="k"><div class="v">${c.total||0}</div><div class="l">identities</div></div>`+
-    `<div class="k"><div class="v" style="color:#8b8fe6">${c.human||0}</div><div class="l">human / interactive</div></div>`+
-    `<div class="k"><div class="v" style="color:#3fb0c9">${svc}</div><div class="l">service / NHI</div></div>`+
-    `<div class="k"><div class="v" style="color:#a97fd6">${c.machine||0}</div><div class="l">machine identity</div></div>`+
+    `<div class="k"><div class="v" style="color:var(--cx-8b8fe6)">${c.human||0}</div><div class="l">human / interactive</div></div>`+
+    `<div class="k"><div class="v" style="color:var(--cx-3fb0c9)">${svc}</div><div class="l">service / NHI</div></div>`+
+    `<div class="k"><div class="v" style="color:var(--cx-a97fd6)">${c.machine||0}</div><div class="l">machine identity</div></div>`+
     `<div class="k"><div class="v" style="color:var(--crit)">${IDENT.blind||0}</div><div class="l">blind hosts (no creds)</div></div>`+
     (c.flagged?`<div class="k"><div class="v" style="color:var(--crit)">${c.flagged}</div><div class="l">risk-flagged</div></div>`:'')+
     `<div class="k"${reused?' style="border-color:var(--crit)"':''}><div class="v" style="color:${reused?'var(--crit)':'var(--ink)'}">${reused}</div><div class="l">🔁 credential reuse${c.reused_hosts?` <span class="sub">· ${c.reused_hosts} host(s)</span>`:''}</div></div>`+
@@ -89,8 +89,8 @@ function render(){
   const cov=document.getElementById('identCov'); const fr=IDENT.fresh?String(IDENT.fresh).slice(0,10):'unknown';
   cov.style.display='block';
   cov.innerHTML='<b>Coverage gap:</b> only credentialed hosts yield accounts. <b style="color:var(--crit)">'+(IDENT.blind||0)+'</b> host(s) were reachable but scanned <b>without credentials</b> (plugins 104410 / 110723) — their identities stay invisible until you enable credentialed checks and re-run, so treat this inventory as a floor. <span class="sub">navi.db snapshot: '+esc(fr)+' — a point-in-time view; hosts that aged out of the last sync won\'t appear.</span>';
-  if(IDENT.sshHosts||IDENT.weakHosts){ cov.innerHTML+='<div style="margin-top:6px"><b>Auth weaknesses:</b> '+(IDENT.sshHosts?('<b style="color:#ffb4c6">'+IDENT.sshHosts+'</b> host(s) accept SSH password auth'):'')+((IDENT.sshHosts&&IDENT.weakHosts)?' · ':'')+(IDENT.weakHosts?('<b style="color:#ffb4c6">'+IDENT.weakHosts+'</b> host(s) run a weak password policy (no complexity / never-expire)'):'')+'.</div>'; }
-  const bits=[]; if(reused)bits.push('<b>'+reused+'</b> account(s) reused across ≥5 hosts (lateral movement)'); if(IDENT.dcHosts)bits.push('<b style="color:#ffb4c6">'+IDENT.dcHosts+'</b> host(s) with default/blank/anonymous creds'); if(IDENT.adHosts)bits.push('<b>'+IDENT.adHosts+'</b> host(s) with AD attack-path exposure'); if(IDENT.kevHostN)bits.push('<b style="color:#ffb4c6">'+IDENT.kevHostN+'</b> host(s) carry a CISA-KEV finding');
+  if(IDENT.sshHosts||IDENT.weakHosts){ cov.innerHTML+='<div style="margin-top:6px"><b>Auth weaknesses:</b> '+(IDENT.sshHosts?('<b style="color:var(--cx-ffb4c6)">'+IDENT.sshHosts+'</b> host(s) accept SSH password auth'):'')+((IDENT.sshHosts&&IDENT.weakHosts)?' · ':'')+(IDENT.weakHosts?('<b style="color:var(--cx-ffb4c6)">'+IDENT.weakHosts+'</b> host(s) run a weak password policy (no complexity / never-expire)'):'')+'.</div>'; }
+  const bits=[]; if(reused)bits.push('<b>'+reused+'</b> account(s) reused across ≥5 hosts (lateral movement)'); if(IDENT.dcHosts)bits.push('<b style="color:var(--cx-ffb4c6)">'+IDENT.dcHosts+'</b> host(s) with default/blank/anonymous creds'); if(IDENT.adHosts)bits.push('<b>'+IDENT.adHosts+'</b> host(s) with AD attack-path exposure'); if(IDENT.kevHostN)bits.push('<b style="color:var(--cx-ffb4c6)">'+IDENT.kevHostN+'</b> host(s) carry a CISA-KEV finding');
   if(bits.length)cov.innerHTML+='<div style="margin-top:6px"><b>Correlated signals:</b> '+bits.join(' · ')+'.</div>';
   const sc=IDENT.scan_creds||[];
   if(sc.length)cov.innerHTML+='<div style="margin-top:6px"><b style="color:var(--ok)">Scan credentials (excluded from reuse):</b> '+sc.slice(0,5).map(s=>'<b>'+esc(s.user)+'</b> ×'+s.hosts+(s.via&&s.via.length?' <span class="sub">via '+esc(s.via.join('/'))+'</span>':'')).join(' · ')+(sc.length>5?' · +'+(sc.length-5)+' more':'')+'. <span class="sub">Identified from Nessus Scan Information (plugin 19506) — their high host-count is scanning, not lateral movement.</span></div>';
@@ -109,7 +109,7 @@ function render(){
     '<td class="mono" title="'+esc(x.user)+'"><b>'+esc(x.user)+'</b></td>'+
     '<td><span class="tagval" style="color:'+(KC[x.klass]||'var(--accent)')+'"'+(x.authority?' title="'+esc(x.authority)+'"':'')+'>'+esc(x.klass)+'</span>'+
        (x.authority?'<div class="sub" style="font-size:10px;margin-top:2px" title="'+esc(x.authority)+'">📖 '+esc(x.authority.length>44?x.authority.slice(0,42)+'…':x.authority)+'</div>':'')+'</td>'+
-    '<td><div class="flagwrap">'+((x.flags&&x.flags.length)?x.flags.map(fl=>{const benign=fl==='scan credential';const lbl=(benign&&x.scan_credential)?('scan credential ×'+x.scan_credential.hosts+((x.scan_credential.via||[]).length?' ('+x.scan_credential.via.join('/')+')':'')):fl;return '<span class="chip"'+(benign?' title="Nessus scan account (plugin 19506) — high host-count is scanning, not reuse"':'')+' style="'+(benign?'color:var(--ok);border-color:rgba(52,211,153,.4)':'color:#ffb4c6;border-color:rgba(255,80,120,.4)')+'">'+esc(lbl)+'</span>';}).join(''):'<span class="sub">—</span>')+'</div></td>'+
+    '<td><div class="flagwrap">'+((x.flags&&x.flags.length)?x.flags.map(fl=>{const benign=fl==='scan credential';const lbl=(benign&&x.scan_credential)?('scan credential ×'+x.scan_credential.hosts+((x.scan_credential.via||[]).length?' ('+x.scan_credential.via.join('/')+')':'')):fl;return '<span class="chip"'+(benign?' title="Nessus scan account (plugin 19506) — high host-count is scanning, not reuse"':'')+' style="'+(benign?'color:var(--ok);border-color:rgba(52,211,153,.4)':'color:var(--cx-ffb4c6);border-color:rgba(255,80,120,.4)')+'">'+esc(lbl)+'</span>';}).join(''):'<span class="sub">—</span>')+'</div></td>'+
     '<td class="sub" title="'+esc((x.hosts||[]).join(', '))+'">'+esc((x.hosts||[]).slice(0,4).join(', '))+((x.hosts||[]).length>4?' +'+(x.hosts.length-4):'')+'</td>'+
     '<td>'+((x.asset_uuids||[]).length)+'</td>'+
     '<td class="mono sub" style="font-size:11px" title="'+esc((x.plugins||[]).join(', '))+'">'+esc((x.plugins||[]).join(', '))+'</td>'+
@@ -124,7 +124,7 @@ function showRes(o,label){ const r=document.getElementById('tagRes');
   if(!o||!o.ok){ r.innerHTML='<div class="callbox" style="color:var(--crit)">✗ '+esc((o&&(o.error||o.message))||'failed')+'</div>'; scroll(); return; }
   const applied=(o.applied!=null)?o.applied:((o.result&&o.result.ok!==false)?1:0);
   const tot=(o.total!=null)?o.total:1;
-  r.innerHTML='<div class="callbox" style="color:'+(applied?'var(--ok)':'#ffb4c6')+'">'+(applied?('✓ tagged '+applied+'/'+tot+' '+esc(label)):('✗ '+esc((o.result&&(o.result.message||o.result.stderr))||'write rejected')))+'</div>'
+  r.innerHTML='<div class="callbox" style="color:'+(applied?'var(--ok)':'var(--cx-ffb4c6)')+'">'+(applied?('✓ tagged '+applied+'/'+tot+' '+esc(label)):('✗ '+esc((o.result&&(o.result.message||o.result.stderr))||'write rejected')))+'</div>'
     +(o.writes_enabled?'':'<div class="sub" style="margin-top:6px;color:var(--warn)">Writes are gated — set <span class="mono">NAVI_ALLOW_WRITES=1</span> to apply. Tags show in the <a href="/web/tags-log.html">Tagging log</a> after a navi.db sync.</div>');
   scroll(); }
 async function tagOne(category,value,uuids,btn){ if(btn){if(btn.disabled)return;btn.disabled=true;btn.textContent='tagging…';btn.style.opacity='.6';btn.style.transform='translateY(1px)';btn.style.cursor='default';}

@@ -26,6 +26,8 @@
   --run:var(--amber); --runbg:rgba(109,112,230,.14); --okbg:var(--ok-bg);
   --warn:var(--med); --warnbg:var(--med-bg); --critbg:var(--crit-bg);
   --h0:#0e1020; --h1:#1b1f45; --h2:#33386f; --h3:#565ab0; --h4:#8b8fe6;
+
+  /* chart palette (dark = current values) */ --cx-f43f5e:#f43f5e; --cx-fb7185:#fb7185; --cx-e0607e:#e0607e; --cx-ffb4c6:#ffb4c6; --cx-fb923c:#fb923c; --cx-ff9a4d:#ff9a4d; --cx-ff8a3d:#ff8a3d; --cx-f5a623:#f5a623; --cx-e0913a:#e0913a; --cx-e7c66b:#e7c66b; --cx-fbbf24:#fbbf24; --cx-ffd28a:#ffd28a; --cx-e0b341:#e0b341; --cx-b9791a:#b9791a; --cx-6ea8ff:#6ea8ff; --cx-3ea6ff:#3ea6ff; --cx-7cc4ff:#7cc4ff; --cx-7ec8ff:#7ec8ff; --cx-9fd0ff:#9fd0ff; --cx-9ad9ff:#9ad9ff; --cx-2fa06e:#2fa06e; --cx-3fae74:#3fae74; --cx-4f9e6e:#4f9e6e; --cx-2e7d57:#2e7d57; --cx-43b98a:#43b98a; --cx-3f9db0:#3f9db0; --cx-5a5fe0:#5a5fe0; --cx-3f78c2:#3f78c2; --cx-2f9d9d:#2f9d9d; --cx-7d64d4:#7d64d4; --cx-3f8fb0:#3f8fb0; --cx-4a6fd0:#4a6fd0; --cx-2f9e88:#2f9e88; --cx-6f73e0:#6f73e0; --cx-2f88a8:#2f88a8; --cx-5a7fc0:#5a7fc0; --cx-8a67d6:#8a67d6; --cx-3fb0c9:#3fb0c9; --cx-a97fd6:#a97fd6; --cx-6d70e6:#6d70e6; --cx-8b8fe6:#8b8fe6; --cx-a78bfa:#a78bfa; --cx-6a70d8:#6a70d8;
 }
 [data-theme="light"]{
   /* Tenable product look: cool white, navy ink, Tenable product-blue accent */
@@ -34,21 +36,23 @@
   --ink:#16213d; --ink-2:#3c486a; --ink-3:#5b6580;
   --amber:#5457cc; --amber-dim:#6d70e6; --amber-glow:rgba(84,87,204,.05);
   --cyan:#2a7d9c; --cyan-dim:#5bb8c4;
-  --crit:#c81e3f; --high:#b5651c; --med:#8a6d17; --low:#4a5cc0; --info:#5b6580; --ok:#0b6b47;
+  --crit:#c81e3f; --high:#d9772b; --med:#b7791f; --low:#2f6fb0; --info:#5b6580; --ok:#0b6b47;
   --crit-bg:rgba(200,30,63,.09); --high-bg:rgba(181,101,28,.10); --med-bg:rgba(138,109,23,.12); --ok-bg:rgba(11,107,71,.13);
   --shadow:0 1px 2px rgba(28,40,70,.06),0 6px 18px rgba(28,40,70,.06);
   --accent:#5457cc; --accent2:#2a7d9c; --run:#5457cc; --runbg:rgba(84,87,204,.08); --chip:#eef3fa;
   --h0:#eef2f8; --h1:#d3e4f5; --h2:#a9cdee; --h3:#6aa9e0; --h4:#2f7fae;
+
+  /* chart palette (Hounds Signature) */ --cx-f43f5e:#c81e3f; --cx-fb7185:#d05070; --cx-e0607e:#c25467; --cx-ffb4c6:#c81e3f; --cx-fb923c:#d9772b; --cx-ff9a4d:#d9772b; --cx-ff8a3d:#d9772b; --cx-f5a623:#c8791f; --cx-e0913a:#c8791f; --cx-e7c66b:#b7791f; --cx-fbbf24:#b7791f; --cx-ffd28a:#b7791f; --cx-e0b341:#b7791f; --cx-b9791a:#b7791f; --cx-6ea8ff:#2f6fb0; --cx-3ea6ff:#2f6fb0; --cx-7cc4ff:#2f6fb0; --cx-7ec8ff:#2f6fb0; --cx-9fd0ff:#2f6fb0; --cx-9ad9ff:#2f6fb0; --cx-2fa06e:#0b6b47; --cx-3fae74:#0b6b47; --cx-4f9e6e:#0b6b47; --cx-2e7d57:#0b6b47; --cx-43b98a:#0b6b47; --cx-3f9db0:#0d9488; --cx-5a5fe0:#3559b3; --cx-3f78c2:#c05a25; --cx-2f9d9d:#0d9488; --cx-7d64d4:#b23a72; --cx-3f8fb0:#0b6b47; --cx-4a6fd0:#6a5bc4; --cx-2f9e88:#c81e3f; --cx-6f73e0:#3559b3; --cx-2f88a8:#0d9488; --cx-5a7fc0:#c05a25; --cx-8a67d6:#b23a72; --cx-3fb0c9:#0d9488; --cx-a97fd6:#6a5bc4; --cx-6d70e6:#5457cc; --cx-8b8fe6:#6a5bc4; --cx-a78bfa:#6a5bc4; --cx-6a70d8:#5457cc; --trim:#8b8fe6; --trim-soft:#e2e2f7;
 }
-/* Light overrides — indigo buttons (white text), premium multi-tone iris backdrop */
+/* Light overrides — indigo buttons (white text) on a clean, neutral corporate backdrop.
+   (The former multi-tone iris/purple glows were dropped: light mode now reads as a
+   professional cool-white surface with a faint neutral dot-grid, no colored corner wash.) */
 [data-theme="light"] body::before{
   opacity:1;
   background:
-    radial-gradient(1240px 820px at 2% -14%, rgba(99,102,241,.20), transparent 58%),
-    radial-gradient(1240px 820px at 118% 118%, rgba(124,92,232,.17), transparent 58%),
-    radial-gradient(1000px 720px at 62% 4%, rgba(52,160,206,.10), transparent 55%),
-    radial-gradient(rgba(99,102,241,.07) 1px, transparent 1.5px);
-  background-size:auto, auto, auto, 26px 26px;
+    linear-gradient(180deg,#f7f9fc 0%,#eef2f8 62%,#e9eef5 100%),
+    radial-gradient(rgba(100,116,139,.05) 1px, transparent 1.5px);
+  background-size:auto, 26px 26px;
 }
 [data-theme="light"] .btn,[data-theme="light"] .btn.run{background:linear-gradient(180deg,#6366ea,#5457cc);color:#fff;border:1px solid transparent;box-shadow:0 2px 8px rgba(84,87,204,.28)}
 [data-theme="light"] .btn:hover,[data-theme="light"] .btn.run:hover{background:linear-gradient(180deg,#5457cc,#43459f)}
@@ -224,16 +228,17 @@ body::before{
 section.card,.agent,.acard,.itile{
   background:radial-gradient(560px 380px at 100% 0%, rgba(109,112,230,.13), transparent 60%), var(--panel);
 }
-/* Light: lift the cards — subtle white→cool-white surface + stronger top-right iris glow + soft shadow */
+/* Light: lift the cards — clean white→cool-white surface + soft neutral shadow.
+   (The top-right iris/purple glow was removed so cards read as a plain corporate panel.) */
 [data-theme="light"] section.card,
 [data-theme="light"] .agent,
 [data-theme="light"] .acard,
 [data-theme="light"] .itile{
-  background:radial-gradient(520px 360px at 100% 0%, rgba(99,102,241,.11), transparent 58%), linear-gradient(180deg,#ffffff,#f7f9ff);
+  background:linear-gradient(180deg,#ffffff,#f7f9fc);
   border-color:#dbe2f2;
-  box-shadow:inset 0 1px 0 rgba(255,255,255,.9), 0 2px 4px rgba(40,54,100,.06), 0 20px 44px rgba(60,72,130,.16);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.9), 0 1px 2px rgba(40,54,100,.05), 0 12px 30px rgba(60,72,130,.10);
 }
-[data-theme="light"] .agent:hover{border-color:#b9beef;transform:translateY(-2px);box-shadow:inset 0 1px 0 rgba(255,255,255,.9), 0 4px 8px rgba(40,54,100,.08), 0 26px 54px rgba(60,72,130,.20)}
+[data-theme="light"] .agent:hover{border-color:#c3ccdd;transform:translateY(-2px);box-shadow:inset 0 1px 0 rgba(255,255,255,.9), 0 4px 8px rgba(40,54,100,.07), 0 22px 48px rgba(60,72,130,.14)}
 
 /* general Hounds crest (logo + Release-the-Hounds) */
 .hcrest{display:inline-block;background:url('/static/crests/hounds.png?v=5') center/cover no-repeat;border-radius:7px;vertical-align:middle}

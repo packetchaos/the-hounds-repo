@@ -123,8 +123,8 @@
 <script>
 const API=agentApi('argos');
 let CUR=null;
-const SEV_COLOR={critical:'#f43f5e',high:'#fb923c',medium:'#fbbf24',low:'#6ea8ff',info:'#8a99ad'};
-const BAND_COLOR={critical:'#f43f5e',high:'#fb923c',medium:'#fbbf24',low:'#6ea8ff',info:'#8a99ad',good:'var(--ok)',clear:'var(--ok)'};
+const SEV_COLOR={critical:'var(--cx-f43f5e)',high:'var(--cx-fb923c)',medium:'var(--cx-fbbf24)',low:'var(--cx-6ea8ff)',info:'#8a99ad'};
+const BAND_COLOR={critical:'var(--cx-f43f5e)',high:'var(--cx-fb923c)',medium:'var(--cx-fbbf24)',low:'var(--cx-6ea8ff)',info:'#8a99ad',good:'var(--ok)',clear:'var(--ok)'};
 function crestFor(agent){ return agent?`<img src="/static/crests/${agent}.png?v=5" onerror="this.style.display='none'">`:''; }
 
 function ring(score,band){
@@ -171,8 +171,8 @@ function render(d){
   document.getElementById('ring').innerHTML=ring(R.score||0, R.band||'clear');
   document.getElementById('riskMeta').innerHTML=
     `<div style="display:flex;gap:6px;flex-wrap:wrap">`+
-    (R.kev?`<span class="pill" style="color:#f43f5e;border-color:rgba(244,63,94,.5);background:rgba(244,63,94,.12)">🔥 CISA KEV</span>`:'')+
-    (R.exploitable?`<span class="pill" style="color:#fb923c;border-color:rgba(251,146,60,.5);background:rgba(251,146,60,.12)">💥 ${R.exploitable} exploitable</span>`:'')+
+    (R.kev?`<span class="pill" style="color:var(--cx-f43f5e);border-color:rgba(244,63,94,.5);background:rgba(244,63,94,.12)">🔥 CISA KEV</span>`:'')+
+    (R.exploitable?`<span class="pill" style="color:var(--cx-fb923c);border-color:rgba(251,146,60,.5);background:rgba(251,146,60,.12)">💥 ${R.exploitable} exploitable</span>`:'')+
     `<span class="pill">${R.total_vulns||0} findings</span>`+
     `<span class="pill">${R.cve_count||0} CVEs</span></div>`+
     `<p class="sub" style="margin:8px 0 0">Score blends severity mix, KEV / exploitable findings, and the pack's tag intelligence into one 0–100 read.</p>`;
@@ -202,7 +202,7 @@ function render(d){
   }, {cols:5, empty:'<tr><td colspan="5" class="sub">No findings.</td></tr>'});
   const tbl=d.tables||{};
   // when a table isn't in navi.db yet, name the exact command that builds it
-  const needTable=(kind,cmd)=>`<div class="callbox" style="border-left:3px solid var(--warn,#e7c66b)"><b style="color:var(--warn,#e7c66b)">The <span class="mono">${kind}</span> table isn't in navi.db yet.</b><p class="sub" style="margin:4px 0 0">Build it, then re-run Argos:</p><div class="mono" style="margin-top:4px;padding:6px 9px;background:var(--panel2);border:1px solid var(--line);border-radius:7px">${cmd}</div></div>`;
+  const needTable=(kind,cmd)=>`<div class="callbox" style="border-left:3px solid var(--warn,var(--cx-e7c66b))"><b style="color:var(--warn,var(--cx-e7c66b))">The <span class="mono">${kind}</span> table isn't in navi.db yet.</b><p class="sub" style="margin:4px 0 0">Build it, then re-run Argos:</p><div class="mono" style="margin-top:4px;padding:6px 9px;background:var(--panel2);border:1px solid var(--line);border-radius:7px">${cmd}</div></div>`;
   // software
   const sw=d.software||[]; document.getElementById('swCount').textContent=sw.length;
   document.getElementById('swBody').innerHTML= sw.length
@@ -211,7 +211,7 @@ function render(d){
   // certs
   const cs=d.certs||[]; document.getElementById('certCount').textContent=cs.length;
   document.getElementById('certBody').innerHTML= cs.length? cs.map(c=>{
-    const weak=c.weak?` <span class="pill" style="padding:1px 7px;color:#fb923c;border-color:rgba(251,146,60,.5)">weak</span>`:'';
+    const weak=c.weak?` <span class="pill" style="padding:1px 7px;color:var(--cx-fb923c);border-color:rgba(251,146,60,.5)">weak</span>`:'';
     return `<div style="padding:6px 0;border-bottom:1px solid var(--line)"><b>${esc(c.common_name||'(no CN)')}</b>${weak}<br><span class="sub mono" style="font-size:11.5px">exp ${esc(c.expiry_iso||c.not_valid_after||'?')} · ${esc(c.signature_algorithm||'')} ${c.key_length?('· '+esc(c.key_length)+'-bit'):''}</span></div>`;
   }).join('') : (tbl.certs===false ? needTable('certs','navi config certificates') : '<p class="sub">No certificates on this asset.</p>');
   // ownership (pie from Owner tags)
@@ -220,7 +220,7 @@ function render(d){
   document.getElementById('ownBody').innerHTML=own.length?ownPie(own)
     :'<p class="sub">No owner assigned. <a class="lnk" href="/web/ownermap.html">Assign in Atlas →</a></p>';
   // identities on this host
-  const idn=d.identities||[]; const KC2={human:'#8b8fe6',service:'#3fb0c9',nhi:'#a78bfa',machine:'#9aa7b8',system:'#8a99ad'};
+  const idn=d.identities||[]; const KC2={human:'var(--cx-8b8fe6)',service:'var(--cx-3fb0c9)',nhi:'var(--cx-a78bfa)',machine:'#9aa7b8',system:'#8a99ad'};
   document.getElementById('idnCount').textContent=idn.length;
   document.getElementById('idnBody').innerHTML=idn.length?('<div style="overflow:auto"><table style="width:100%"><thead><tr><th>Account</th><th>Class</th><th>Source</th></tr></thead><tbody>'
     +idn.map(x=>`<tr><td class="mono"><b>${esc(x.user)}</b>${x.authority?'<div class="sub" style="font-size:10px" title="'+esc(x.authority)+'">📖 '+esc(x.authority.length>40?x.authority.slice(0,38)+'…':x.authority)+'</div>':''}</td><td><span class="pill" style="padding:1px 8px;color:${KC2[x.klass]||'#8a99ad'};border-color:${(KC2[x.klass]||'#8a99ad')}66">${esc(x.klass)}</span></td><td class="sub mono" style="font-size:10.5px">${esc((x.plugins||[]).join(', '))}</td></tr>`).join('')
@@ -228,7 +228,7 @@ function render(d){
     :'<p class="sub">No accounts enumerated here — this host may be uncredentialed. Run <a class="lnk" href="/agents/identity/page.html">Janus</a> for the full sweep.</p>';
   // taxonomy coverage strip
   const cov=d.coverage||{};
-  const cchip=(ok,label)=>`<span class="pill" style="margin:0 6px 6px 0;padding:2px 9px;color:${ok?'var(--ok)':'#f43f5e'};border-color:${ok?'rgba(52,211,153,.4)':'rgba(244,63,94,.4)'}">${ok?'✓':'✗'} ${label}</span>`;
+  const cchip=(ok,label)=>`<span class="pill" style="margin:0 6px 6px 0;padding:2px 9px;color:${ok?'var(--ok)':'var(--cx-f43f5e)'};border-color:${ok?'rgba(52,211,153,.4)':'rgba(244,63,94,.4)'}">${ok?'✓':'✗'} ${label}</span>`;
   document.getElementById('covStrip').innerHTML='<div class="sub" style="margin-bottom:4px">Taxonomy coverage</div>'
     +cchip(cov.owned,'Owned')+cchip(cov.classified,'Classified')+cchip(cov.device_typed,'Device-typed')
     +(!cov.owned?'<a class="chip" href="/web/ownermap.html" style="text-decoration:none">Assign owner →</a> ':'')
@@ -236,7 +236,7 @@ function render(d){
   document.getElementById('result').style.display='';
   document.getElementById('result').scrollIntoView({behavior:'smooth',block:'start'});
 }
-const OWN_PAL=['#5a5fe0','#3f78c2','#2f9d9d','#2fa06e','#7d64d4','#3f8fb0','#4a6fd0','#2f9e88'];
+const OWN_PAL=['var(--cx-5a5fe0)','var(--cx-3f78c2)','var(--cx-2f9d9d)','var(--cx-2fa06e)','var(--cx-7d64d4)','var(--cx-3f8fb0)','var(--cx-4a6fd0)','var(--cx-2f9e88)'];
 function ownPie(owners){
   const d=owners.map((o,i)=>({l:o.owner,v:Math.max(1,o.count),apps:o.apps||[],c:OWN_PAL[i%OWN_PAL.length]}));
   const tot=d.reduce((s,x)=>s+x.v,0)||1, R=52,CX=60,CY=60; let a=-Math.PI/2, seg='';

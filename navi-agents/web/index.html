@@ -61,7 +61,7 @@
       <button class="btn run sm" id="askgo">✨ Ask</button>
     </div>
     <div id="askout" style="margin-top:8px"></div>
-    <div class="no-llm-note sub" style="display:none;margin-top:8px;color:var(--warn,#e7c66b)">Set <span class="mono">ANTHROPIC_API_KEY</span> on the server to enable “ask which agent can help”.</div>
+    <div class="no-llm-note sub" style="display:none;margin-top:8px;color:var(--warn,var(--cx-e7c66b))">Set <span class="mono">ANTHROPIC_API_KEY</span> on the server to enable “ask which agent can help”.</div>
 
     <div class="toolbar" style="margin:10px 0 6px;gap:10px;flex-wrap:wrap;align-items:center">
       <input id="filter" placeholder="🔎 Filter the pack — name, codename, or what it does…" style="flex:1;min-width:220px;padding:8px 12px;border-radius:8px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink)">
@@ -238,7 +238,7 @@ async function askAgent(){
     meta.innerHTML=dataSourceChip(h)+claudeChip(h)+
       (h.db_ok?`<span class="chip">assets <b>${h.asset_total}</b></span>`+(h.db_fresh?`<span class="chip">db <b>${String(h.db_fresh).slice(0,10)}</b></span>`:''):`<span class="chip" style="color:var(--crit)">db: ${esc(h.error||'error')}</span>`)+
       `<span class="chip gate">writes: ${h.writes_enabled?'enabled':'gated'}</span>`;
-    if(h.data_source==='fixture') banner.innerHTML=`<div style="margin:14px 0 0;padding:11px 14px;border-radius:9px;background:rgba(251,191,36,.10);border:1px solid rgba(251,191,36,.4);color:#e7c66b;font-size:12.5px">◆ <b>Sample data.</b> Reading a crafted fixture (<span class="mono">${esc(h.db_path||'sample_navi.db')}</span>). Point <span class="mono">NAVI_DB_PATH</span> at navi’s real <span class="mono">navi.db</span> to run live.</div>`;
+    if(h.data_source==='fixture') banner.innerHTML=`<div style="margin:14px 0 0;padding:11px 14px;border-radius:9px;background:rgba(251,191,36,.10);border:1px solid rgba(251,191,36,.4);color:var(--cx-e7c66b);font-size:12.5px">◆ <b>Sample data.</b> Reading a crafted fixture (<span class="mono">${esc(h.db_path||'sample_navi.db')}</span>). Point <span class="mono">NAVI_DB_PATH</span> at navi’s real <span class="mono">navi.db</span> to run live.</div>`;
     else if(h.data_source==='live') banner.innerHTML=`<div style="margin:14px 0 0;padding:11px 14px;border-radius:9px;background:var(--ok-bg);border:1px solid var(--ok);color:var(--ok);font-size:12.5px">● <b>Live navi.db</b> — <span class="mono">${esc(h.db_path||'')}</span></div>`;
   } else meta.innerHTML=`<span class="chip" style="color:var(--warn)">no backend · static view</span>`;
 

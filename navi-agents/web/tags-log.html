@@ -10,8 +10,8 @@
 .kpi .k{flex:1 1 120px;border:1px solid var(--line);border-radius:10px;background:var(--panel);padding:10px 12px}
 .kpi .v{font-size:22px;font-weight:800}.kpi .l{font-size:11px;color:var(--mut)}
 .st{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700;border:1px solid var(--line)}
-.st.queued{color:#e7c66b;background:rgba(251,191,36,.12)}
-.st.running{color:#7cc4ff;background:rgba(96,165,250,.14)}
+.st.queued{color:var(--cx-e7c66b);background:rgba(251,191,36,.12)}
+.st.running{color:var(--cx-7cc4ff);background:rgba(96,165,250,.14)}
 .st.done{color:var(--ok);background:rgba(52,211,153,.14)}
 .st.error{color:var(--crit);background:rgba(251,113,133,.14)}
 td .mono,.dim{color:var(--mut)}
@@ -52,10 +52,10 @@ function landedCell(j){
   const v=VERIFY[j.id];
   if(!v) return '<span class="dim">—</span>';
   const M={landed:['✓ landed','var(--ok)','rgba(52,211,153,.14)'],
-           pending:['⏳ not yet','#e7c66b','rgba(251,191,36,.12)'],
+           pending:['⏳ not yet','var(--cx-e7c66b)','rgba(251,191,36,.12)'],
            failed:['✗ failed','var(--crit)','rgba(251,113,133,.14)'],
            removed:['🗑 cleared','var(--mut)','var(--panel)'],
-           'still-present':['⚠ still live','#e7c66b','rgba(251,191,36,.12)']};
+           'still-present':['⚠ still live','var(--cx-e7c66b)','rgba(251,191,36,.12)']};
   const m=M[v]||['—','var(--mut)','var(--panel)'];
   return '<span class="st" style="color:'+m[1]+';background:'+m[2]+'">'+m[0]+'</span>';
 }
@@ -68,8 +68,8 @@ async function load(){
   document.getElementById('kpi').innerHTML=
     `<div class="k"><div class="v">${c.workers||1}</div><div class="l">parallel workers</div></div>`+
     `<div class="k"><div class="v">${c.total||0}</div><div class="l">total this session</div></div>`+
-    `<div class="k"><div class="v" style="color:#e7c66b">${c.queued||0}</div><div class="l">queued</div></div>`+
-    `<div class="k"><div class="v" style="color:#7cc4ff">${c.running||0}</div><div class="l">running</div></div>`+
+    `<div class="k"><div class="v" style="color:var(--cx-e7c66b)">${c.queued||0}</div><div class="l">queued</div></div>`+
+    `<div class="k"><div class="v" style="color:var(--cx-7cc4ff)">${c.running||0}</div><div class="l">running</div></div>`+
     `<div class="k"><div class="v" style="color:var(--ok)">${c.done||0}</div><div class="l">done</div></div>`+
     `<div class="k"><div class="v" style="color:var(--crit)">${c.error||0}</div><div class="l">error</div></div>`;
   document.querySelector('#tbl tbody').innerHTML = jobs.length ? jobs.map(j=>{

@@ -6,7 +6,7 @@
 <style>
 .plink{color:var(--accent);text-decoration:none;font-weight:600}.plink:hover{text-decoration:underline}
 .barwrap{display:flex;height:22px;border-radius:100px;overflow:hidden;border:1px solid var(--line);margin:8px 0}
-.barwrap .ok{background:linear-gradient(90deg,#2e7d57,#3fae74)}.barwrap .bad{background:linear-gradient(90deg,#b9791a,#f5a623)}
+.barwrap .ok{background:linear-gradient(90deg,var(--cx-2e7d57),var(--cx-3fae74))}.barwrap .bad{background:linear-gradient(90deg,var(--cx-b9791a),var(--cx-f5a623))}
 .prob{color:var(--crit);font-weight:700}
 </style>
 </head><body>
@@ -84,7 +84,7 @@ function render(){
   document.getElementById('credKpi').innerHTML=
     `<div class="k"><div class="v">${c.total_assets||0}</div><div class="l">total assets</div></div>`+
     `<div class="k"><div class="v" style="color:var(--crit)">${c.cred_fail_assets||0}</div><div class="l">credential failures (104410)</div></div>`+
-    `<div class="k"><div class="v" style="color:#3fae74">${c.ok_assets||0}</div><div class="l">credentialed OK</div></div>`;
+    `<div class="k"><div class="v" style="color:var(--cx-3fae74)">${c.ok_assets||0}</div><div class="l">credentialed OK</div></div>`;
   const t=c.total_assets||1, bad=c.cred_fail_assets||0, ok=c.ok_assets||0;
   document.getElementById('credBar').innerHTML=`<div class="ok" style="width:${(ok/t*100).toFixed(1)}%"></div><div class="bad" style="width:${(bad/t*100).toFixed(1)}%"></div>`;
   const _cc=document.getElementById('credCount'); if(_cc)_cc.textContent='('+(c.assets||[]).length+')';
@@ -124,9 +124,9 @@ document.getElementById('credTag').onclick=async()=>{
   reportTag(res,o,'Tagged credential failures');
 };
 function reportTag(res,o,okmsg){
-  if(!o.ok){ res.innerHTML='<div class="callbox" style="color:#ffb4c6">✗ '+(o.error||'failed')+'</div>'; return; }
+  if(!o.ok){ res.innerHTML='<div class="callbox" style="color:var(--cx-ffb4c6)">✗ '+(o.error||'failed')+'</div>'; return; }
   const r=o.result||{}; const okk=r.ok||/job_uuid|not subscriptable/.test(JSON.stringify(r));
-  res.innerHTML='<div class="callbox" style="color:'+(okk?'var(--ok)':'#ffb4c6')+'">'+(okk?(okmsg+'.'+(o.writes_enabled?' Allow ~30 min for Tenable.':' (gated — set NAVI_ALLOW_WRITES=1 and put navi on PATH)')):('✗ '+(r.message||'tag failed')))+'</div>';
+  res.innerHTML='<div class="callbox" style="color:'+(okk?'var(--ok)':'var(--cx-ffb4c6)')+'">'+(okk?(okmsg+'.'+(o.writes_enabled?' Allow ~30 min for Tenable.':' (gated — set NAVI_ALLOW_WRITES=1 and put navi on PATH)')):('✗ '+(r.message||'tag failed')))+'</div>';
 }
 document.getElementById('run').onclick=run;
 mountAgentHeader({icon:'📈',name:'Scan Evaluations',sub:'scanner / policy / scan averages · credential coverage'});

@@ -1,0 +1,12 @@
+{
+  "id": "compliance",
+  "name": "Compliance",
+  "icon": "⚖️",
+  "order": 17,
+  "category": "Risk",
+  "codename": "Minos",
+  "summary": "Minos — judges the estate against its audit benchmarks. Consolidated compliance over the compliance table: pass/fail/warning, the controls failing the most assets, framework rollup (NIST/PCI/HIPAA/CIS/ISO), and per-asset scorecards. Assign an Audit Owner to a control's failing assets.",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": ["overview", "tag"]
+}

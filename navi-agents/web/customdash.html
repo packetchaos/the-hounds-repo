@@ -9,13 +9,58 @@
 .barrow .bv{font-family:var(--mono);font-size:12px;color:var(--ink-3);text-align:right}
 .h2bar{height:24px;display:flex;align-items:center;padding:0 10px;font-weight:700;font-size:13px;min-width:28px;border-radius:5px}
 .sqlbox{font-family:var(--mono);font-size:11.5px;white-space:pre-wrap;color:var(--ink-2)}
+/* ===== mixed-size widget grid ===== */
+.dashgrid{display:grid;grid-template-columns:repeat(12,1fr);gap:16px;margin-top:12px;grid-auto-flow:row dense}
+.dwcard{margin:0;min-width:0;display:flex;flex-direction:column;position:relative}   /* min-width:0 lets wide charts/tables shrink to fit the cell */
+.dwcard.sz-xs{grid-column:span 2}                     /* ~6 across — tiny single numbers */
+.dwcard.sz-s{grid-column:span 3}                      /* ~4 across — single-number / small KPI */
+.dwcard.sz-m{grid-column:span 6}                      /* ~2 across — standard charts */
+.dwcard.sz-l{grid-column:span 8}                      /* wide chart */
+.dwcard.sz-xl{grid-column:span 12}                    /* one massive full-width widget */
+@media(max-width:1180px){.dwcard.sz-xs{grid-column:span 3}.dwcard.sz-s{grid-column:span 4}.dwcard.sz-l{grid-column:span 12}}
+@media(max-width:820px){.dwcard.sz-xs{grid-column:span 4}.dwcard.sz-s{grid-column:span 6}.dwcard.sz-m{grid-column:span 12}}
+@media(max-width:560px){.dwcard{grid-column:span 12 !important}}
+.dwcard.dragging{opacity:.4}
+.dwcard.dragover{outline:2px dashed var(--accent);outline-offset:3px}
+.dwtop{display:flex;gap:8px;align-items:flex-start}
+.dwtitle{min-width:0;flex:1}
+.dwtitle h3{margin:0;overflow:hidden;text-overflow:ellipsis}
+.dwbody{min-width:0;overflow-x:auto;margin-top:8px}
+/* the widget chrome stays quiet at rest and clarifies on hover — a clean face of title + numbers */
+.dwgrab{position:absolute;top:6px;left:9px;cursor:grab;color:var(--ink-3);font-size:14px;line-height:1;user-select:none;padding:1px 4px;border-radius:6px;opacity:0;transition:opacity .15s}
+.dwcard:hover .dwgrab{opacity:.5}
+.dwgrab:hover{opacity:1 !important;color:var(--ink);background:var(--panel-2)}
+.dwgrab:active{cursor:grabbing}
+.dwfoot{display:flex;justify-content:flex-end;margin-top:auto;padding-top:10px}
+.dwmore{background:transparent;border:1px solid transparent;color:var(--ink-3);font-size:16px;line-height:.7;letter-spacing:1px;
+  cursor:pointer;border-radius:7px;padding:3px 10px;opacity:.35;transition:opacity .15s,background .15s,border-color .15s;font-family:var(--body)}
+.dwcard:hover .dwmore{opacity:1}
+.dwmore:hover,.dwmore.on{background:var(--panel-2);border-color:var(--line);color:var(--ink)}
+/* the single "options" dropdown — rendered to <body>, fixed-positioned so no card clips it */
+.dwmenu{position:fixed;z-index:9998;width:214px;background:var(--panel);border:1px solid var(--line);border-radius:11px;
+  box-shadow:var(--shadow);padding:8px}
+.dwmenu-h{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);font-family:var(--mono);padding:2px 4px 6px}
+.dwmenu-lbl{font-size:11px;color:var(--ink-3);padding:7px 4px 3px}
+.dwmenu .szseg{display:flex;width:100%}
+.dwmenu .szseg button{flex:1;padding:5px 0}
+.dwmenu .fld{width:100%}
+.dwmenu-sep{height:1px;background:var(--line-soft);margin:8px 2px}
+.dwmenu-item{display:flex;align-items:center;gap:9px;width:100%;text-align:left;background:transparent;border:0;color:var(--ink);
+  padding:8px 8px;border-radius:7px;cursor:pointer;font-size:12.5px;font-family:var(--body);text-decoration:none}
+.dwmenu-item:hover{background:var(--panel-2)}
+.dwmenu-item.danger{color:var(--crit)}
+.szseg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden;flex:0 0 auto}
+.szseg button{background:transparent;border:0;color:var(--ink-3);font-size:11px;font-weight:600;padding:4px 8px;cursor:pointer;font-family:var(--body);line-height:1.6}
+.szseg button+button{border-left:1px solid var(--line)}
+.szseg button.on{background:var(--accent);color:#eef1fb}
+.szseg button:not(.on):hover{color:var(--ink);background:var(--panel-2)}
 </style>
 </head><body>
 <div class="wrap">
   <header class="top" id="app-header"></header>
   <section class="card">
     <div class="toolbar"><div><h2 style="margin:0">🗂 Custom Dashboard</h2>
-      <p class="sub" style="margin:2px 0 0">Components promoted from the <a href="/agents/dashboard/page.html">Dashboard builder</a>. <b>↻ Refresh data</b> re-runs each component's navi.db query so the board reflects the current snapshot.</p></div>
+      <p class="sub" style="margin:2px 0 0">Components promoted from the <a href="/agents/dashboard/page.html">Dashboard builder</a>. Each widget shows just its title and numbers — hover and click <b>⋯</b> (bottom-right) for size (XS–Full), chart type, Open, CSV &amp; SQL; drag <b>⠿</b> (top-left) to move. <b>↻ Refresh data</b> re-runs each component's navi.db query.</p></div>
       <span style="margin-left:auto;display:flex;gap:6px;align-items:center"><span class="chip" id="count"></span><button class="btn run sm" id="refresh">↻ Refresh data</button><button class="btn sm" id="emailBtn" title="Email this dashboard as an HTML report (gated)">📧 Email dashboard</button><a class="btn ghost sm" href="/agents/dashboard/page.html">✏️ Edit in builder</a></span></div>
     <div id="emailForm" style="display:none;margin-top:8px;gap:6px;align-items:center;flex-wrap:wrap">
       <input id="emailTo" class="fld" style="min-width:240px;padding:8px 10px" placeholder="recipient email">
@@ -25,12 +70,12 @@
     <div id="flash" class="flash"></div>
   </section>
   <div id="dashTabs"></div>
-  <div id="grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:16px;margin-top:12px"></div>
+  <div id="grid" class="dashgrid"></div>
   <footer>Custom Dashboard · pinned components saved in this browser · reads navi.db read-only</footer>
 </div>
 <script src="/static/console.js"></script>
 <script>
-const DPAL=['#5a5fe0','#3f78c2','#2f9d9d','#2fa06e','#7d64d4','#3f8fb0','#4a6fd0','#2f9e88','#6f73e0','#2f88a8','#5a7fc0','#8a67d6'];
+const DPAL=['var(--cx-5a5fe0)','var(--cx-3f78c2)','var(--cx-2f9d9d)','var(--cx-2fa06e)','var(--cx-7d64d4)','var(--cx-3f8fb0)','var(--cx-4a6fd0)','var(--cx-2f9e88)','var(--cx-6f73e0)','var(--cx-2f88a8)','var(--cx-5a7fc0)','var(--cx-8a67d6)'];
 const _num=v=>v!==null&&v!==''&&!isNaN(parseFloat(v))&&isFinite(v);
 const _isDate=v=>typeof v==='string'&&/^\d{4}(-\d{2}(-\d{2})?)?([ T]\d|$)/.test(v.trim());
 function dPickViz(r,cols,rows){
@@ -77,7 +122,7 @@ let DASHBOARD=dashGetItems();
 function save(){ dashSetItems(DASHBOARD); }
 function reloadDash(){ DASHBOARD=dashGetItems(); mountDashTabs('dashTabs', reloadDash); render(); }
 /* ===== advanced chart engine (ported from the builder) ===== */
-var DS_PAL=['#5a5fe0','#3f78c2','#2f9d9d','#2fa06e','#7d64d4','#3f8fb0','#4a6fd0','#2f9e88','#6f73e0','#2f88a8','#5a7fc0','#8a67d6'];
+var DS_PAL=['var(--cx-5a5fe0)','var(--cx-3f78c2)','var(--cx-2f9d9d)','var(--cx-2fa06e)','var(--cx-7d64d4)','var(--cx-3f8fb0)','var(--cx-4a6fd0)','var(--cx-2f9e88)','var(--cx-6f73e0)','var(--cx-2f88a8)','var(--cx-5a7fc0)','var(--cx-8a67d6)'];
 var DS_AXIS='#64748b', DS_LABEL='#94a3b8', DS_GRID='rgba(148,163,184,.22)';
 function _dsEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function _dsNum(v){ var n=parseFloat(v); return isFinite(n)?n:NaN; }
@@ -191,7 +236,7 @@ function _dsWaterfall(d){
   var vals=d.labels.map(function(L,i){return s.values[i]||0;}); var run=0,cum=[0]; vals.forEach(function(v){run+=v;cum.push(run);});
   var mx=Math.max.apply(null,cum),mn=Math.min.apply(null,cum.concat([0])); var yf=function(v){return top+plotH-plotH*(v-mn)/((mx-mn)||1);};
   var gw=plotW/vals.length,g='';
-  vals.forEach(function(v,i){ var y0=yf(cum[i]),y1=yf(cum[i+1]),x=left+i*gw+gw*0.2,w=gw*0.6,col=v>=0?'var(--ok)':'#e0607e';
+  vals.forEach(function(v,i){ var y0=yf(cum[i]),y1=yf(cum[i+1]),x=left+i*gw+gw*0.2,w=gw*0.6,col=v>=0?'var(--ok)':'var(--cx-e0607e)';
     g+='<rect x="'+x+'" y="'+Math.min(y0,y1)+'" width="'+w+'" height="'+Math.max(1,Math.abs(y1-y0))+'" fill="'+col+'"><title>'+_dsEsc(d.labels[i])+': '+(v>=0?'+':'')+v+'</title></rect>';
     var lab=d.labels[i]; g+='<text x="'+(x+w/2)+'" y="'+(H-bottom+16)+'" text-anchor="middle" font-size="10" fill="'+DS_LABEL+'">'+_dsEsc(lab.length>8?lab.slice(0,7)+'…':lab)+'</text>'; });
   return _dsWrap(g,W,H);
@@ -224,7 +269,7 @@ function _dsHeatmap(d){
   var mx=Math.max.apply(null,[].concat.apply([1],d.series.map(function(s){return s.values;}))),g='';
   cols.forEach(function(c,j){ g+='<text x="'+(left+j*cellW+cellW/2)+'" y="'+(top-14)+'" text-anchor="middle" font-size="12.5" font-weight="600" fill="'+DS_LABEL+'">'+_dsEsc(c.length>16?c.slice(0,15)+'…':c)+'</text>'; });
   rowsL.forEach(function(L,i){ g+='<text x="'+(left-12)+'" y="'+(top+i*cellH+cellH/2+4)+'" text-anchor="end" font-size="13" fill="'+DS_LABEL+'">'+_dsEsc(L.length>22?L.slice(0,21)+'…':L)+'</text>';
-    d.series.forEach(function(se,j){ var v=se.values[i]||0, a=mx?v/mx:0; g+='<rect x="'+(left+j*cellW+3)+'" y="'+(top+i*cellH+3)+'" width="'+(cellW-6)+'" height="'+(cellH-6)+'" rx="5" fill="#3ea6ff" fill-opacity="'+(0.10+0.85*a).toFixed(2)+'"><title>'+_dsEsc(L)+' · '+_dsEsc(se.name)+': '+v+'</title></rect><text x="'+(left+j*cellW+cellW/2)+'" y="'+(top+i*cellH+cellH/2+4)+'" text-anchor="middle" font-size="12.5" font-weight="600" fill="'+(a>0.5?'#07131f':'#c8d6e8')+'">'+_dsFmt(v)+'</text>'; }); });
+    d.series.forEach(function(se,j){ var v=se.values[i]||0, a=mx?v/mx:0; g+='<rect x="'+(left+j*cellW+3)+'" y="'+(top+i*cellH+3)+'" width="'+(cellW-6)+'" height="'+(cellH-6)+'" rx="5" fill="var(--cx-3ea6ff)" fill-opacity="'+(0.10+0.85*a).toFixed(2)+'"><title>'+_dsEsc(L)+' · '+_dsEsc(se.name)+': '+v+'</title></rect><text x="'+(left+j*cellW+cellW/2)+'" y="'+(top+i*cellH+cellH/2+4)+'" text-anchor="middle" font-size="12.5" font-weight="600" fill="'+(a>0.5?'#07131f':'#c8d6e8')+'">'+_dsFmt(v)+'</text>'; }); });
   return _dsWrap(g,W,H);
 }
 function _dsGauge(d){
@@ -285,27 +330,115 @@ function dashSVG(type, cols, rows, spec){
 var DASH_TYPES=['auto','bar','column','stacked','grouped','pie','donut','line','multiline','area','combo','scatter','bubble','heatmap','treemap','funnel','waterfall','radar','gauge','progress','histogram','kpi','table'];
 
 
-/* pinned component keeps its OWN chart type (incl. advanced: bubble/heatmap/treemap…) */
+/* pinned component keeps its OWN chart type (incl. advanced: bubble/heatmap/treemap…).
+   The "Show data table" drill-down now lives on the per-widget Open page (dataview.html). */
 function pinnedViz(r){
   var rows=r.rows||[], cols=r.columns||[];
   if(!rows.length) return '<p class="sub">No rows in the current navi.db snapshot.</p>';
   var viz=(r.viz&&r.viz!=='auto')?r.viz:dPickViz(r,cols,rows).viz;
-  var html=dashSVG(viz,cols,rows,{label_col:r.label_col,value_col:r.value_col,viz:viz});
-  if(viz!=='table'&&viz!=='kpi') html+='<details style="margin-top:12px"><summary class="sub" style="cursor:pointer">Show data table</summary>'+tableHtml(r)+'</details>';
-  return html;
+  return dashSVG(viz,cols,rows,{label_col:r.label_col,value_col:r.value_col,viz:viz});
+}
+/* ---- widget sizing: a size per component (xs/s/m/l/xl), auto-picked from the viz when unset ---- */
+function _wViz(d){ var r=(d&&d.r)||{}; return (r.viz&&r.viz!=='auto')?r.viz:dPickViz(r,r.columns||[],r.rows||[]).viz; }
+function autoSize(d){
+  var v=String(_wViz(d)||'').toLowerCase();
+  var r=(d&&d.r)||{}, ncol=(r.columns||[]).length, nrow=(r.rows||[]).length;
+  if(v==='kpi') return (ncol<=1&&nrow<=1)?'xs':'s';                      // one number → tiny, a couple → small
+  if(v==='gauge'||v==='progress') return 's';                           // small-number gauges → compact
+  if(['table','heatmap','matrix','treemap','scatter','bubble','waterfall'].indexOf(v)>=0) return 'l';
+  return 'm';                                                            // most charts → half width
+}
+function sizeOf(d){ return (d&&['xs','s','m','l','xl'].indexOf(d.size)>=0)?d.size:autoSize(d); }
+/* stable per-component id so the Open page can find a widget even after reordering */
+function ensureIds(){
+  var changed=false, seen={};
+  DASHBOARD.forEach(function(d){
+    if(!d.id || seen[d.id]){ d.id='c'+Date.now().toString(36)+Math.floor(Math.random()*1e6).toString(36); changed=true; }
+    seen[d.id]=1;
+  });
+  if(changed) save();
 }
 
 function vzOptions(sel){ return ['auto'].concat(DASH_TYPES.filter(function(t){return t!=='auto';})).map(function(t){ return '<option value="'+t+'"'+((t===(sel||'auto'))?' selected':'')+'>'+t+'</option>'; }).join(''); }
 function render(){
   const g=document.getElementById('grid'); const c=document.getElementById('count');
+  ensureIds();
   if(c)c.textContent=DASHBOARD.length+' component'+(DASHBOARD.length===1?'':'s');
   document.getElementById('refresh').disabled=!DASHBOARD.length;
   if(!DASHBOARD.length){ g.innerHTML='<div class="sub" style="grid-column:1/-1;text-align:center;padding:40px 0">No components yet. Build views in the <a href="/agents/dashboard/page.html">Dashboard builder</a>, pin them with <b>Add to dashboard</b>, then <b>🚀 Promote to dashboard</b>.</div>'; return; }
-  g.innerHTML=DASHBOARD.map((d,i)=>`<section class="card" style="margin:0"><div class="toolbar"><div><h3 style="margin:0">${esc(d.title||'Component')}</h3>${d.note?'<p class="sub" style="margin:2px 0 0">'+esc(d.note)+'</p>':''}</div><span style="margin-left:auto;display:flex;gap:6px;align-items:center"><select class="fld" data-vz="${i}" title="Change chart type" style="font-size:11px;padding:3px 6px">${vzOptions((d.r&&d.r.viz)||'')}</select><button class="btn ghost sm" data-csv="${i}">⤓ CSV</button><button class="btn ghost sm" data-sql="${i}">SQL</button><button class="btn ghost sm" data-rm="${i}" title="Remove">✕</button></span></div><div class="callbox" data-sqlw="${i}" style="display:none;margin-bottom:10px"><div class="sqlbox">${esc(d.sql||'')}</div></div><div>${pinnedViz(d.r||{})}</div></section>`).join('');
-  g.querySelectorAll('[data-vz]').forEach(s=>s.onchange=()=>{const i=+s.dataset.vz; if(DASHBOARD[i]){DASHBOARD[i].r=DASHBOARD[i].r||{}; DASHBOARD[i].r.viz=s.value==='auto'?'':s.value; save(); render();}});
-  g.querySelectorAll('[data-rm]').forEach(b=>b.onclick=()=>{DASHBOARD.splice(+b.dataset.rm,1);save();render();});
-  g.querySelectorAll('[data-sql]').forEach(b=>b.onclick=()=>{const w=g.querySelector('[data-sqlw="'+b.dataset.sql+'"]');if(w)w.style.display=w.style.display==='none'?'block':'none';});
-  g.querySelectorAll('[data-csv]').forEach(b=>b.onclick=()=>{const d=DASHBOARD[+b.dataset.csv];downloadCSV((d.title||'component')+'.csv',(d.r&&d.r.columns)||[],(d.r&&d.r.rows)||[]);});
+  g.innerHTML=DASHBOARD.map((d,i)=>{
+    const sz=sizeOf(d);
+    return `<section class="card dwcard sz-${sz}" data-i="${i}" data-id="${esc(d.id||'')}">`
+      +`<span class="dwgrab" data-grab="${i}" title="Drag to move this widget" draggable="true">⠿</span>`
+      +`<div class="dwtop"><div class="dwtitle"><h3>${esc(d.title||'Component')}</h3>${d.note?'<p class="sub" style="margin:2px 0 0">'+esc(d.note)+'</p>':''}</div></div>`
+      +`<div class="dwbody">${pinnedViz(d.r||{})}</div>`
+      +`<div class="callbox" data-sqlw="${i}" style="display:none;margin-top:10px"><div class="sqlbox">${esc(d.sql||'')}</div></div>`
+      +`<div class="dwfoot"><button class="dwmore" data-menu="${i}" title="Options — size, chart type, open, CSV, SQL">⋯</button></div>`
+      +`</section>`;
+  }).join('');
+  g.querySelectorAll('[data-menu]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation();
+    if(_menuFor===+b.dataset.menu){ closeMenu(); } else { openMenu(b,+b.dataset.menu); } });
+  _wireDrag(g);
+}
+/* ===== the single per-widget options dropdown (size · chart type · Open · CSV · SQL · remove) =====
+   Rendered to <body> and fixed-positioned so a card's overflow never clips it. */
+let _menuFor=null;
+function _toggleSql(i){ const w=document.querySelector('#grid [data-sqlw="'+i+'"]'); if(w) w.style.display=(w.style.display==='none'||!w.style.display)?'block':'none'; }
+function closeMenu(){ const m=document.getElementById('__dwmenu'); if(m)m.remove();
+  document.querySelectorAll('.dwmore.on').forEach(b=>b.classList.remove('on')); _menuFor=null; }
+function openMenu(btn,i){
+  closeMenu();
+  const d=DASHBOARD[i]; if(!d) return;
+  const board=(typeof dashActive==='function')?dashActive():{id:''};
+  const open='/web/dataview.html?b='+encodeURIComponent(board.id||'')+'&c='+encodeURIComponent(d.id||'');
+  const sz=sizeOf(d), szo=[['xs','XS'],['s','S'],['m','M'],['l','L'],['xl','Full']];
+  const m=document.createElement('div'); m.className='dwmenu'; m.id='__dwmenu';
+  m.innerHTML=`<div class="dwmenu-h">Widget options</div>`
+    +`<div class="dwmenu-lbl">Size</div><span class="szseg">`
+      +szo.map(x=>`<button data-mz="${x[0]}" class="${sz===x[0]?'on':''}" title="${x[1]}">${x[1]}</button>`).join('')+`</span>`
+    +`<div class="dwmenu-lbl">Chart type</div>`
+    +`<select class="fld" data-mvz>${vzOptions((d.r&&d.r.viz)||'')}</select>`
+    +`<div class="dwmenu-sep"></div>`
+    +`<a class="dwmenu-item" href="${open}">⤢&nbsp; Open full data</a>`
+    +`<button class="dwmenu-item" data-mcsv>⤓&nbsp; Export CSV</button>`
+    +`<button class="dwmenu-item" data-msql>&lt;/&gt;&nbsp; Show / hide SQL</button>`
+    +`<div class="dwmenu-sep"></div>`
+    +`<button class="dwmenu-item danger" data-mrm>✕&nbsp; Remove widget</button>`;
+  document.body.appendChild(m);
+  btn.classList.add('on'); _menuFor=i;
+  const r=btn.getBoundingClientRect(), mw=m.offsetWidth||214, mh=m.offsetHeight||10;
+  let left=Math.max(8, Math.min(r.right-mw, window.innerWidth-mw-8));
+  let top=r.bottom+6; if(top+mh>window.innerHeight-8) top=Math.max(8, r.top-mh-6);   // flip up if it would overflow
+  m.style.left=left+'px'; m.style.top=top+'px';
+  m.querySelectorAll('[data-mz]').forEach(b=>b.onclick=()=>{ DASHBOARD[i].size=b.dataset.mz; save(); closeMenu(); render(); });
+  const vs=m.querySelector('[data-mvz]'); if(vs) vs.onchange=()=>{ DASHBOARD[i].r=DASHBOARD[i].r||{}; DASHBOARD[i].r.viz=vs.value==='auto'?'':vs.value; save(); closeMenu(); render(); };
+  const cb=m.querySelector('[data-mcsv]'); if(cb) cb.onclick=()=>{ const x=DASHBOARD[i]; downloadCSV((x.title||'component')+'.csv',(x.r&&x.r.columns)||[],(x.r&&x.r.rows)||[]); closeMenu(); };
+  const sb=m.querySelector('[data-msql]'); if(sb) sb.onclick=()=>{ _toggleSql(i); closeMenu(); };
+  const rb=m.querySelector('[data-mrm]'); if(rb) rb.onclick=()=>{ if(confirm('Remove “'+((d.title)||'this widget')+'” from the dashboard?')){ DASHBOARD.splice(i,1); save(); closeMenu(); render(); } };
+}
+document.addEventListener('click',e=>{ if(_menuFor!==null && !e.target.closest('#__dwmenu') && !e.target.closest('[data-menu]')) closeMenu(); });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeMenu(); });
+window.addEventListener('resize',closeMenu);
+window.addEventListener('scroll',closeMenu,true);
+/* drag-to-move: only the ⠿ handle starts a drag, so the selects/buttons keep working.
+   Dropping a widget onto another lands it immediately before that widget in the order. */
+let _dragI=null;
+function _wireDrag(g){
+  g.querySelectorAll('.dwgrab[draggable]').forEach(h=>{
+    h.addEventListener('dragstart',e=>{ _dragI=+h.dataset.grab; try{e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',String(_dragI));}catch(_){}
+      const card=h.closest('.dwcard'); if(card) card.classList.add('dragging'); });
+    h.addEventListener('dragend',()=>{ _dragI=null; g.querySelectorAll('.dwcard').forEach(c=>c.classList.remove('dragging','dragover')); });
+  });
+  g.querySelectorAll('.dwcard').forEach(card=>{
+    card.addEventListener('dragover',e=>{ if(_dragI===null)return; e.preventDefault(); try{e.dataTransfer.dropEffect='move';}catch(_){}
+      if(+card.dataset.i!==_dragI) card.classList.add('dragover'); });
+    card.addEventListener('dragleave',()=>card.classList.remove('dragover'));
+    card.addEventListener('drop',e=>{ e.preventDefault(); card.classList.remove('dragover');
+      let from=_dragI, to=+card.dataset.i; _dragI=null;
+      if(from===null||isNaN(to)||from===to){ render(); return; }
+      if(from<to) to--;                                  // account for the item we remove first
+      const item=DASHBOARD.splice(from,1)[0]; DASHBOARD.splice(to,0,item); save(); render(); });
+  });
 }
 async function refreshAll(){
   if(!DASHBOARD.length)return; const rb=document.getElementById('refresh'); rb.disabled=true;
@@ -332,7 +465,7 @@ async function emailDashboard(){
     columns:(d.r&&d.r.columns)||[],rows:((d.r&&d.r.rows)||[]).slice(0,200)}));
   let o; try{ o=await EMAIL_API.post('dashboard',{to,title:'Custom Dashboard',subject:'[Tenable] Custom Dashboard',components,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
   if(o&&o.ok){ res.innerHTML='<span style="color:var(--ok)">✓ sent '+(o.components||components.length)+' component(s) to '+esc(to)+'</span>'; }
-  else if(o&&o.blocked){ res.innerHTML='<span style="color:#e7c66b">email disabled — '+esc(o.reason||'set NAVI_ALLOW_WRITES=1 and NAVI_EMAIL=1')+'</span>'; }
+  else if(o&&o.blocked){ res.innerHTML='<span style="color:var(--cx-e7c66b)">email disabled — '+esc(o.reason||'set NAVI_ALLOW_WRITES=1 and NAVI_EMAIL=1')+'</span>'; }
   else { res.innerHTML='<span style="color:var(--crit)">✗ '+esc((o&&(o.error||o.message))||'failed')+'</span>'; }
 }
 document.getElementById('emailSend').onclick=emailDashboard;

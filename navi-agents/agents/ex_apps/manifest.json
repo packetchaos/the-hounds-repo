@@ -1,0 +1,12 @@
+{
+  "id": "ex_apps",
+  "name": "WAS Apps Explorer",
+  "icon": "🌐",
+  "order": 27,
+  "category": "Explore",
+  "codename": "Vizsla",
+  "summary": "Search the WAS apps table — filter by name/target/tech, severity presence, and scan recency. Parsed tech + top OWASP per app. Read-only navi.db search.",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": ["search"]
+}

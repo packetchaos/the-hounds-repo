@@ -71,7 +71,7 @@
       <button class="btn run sm" id="emGraphSend">▶ Send graph (gated)</button>
       <button class="btn ghost sm" id="emGraphCancel">cancel</button>
       <span id="emGraphRes" class="sub"></span></div>
-    <div id="legendT" class="legend" style="margin:8px 0 4px"><span><i class="dot" style="background:var(--ok)"></i> fully owned</span><span><i class="dot" style="background:#e7c66b"></i> partial (too few owners)</span><span><i class="dot" style="background:#f43f5e"></i> no owner</span><span><i class="dot" style="background:var(--accent)"></i> owner</span><span>✅ mitigated</span><span><i class="dot" style="background:#6ea8ff"></i> ✔ accepted</span><span><i class="dot" style="background:#8a99ad"></i> 🚫 ignored</span></div>
+    <div id="legendT" class="legend" style="margin:8px 0 4px"><span><i class="dot" style="background:var(--ok)"></i> fully owned</span><span><i class="dot" style="background:var(--cx-e7c66b)"></i> partial (too few owners)</span><span><i class="dot" style="background:var(--cx-f43f5e)"></i> no owner</span><span><i class="dot" style="background:var(--accent)"></i> owner</span><span>✅ mitigated</span><span><i class="dot" style="background:var(--cx-6ea8ff)"></i> ✔ accepted</span><span><i class="dot" style="background:#8a99ad"></i> 🚫 ignored</span></div>
     <p class="sub" id="graphHint" style="margin:0 0 6px">Only routes/paths with an owner draw a thread. Un-owned ones are listed as gaps below. Hover a node to trace its threads.</p>
     <div id="graph"></div>
   </section>
@@ -104,14 +104,14 @@ function _passMetric(v,k){ if(!_thrOn(k)) return true;             // inactive �
   if(v===null||v===undefined) return false;                       // focusing on threats → drop unscored
   return v>=THR[k][0] && v<=THR[k][1]; }
 function _threatPass(it){ return _passMetric(it.vpr,'vpr') && _passMetric(it.cvss3,'cvss3'); }
-const SC={owned:'var(--ok)',partial:'#e7c66b',unowned:'#f43f5e',mitigated:'var(--ok)',accepted:'#6ea8ff',ignored:'#8a99ad'};
+const SC={owned:'var(--ok)',partial:'var(--cx-e7c66b)',unowned:'var(--cx-f43f5e)',mitigated:'var(--ok)',accepted:'var(--cx-6ea8ff)',ignored:'#8a99ad'};
 const DISP_NODE={mitigated:'✅ Mitigated',accepted:'✔ Accepted',ignored:'🚫 Ignored'};
-const RIBBON_C={un:'#f43f5e',owned:'var(--ok)',mitigated:'var(--ok)',accepted:'#6ea8ff',ignored:'#8a99ad'};
+const RIBBON_C={un:'var(--cx-f43f5e)',owned:'var(--ok)',mitigated:'var(--ok)',accepted:'var(--cx-6ea8ff)',ignored:'#8a99ad'};
 const UN_NODE='⛔ Unassigned';
 const _SPECIAL_NODES=[UN_NODE,'✅ Mitigated','✔ Accepted','🚫 Ignored'];
 function _isSpecialNode(o){ return _SPECIAL_NODES.indexOf(o)>=0; }  // exact match (emoji-safe)
-function _nodeColor(o){ return o===UN_NODE?'#f43f5e':o==='✅ Mitigated'?'var(--ok)':o==='✔ Accepted'?'#6ea8ff':o==='🚫 Ignored'?'#8a99ad':'var(--accent)'; }
-const OMPAL=['#5a5fe0','#3f78c2','#2f9d9d','#2fa06e','#7d64d4','#3f8fb0','#4a6fd0','#2f9e88','#6f73e0','#2f88a8','#5a7fc0','#8a67d6','#3f9db0','#4f9e6e','#6a70d8'];
+function _nodeColor(o){ return o===UN_NODE?'var(--cx-f43f5e)':o==='✅ Mitigated'?'var(--ok)':o==='✔ Accepted'?'var(--cx-6ea8ff)':o==='🚫 Ignored'?'#8a99ad':'var(--accent)'; }
+const OMPAL=['var(--cx-5a5fe0)','var(--cx-3f78c2)','var(--cx-2f9d9d)','var(--cx-2fa06e)','var(--cx-7d64d4)','var(--cx-3f8fb0)','var(--cx-4a6fd0)','var(--cx-2f9e88)','var(--cx-6f73e0)','var(--cx-2f88a8)','var(--cx-5a7fc0)','var(--cx-8a67d6)','var(--cx-3f9db0)','var(--cx-4f9e6e)','var(--cx-6a70d8)'];
 async function run(){
   document.getElementById('run').disabled=true; flash('flash','<span class="spin"></span> building the ownership map from navi.db…','run');
   let o; try{ o=await API.post('map'); }catch(e){ o={ok:false,error:e.message}; }
@@ -130,7 +130,7 @@ function render(){
     +'<div class="k"><div class="v">'+(k.owners||0)+'</div><div class="l">owners assigned</div></div>'
     +'<div class="k" style="border-color:var(--crit)"><div class="v" style="color:var(--crit)">'+(k.unowned_assets||0)+'</div><div class="l">Ownerless Risk (assets)</div></div>'
     +disp(k.mitigated,k.mitigated_pct,'mitigated','var(--ok)')
-    +disp(k.accepted,k.accepted_pct,'risk accepted','#6ea8ff')
+    +disp(k.accepted,k.accepted_pct,'risk accepted','var(--cx-6ea8ff)')
     +disp(k.ignored,k.ignored_pct,'ignored','#8a99ad')
     +'<div class="k"><div class="v">'+(k.asset_scope||0)+'</div><div class="l">assets in scope</div></div>';
   document.getElementById('graphCard').style.display='';
@@ -167,7 +167,7 @@ function drawHandled(){
   const items=(DATA.routes||[]).concat(DATA.paths||[]).filter(x=>['ignored','accepted','mitigated'].includes(x.status));
   if(!items.length){ el.innerHTML=''; return; }
   const grp={mitigated:[],accepted:[],ignored:[]}; items.forEach(x=>grp[x.status].push(x));
-  const meta={mitigated:['✅ Mitigated','var(--ok)'],accepted:['✔ Risk accepted','#6ea8ff'],ignored:['🚫 Ignored','#8a99ad']};
+  const meta={mitigated:['✅ Mitigated','var(--ok)'],accepted:['✔ Risk accepted','var(--cx-6ea8ff)'],ignored:['🚫 Ignored','#8a99ad']};
   el.innerHTML='<h4 style="margin:4px 0 6px">Handled — off the gap list <span class="sub">(tagged '
     +'<span class="mono">Owner: &lt;name&gt;: &lt;disposition&gt;</span>)</span></h4><div class="gapgrid">'
     +Object.keys(meta).map(s=>{ const g=grp[s], lbl=meta[s][0], c=meta[s][1];
@@ -184,9 +184,9 @@ function drawLinkage(){ drawFunnel(); drawChampion(); drawLinkKpi(); drawRoutes(
 function drawFunnel(){
   const F=DATA.funnel||{}, wrap=document.getElementById('funnel');
   const stages=[
-    {k:'CVE line-items',v:F.cves||0,c:'#f43f5e',note:'what most teams track — the most duplicated work'},
-    {k:'Findings (asset × plugin)',v:F.findings||0,c:'#fb923c',note:'the raw ticket backlog'},
-    {k:'Plugins — unique fixes',v:F.plugins||0,c:'#e7c66b',note:'one patch clears many CVEs'},
+    {k:'CVE line-items',v:F.cves||0,c:'var(--cx-f43f5e)',note:'what most teams track — the most duplicated work'},
+    {k:'Findings (asset × plugin)',v:F.findings||0,c:'var(--cx-fb923c)',note:'the raw ticket backlog'},
+    {k:'Plugins — unique fixes',v:F.plugins||0,c:'var(--cx-e7c66b)',note:'one patch clears many CVEs'},
     {k:'Apps / routes — own here',v:F.routes||0,c:'var(--ok)',note:'owner-actionable units'}
   ];
   if(!stages[0].v && !stages[2].v){ wrap.innerHTML='<p class="sub" style="padding:8px">No CVE/plugin data to chart (needs the <span class="mono">plugins</span> table + populated <span class="mono">plugin_list</span>).</p>'; return; }
@@ -217,7 +217,7 @@ function drawLinkKpi(){ const k=DATA.kpi||{};
   document.getElementById('linkKpi').innerHTML=
     '<div class="k"><div class="v">'+(k.routes_with_paths||0)+'</div><div class="l">apps covering paths</div></div>'
     +'<div class="k"><div class="v">'+(k.paths_covered||0)+'</div><div class="l">paths mapped to an app</div></div>'
-    +'<div class="k" style="border-color:#e7c66b"><div class="v" style="color:#e7c66b">'+(k.routes_no_paths||0)+'</div><div class="l">apps with no path detail</div></div>'
+    +'<div class="k" style="border-color:var(--cx-e7c66b)"><div class="v" style="color:var(--cx-e7c66b)">'+(k.routes_no_paths||0)+'</div><div class="l">apps with no path detail</div></div>'
     +'<div class="k" style="border-color:var(--crit)"><div class="v" style="color:var(--crit)">'+(k.paths_orphan||0)+'</div><div class="l">orphan paths (no app)</div></div>';
 }
 function drawRoutes(){ const wrap=document.getElementById('routeList');
@@ -254,7 +254,7 @@ function emailGap(){ const g=window.__GAP; if(!g)return;
   location.href='/agents/email/page.html';
 }
 function drawOrphan(){ const el=document.getElementById('orphanBox'), o=DATA.orphan_paths||[];
-  el.innerHTML='<div class="callbox" style="border-left:3px solid '+(o.length?'#f43f5e':'var(--ok)')+'"><b>Orphan paths — no covering app</b> <span class="chip">'+o.length+'</span>'
+  el.innerHTML='<div class="callbox" style="border-left:3px solid '+(o.length?'var(--cx-f43f5e)':'var(--ok)')+'"><b>Orphan paths — no covering app</b> <span class="chip">'+o.length+'</span>'
     +'<p class="sub" style="margin:4px 0 0">Paths whose plugin belongs to no app/route. Owning an app won\'t clear them — they need a direct owner.</p>'
     +(o.length?'<div style="margin-top:6px;max-height:180px;overflow:auto">'+o.slice(0,300).map(p=>'<div class="mono" style="font-size:12px;padding:3px 0;border-bottom:1px solid var(--line);word-break:break-all">'+esc(p)+'</div>').join('')+'</div>':'<p class="sub" style="margin:6px 0 0">None — every path rolls up to an app. ✔</p>')+'</div>';
 }
@@ -340,8 +340,8 @@ function omFlow(){
 function kbox(total,label,c,owned,partial,unowned,extra){
   return '<div class="k"><div class="v">'+(total||0)+'</div><div class="l">'+label+'</div>'
     +'<div style="font-size:10.5px;margin-top:3px">'
-    +'<span style="color:var(--ok)">'+(owned||0)+' owned</span> · <span style="color:#e7c66b">'+(partial||0)+' partial</span> · <span style="color:#f43f5e">'+(unowned||0)+' none</span></div>'
-    +(extra?('<div style="font-size:10.5px;margin-top:2px;color:#a78bfa">'+extra+'</div>'):'')
+    +'<span style="color:var(--ok)">'+(owned||0)+' owned</span> · <span style="color:var(--cx-e7c66b)">'+(partial||0)+' partial</span> · <span style="color:var(--cx-f43f5e)">'+(unowned||0)+' none</span></div>'
+    +(extra?('<div style="font-size:10.5px;margin-top:2px;color:var(--cx-a78bfa)">'+extra+'</div>'):'')
     +'</div>';
 }
 /* ===== the bipartite network-thread graph ===== */
@@ -400,10 +400,10 @@ function drawGaps(){
     return `<div class="callbox" style="border-left:3px solid ${color}"><b>${title}</b> <span class="chip">${items.length}</span>`
       +(items.length?'<div style="margin-top:6px;max-height:240px;overflow:auto">'+idxs.map(gapRow).join('')+'</div>':'<p class="sub" style="margin:6px 0 0">None — all covered. ✔</p>')+'</div>'; };
   document.getElementById('gaps').innerHTML=
-    box('🚫 Ownerless Risk — routes',un(DATA.routes||[]),'#f43f5e','route')
-    +box('🚫 Ownerless Risk — paths',un(DATA.paths||[]),'#f43f5e','path')
-    +box('⚠ Under-owned routes (partial)',pa(DATA.routes||[]),'#e7c66b','route')
-    +box('⚠ Under-owned paths (partial)',pa(DATA.paths||[]),'#e7c66b','path');
+    box('🚫 Ownerless Risk — routes',un(DATA.routes||[]),'var(--cx-f43f5e)','route')
+    +box('🚫 Ownerless Risk — paths',un(DATA.paths||[]),'var(--cx-f43f5e)','path')
+    +box('⚠ Under-owned routes (partial)',pa(DATA.routes||[]),'var(--cx-e7c66b)','route')
+    +box('⚠ Under-owned paths (partial)',pa(DATA.paths||[]),'var(--cx-e7c66b)','path');
   wireGaps(); updateSelBar();
 }
 function gapRow(i){ const x=GAPS[i]; const nm=x.name.length>40?('…'+x.name.slice(-39)):x.name;
@@ -422,7 +422,7 @@ function wireGaps(){
   document.querySelectorAll('#gaps .gassign').forEach(b=>b.onclick=()=>toggleInline(+b.dataset.i));
   document.querySelectorAll('#gaps .gdisp').forEach(b=>b.onclick=()=>disposeGap(+b.dataset.i, b.dataset.d));
 }
-const DISP_C={Mitigated:'var(--ok)',Accepted:'#6ea8ff',Ignored:'#8a99ad'};
+const DISP_C={Mitigated:'var(--ok)',Accepted:'var(--cx-6ea8ff)',Ignored:'#8a99ad'};
 async function disposeGap(i, disp){ const g=GAPS[i]; const res=document.getElementById('gdres-'+i);
   if(res)res.innerHTML='<span class="spin"></span> marking '+disp.toLowerCase()+'…';
   const r=await tagGap(g, disp);   // apply bypasses owner-resolution for a disposition
@@ -471,7 +471,7 @@ async function tagSelectedHere(){ const owner=(document.getElementById('selOwner
   const items=[...SEL].map(i=>GAPS[i]); let done=0,failed=0;
   res.innerHTML='<span style="color:var(--ok);font-weight:600"><span class="spin"></span> Tags being sent to the Tagging log…</span>'; scroll();
   for(const g of items){ const r=await tagGap(g,owner); r.ok?done++:failed++; }
-  res.innerHTML='<span style="color:'+(failed?'#e7c66b':'var(--ok)')+';font-weight:600">✓ Tags sent to the Tagging log — '+done+(failed?', '+failed+' failed':'')+'. Click ↻ Refresh to see the map update.</span>'; scroll();
+  res.innerHTML='<span style="color:'+(failed?'var(--cx-e7c66b)':'var(--ok)')+';font-weight:600">✓ Tags sent to the Tagging log — '+done+(failed?', '+failed+' failed':'')+'. Click ↻ Refresh to see the map update.</span>'; scroll();
   if(btn){ btn.disabled=false; btn.textContent=lbl; btn.style.opacity=''; btn.style.transform=''; btn.style.cursor=''; }
 }
 /* hand the selected gaps to Atlas' batch quick-assign and jump there — the shared loop */
@@ -494,7 +494,7 @@ async function pollJobs(ids, timeoutMs=25000){
 /* ===== Email the current graph (Sankey or Threads) as a self-contained HTML attachment.
    Email clients strip <svg>, so we send it as a file the recipient opens in a browser. ===== */
 const EMAIL_API=agentApi('email');
-const _VARMAP={'var(--ink)':'#e6edf3','var(--ink-2)':'#c7cede','var(--ink-3)':'#9aa7b8','var(--mut)':'#8a99ad','var(--accent)':'#6d70e6','var(--line)':'#24303f','var(--panel-2)':'#1a2230','var(--panel)':'#0d1420','var(--crit)':'#f43f5e','var(--amber)':'#e7c66b'};
+const _VARMAP={'var(--ink)':'#e6edf3','var(--ink-2)':'#c7cede','var(--ink-3)':'#9aa7b8','var(--mut)':'#8a99ad','var(--accent)':'var(--cx-6d70e6)','var(--line)':'#24303f','var(--panel-2)':'#1a2230','var(--panel)':'#0d1420','var(--crit)':'var(--cx-f43f5e)','var(--amber)':'var(--cx-e7c66b)'};
 function _graphTitle(){ return MODE==='sankey'?'Ownership Sankey':'Ownership threads'; }
 function _standaloneGraphHtml(){
   const svg=document.querySelector('#graph svg'); if(!svg)return null;
@@ -533,7 +533,7 @@ async function emailGraph(){
     if(!png){ res.innerHTML='<span style="color:var(--crit)">couldn\'t render the graph image — try again</span>'; return; }
     let o; try{ o=await EMAIL_API.post('graph',{to,subject:'[Tenable] '+_graphTitle(),title:_graphTitle(),png,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
     if(o&&o.ok){ res.innerHTML='<span style="color:var(--ok)">✓ sent to '+esc(to)+' — graph attached as '+esc(o.attached||'image')+' (mail clients strip embedded images)</span>'; }
-    else if(o&&o.blocked){ res.innerHTML='<span style="color:#e7c66b">email disabled — '+esc(o.reason||'set NAVI_ALLOW_WRITES=1 and NAVI_EMAIL=1')+'</span>'; }
+    else if(o&&o.blocked){ res.innerHTML='<span style="color:var(--cx-e7c66b)">email disabled — '+esc(o.reason||'set NAVI_ALLOW_WRITES=1 and NAVI_EMAIL=1')+'</span>'; }
     else { res.innerHTML='<span style="color:var(--crit)">✗ '+esc((o&&(o.error||o.message))||'failed')+'</span>'; }
   });
 }
