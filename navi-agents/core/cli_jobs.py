@@ -61,6 +61,7 @@ COMMANDS = {
     "paths":        ["config", "update", "paths"],
     "compliance":   ["config", "update", "compliance"],
     "fixed":        ["config", "update", "fixed"],
+    "sla_calc":     ["config", "sla", "calculate"],    # stamp Pass/Fail SLA verdicts into fixed (Sköll)
     "plugins":      ["config", "update", "plugins", "--size", "10000"],
     "certificates": ["config", "certificates"],
     "software":     ["config", "software"],

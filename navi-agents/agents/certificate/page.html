@@ -141,12 +141,12 @@ function renderQueue(){
       const warn=j&&j.result&&j.result.warning;
       const naviOut=(j&&j.result&&(j.result.navi_output||j.result.message))||'';
       if(ok&&!warn){ anyOk=true; SESSION_APPLIED.add(r.value); delete appr[r.value]; save(); d.style.color='var(--ok)'; d.textContent='✓ '+r.value+' applied'+(naviOut&&naviOut!=='applied'?(' — navi: '+naviOut):''); }
-      else if(ok&&warn){ d.style.color='#e7c66b'; d.textContent='⚠ '+r.value+' — '+warn; }   // navi ran but tagged nothing → do NOT mark applied
-      else if(j&&!finished){ d.style.color='#e7c66b'; d.textContent='⏳ '+r.value+' still running — check the Tagging log'; }
-      else { d.style.color='#ffb4c6'; const msg=j?(j.message||(j.result&&(j.result.message||j.result.stderr))||j.status):(r.message||r.stderr||'failed'); d.textContent='✗ '+r.value+': '+esc(msg); }
+      else if(ok&&warn){ d.style.color='var(--cx-e7c66b)'; d.textContent='⚠ '+r.value+' — '+warn; }   // navi ran but tagged nothing → do NOT mark applied
+      else if(j&&!finished){ d.style.color='var(--cx-e7c66b)'; d.textContent='⏳ '+r.value+' still running — check the Tagging log'; }
+      else { d.style.color='var(--cx-ffb4c6)'; const msg=j?(j.message||(j.result&&(j.result.message||j.result.stderr))||j.status):(r.message||r.stderr||'failed'); d.textContent='✗ '+r.value+': '+esc(msg); }
       res.appendChild(d); });
     const note=document.createElement('div'); note.className='sub'; note.style.marginTop='6px';
-    if(!o.writes_enabled){ note.style.color='var(--warn,#e7c66b)'; note.innerHTML='<b>Nothing was written.</b> '+esc(o.write_gate_reason||'Writes are gated — set NAVI_ALLOW_WRITES=1')+'.'; res.appendChild(note); reset(); }
+    if(!o.writes_enabled){ note.style.color='var(--warn,var(--cx-e7c66b))'; note.innerHTML='<b>Nothing was written.</b> '+esc(o.write_gate_reason||'Writes are gated — set NAVI_ALLOW_WRITES=1')+'.'; res.appendChild(note); reset(); }
     else if(anyOk){
       // green confirmation banner at the top of the result block
       const ok=document.createElement('div'); ok.className='callbox'; ok.style.cssText='color:var(--ok);border:1px solid var(--ok);background:var(--okbg,rgba(78,200,140,.10));font-weight:600;margin-bottom:6px'; ok.textContent='✓ Tags sent to the Tagging log'; res.insertBefore(ok, res.firstChild);
@@ -175,10 +175,10 @@ async function applyCertIssues(){
     const ok=j?(j.status==='done'&&j.ok!==false):(r.ok===true&&r.queued!==true&&!r.error);
     if(ok)anyOk=true;
     if(ok) return '<div class="callbox" style="color:var(--ok)">✓ Cert Issue : '+esc(r.value||r.plugin_id)+' tagged'+((j&&j.result&&j.result.warning)?(' — '+esc(j.result.warning)):'')+'</div>';
-    if(j&&!finished) return '<div class="callbox" style="color:#e7c66b">⏳ Cert Issue : '+esc(r.value||r.plugin_id)+' still running — check the Tagging log</div>';
+    if(j&&!finished) return '<div class="callbox" style="color:var(--cx-e7c66b)">⏳ Cert Issue : '+esc(r.value||r.plugin_id)+' still running — check the Tagging log</div>';
     const msg=j?(j.message||(j.result&&(j.result.message||j.result.stderr))||j.status):(r.message||r.stderr||'write rejected');
-    return '<div class="callbox" style="color:#ffb4c6">✗ '+esc(r.value||r.plugin_id)+': '+esc(msg)+'</div>'; }).join('')
-    +(!o.writes_enabled?('<div class="sub" style="margin-top:6px;color:var(--warn,#e7c66b)"><b>Nothing was written.</b> '+esc(o.write_gate_reason||'Writes are gated — set NAVI_ALLOW_WRITES=1')+'.</div>')
+    return '<div class="callbox" style="color:var(--cx-ffb4c6)">✗ '+esc(r.value||r.plugin_id)+': '+esc(msg)+'</div>'; }).join('')
+    +(!o.writes_enabled?('<div class="sub" style="margin-top:6px;color:var(--warn,var(--cx-e7c66b))"><b>Nothing was written.</b> '+esc(o.write_gate_reason||'Writes are gated — set NAVI_ALLOW_WRITES=1')+'.</div>')
       :(anyOk?'<div class="sub" style="margin-top:6px;color:var(--ink-3)">Submitted via <span class="mono">navi enrich tag --plugin</span>. Allow ~30 min for Tenable + a <span class="mono">navi update</span> before it shows in navi.db. See the <a href="/web/tags-log.html">Tagging log</a>.</div>':''));
   if(!o.writes_enabled || !anyOk){ reset(); }   // gated / nothing applied → allow retry
   else { const ok=document.createElement('div'); ok.className='callbox'; ok.style.cssText='color:var(--ok);border:1px solid var(--ok);background:var(--okbg,rgba(78,200,140,.10));font-weight:600;margin-bottom:6px'; ok.textContent='✓ Tags sent to the Tagging log'; res.insertBefore(ok,res.firstChild); if(btn){ btn.textContent='✓ Sent'; btn.style.opacity=''; btn.style.transform=''; } }
@@ -194,7 +194,7 @@ function renderHeat(){
   document.getElementById('leg').innerHTML='Fewer'+sh.map(s=>`<span class="sw" style="background:${s}"></span>`).join('')+`More · peak <b>${max1}</b>`;
   const h2=document.getElementById('h2');const rows=MODEL.cert_issue_matrix||[];
   if(!rows.length){ h2.innerHTML='<p class="sub">No certificate-issue plugins found in navi.db.</p>'; return; }
-  const max2=Math.max(1,...rows.map(r=>r.asset_count));const bcol=c=>c/max2>=.75?'#fb7185':c/max2>=.5?'#fbbf24':c/max2>=.25?'#3ea6ff':'#4b6178';
+  const max2=Math.max(1,...rows.map(r=>r.asset_count));const bcol=c=>c/max2>=.75?'var(--cx-fb7185)':c/max2>=.5?'var(--cx-fbbf24)':c/max2>=.25?'var(--cx-3ea6ff)':'#4b6178';
   h2.innerHTML='<div class="toolbar" style="margin:0 0 10px;gap:8px;flex-wrap:wrap">'
     +'<button class="btn sm" id="certTagSel" disabled>🏷 Tag selected cert issues (gated)</button>'
     +'<button class="btn ghost sm" id="certSelAll">Select all</button>'

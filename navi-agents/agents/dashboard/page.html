@@ -22,6 +22,48 @@
   .pcard:hover .ppin{color:var(--accent)}
   .pcard .ptitle{font-weight:700;font-size:13px;line-height:1.25}
   .pcard .pnote{font-size:11px;color:var(--mut);line-height:1.4}
+  /* ===== pinned-components grid — same clean widgets as the Custom Dashboard ===== */
+  .dashgrid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px;grid-auto-flow:row dense}
+  .dwcard{margin:0;min-width:0;display:flex;flex-direction:column;position:relative}
+  .dwcard.sz-xs{grid-column:span 2}   /* ~6 across — tiny single numbers */
+  .dwcard.sz-s{grid-column:span 3}    /* ~4 across — single-number / small KPI */
+  .dwcard.sz-m{grid-column:span 6}    /* ~2 across — standard charts */
+  .dwcard.sz-l{grid-column:span 8}    /* wide chart */
+  .dwcard.sz-xl{grid-column:span 12}  /* full-width */
+  @media(max-width:1180px){.dwcard.sz-xs{grid-column:span 3}.dwcard.sz-s{grid-column:span 4}.dwcard.sz-l{grid-column:span 12}}
+  @media(max-width:820px){.dwcard.sz-xs{grid-column:span 4}.dwcard.sz-s{grid-column:span 6}.dwcard.sz-m{grid-column:span 12}}
+  @media(max-width:560px){.dwcard{grid-column:span 12 !important}}
+  .dwcard.dragging{opacity:.4}
+  .dwcard.dragover{outline:2px dashed var(--accent);outline-offset:3px}
+  .dwtop{display:flex;gap:8px;align-items:flex-start}
+  .dwtitle{min-width:0;flex:1}
+  .dwtitle h3{margin:0;overflow:hidden;text-overflow:ellipsis}
+  .dwbody{min-width:0;overflow-x:auto;margin-top:8px}
+  .dwgrab{position:absolute;top:6px;left:9px;cursor:grab;color:var(--ink-3);font-size:14px;line-height:1;user-select:none;padding:1px 4px;border-radius:6px;opacity:0;transition:opacity .15s}
+  .dwcard:hover .dwgrab{opacity:.5}
+  .dwgrab:hover{opacity:1 !important;color:var(--ink);background:var(--panel-2)}
+  .dwgrab:active{cursor:grabbing}
+  .dwfoot{display:flex;justify-content:flex-end;margin-top:auto;padding-top:10px}
+  /* builder: a clearly-visible options trigger (more prominent than the Custom Dashboard's faint ⋯) */
+  .dwmore{display:inline-flex;align-items:center;gap:6px;background:var(--panel-2);border:1px solid var(--line);color:var(--ink-2);
+    font-size:12px;font-weight:600;cursor:pointer;border-radius:8px;padding:5px 11px;font-family:var(--body);transition:background .15s,border-color .15s,color .15s}
+  .dwmore .dots{font-size:15px;line-height:.6;letter-spacing:1.5px}
+  .dwmore:hover,.dwmore.on{border-color:var(--accent);color:var(--accent);background:var(--panel)}
+  .dwmenu{position:fixed;z-index:9998;width:214px;background:var(--panel);border:1px solid var(--line);border-radius:11px;box-shadow:var(--shadow);padding:8px}
+  .dwmenu-h{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);font-family:var(--mono);padding:2px 4px 6px}
+  .dwmenu-lbl{font-size:11px;color:var(--ink-3);padding:7px 4px 3px}
+  .dwmenu .szseg{display:flex;width:100%}
+  .dwmenu .szseg button{flex:1;padding:5px 0}
+  .dwmenu .fld{width:100%}
+  .dwmenu-sep{height:1px;background:var(--line-soft);margin:8px 2px}
+  .dwmenu-item{display:flex;align-items:center;gap:9px;width:100%;text-align:left;background:transparent;border:0;color:var(--ink);padding:8px 8px;border-radius:7px;cursor:pointer;font-size:12.5px;font-family:var(--body);text-decoration:none}
+  .dwmenu-item:hover{background:var(--panel-2)}
+  .dwmenu-item.danger{color:var(--crit)}
+  .szseg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden;flex:0 0 auto}
+  .szseg button{background:transparent;border:0;color:var(--ink-3);font-size:11px;font-weight:600;padding:4px 8px;cursor:pointer;font-family:var(--body);line-height:1.6}
+  .szseg button+button{border-left:1px solid var(--line)}
+  .szseg button.on{background:var(--accent);color:#eef1fb}
+  .szseg button:not(.on):hover{color:var(--ink);background:var(--panel-2)}
 </style>
 </head><body>
 <div class="wrap">
@@ -36,7 +78,7 @@
         <span class="chip" id="meta"></span></div>
       <div id="flash" class="flash"></div>
     </div>
-    <div class="no-llm-note callbox" style="display:none;color:var(--warn,#e7c66b)">The Dashboard Builder needs a language model to turn your request into SQL. Set <span class="mono">ANTHROPIC_API_KEY</span> on the server and reload to enable it.</div>
+    <div class="no-llm-note callbox" style="display:none;color:var(--warn,var(--cx-e7c66b))">The Dashboard Builder needs a language model to turn your request into SQL. Set <span class="mono">ANTHROPIC_API_KEY</span> on the server and reload to enable it.</div>
   </section>
 
   <section class="card" id="presetCard">
@@ -61,9 +103,9 @@
   <div id="dashTabs"></div>
   <section class="card" id="dashGridWrap" style="display:none">
     <div class="toolbar"><div><h2 style="margin:0" id="dashBoardName">📌 My dashboard</h2>
-      <p class="sub" style="margin:2px 0 0">Pinned components — saved in this browser. Generate a view above and click <b>Add to dashboard</b> to keep building a multi-panel board.</p></div>
+      <p class="sub" style="margin:2px 0 0">Pinned components — saved in this browser. Generate a view above and click <b>Add to dashboard</b> to keep building. Each widget shows just its title and numbers; click <b>⋯ Options</b> (bottom-right) for size (XS–Full), chart type, Open, CSV &amp; SQL, or drag <b>⠿</b> to reorder.</p></div>
       <span style="margin-left:auto;display:flex;gap:6px;align-items:center"><span class="chip" id="dashGridCount"></span><button class="btn sm" id="dashEmail">📧 Email dashboard</button><a class="btn run sm" href="/web/customdash.html" title="Open these pinned components as a standalone, refreshable Custom Dashboard page">🚀 Promote to dashboard</a><button class="btn ghost sm" id="dashClearAll">Clear all</button></span></div>
-    <div id="dashGrid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:14px"></div>
+    <div id="dashGrid" class="dashgrid"></div>
   </section>
   <footer>Dashboard Builder · read-only navi.db · model writes the SQL, you see it before it renders · pin components to a saved multi-panel board</footer>
 </div>
@@ -79,7 +121,7 @@ const EX=["Top 10 plugins by number of affected assets",
 const exWrap=document.getElementById('examples');
 EX.forEach(t=>{const c=document.createElement('span');c.className='chip ex';c.textContent=t;c.onclick=()=>{document.getElementById('prompt').value=t;go();};exWrap.appendChild(c);});
 
-const DPAL=['#5a5fe0','#3f78c2','#2f9d9d','#2fa06e','#7d64d4','#3f8fb0','#4a6fd0','#2f9e88','#6f73e0','#2f88a8','#5a7fc0','#8a67d6'];
+const DPAL=['var(--cx-5a5fe0)','var(--cx-3f78c2)','var(--cx-2f9d9d)','var(--cx-2fa06e)','var(--cx-7d64d4)','var(--cx-3f8fb0)','var(--cx-4a6fd0)','var(--cx-2f9e88)','var(--cx-6f73e0)','var(--cx-2f88a8)','var(--cx-5a7fc0)','var(--cx-8a67d6)'];
 const _num=v=>v!==null&&v!==''&&!isNaN(parseFloat(v))&&isFinite(v);
 const _isDate=v=>typeof v==='string'&&/^\d{4}(-\d{2}(-\d{2})?)?([ T]\d|$)/.test(v.trim());
 function dPickViz(r,cols,rows){
@@ -142,7 +184,7 @@ function svgGaugeD(rows,lc,vc){ const vals=rows.map(x=>Math.max(0,parseFloat(x[v
  * grouped, multiline, combo, heatmap, scatter, bubble) read either several
  * numeric columns, or a long (label, series, value) triple that we pivot.
  * ==========================================================================*/
-var DS_PAL=['#5a5fe0','#3f78c2','#2f9d9d','#2fa06e','#7d64d4','#3f8fb0','#4a6fd0','#2f9e88','#6f73e0','#2f88a8','#5a7fc0','#8a67d6'];
+var DS_PAL=['var(--cx-5a5fe0)','var(--cx-3f78c2)','var(--cx-2f9d9d)','var(--cx-2fa06e)','var(--cx-7d64d4)','var(--cx-3f8fb0)','var(--cx-4a6fd0)','var(--cx-2f9e88)','var(--cx-6f73e0)','var(--cx-2f88a8)','var(--cx-5a7fc0)','var(--cx-8a67d6)'];
 var DS_AXIS='#64748b', DS_LABEL='#94a3b8', DS_GRID='rgba(148,163,184,.22)';
 function _dsEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function _dsNum(v){ var n=parseFloat(v); return isFinite(n)?n:NaN; }
@@ -256,7 +298,7 @@ function _dsWaterfall(d){
   var vals=d.labels.map(function(L,i){return s.values[i]||0;}); var run=0,cum=[0]; vals.forEach(function(v){run+=v;cum.push(run);});
   var mx=Math.max.apply(null,cum),mn=Math.min.apply(null,cum.concat([0])); var yf=function(v){return top+plotH-plotH*(v-mn)/((mx-mn)||1);};
   var gw=plotW/vals.length,g='';
-  vals.forEach(function(v,i){ var y0=yf(cum[i]),y1=yf(cum[i+1]),x=left+i*gw+gw*0.2,w=gw*0.6,col=v>=0?'var(--ok)':'#e0607e';
+  vals.forEach(function(v,i){ var y0=yf(cum[i]),y1=yf(cum[i+1]),x=left+i*gw+gw*0.2,w=gw*0.6,col=v>=0?'var(--ok)':'var(--cx-e0607e)';
     g+='<rect x="'+x+'" y="'+Math.min(y0,y1)+'" width="'+w+'" height="'+Math.max(1,Math.abs(y1-y0))+'" fill="'+col+'"><title>'+_dsEsc(d.labels[i])+': '+(v>=0?'+':'')+v+'</title></rect>';
     var lab=d.labels[i]; g+='<text x="'+(x+w/2)+'" y="'+(H-bottom+16)+'" text-anchor="middle" font-size="10" fill="'+DS_LABEL+'">'+_dsEsc(lab.length>8?lab.slice(0,7)+'…':lab)+'</text>'; });
   return _dsWrap(g,W,H);
@@ -289,7 +331,7 @@ function _dsHeatmap(d){
   var mx=Math.max.apply(null,[].concat.apply([1],d.series.map(function(s){return s.values;}))),g='';
   cols.forEach(function(c,j){ g+='<text x="'+(left+j*cellW+cellW/2)+'" y="'+(top-14)+'" text-anchor="middle" font-size="12.5" font-weight="600" fill="'+DS_LABEL+'">'+_dsEsc(c.length>16?c.slice(0,15)+'…':c)+'</text>'; });
   rowsL.forEach(function(L,i){ g+='<text x="'+(left-12)+'" y="'+(top+i*cellH+cellH/2+4)+'" text-anchor="end" font-size="13" fill="'+DS_LABEL+'">'+_dsEsc(L.length>22?L.slice(0,21)+'…':L)+'</text>';
-    d.series.forEach(function(se,j){ var v=se.values[i]||0, a=mx?v/mx:0; g+='<rect x="'+(left+j*cellW+3)+'" y="'+(top+i*cellH+3)+'" width="'+(cellW-6)+'" height="'+(cellH-6)+'" rx="5" fill="#3ea6ff" fill-opacity="'+(0.10+0.85*a).toFixed(2)+'"><title>'+_dsEsc(L)+' · '+_dsEsc(se.name)+': '+v+'</title></rect><text x="'+(left+j*cellW+cellW/2)+'" y="'+(top+i*cellH+cellH/2+4)+'" text-anchor="middle" font-size="12.5" font-weight="600" fill="'+(a>0.5?'#07131f':'#c8d6e8')+'">'+_dsFmt(v)+'</text>'; }); });
+    d.series.forEach(function(se,j){ var v=se.values[i]||0, a=mx?v/mx:0; g+='<rect x="'+(left+j*cellW+3)+'" y="'+(top+i*cellH+3)+'" width="'+(cellW-6)+'" height="'+(cellH-6)+'" rx="5" fill="var(--cx-3ea6ff)" fill-opacity="'+(0.10+0.85*a).toFixed(2)+'"><title>'+_dsEsc(L)+' · '+_dsEsc(se.name)+': '+v+'</title></rect><text x="'+(left+j*cellW+cellW/2)+'" y="'+(top+i*cellH+cellH/2+4)+'" text-anchor="middle" font-size="12.5" font-weight="600" fill="'+(a>0.5?'#07131f':'#c8d6e8')+'">'+_dsFmt(v)+'</text>'; }); });
   return _dsWrap(g,W,H);
 }
 function _dsGauge(d){
@@ -324,21 +366,21 @@ function _dsPareto(d, rows){
   var target=60, kAt=0; for(var i=0;i<cumPct.length;i++){ if(cumPct[i]>=target){ kAt=i+1; break; } }
   var kActions=kAt||items.length, headPct=Math.round(kAt?cumPct[kAt-1]:cumPct[cumPct.length-1]);
   var head='<div style="font-size:15.5px;font-weight:800;color:#e8ecff;margin:0 0 8px;line-height:1.35">'
-    +kActions+' action'+(kActions===1?'':'s')+' remove <span style="color:#2fa06e">'+headPct+'%</span> of the '+_dsFmt(grand)+' '+_dsEsc(noun)+(grand===1?'':'s')
+    +kActions+' action'+(kActions===1?'':'s')+' remove <span style="color:var(--cx-2fa06e)">'+headPct+'%</span> of the '+_dsFmt(grand)+' '+_dsEsc(noun)+(grand===1?'':'s')
     +'<div style="font-size:11.5px;font-weight:400;color:'+DS_LABEL+';margin-top:2px">Bars = '+_dsEsc(noun)+'s killed by remediating that plugin · line = cumulative %</div></div>';
   var g='', yfP=function(p){ return top+plotH-plotH*Math.min(100,p)/100; };
   for(var t2=0;t2<=4;t2++){ var y=top+plotH-plotH*t2/4;
     g+='<line x1="'+left+'" y1="'+y+'" x2="'+(left+plotW)+'" y2="'+y+'" stroke="'+DS_GRID+'"/>'
       +'<text x="'+(left-6)+'" y="'+(y+3)+'" text-anchor="end" font-size="10" fill="'+DS_AXIS+'">'+_dsFmt(max*t2/4)+'</text>'
       +'<text x="'+(left+plotW+6)+'" y="'+(y+3)+'" font-size="10" fill="'+DS_AXIS+'">'+(25*t2)+'%</text>'; }
-  var y60=yfP(60); g+='<line x1="'+left+'" y1="'+y60+'" x2="'+(left+plotW)+'" y2="'+y60+'" stroke="#e0b341" stroke-dasharray="4 3" stroke-opacity="0.75"/><text x="'+(left+plotW)+'" y="'+(y60-4)+'" text-anchor="end" font-size="9.5" fill="#e0b341">60%</text>';
+  var y60=yfP(60); g+='<line x1="'+left+'" y1="'+y60+'" x2="'+(left+plotW)+'" y2="'+y60+'" stroke="var(--cx-e0b341)" stroke-dasharray="4 3" stroke-opacity="0.75"/><text x="'+(left+plotW)+'" y="'+(y60-4)+'" text-anchor="end" font-size="9.5" fill="var(--cx-e0b341)">60%</text>';
   items.forEach(function(it,i){ var bh=plotH*it.v/max, x=left+i*gw+gw*0.15, y=top+plotH-bh, bw=gw*0.7;
     g+='<rect x="'+x.toFixed(1)+'" y="'+y.toFixed(1)+'" width="'+bw.toFixed(1)+'" height="'+Math.max(0,bh).toFixed(1)+'" rx="2.5" fill="'+DS_PAL[0]+'"><title>'+_dsEsc(it.l)+': '+_dsFmt(it.v)+' · cumulative '+Math.round(cumPct[i])+'%</title></rect>';
     var cx=x+bw/2, ly=H-bottom+12, lab=it.l.length>22?it.l.slice(0,21)+'…':it.l;
     g+='<text x="'+cx.toFixed(1)+'" y="'+ly+'" text-anchor="end" font-size="9" fill="'+DS_LABEL+'" transform="rotate(-38 '+cx.toFixed(1)+' '+ly+')">'+_dsEsc(lab)+'</text>'; });
   var pts=items.map(function(it,i){ return (left+i*gw+gw/2).toFixed(1)+','+yfP(cumPct[i]).toFixed(1); }).join(' ');
-  g+='<polyline points="'+pts+'" fill="none" stroke="#2fa06e" stroke-width="2.5"/>';
-  items.forEach(function(it,i){ g+='<circle cx="'+(left+i*gw+gw/2).toFixed(1)+'" cy="'+yfP(cumPct[i]).toFixed(1)+'" r="3" fill="#2fa06e"><title>cumulative '+Math.round(cumPct[i])+'% after '+(i+1)+' action(s)</title></circle>'; });
+  g+='<polyline points="'+pts+'" fill="none" stroke="var(--cx-2fa06e)" stroke-width="2.5"/>';
+  items.forEach(function(it,i){ g+='<circle cx="'+(left+i*gw+gw/2).toFixed(1)+'" cy="'+yfP(cumPct[i]).toFixed(1)+'" r="3" fill="var(--cx-2fa06e)"><title>cumulative '+Math.round(cumPct[i])+'% after '+(i+1)+' action(s)</title></circle>'; });
   return head+_dsWrap(g,W,H);
 }
 function _dsHistogram(d){ // bucket a single numeric series' VALUES into bins
@@ -396,7 +438,7 @@ function dashSVG(type, cols, rows, spec){
       var kcov=cols.filter(function(c){return String(c).indexOf('__cov')===0;});
       var main='<div style="display:flex;gap:14px;flex-wrap:wrap">'+kbig.map(function(c){return '<div style="min-width:110px"><div style="font-size:26px;font-weight:800;color:'+DS_PAL[1]+'">'+_dsEsc(r0[c])+'</div><div style="font-size:11px;color:'+DS_LABEL+'">'+_dsEsc(c)+'</div></div>';}).join('')+'</div>';
       var chip='';
-      if(kcov.length){ var cv=r0[kcov[0]]; if(cv!=null&&cv!==''){ var cvn=parseFloat(cv); var dot=(cvn>=85?'#2fa06e':cvn>=60?'#e0b341':'#e0607e');
+      if(kcov.length){ var cv=r0[kcov[0]]; if(cv!=null&&cv!==''){ var cvn=parseFloat(cv); var dot=(cvn>=85?'var(--cx-2fa06e)':cvn>=60?'var(--cx-e0b341)':'var(--cx-e0607e)');
         chip='<div style="margin-top:9px"><span title="Credentialed-scan coverage of the fleet. Uncovered assets can hide risk, so this headline number is a floor, not the whole picture." style="display:inline-flex;align-items:center;gap:6px;font-size:11px;padding:3px 10px;border-radius:99px;border:1px solid '+DS_GRID+';color:'+DS_LABEL+'"><span style="width:7px;height:7px;border-radius:50%;background:'+dot+'"></span>coverage '+_dsEsc(cv)+'% — sees '+_dsEsc(cv)+'% of the fleet</span></div>'; } }
       return main+chip; }
     case 'bar': return _dsBar(d);
@@ -451,25 +493,107 @@ function reloadDashB(){ DASHBOARD=dashGetItems(); mountDashTabs('dashTabs', relo
 /* A pinned component keeps its OWN chart type (incl. advanced ones — bubble, heatmap,
    treemap…). Render it with the full dashSVG engine and its stored viz, NOT dPickViz (whose
    whitelist is only kpi/bar/line/pie/table) and NOT the builder's live chart-type dropdown. */
+/* The "Show data table" drill-down now lives on the per-widget Open page (dataview.html). */
 function pinnedViz(r){
   const rows=r.rows||[], cols=r.columns||[];
   if(!rows.length) return '<p class="sub">No rows in the current navi.db snapshot.</p>';
   let viz=(r.viz&&r.viz!=='auto')?r.viz:dPickViz(r,cols,rows).viz;
-  let html=dashSVG(viz,cols,rows,{label_col:r.label_col,value_col:r.value_col,viz:viz});
-  if(viz!=='table'&&viz!=='kpi') html+=`<details style="margin-top:12px"><summary class="sub" style="cursor:pointer">Show data table</summary>${tableHtml(r)}</details>`;
-  return html;
+  return dashSVG(viz,cols,rows,{label_col:r.label_col,value_col:r.value_col,viz:viz});
 }
 function vzOptions(sel){ return ['auto'].concat(DASH_TYPES.filter(function(t){return t!=='auto';})).map(function(t){ return '<option value="'+t+'"'+((t===(sel||'auto'))?' selected':'')+'>'+t+'</option>'; }).join(''); }
+/* ---- widget sizing (shared store with the Custom Dashboard: same size classes/keys) ---- */
+function _wViz(d){ var r=(d&&d.r)||{}; return (r.viz&&r.viz!=='auto')?r.viz:dPickViz(r,r.columns||[],r.rows||[]).viz; }
+function autoSize(d){
+  var v=String(_wViz(d)||'').toLowerCase();
+  var r=(d&&d.r)||{}, ncol=(r.columns||[]).length, nrow=(r.rows||[]).length;
+  if(v==='kpi') return (ncol<=1&&nrow<=1)?'xs':'s';
+  if(v==='gauge'||v==='progress') return 's';
+  if(['table','heatmap','matrix','treemap','scatter','bubble','waterfall'].indexOf(v)>=0) return 'l';
+  return 'm';
+}
+function sizeOf(d){ return (d&&['xs','s','m','l','xl'].indexOf(d.size)>=0)?d.size:autoSize(d); }
+function ensureIds(){
+  var changed=false, seen={};
+  DASHBOARD.forEach(function(d){ if(!d.id||seen[d.id]){ d.id='c'+Date.now().toString(36)+Math.floor(Math.random()*1e6).toString(36); changed=true; } seen[d.id]=1; });
+  if(changed) saveDash();
+}
 function renderDashGrid(){
   const g=document.getElementById('dashGrid'), wrap=document.getElementById('dashGridWrap'); if(!g||!wrap)return;
   wrap.style.display=DASHBOARD.length?'block':'none';
   const nm=document.getElementById('dashBoardName'); if(nm){ try{ nm.textContent='📌 '+dashActive().name; }catch(e){} }
   const cnt=document.getElementById('dashGridCount'); if(cnt)cnt.textContent=DASHBOARD.length+' component'+(DASHBOARD.length===1?'':'s');
-  g.innerHTML=DASHBOARD.map((d,i)=>`<section class="card" style="margin:0"><div class="toolbar"><div><h3 style="margin:0">${esc(d.title||'Component')}</h3>${d.note?'<p class="sub" style="margin:2px 0 0">'+esc(d.note)+'</p>':''}</div><span style="margin-left:auto;display:flex;gap:6px;align-items:center"><select class="fld" data-dvz="${i}" title="Change chart type" style="font-size:11px;padding:3px 6px">${vzOptions((d.r&&d.r.viz)||'')}</select><button class="btn ghost sm" data-dcsv="${i}">⤓ CSV</button><button class="btn ghost sm" data-dsql="${i}">SQL</button><button class="btn ghost sm" data-drm="${i}" title="Remove">✕</button></span></div><div class="callbox" data-dsqlw="${i}" style="display:none;margin-bottom:10px"><div class="sqlbox">${esc(d.sql||'')}</div></div><div>${pinnedViz(d.r||{})}</div></section>`).join('');
-  g.querySelectorAll('[data-dvz]').forEach(s=>s.onchange=()=>{const i=+s.dataset.dvz; if(DASHBOARD[i]){DASHBOARD[i].r=DASHBOARD[i].r||{}; DASHBOARD[i].r.viz=s.value==='auto'?'':s.value; saveDash(); renderDashGrid();}});
-  g.querySelectorAll('[data-drm]').forEach(b=>b.onclick=()=>{DASHBOARD.splice(+b.dataset.drm,1);saveDash();renderDashGrid();});
-  g.querySelectorAll('[data-dsql]').forEach(b=>b.onclick=()=>{const w=g.querySelector('[data-dsqlw="'+b.dataset.dsql+'"]');if(w)w.style.display=w.style.display==='none'?'block':'none';});
-  g.querySelectorAll('[data-dcsv]').forEach(b=>b.onclick=()=>{const d=DASHBOARD[+b.dataset.dcsv];downloadCSV((d.title||'component')+'.csv',(d.r&&d.r.columns)||[],(d.r&&d.r.rows)||[]);});
+  ensureIds();
+  g.innerHTML=DASHBOARD.map((d,i)=>{
+    const sz=sizeOf(d);
+    return `<section class="card dwcard sz-${sz}" data-i="${i}" data-id="${esc(d.id||'')}">`
+      +`<span class="dwgrab" data-grab="${i}" title="Drag to reorder" draggable="true">⠿</span>`
+      +`<div class="dwtop"><div class="dwtitle"><h3>${esc(d.title||'Component')}</h3>${d.note?'<p class="sub" style="margin:2px 0 0">'+esc(d.note)+'</p>':''}</div></div>`
+      +`<div class="dwbody">${pinnedViz(d.r||{})}</div>`
+      +`<div class="callbox" data-sqlw="${i}" style="display:none;margin-top:10px"><div class="sqlbox">${esc(d.sql||'')}</div></div>`
+      +`<div class="dwfoot"><button class="dwmore" data-menu="${i}" title="Options — size, chart type, open, CSV, SQL"><span class="dots">⋯</span> Options</button></div>`
+      +`</section>`;
+  }).join('');
+  g.querySelectorAll('[data-menu]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation();
+    if(_menuFor===+b.dataset.menu){ closeMenu(); } else { openMenu(b,+b.dataset.menu); } });
+  _wireDrag(g);
+}
+/* ===== single per-widget options dropdown (size · chart type · Open · CSV · SQL · remove) ===== */
+let _menuFor=null;
+function _toggleSql(i){ const w=document.querySelector('#dashGrid [data-sqlw="'+i+'"]'); if(w) w.style.display=(w.style.display==='none'||!w.style.display)?'block':'none'; }
+function closeMenu(){ const m=document.getElementById('__dwmenu'); if(m)m.remove();
+  document.querySelectorAll('.dwmore.on').forEach(b=>b.classList.remove('on')); _menuFor=null; }
+function openMenu(btn,i){
+  closeMenu();
+  const d=DASHBOARD[i]; if(!d) return;
+  const board=(typeof dashActive==='function')?dashActive():{id:''};
+  const open='/web/dataview.html?b='+encodeURIComponent(board.id||'')+'&c='+encodeURIComponent(d.id||'');
+  const sz=sizeOf(d), szo=[['xs','XS'],['s','S'],['m','M'],['l','L'],['xl','Full']];
+  const m=document.createElement('div'); m.className='dwmenu'; m.id='__dwmenu';
+  m.innerHTML=`<div class="dwmenu-h">Widget options</div>`
+    +`<div class="dwmenu-lbl">Size</div><span class="szseg">`
+      +szo.map(x=>`<button data-mz="${x[0]}" class="${sz===x[0]?'on':''}" title="${x[1]}">${x[1]}</button>`).join('')+`</span>`
+    +`<div class="dwmenu-lbl">Chart type</div>`
+    +`<select class="fld" data-mvz>${vzOptions((d.r&&d.r.viz)||'')}</select>`
+    +`<div class="dwmenu-sep"></div>`
+    +`<a class="dwmenu-item" href="${open}">⤢&nbsp; Open full data</a>`
+    +`<button class="dwmenu-item" data-mcsv>⤓&nbsp; Export CSV</button>`
+    +`<button class="dwmenu-item" data-msql>&lt;/&gt;&nbsp; Show / hide SQL</button>`
+    +`<div class="dwmenu-sep"></div>`
+    +`<button class="dwmenu-item danger" data-mrm>✕&nbsp; Remove widget</button>`;
+  document.body.appendChild(m);
+  btn.classList.add('on'); _menuFor=i;
+  const r=btn.getBoundingClientRect(), mw=m.offsetWidth||214, mh=m.offsetHeight||10;
+  let left=Math.max(8, Math.min(r.right-mw, window.innerWidth-mw-8));
+  let top=r.bottom+6; if(top+mh>window.innerHeight-8) top=Math.max(8, r.top-mh-6);
+  m.style.left=left+'px'; m.style.top=top+'px';
+  m.querySelectorAll('[data-mz]').forEach(b=>b.onclick=()=>{ DASHBOARD[i].size=b.dataset.mz; saveDash(); closeMenu(); renderDashGrid(); });
+  const vs=m.querySelector('[data-mvz]'); if(vs) vs.onchange=()=>{ DASHBOARD[i].r=DASHBOARD[i].r||{}; DASHBOARD[i].r.viz=vs.value==='auto'?'':vs.value; saveDash(); closeMenu(); renderDashGrid(); };
+  const cb=m.querySelector('[data-mcsv]'); if(cb) cb.onclick=()=>{ const x=DASHBOARD[i]; downloadCSV((x.title||'component')+'.csv',(x.r&&x.r.columns)||[],(x.r&&x.r.rows)||[]); closeMenu(); };
+  const sb=m.querySelector('[data-msql]'); if(sb) sb.onclick=()=>{ _toggleSql(i); closeMenu(); };
+  const rb=m.querySelector('[data-mrm]'); if(rb) rb.onclick=()=>{ if(confirm('Remove “'+((d.title)||'this widget')+'” from the board?')){ DASHBOARD.splice(i,1); saveDash(); closeMenu(); renderDashGrid(); } };
+}
+document.addEventListener('click',e=>{ if(_menuFor!==null && !e.target.closest('#__dwmenu') && !e.target.closest('[data-menu]')) closeMenu(); });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeMenu(); });
+window.addEventListener('resize',closeMenu);
+window.addEventListener('scroll',closeMenu,true);
+/* drag-to-reorder: only the ⠿ handle starts a drag; drop lands the widget before the target. */
+let _dragI=null;
+function _wireDrag(g){
+  g.querySelectorAll('.dwgrab[draggable]').forEach(h=>{
+    h.addEventListener('dragstart',e=>{ _dragI=+h.dataset.grab; try{e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',String(_dragI));}catch(_){}
+      const card=h.closest('.dwcard'); if(card) card.classList.add('dragging'); });
+    h.addEventListener('dragend',()=>{ _dragI=null; g.querySelectorAll('.dwcard').forEach(c=>c.classList.remove('dragging','dragover')); });
+  });
+  g.querySelectorAll('.dwcard').forEach(card=>{
+    card.addEventListener('dragover',e=>{ if(_dragI===null)return; e.preventDefault(); try{e.dataTransfer.dropEffect='move';}catch(_){}
+      if(+card.dataset.i!==_dragI) card.classList.add('dragover'); });
+    card.addEventListener('dragleave',()=>card.classList.remove('dragover'));
+    card.addEventListener('drop',e=>{ e.preventDefault(); card.classList.remove('dragover');
+      let from=_dragI, to=+card.dataset.i; _dragI=null;
+      if(from===null||isNaN(to)||from===to){ renderDashGrid(); return; }
+      if(from<to) to--;
+      const item=DASHBOARD.splice(from,1)[0]; DASHBOARD.splice(to,0,item); saveDash(); renderDashGrid(); });
+  });
 }
 function addToDashboard(){ if(!_dashCurrent){flash('flash','Generate a dashboard first.','warn');return;}
   var _ov=(document.getElementById('dChartType')||{}).value||'auto';   // bake the chosen chart type

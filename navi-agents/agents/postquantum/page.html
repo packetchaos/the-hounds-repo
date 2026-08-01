@@ -128,8 +128,8 @@ document.getElementById('load').onclick=load;
 document.getElementById('tagBtn').onclick=tagAll;
 
 /* ===== shared gated tag for the algorithm / harvest / transport / agility panels ===== */
-const VCOLOR={broken:'#f43f5e',unknown:'#e7c66b',safe:'var(--ok)'};
-const TIERCOLOR={'PQC-ready':'var(--ok)','Upgradable':'#e7c66b','Legacy':'var(--crit)'};
+const VCOLOR={broken:'var(--cx-f43f5e)',unknown:'var(--cx-e7c66b)',safe:'var(--ok)'};
+const TIERCOLOR={'PQC-ready':'var(--ok)','Upgradable':'var(--cx-e7c66b)','Legacy':'var(--crit)'};
 async function pqTag(category,value,uuids,flashId,note,btn){
   const fid=flashId||'flash';
   if(btn&&btn.disabled)return;
@@ -184,7 +184,7 @@ function pqcRenderHn(){
 document.getElementById('pqcRun').onclick=pqcRun;
 document.getElementById('pqcHorizon').onchange=pqcRenderHn;
 document.getElementById('pqcTagHn').onclick=function(){const hn=window.__pqcHn||[]; const uu=[...new Set(hn.map(h=>h.uuid).filter(Boolean))]; pqTag('PQC Harvest-Now','Priority',uu,'pqcFlash','then raise ACR',this);};
-document.getElementById('pqcAcrHn').onclick=()=>{document.getElementById('pqcHnRes').innerHTML='<div class="callbox" style="color:#e7c66b;margin-top:8px">⚖ Recommended AI Contract rule: <b>PQC Harvest-Now : Priority → set ACR 9</b>. Tag the hit-list first, then add this rule on the <a href="/agents/contract/page.html">AI Contract</a> page so the contract raises their ACR on its next armed cycle.</div>';};
+document.getElementById('pqcAcrHn').onclick=()=>{document.getElementById('pqcHnRes').innerHTML='<div class="callbox" style="color:var(--cx-e7c66b);margin-top:8px">⚖ Recommended AI Contract rule: <b>PQC Harvest-Now : Priority → set ACR 9</b>. Tag the hit-list first, then add this rule on the <a href="/agents/contract/page.html">AI Contract</a> page so the contract raises their ACR on its next armed cycle.</div>';};
 
 /* ===== #3 transport signals + #4 crypto-agility ===== */
 let PQT=null;
@@ -199,7 +199,7 @@ async function pqtRun(){
     +'<div class="k" style="border-color:var(--crit)"><div class="v" style="color:var(--crit)">'+(k.legacy||0)+'</div><div class="l">legacy crypto stacks</div></div>'
     +'<div class="k"><div class="v" style="color:var(--ok)">'+(k.ready||0)+'</div><div class="l">PQC-ready stacks</div></div>';
   const sig=(PQT.signals||[]).filter(s=>s.assets);
-  hPageReset('pqtTbl'); hPaginate('pqtTbl', sig, s=>'<tr><td><b>'+esc(s.key)+'</b><br><span class="sub" style="font-size:11px">'+esc(s.note)+'</span></td><td><span class="badge" style="color:'+(s.sev==='high'?'var(--crit)':'#e7c66b')+'">'+esc(s.sev)+'</span></td><td class="mono">'+s.assets+'</td><td><button class="btn sm" data-sig="'+esc(String(s.key))+'">Tag</button></td></tr>',
+  hPageReset('pqtTbl'); hPaginate('pqtTbl', sig, s=>'<tr><td><b>'+esc(s.key)+'</b><br><span class="sub" style="font-size:11px">'+esc(s.note)+'</span></td><td><span class="badge" style="color:'+(s.sev==='high'?'var(--crit)':'var(--cx-e7c66b)')+'">'+esc(s.sev)+'</span></td><td class="mono">'+s.assets+'</td><td><button class="btn sm" data-sig="'+esc(String(s.key))+'">Tag</button></td></tr>',
     {cols:4, empty:'<tr><td colspan="4" class="sub">No quantum-weak transport signals found.</td></tr>',
      wire:tb=>{ tb.querySelectorAll('button[data-sig]').forEach(b=>b.onclick=()=>{const s=sig.find(o=>String(o.key)===b.dataset.sig); if(s)pqTag('PQC Transport',s.key,s.uuids,'pqtFlash',null,b);}); }});
   document.getElementById('pqtCard').style.display=sig.length?'':'none';
@@ -216,7 +216,7 @@ document.getElementById('pqtRun').onclick=pqtRun;
 /* ===== Crown-jewel crypto correlation + migration roadmap ===== */
 let PQR=null;
 const plink=(u,txt)=>u?`<a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(u)}" style="color:var(--accent);text-decoration:none">${esc(txt)}</a>`:esc(txt);
-const AGC={'PQC-ready':'var(--ok)','Upgradable':'#e7c66b','Legacy':'var(--crit)'};
+const AGC={'PQC-ready':'var(--ok)','Upgradable':'var(--cx-e7c66b)','Legacy':'var(--crit)'};
 async function pqrRun(){
   const b=document.getElementById('pqrRun'); b.disabled=true;
   flash('pqrFlash','<span class="spin"></span> correlating cert crypto · transport · agility with ACR + KEV…','run');
@@ -231,7 +231,7 @@ function pqrRender(){
     `<div class="k"><div class="v">${k.exposed||0}</div><div class="l">PQC-exposed assets</div></div>`+
     `<div class="k" style="border-color:var(--crit)"><div class="v" style="color:var(--crit)">${k.crown_jewels||0}</div><div class="l">crown jewels (ACR≥7)</div></div>`+
     `<div class="k" style="border-color:var(--crit)"><div class="v" style="color:var(--crit)">${k.harvest_now||0}</div><div class="l">crown-jewel harvest-now</div></div>`+
-    `<div class="k"><div class="v" style="color:#ff9a4d">${k.legacy_cj||0}</div><div class="l">legacy crown jewels</div></div>`+
+    `<div class="k"><div class="v" style="color:var(--cx-ff9a4d)">${k.legacy_cj||0}</div><div class="l">legacy crown jewels</div></div>`+
     `<div class="k" style="border-color:var(--crit)"><div class="v" style="color:var(--crit)">${k.kev||0}</div><div class="l">KEV + quantum-vulnerable</div></div>`;
   document.getElementById('pqrTools').style.display='flex';
   const cj=rows.filter(p=>p.acr>=7);
@@ -256,7 +256,7 @@ function pqrRender(){
 function pqrShow(o,label,value){ const r=document.getElementById('pqrTagRes');
   if(!o||!o.ok){ r.innerHTML='<div class="callbox" style="color:var(--crit)">✗ '+esc((o&&(o.error||o.message))||'failed')+'</div>'; return; }
   const res=o.result||{}; const ok=res.ok!==false;
-  r.innerHTML='<div class="callbox" style="color:'+(ok?'var(--ok)':'#ffb4c6')+'">'+(ok
+  r.innerHTML='<div class="callbox" style="color:'+(ok?'var(--ok)':'var(--cx-ffb4c6)')+'">'+(ok
     ?'✓ tagged '+(o.count||0)+' '+esc(label)+' → PQC Priority : '+esc(value)+(res.warning?' — '+esc(res.warning):'')
     :'✗ '+esc(res.message||res.stderr||'write rejected'))+'</div>'
     +(o.writes_enabled?'':'<div class="sub" style="margin-top:6px;color:var(--warn)">Writes are gated — set <span class="mono">NAVI_ALLOW_WRITES=1</span> to apply. Tags show in the <a href="/web/tags-log.html">Tagging log</a> after a navi.db sync.</div>'); }
@@ -268,7 +268,7 @@ async function pqrTagCrown(btn){ if(!PQR)return; const cj=(PQR.rows||[]).filter(
   let o; try{ o=await API.post('roadmap_tag',{value:'Crown Jewel',uuids:cj.map(p=>p.uuid),confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
   btn.disabled=false; btn.textContent=old; pqrShow(o,'crown-jewel asset(s)','Crown Jewel'); }
 function pqrAcr(){ document.getElementById('pqrTagRes').innerHTML=
-  '<div class="callbox" style="color:#e7c66b">⬆ Recommended AI Contract rule: <b>PQC Priority : Crown Jewel → set ACR 9</b>. '
+  '<div class="callbox" style="color:var(--cx-e7c66b)">⬆ Recommended AI Contract rule: <b>PQC Priority : Crown Jewel → set ACR 9</b>. '
   +'Tag the crown jewels first (button on the left), then add this ACR rule on the <a href="/agents/contract/page.html">Covenant / AI Contract</a> page so the contract raises their ACR on its next armed cycle.</div>'; }
 function pqrExport(){ if(!PQR||!(PQR.rows||[]).length){ alert('Build the roadmap first.'); return; }
   downloadCSV('pqc-migration-roadmap.csv',

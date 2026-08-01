@@ -175,6 +175,9 @@ const CODENAMES = {
  ex_routes:{name:'Wolfhound',lore:'The <b>Wolfhound</b> — large enough to run down a wolf. The route explorer runs down application routes.'},
  ex_paths:{name:'Greyhound',lore:'The <b>Greyhound</b> — fastest of the hounds. The path explorer sprints through filesystem paths.'},
  argos:{name:'Argos Hound',lore:'<b>Argos</b>, Odysseus’s faithful hound — the only one who knew his master’s true identity after twenty years. Give it one UUID or IP and it recognizes that asset across every table, telling its whole story.'},
+ was_asset:{name:'Beagle',lore:'The <b>Beagle</b> — a scent hound that works a trail to map exactly where its quarry has been. Argos for web apps: point it at one app and it follows navi’s WAS info plugins to lay out the terrain — sitemap, scan telemetry, target facts, the screenshot, external URLs, cookies and methods — every plugin clickable to its raw stored output.'},
+ compliance:{name:'Minos',lore:'<b>Minos</b>, the mythic judge who weighs each case and renders a verdict — here he weighs the estate against its audit benchmarks. Pass, fail, warning; the controls failing the most assets; how failures map to NIST, PCI, HIPAA, CIS and ISO — and a way to assign an Audit Owner to a control’s failing assets.'},
+ compliance_asset:{name:'Sherlock',lore:'<b>Sherlock</b>, the detective — point him at one asset and he lays out every audit check it passed, failed or warned (actual vs expected, the fix, the framework mappings), then infers the connection between a failed control and the real findings that back it, so a config gap and the vuln proving it can be tagged and routed together.'},
  advanced:{name:'Deerhound',lore:'The <b>Deerhound</b> — a great sighthound bred to run down big game over vast open ground. The advanced search ranges across every table at once, joining and filtering the whole estate.'},
  email:{name:'Gabriel Hound',lore:'<b>Gabriel</b>, the messenger — the one who carries the word to those who need it. The email agent closes the loop: it takes what the pack found and delivers it to the humans who own it, with deep-links back into Tenable.'},
  alert:{name:'Alert Raven',lore:'In the wild, <b>ravens ride with the wolf pack</b> — scouting ahead, then calling out where the kill (and the danger) is; the wolves hunt, the raven watches the sky. <b>Alert Raven</b> rides with the Hounds the same way: it keeps watch over navi.db and calls out — an email digest — the moment a tracked condition turns dangerous.'},
@@ -775,6 +778,8 @@ const _SIDE_GROUPS=[
     ['🪪','Identity','/agents/identity/page.html'],
     ['📦','Software','/agents/software/page.html'],
     ['🏷️','Custom Apps','/agents/customapp/page.html'],
+    ['🕸️','Web Apps (WAS)','/agents/was/page.html'],
+    ['⚖️','Compliance','/agents/compliance/page.html'],
     ['🕸️','Attack Paths','/agents/attackpath/page.html'],
     ['🩺','Scan Evaluations','/agents/scan_eval/page.html'],
   ]],
@@ -785,6 +790,7 @@ const _SIDE_GROUPS=[
     ['⚖️','ACR Calibration','/agents/acr/page.html'],
   ]],
   ['Operationalize',[
+    ['⏱','SLA Adherence','/agents/sla/page.html'],
     ['📧','Email · Gabriel','/agents/email/page.html'],
     ['🐦‍⬛','Alert Raven','/agents/alert/page.html'],
     ['🗑️','Tag Removal','/agents/tagremoval/page.html'],
@@ -792,6 +798,8 @@ const _SIDE_GROUPS=[
   ['Views',[
     ['📊','Dashboards','/web/dashboards.html'],
     ['🔦','Argos Deep-Dive','/agents/argos/page.html'],
+    ['🐾','Web App Recon','/agents/was_asset/page.html'],
+    ['🔍','Compliance Deep-Dive','/agents/compliance_asset/page.html'],
     ['📜','AI Contract','/agents/contract/page.html'],
   ]],
   ['System',[

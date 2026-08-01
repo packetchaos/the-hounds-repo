@@ -57,12 +57,12 @@ async function applyTags(){
   res.innerHTML='<div class="callbox" style="color:var(--ok);border:1px solid var(--ok);background:var(--okbg,rgba(78,200,140,.10));font-weight:600"><span class="spin"></span> Tags being sent to the Tagging log…</div>';
   res.scrollIntoView({behavior:'smooth',block:'center'});
   const o=await API.post('apply',{confirm:true,apply_groups:gs.map(g=>({category:g.category,value:g.label,patterns:g.patterns,exclude:(g.plugins||[]).map(p=>String(p.plugin_id)).filter(isExcl)}))});
-  if(!o.ok){res.innerHTML='<div class="callbox" style="color:#ffb4c6">✗ '+(o.error||'failed')+'</div>';if(btn){btn.disabled=false;btn.textContent='▶ Apply tags';btn.style.opacity='';btn.style.transform='';btn.style.cursor='';}res.scrollIntoView({behavior:'smooth',block:'center'});return;}
+  if(!o.ok){res.innerHTML='<div class="callbox" style="color:var(--cx-ffb4c6)">✗ '+(o.error||'failed')+'</div>';if(btn){btn.disabled=false;btn.textContent='▶ Apply tags';btn.style.opacity='';btn.style.transform='';btn.style.cursor='';}res.scrollIntoView({behavior:'smooth',block:'center'});return;}
   gs.forEach(g=>{delete appr[g.label];});   // no cache — re-confirm from navi.db
   await loadAppliedTags();
   render();   // rebuilds #groups → a FRESH empty #eolRes, so write the confirmation AFTER render (it used to be wiped instantly)
   res=document.getElementById('eolRes');
-  if(res){ res.innerHTML='<div class="callbox" style="color:'+(o.applied?'var(--ok)':'#ffb4c6')+';'+(o.applied?'border:1px solid var(--ok);background:var(--okbg,rgba(78,200,140,.10));font-weight:600':'')+'">'+(o.applied?'✓ Tags sent to the Tagging log — ':'')+'Submitted '+o.applied+'/'+o.total+' tag write(s).'+(o.writes_enabled?' Confirms here once navi.db shows it (it reads the tags table) — allow ~30 min + a sync.':' (gated — set NAVI_ALLOW_WRITES=1 and put navi on PATH)')+'</div>';
+  if(res){ res.innerHTML='<div class="callbox" style="color:'+(o.applied?'var(--ok)':'var(--cx-ffb4c6)')+';'+(o.applied?'border:1px solid var(--ok);background:var(--okbg,rgba(78,200,140,.10));font-weight:600':'')+'">'+(o.applied?'✓ Tags sent to the Tagging log — ':'')+'Submitted '+o.applied+'/'+o.total+' tag write(s).'+(o.writes_enabled?' Confirms here once navi.db shows it (it reads the tags table) — allow ~30 min + a sync.':' (gated — set NAVI_ALLOW_WRITES=1 and put navi on PATH)')+'</div>';
     res.scrollIntoView({behavior:'smooth',block:'center'}); }
 }
 document.getElementById('run').onclick=run;

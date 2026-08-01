@@ -76,12 +76,12 @@ async function tagByUuids(category,value,uuids,name,btn){ const res=document.get
   let o; try{ o=await API.post('tag',{category,value,uuids:uu,name:(name||''),confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
   const r=(o&&o.result)||{}; const ok=o&&o.ok&&r.ok!==false;
   const capNote=(o&&o.over_cap)?(' · '+(o.count)+' assets exceed the 1999-UUID cap, so navi tagged by built-in signature (--plugin/--output -regex, '+(o.commands||1)+' command'+((o.commands||1)>1?'s':'')+')'):'';
-  res.innerHTML='<div class="callbox" style="color:'+(ok?'var(--ok)':'#ffb4c6')+'">'+(ok?('✓ queued tag → '+esc(category)+' : '+esc(value)+' ('+(o.count||uu.length)+' asset(s))'+capNote+(r.warning?' — '+esc(r.warning):'')):('✗ '+esc(r.message||r.stderr||(o&&(o.error||o.message))||'write rejected')))+'</div>'
+  res.innerHTML='<div class="callbox" style="color:'+(ok?'var(--ok)':'var(--cx-ffb4c6)')+'">'+(ok?('✓ queued tag → '+esc(category)+' : '+esc(value)+' ('+(o.count||uu.length)+' asset(s))'+capNote+(r.warning?' — '+esc(r.warning):'')):('✗ '+esc(r.message||r.stderr||(o&&(o.error||o.message))||'write rejected')))+'</div>'
     +((o&&o.writes_enabled)?'':'<div class="sub" style="margin-top:6px;color:var(--warn)">'+esc((o&&o.write_gate_reason)||'Writes are gated — set NAVI_ALLOW_WRITES=1')+'. Tags queue in the <a href="/web/tags-log.html">Tagging log</a> and apply after a navi.db sync.</div>');
   scroll(); reset();
 }
 function acrNote(cat,val,acr){ document.getElementById('swTagRes').innerHTML=
-  '<div class="callbox" style="color:#e7c66b">⚖ Recommended ACR rule: <b>'+esc(cat)+' : '+esc(val)+' → set ACR '+acr+'</b>. Tag the assets first (button above), then add this rule on the <a href="/agents/contract/page.html">Covenant / AI Contract</a> page (or set ACR directly on the <a href="/agents/acr/page.html">Anubis / ACR</a> page) so Tenable One risk reflects their true value.</div>'; }
+  '<div class="callbox" style="color:var(--cx-e7c66b)">⚖ Recommended ACR rule: <b>'+esc(cat)+' : '+esc(val)+' → set ACR '+acr+'</b>. Tag the assets first (button above), then add this rule on the <a href="/agents/contract/page.html">Covenant / AI Contract</a> page (or set ACR directly on the <a href="/agents/acr/page.html">Anubis / ACR</a> page) so Tenable One risk reflects their true value.</div>'; }
 
 async function runSoftware(){
   const b=document.getElementById('swRun'); if(b)b.disabled=true;
@@ -124,7 +124,7 @@ function renderSoftware(){
   document.getElementById('swHint').textContent=hints[swFilter]||'';
   const list=swSorted(); _SWLAST=list; const page=list.slice(swOff,swOff+_SWPG);
   document.querySelector('#swTbl tbody').innerHTML=page.length?page.map((p,i)=>{ const idx=swOff+i;
-    const vb=p.nver>1?`<span class="badge b-appr" style="color:#ffd28a">${p.nver}</span>`:`<span class="sub">${p.nver}</span>`;
+    const vb=p.nver>1?`<span class="badge b-appr" style="color:var(--cx-ffd28a)">${p.nver}</span>`:`<span class="sub">${p.nver}</span>`;
     return `<tr><td><a class="swl" data-i="${idx}">${esc(p.name)}</a></td><td>${vb}</td><td>${p.nasset}</td><td>${p.installs}</td><td class="mono" style="font-size:12.5px">${esc(p.newest||'')}</td><td>${_eolCell(p)}</td><td>${_srcBadge(p)}</td><td><button class="btn sm" data-tag="${idx}">Tag product</button></td></tr>`;
   }).join(''):'<tr><td colspan="8" class="sub">No products match.</td></tr>';
   document.querySelectorAll('#swTbl .swl').forEach(a=>a.onclick=()=>swDrill(+a.dataset.i));
@@ -146,7 +146,7 @@ function swDrill(i){ const p=_SWLAST[i]; if(!p)return; const d=document.getEleme
     +(_behind.size?('<div class="toolbar" style="margin:0 0 8px"><button class="btn sm" id="swdTagOld">🏷 Tag '+_behind.size+' asset(s) behind latest ('+esc(_lat)+') → Software Outdated : '+esc(p.name)+'</button></div>'):'')
     +'<p class="sub" style="margin:0 0 8px">Newest version first. Tag assets stuck on an older/EOL version to drive consolidation &amp; upgrades.</p>'
     +'<div style="overflow-x:auto"><table><thead><tr><th>Version</th><th>Assets</th><th>Share</th><th>Lifecycle</th><th></th></tr></thead><tbody>'
-    +p.vers.map(function(v,vi){ var pct=p.nasset?Math.round(v.assets/p.nasset*100):0; var l2=eolSet.has(v.v)?'<span class="badge b-appr" style="color:#ffb4c6;border-color:rgba(255,80,120,.5)">⛔ EOL</span>':((_lat&&v.v&&verCmp(v.v,_lat)<0)?'<span class="badge b-appr" style="color:#ffd28a">behind</span>':((_lat&&v.v===_lat)?'<span style="color:var(--ok)">latest</span>':(vi===0?'<span style="color:var(--ok)">newest here</span>':'<span class="sub">—</span>')));
+    +p.vers.map(function(v,vi){ var pct=p.nasset?Math.round(v.assets/p.nasset*100):0; var l2=eolSet.has(v.v)?'<span class="badge b-appr" style="color:var(--cx-ffb4c6);border-color:rgba(255,80,120,.5)">⛔ EOL</span>':((_lat&&v.v&&verCmp(v.v,_lat)<0)?'<span class="badge b-appr" style="color:var(--cx-ffd28a)">behind</span>':((_lat&&v.v===_lat)?'<span style="color:var(--ok)">latest</span>':(vi===0?'<span style="color:var(--ok)">newest here</span>':'<span class="sub">—</span>')));
         return '<tr><td class="mono">'+esc(v.v||'(none)')+'</td><td>'+v.assets+'</td><td>'+pct+'%</td><td>'+l2+'</td><td><button class="btn sm" data-sv="'+vi+'">Tag this version</button></td></tr>'; }).join('')
     +'</tbody></table></div></div>';
   document.getElementById('swdClose').onclick=function(){d.innerHTML='';};
@@ -199,8 +199,8 @@ async function runSoftwareEol(){
   if(btn)btn.disabled=false; renderSoftware();
 }
 function _eolCell(p){ if(!p||!p.eol)return '<span class="sub">—</span>'; if(p.eol.noData||!p.eol.slug)return '<span class="sub" title="no endoflife.date match">n/a</span>';
-  if(p.eol.eolAssetCount>0)return '<span class="badge b-appr" style="color:#ffb4c6;border-color:rgba(255,80,120,.5)" title="EOL versions: '+esc((p.eol.eolVers||[]).join(', '))+(p.eol.tenConfirmed?' · Tenable-confirmed: '+p.eol.tenConfirmed:'')+'">⛔ EOL · '+p.eol.eolAssetCount+(p.eol.tenConfirmed?' ✓T':'')+'</span>';
-  if(p.eol.behind)return '<span class="badge b-appr" style="color:#ffd28a" title="latest release is '+esc(p.eol.behind)+'">behind latest</span>';
+  if(p.eol.eolAssetCount>0)return '<span class="badge b-appr" style="color:var(--cx-ffb4c6);border-color:rgba(255,80,120,.5)" title="EOL versions: '+esc((p.eol.eolVers||[]).join(', '))+(p.eol.tenConfirmed?' · Tenable-confirmed: '+p.eol.tenConfirmed:'')+'">⛔ EOL · '+p.eol.eolAssetCount+(p.eol.tenConfirmed?' ✓T':'')+'</span>';
+  if(p.eol.behind)return '<span class="badge b-appr" style="color:var(--cx-ffd28a)" title="latest release is '+esc(p.eol.behind)+'">behind latest</span>';
   return '<span style="color:var(--ok)">supported</span>'; }
 
 /* ===== Crown-jewel software → role tags + suggested ACR ===== */
@@ -251,7 +251,7 @@ async function runSwRisk(){
   out.innerHTML='<div class="card" style="background:var(--panel2)"><div class="toolbar" style="margin:0 0 6px"><b>🎯 Software risk leaderboard</b><span class="chip" style="margin-left:8px">'+rows.length+' product(s) with findings</span></div>'
     +'<p class="sub" style="margin:0 0 8px">Products ranked by exposure on the hosts that run them — assets carrying a <b>CISA-KEV</b> or <b>critical</b> finding. <i>Host-level attribution.</i> EOL products that are also KEV-exposed are your top priority. <b>Gated.</b></p>'
     +'<div style="overflow-x:auto"><table><thead><tr><th>Product</th><th>Assets</th><th>KEV assets</th><th>Critical assets</th><th>Findings</th><th>Max VPR</th><th>EOL</th><th></th></tr></thead><tbody>'
-    +top.map(function(x,i){ return '<tr><td><b>'+esc(x.name)+'</b></td><td>'+x.nasset+'</td><td'+(x.kev?' style="color:#ffb4c6;font-weight:700"':' class="sub"')+'>'+x.kev+'</td><td'+(x.crit?' style="color:#ffd28a"':' class="sub"')+'>'+x.crit+'</td><td>'+x.find+'</td><td class="mono">'+(x.vpr?x.vpr.toFixed(1):'—')+'</td><td>'+(x.eol?'<span class="badge b-appr" style="color:#ffb4c6;border-color:rgba(255,80,120,.5)">⛔ '+x.eol+'</span>':'<span class="sub">—</span>')+'</td><td><button class="btn sm" data-swr="'+i+'">Tag</button></td></tr>'; }).join('')
+    +top.map(function(x,i){ return '<tr><td><b>'+esc(x.name)+'</b></td><td>'+x.nasset+'</td><td'+(x.kev?' style="color:var(--cx-ffb4c6);font-weight:700"':' class="sub"')+'>'+x.kev+'</td><td'+(x.crit?' style="color:var(--cx-ffd28a)"':' class="sub"')+'>'+x.crit+'</td><td>'+x.find+'</td><td class="mono">'+(x.vpr?x.vpr.toFixed(1):'—')+'</td><td>'+(x.eol?'<span class="badge b-appr" style="color:var(--cx-ffb4c6);border-color:rgba(255,80,120,.5)">⛔ '+x.eol+'</span>':'<span class="sub">—</span>')+'</td><td><button class="btn sm" data-swr="'+i+'">Tag</button></td></tr>'; }).join('')
     +'</tbody></table></div></div>';
   out.querySelectorAll('button[data-swr]').forEach(function(b){ b.onclick=function(){ var x=top[+b.dataset.swr]; tagByUuids('Software Risk',x.name,x.assets,x.name,b); }; });
   out.scrollIntoView({behavior:'smooth',block:'nearest'});

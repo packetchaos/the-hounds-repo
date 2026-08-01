@@ -661,6 +661,51 @@ def explore_info(subcommand: str) -> dict:
         return {"ok": False, "stdout": "", "message": str(e)}
 
 
+def set_sla(critical, high, medium, low) -> dict:
+    """Overwrite the per-severity SLA day-thresholds via
+    `navi config sla reset --critical .. --high .. --medium .. --low ..`.
+    This writes navi's LOCAL `sla` table (like `config update`), so it is NOT a tenant
+    write and is NOT write-gated — it only needs the navi CLI on the box."""
+    if not navi_available():
+        return {"ok": False, "error": f"navi binary '{NAVI_BIN}' not found — set NAVI_BIN to its full path"}
+
+    def _v(x):
+        try:
+            n = int(float(x))
+        except (TypeError, ValueError):
+            return None
+        return n if n >= 0 else None
+    vals = {"critical": _v(critical), "high": _v(high), "medium": _v(medium), "low": _v(low)}
+    if any(v is None for v in vals.values()):
+        return {"ok": False, "error": "all four SLA thresholds must be whole numbers of days (0 or more)"}
+    cmd = [(_resolve_navi() or NAVI_BIN), "config", "sla", "reset",
+           "--critical", str(vals["critical"]), "--high", str(vals["high"]),
+           "--medium", str(vals["medium"]), "--low", str(vals["low"])]
+    try:
+        p = subprocess.run(cmd, cwd=_navi_cwd(), capture_output=True, text=True, timeout=120)
+        return {"ok": p.returncode == 0, "thresholds": vals,
+                "stdout": (p.stdout or "")[-1500:], "stderr": (p.stderr or "")[-800:],
+                "cmd": " ".join(shlex.quote(c) for c in cmd)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def sla_calculate() -> dict:
+    """Run `navi config sla calculate` — stamps Pass/Fail SLA verdicts into the `fixed`
+    table. Compute over local data (not a tenant write); not write-gated. Can be slow on
+    a big fixed table, so the Settings page streams it via cli_jobs; this sync helper is
+    for programmatic use with a generous timeout."""
+    if not navi_available():
+        return {"ok": False, "error": f"navi binary '{NAVI_BIN}' not found — set NAVI_BIN to its full path"}
+    cmd = [(_resolve_navi() or NAVI_BIN), "config", "sla", "calculate"]
+    try:
+        p = subprocess.run(cmd, cwd=_navi_cwd(), capture_output=True, text=True, timeout=600)
+        return {"ok": p.returncode == 0, "stdout": (p.stdout or "")[-2000:],
+                "stderr": (p.stderr or "")[-800:], "cmd": " ".join(shlex.quote(c) for c in cmd)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 def explore_uuid(target: str, view: str = "") -> dict:
     """Read `navi explore uuid <IP_or_UUID> [view]` — the per-asset deep-dive views
     (base dossier, plus flag views like -software / -patches / --plugin <id>). Live

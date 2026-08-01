@@ -1,0 +1,12 @@
+{
+  "id": "was",
+  "name": "WAS · Web Apps",
+  "icon": "🕸️",
+  "order": 15,
+  "category": "Risk",
+  "codename": "Xolotl",
+  "summary": "Xolotl — consolidated WAS overview + per-app scan reports: severity, OWASP Top-10, tech stack, scan coverage. Two dashboards over the apps/findings tables.",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": ["overview", "report", "plugin_output", "tag_plan", "tag"]
+}

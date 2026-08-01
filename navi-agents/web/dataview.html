@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Widget Data · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>
+.sqlbox{font-family:var(--mono);font-size:12px;white-space:pre-wrap;word-break:break-word;color:var(--ink-2)}
+.dv-meta{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:2px 0 0}
+#dvTableWrap{max-height:66vh;overflow:auto;border:1px solid var(--line);border-radius:var(--radius-sm)}
+#dvTableWrap table{font-size:13px}
+#dvTableWrap thead th{position:sticky;top:0;background:var(--panel-2);z-index:1}
+.dv-idx{color:var(--ink-3);font-family:var(--mono);font-size:11px}
+</style>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+
+  <section class="card" id="dvHead">
+    <div class="toolbar" style="align-items:flex-start">
+      <div style="min-width:0">
+        <h2 id="dvTitle" style="margin:0">Widget data</h2>
+        <p class="sub" id="dvNote" style="margin:4px 0 0">Full query output for one dashboard widget.</p>
+        <div class="dv-meta" id="dvChips"></div>
+      </div>
+      <span style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap;justify-content:flex-end">
+        <a class="btn ghost sm" href="/web/customdash.html">← Back to dashboard</a>
+        <button class="btn run sm" id="dvRerun" title="Re-run this widget's SQL against navi.db">↻ Re-run query</button>
+        <button class="btn ghost sm" id="dvSqlBtn" title="Show / hide the SQL">SQL</button>
+        <button class="btn ghost sm" id="dvCsv" title="Download the full result as CSV">⤓ CSV</button>
+        <button class="btn sm" id="dvEmailBtn" title="Email this data (gated)">📧 Email data</button>
+      </span>
+    </div>
+
+    <div class="callbox" id="dvSql" style="display:none;margin-bottom:10px"><div class="sqlbox" id="dvSqlText"></div></div>
+
+    <div id="dvEmailForm" style="display:none;margin-top:6px;gap:6px;align-items:center;flex-wrap:wrap">
+      <input id="dvEmailTo" class="fld" style="min-width:240px;padding:8px 10px" placeholder="recipient email">
+      <button class="btn run sm" id="dvEmailSend">▶ Send data (gated)</button>
+      <button class="btn ghost sm" id="dvEmailCancel">cancel</button>
+      <span id="dvEmailRes" class="sub" style="margin:0"></span>
+    </div>
+    <p class="sub" id="dvEmailHint" style="display:none;margin:6px 0 0">
+      Under 100 rows are sent inline in the email body; 100 or more ride along as a CSV attachment.</p>
+
+    <div id="dvFlash" class="flash"></div>
+  </section>
+
+  <section class="card">
+    <div class="toolbar"><h3 style="margin:0" id="dvTableTitle">Data</h3>
+      <span class="chip" id="dvCount" style="margin-left:auto"></span></div>
+    <div id="dvTableWrap"></div>
+  </section>
+
+  <footer>Widget data · reads the dashboard saved in this browser · navi.db is read only</footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+/* Resolve the widget from the per-browser dashboard store using ?b=<board id>&c=<component id>. */
+function _q(k){ return new URLSearchParams(location.search).get(k)||''; }
+function loadComp(){
+  const bid=_q('b'), cid=_q('c');
+  let store; try{ store=dashLoadStore(); }catch(e){ store={list:[]}; }
+  const list=(store&&store.list)||[];
+  let board=list.find(d=>d.id===bid) || list.find(d=>d.id===store.active) || list[0] || null;
+  let comp=null, idx=-1;
+  if(board){
+    (board.items||[]).forEach((it,i)=>{ if(it && it.id===cid){ comp=it; idx=i; } });
+    if(!comp && cid && /^\d+$/.test(cid)){ idx=+cid; comp=(board.items||[])[idx]||null; }   // tolerate a bare index
+  }
+  return {store, board, comp, idx, bid, cid};
+}
+let CTX=loadComp();
+
+function cols(){ return (CTX.comp&&CTX.comp.r&&CTX.comp.r.columns)||[]; }
+function rows(){ return (CTX.comp&&CTX.comp.r&&CTX.comp.r.rows)||[]; }
+
+function renderTable(){
+  const wrap=document.getElementById('dvTableWrap');
+  const cs=cols(), rs=rows();
+  if(!CTX.comp){ wrap.innerHTML='<p class="sub" style="padding:16px">Could not find that widget. It may have been removed, or you are in a different browser. <a href="/web/customdash.html">Go back to the dashboard</a>.</p>'; return; }
+  if(!rs.length){ wrap.innerHTML='<p class="sub" style="padding:16px">No rows in the current navi.db snapshot. Try <b>↻ Re-run query</b>.</p>'; return; }
+  // `nocsv` opts out of console.js' auto-attached floating export — this page has its own CSV button.
+  let h='<table class="nocsv"><thead><tr><th class="dv-idx">#</th>'+cs.map(c=>'<th>'+esc(c)+'</th>').join('')+'</tr></thead><tbody>';
+  rs.forEach((r,i)=>{ h+='<tr><td class="dv-idx">'+(i+1)+'</td>'+cs.map(c=>'<td>'+esc(String(r[c]==null?'':r[c]))+'</td>').join('')+'</tr>'; });
+  h+='</tbody></table>';
+  wrap.innerHTML=h;
+}
+function renderHead(){
+  const c=CTX.comp;
+  document.getElementById('dvTitle').textContent=(c&&c.title)||'Widget data';
+  const note=(c&&c.note)||'';
+  const np=document.getElementById('dvNote');
+  if(note){ np.textContent=note; np.style.display=''; } else { np.style.display='none'; }
+  document.getElementById('dvSqlText').textContent=(c&&c.sql)||'(no SQL saved for this widget)';
+  const n=rows().length, viz=(c&&c.r&&c.r.viz)||'auto';
+  document.getElementById('dvChips').innerHTML=
+    '<span class="chip"><b>'+n+'</b> row'+(n===1?'':'s')+'</span>'+
+    '<span class="chip"><b>'+cols().length+'</b> column'+(cols().length===1?'':'s')+'</span>'+
+    '<span class="chip">view: <b>'+esc(viz||'auto')+'</b></span>'+
+    '<span class="chip">'+(n<100?'email → <b>inline body</b>':'email → <b>CSV attachment</b>')+'</span>';
+  document.getElementById('dvCount').innerHTML='<b>'+n+'</b> row'+(n===1?'':'s');
+  document.getElementById('dvTableTitle').textContent=((c&&c.title)||'Data');
+}
+function renderAll(){ renderHead(); renderTable(); }
+
+/* ---- actions ---- */
+document.getElementById('dvSqlBtn').onclick=()=>{ const s=document.getElementById('dvSql'); s.style.display=s.style.display==='none'?'block':'none'; };
+document.getElementById('dvCsv').onclick=()=>{ if(!rows().length){ alert('Nothing to export yet.'); return; }
+  downloadCSV(((CTX.comp&&CTX.comp.title)||'widget')+'.csv', cols(), rows()); };
+
+document.getElementById('dvRerun').onclick=async function(){
+  const b=this; const sql=((CTX.comp&&CTX.comp.sql)||'').trim();
+  if(!/^\s*(select|with)\b/i.test(sql)){ flash('dvFlash','This widget has no re-runnable SQL saved.','warn'); return; }
+  b.disabled=true; flash('dvFlash','<span class="spin"></span> re-running the query against navi.db…','run');
+  try{
+    const o=await runSql(sql);
+    if(o&&o.ok){
+      CTX.comp.r=Object.assign(CTX.comp.r||{},{columns:o.columns,rows:o.rows,row_count:(o.rows||[]).length});
+      try{ if(CTX.board){ dashSetActive(CTX.board.id); dashSetItems(CTX.board.items); } }catch(e){}
+      renderAll();
+      flash('dvFlash','✓ refreshed — '+(o.rows||[]).length+' row(s) from the current snapshot.','ok');
+    } else { flash('dvFlash','✗ '+esc((o&&(o.error||o.message))||'query failed'),'crit'); }
+  }catch(e){ flash('dvFlash','✗ '+esc(e.message||'query failed'),'crit'); }
+  b.disabled=false;
+};
+
+const EMAIL=agentApi('email');
+function _emForm(){ return document.getElementById('dvEmailForm'); }
+document.getElementById('dvEmailBtn').onclick=()=>{ const f=_emForm(), show=f.style.display==='none';
+  f.style.display=show?'flex':'none'; document.getElementById('dvEmailHint').style.display=show?'block':'none';
+  if(show) document.getElementById('dvEmailTo').focus(); };
+document.getElementById('dvEmailCancel').onclick=()=>{ _emForm().style.display='none';
+  document.getElementById('dvEmailHint').style.display='none'; document.getElementById('dvEmailRes').innerHTML=''; };
+async function emailData(){
+  const to=(document.getElementById('dvEmailTo').value||'').trim(), res=document.getElementById('dvEmailRes');
+  const cs=cols(), rs=rows();
+  if(!to){ res.innerHTML='<span style="color:var(--crit)">enter a recipient</span>'; return; }
+  if(!rs.length){ res.innerHTML='<span style="color:var(--crit)">no rows to send</span>'; return; }
+  res.innerHTML='<span class="spin"></span> sending…';
+  const payload={ to, title:(CTX.comp.title||'Query data'), note:(CTX.comp.note||''),
+                  sql:(CTX.comp.sql||''), columns:cs, rows:rs, confirm:true };
+  let o; try{ o=await EMAIL.post('data', payload); }catch(e){ o={ok:false,error:e.message}; }
+  if(o&&o.ok){ const how=o.mode==='attachment'?('as a CSV attachment ('+esc(o.attached||'data.csv')+')'):'inline in the email body';
+    res.innerHTML='<span style="color:var(--ok)">✓ sent '+(o.rows!=null?o.rows:rs.length)+' row(s) to '+esc(to)+' — '+how+'</span>'; }
+  else if(o&&o.blocked){ res.innerHTML='<span style="color:var(--cx-e7c66b)">email disabled — '+esc(o.reason||'set NAVI_ALLOW_WRITES=1 and NAVI_EMAIL=1')+'</span>'; }
+  else { res.innerHTML='<span style="color:var(--crit)">✗ '+esc((o&&(o.error||o.message))||'failed')+'</span>'; }
+}
+document.getElementById('dvEmailSend').onclick=emailData;
+document.getElementById('dvEmailTo').addEventListener('keydown',e=>{ if(e.key==='Enter')emailData(); });
+
+mountAgentHeader({icon:'🗂',name:((CTX.comp&&CTX.comp.title)?('Widget · '+CTX.comp.title):'Widget data'),sub:'query output · export · email'});
+renderAll();
+</script>
+</body></html>

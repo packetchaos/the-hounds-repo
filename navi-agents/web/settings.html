@@ -13,7 +13,7 @@
   .dbtile{border:1px solid var(--line);border-radius:11px;padding:12px 13px;background:var(--panel)}
   .dbtile .row1{display:flex;align-items:center;gap:8px}
   .dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
-  .dot.ok{background:var(--ok)} .dot.empty{background:#e7c66b} .dot.missing{background:var(--crit)}
+  .dot.ok{background:var(--ok)} .dot.empty{background:var(--cx-e7c66b)} .dot.missing{background:var(--crit)}
   .dbtile .n{font-size:22px;font-weight:800;margin:6px 0 0}
   .dbtile .lbl{font-size:11px;color:var(--mut)}
   .dbtile .help{font-size:11px;color:var(--mut);margin:6px 0 8px;line-height:1.4;min-height:28px}
@@ -23,6 +23,7 @@
   .cli .ok{color:var(--ok)} .cli .err{color:var(--crit)}
   .kpis{display:flex;flex-wrap:wrap;gap:18px;margin-top:10px}
   .kpi .v{font-size:26px;font-weight:800} .kpi .l{font-size:11px;color:var(--mut)}
+  .slagrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:6px}
 </style>
 </head><body>
 <div class="wrap">
@@ -53,6 +54,19 @@
     <div class="dbgrid" id="dbGrid"></div>
   </section>
 
+  <!-- SLA POLICY -->
+  <section class="card">
+    <div class="toolbar"><div><h2 style="margin:0">⏱ SLA policy <span id="slaFixChip" class="chip" style="margin-left:6px;display:none"></span></h2>
+      <p class="sub" style="margin:2px 0 0">Per-severity remediation windows (days) that drive <b>Sköll — SLA Adherence</b>. <b>Save</b> runs <span class="mono">navi config sla reset</span> (a local navi.db config write — not gated). Then <b>Build Fixed</b> and <b>Recalculate SLA</b> to stamp Pass/Fail verdicts — both stream in the CLI window below.</p></div></div>
+    <div class="slagrid" id="slaGrid"></div>
+    <div class="toolbar" style="margin-top:12px">
+      <button class="btn run sm" id="slaSave">💾 Save SLA</button>
+      <button class="btn ghost sm" id="slaBuildFixed" title="navi config update fixed">🧱 Build Fixed table</button>
+      <button class="btn ghost sm" id="slaCalc" title="navi config sla calculate">🧮 Recalculate SLA</button>
+      <span id="slaFlash" class="sub" style="margin-left:auto"></span>
+    </div>
+  </section>
+
   <!-- LIVE CLI -->
   <section class="card">
     <div class="toolbar"><div><h2 style="margin:0">🖥 navi CLI <span id="cliStatus" class="chip" style="margin-left:6px;display:none"></span></h2>
@@ -79,7 +93,7 @@
 const API={post:(action,body)=>jpost('/api/settings/'+action, body||{})};
 let STAT=null;
 
-function chip(label, good, txt){ const c=good===true?'var(--ok)':good===false?'var(--crit)':'#e7c66b';
+function chip(label, good, txt){ const c=good===true?'var(--ok)':good===false?'var(--crit)':'var(--cx-e7c66b)';
   return '<span class="chip" style="border-color:'+c+';color:'+c+'">'+label+': '+esc(txt)+'</span>'; }
 
 function renderStat(){
@@ -93,7 +107,7 @@ function renderStat(){
     + chip('Max tokens', null, String(s.llm?s.llm.max_tokens:'—'))
     + '<span class="chip" title="navi.db in use">🗄 '+esc(s.db_path||'—')+'</span>'
     + chip('navi runs in', !!s.navi_cwd, s.navi_cwd||'server dir — set NAVI_DB_PATH')
-    + (s.navi_available?'':' <span class="chip" style="border-color:#e7c66b;color:#e7c66b">'+esc(s.write_gate_reason||'')+'</span>');
+    + (s.navi_available?'':' <span class="chip" style="border-color:var(--cx-e7c66b);color:var(--cx-e7c66b)">'+esc(s.write_gate_reason||'')+'</span>');
 }
 function renderEnv(){
   const g=document.getElementById('envGrid'); g.innerHTML=STAT.env.map(f=>{
@@ -177,7 +191,7 @@ async function pollNavi(tok){
       const okZero=j.returncode===0;
       if(live){ live.textContent=(j.cur?j.cur+'\n':'')+(okZero?'✓ done':'✗ exit '+j.returncode); live.style.color=okZero?'var(--ok)':'var(--crit)'; }
       setCliStatus((okZero?'done':('exit '+j.returncode))+' · '+fmtDur(j.elapsed||0), okZero?'ok':'err');
-      document.getElementById('cli').scrollTop=1e9; loadDb(); loadJobs();
+      document.getElementById('cli').scrollTop=1e9; loadDb(); loadJobs(); if(typeof loadSla==='function')loadSla();
       return;
     }
     const nc=j.cur||''; if(live && live.textContent!==nc){ live.textContent=nc; changed=true; }   // live overwriting line
@@ -225,13 +239,40 @@ function renderUsage(u){ if(!u)return; const el=document.getElementById('usageKp
   const cost=null; // no pricing table shipped; show raw tokens
   el.innerHTML=
     '<div class="kpi"><div class="v">'+(u.calls||0).toLocaleString()+'</div><div class="l">calls</div></div>'
-   +'<div class="kpi"><div class="v" style="color:#8b8fe6">'+(u.input_tokens||0).toLocaleString()+'</div><div class="l">input tokens</div></div>'
-   +'<div class="kpi"><div class="v" style="color:#3fb0c9">'+(u.output_tokens||0).toLocaleString()+'</div><div class="l">output tokens</div></div>'
+   +'<div class="kpi"><div class="v" style="color:var(--cx-8b8fe6)">'+(u.input_tokens||0).toLocaleString()+'</div><div class="l">input tokens</div></div>'
+   +'<div class="kpi"><div class="v" style="color:var(--cx-3fb0c9)">'+(u.output_tokens||0).toLocaleString()+'</div><div class="l">output tokens</div></div>'
    +'<div class="kpi"><div class="v">'+(u.total_tokens||0).toLocaleString()+'</div><div class="l">total tokens</div></div>'
    +'<div class="kpi"><div class="v" style="font-size:14px;font-family:var(--mono);padding-top:9px">'+esc(u.model||'')+'</div><div class="l">current model</div></div>';
 }
 document.getElementById('resetUsage').onclick=async()=>{ let o; try{ o=await API.post('reset_usage'); }catch(e){ return; } if(o&&o.ok)renderUsage(o.usage); };
 
-loadStatus(); loadDb(); loadJobs();
+// ---- SLA policy ----
+const SLA_SEV=[['critical','Critical','var(--crit)',7],['high','High','var(--high)',30],['medium','Medium','var(--med)',90],['low','Low','var(--low)',180]];
+async function loadSla(){
+  let o; try{ o=await API.post('sla_get'); }catch(e){ return; }
+  if(!o||!o.ok)return;
+  const th=o.thresholds||{}; document.getElementById('slaGrid').innerHTML=SLA_SEV.map(([k,lbl,c,def])=>
+    '<div class="envf"><label class="lbl" style="color:'+c+'">'+lbl+' — days</label>'
+    +'<input class="fld" type="number" min="0" step="1" data-sla="'+k+'" value="'+((th&&th[k]!=null)?th[k]:'')+'" placeholder="e.g. '+def+'"></div>').join('');
+  const fx=o.fixed||{}, chip=document.getElementById('slaFixChip'); chip.style.display='';
+  let txt,col;
+  if(fx.ready){ txt='fixed: '+(fx.rows||0).toLocaleString()+' rows · '+(fx.verdicts||0).toLocaleString()+' SLA verdicts'; col='var(--ok)'; }
+  else if(fx.exists){ txt='fixed built — no SLA verdicts yet, click Recalculate SLA'; col='var(--cx-e7c66b)'; }
+  else { txt='fixed table missing — click Build Fixed table'; col='var(--crit)'; }
+  chip.textContent=txt; chip.style.borderColor=col; chip.style.color=col;
+}
+document.getElementById('slaSave').onclick=async()=>{
+  const body={}; document.querySelectorAll('#slaGrid [data-sla]').forEach(el=>body[el.dataset.sla]=el.value);
+  const f=document.getElementById('slaFlash'); f.innerHTML='<span class="spin"></span> saving via navi config sla reset…';
+  let o; try{ o=await API.post('sla_set',body); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o||!o.ok){ f.innerHTML='<span style="color:var(--crit)">✗ '+esc((o&&o.error)||'failed')+'</span>'; return; }
+  const t=o.thresholds||body;
+  f.innerHTML='<span style="color:var(--ok)">✓ SLA set — C'+t.critical+' / H'+t.high+' / M'+t.medium+' / L'+t.low+' days. Now Recalculate SLA to refresh verdicts.</span>';
+  loadSla();
+};
+document.getElementById('slaBuildFixed').onclick=(e)=>startNavi({kind:'fixed'}, e.currentTarget, '<span style="color:var(--ok)">🧱 Building the Fixed table (navi config update fixed)…</span> Streams below. When it finishes, click <b>Recalculate SLA</b>.');
+document.getElementById('slaCalc').onclick=(e)=>startNavi({kind:'sla_calc'}, e.currentTarget, '<span style="color:var(--ok)">🧮 Recalculating SLA verdicts (navi config sla calculate)…</span> Streams below. Reload Sköll when it finishes.');
+
+loadStatus(); loadDb(); loadJobs(); loadSla();
 </script>
 </body></html>

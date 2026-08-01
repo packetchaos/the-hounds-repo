@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>WAS App Report · Xolotl · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>
+.barrow{display:grid;grid-template-columns:170px 1fr 70px;gap:12px;align-items:center;margin:6px 0}
+.barrow .bl{font-size:12.5px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.barrow .track{background:var(--bg-2);border:1px solid var(--line);border-radius:6px;overflow:hidden;height:16px}
+.barrow .bar{height:100%;border-radius:5px 0 0 5px;min-width:2px}
+.barrow .bv{font-family:var(--mono);font-size:11.5px;color:var(--ink-3);text-align:right}
+.seclbl{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.chips{display:flex;flex-wrap:wrap;gap:7px}.tchip{font-size:12px;background:var(--panel-2);border:1px solid var(--line);border-radius:100px;padding:4px 11px;color:var(--ink-2)}
+.sv{display:inline-block;padding:1px 8px;border-radius:100px;font-size:10.5px;font-weight:700;font-family:var(--mono);text-transform:uppercase}
+.sv-critical{background:var(--crit-bg);color:var(--crit)}.sv-high{background:var(--high-bg);color:var(--high)}.sv-medium{background:var(--med-bg);color:var(--med)}.sv-low{background:var(--panel-2);color:var(--low)}.sv-info{background:var(--panel-2);color:var(--ink-3)}
+.applink{color:var(--accent);text-decoration:none;font-weight:600}.applink:hover{text-decoration:underline}
+#ftbl{table-layout:fixed;width:100%}#ftbl td,#ftbl th{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* clickable severity KPIs */
+.kclick{cursor:pointer;transition:background .12s,border-color .12s,box-shadow .12s}
+.kclick:hover{background:var(--panel-2);border-color:var(--accent)}
+.kclick.kactive{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent)}
+/* findings filter bar */
+.ftools{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:2px 0 12px}
+.segbar{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg{background:var(--panel);border:0;border-right:1px solid var(--line);padding:6px 11px;font-size:12px;color:var(--ink-2);cursor:pointer;font-family:inherit;display:inline-flex;gap:6px;align-items:center;white-space:nowrap}
+.seg:last-child{border-right:0}
+.seg b{font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+.seg.on{background:var(--accent);color:#fff}.seg.on b{color:#fff}
+.seg:hover:not(.on){background:var(--panel-2)}
+.fname{color:var(--accent);cursor:pointer;text-decoration:none}.fname:hover{text-decoration:underline}
+#ftbl tbody tr.hid{display:none}
+/* plugin-output modal */
+.omodal{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:60;padding:24px}
+.obox{background:var(--panel);border:1px solid var(--line);border-radius:12px;max-width:920px;width:100%;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 18px 60px rgba(0,0,0,.4)}
+.ohead{display:flex;align-items:center;gap:10px;padding:13px 16px;border-bottom:1px solid var(--line)}
+.ohead .ot{font-size:15px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.obody{overflow:auto;padding:14px 16px}
+.opre{white-space:pre-wrap;word-break:break-word;font-family:var(--mono);font-size:12px;line-height:1.5;background:var(--bg-2);border:1px solid var(--line);border-radius:8px;padding:11px 12px;margin:4px 0 0;color:var(--ink-2)}
+.olbl{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin:15px 0 2px}
+.oinst{border-top:1px dashed var(--line);margin-top:14px;padding-top:8px}.oinst.first{border-top:0;margin-top:6px}
+.ourl{font-size:12px;color:var(--accent);word-break:break-all}
+</style>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+  <section class="card">
+    <div class="toolbar"><div><h2 style="margin:0">🔬 WAS App Report <span class="sub" style="font-weight:400">· Xolotl</span></h2>
+      <p class="sub" style="margin:2px 0 0">One web app in full: severity, its OWASP profile, technology stack, scan metadata, and every finding.</p></div>
+      <span style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <label class="sub" for="appsel" style="margin:0">App</label>
+        <select class="fld" id="appsel" style="min-width:200px;max-width:320px"></select>
+        <a class="btn ghost sm" href="/agents/was/page.html" title="Back to the consolidated overview">← Overview</a>
+        <button class="btn sm" id="emailBtn" title="Email this report (gated)">📧 Email</button></span></div>
+    <div id="emailForm" style="display:none;margin-top:8px;gap:6px;align-items:center;flex-wrap:wrap">
+      <input id="emailTo" class="fld" style="min-width:240px;padding:8px 10px" placeholder="recipient email">
+      <button class="btn run sm" id="emailSend">▶ Send (gated)</button>
+      <button class="btn ghost sm" id="emailCancel">cancel</button><span id="emailRes" class="sub"></span></div>
+    <div id="flash" class="flash"></div>
+  </section>
+  <div id="body"></div>
+  <footer>WAS App Report · Xolotl · read-only navi.db · findings join apps.uuid = findings.scan_uuid</footer>
+</div>
+<div id="omodal" class="omodal" style="display:none">
+  <div class="obox">
+    <div class="ohead"><span id="oicon"></span><div class="ot" id="otitle"></div>
+      <span class="chip" id="osev" style="margin-left:4px"></span>
+      <button class="btn ghost sm" id="ocopy" style="margin-left:auto" title="Copy the raw output">⧉ Copy</button>
+      <button class="btn ghost sm" id="oclose" title="Close">✕</button></div>
+    <div class="obody" id="obody"></div>
+  </div>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('was'), EMAIL=agentApi('email');
+let REP=null, APPS=[], CURR=null, FILTER={sev:'all',text:''};
+const SEV=[['critical','Critical','var(--crit)'],['high','High','var(--high)'],['medium','Medium','var(--med)'],['low','Low','var(--low)'],['info','Info','var(--info)']];
+const normSev=v=>{ v=String(v||'info').toLowerCase(); return ['critical','high','medium','low','info'].includes(v)?v:'info'; };
+const fnum=n=>(n==null?'—':Number(n).toLocaleString());
+function q(k){ return new URLSearchParams(location.search).get(k)||''; }
+function ageDays(iso){ if(!iso)return null; const t=Date.parse(iso); if(isNaN(t))return null; return Math.max(0,Math.round((Date.now()-t)/86400000)); }
+function bar(label,val,max,color){ const w=Math.max(2,Math.round((val/(max||1))*100));
+  return `<div class="barrow"><div class="bl" title="${esc(label)}">${esc(label)}</div><div class="track"><div class="bar" style="width:${w}%;background:${color}"></div></div><div class="bv">${fnum(val)}</div></div>`; }
+function kpi(v,l,c){ return `<div class="k"><div class="v"${c?' style="color:'+c+'"':''}>${v}</div><div class="l">${esc(l)}</div></div>`; }
+function kpiSev(v,l,c,sev){ return `<div class="k kclick" data-sev="${sev}" title="Show only ${esc(l)} findings"><div class="v"${c?' style="color:'+c+'"':''}>${v}</div><div class="l">${esc(l)}</div></div>`; }
+function svpill(rf){ rf=String(rf||'info').toLowerCase(); if(!['critical','high','medium','low','info'].includes(rf))rf='info'; return `<span class="sv sv-${rf}">${rf}</span>`; }
+
+async function load(appUuid){
+  CURR=appUuid||q('app')||'';
+  FILTER={sev:'all',text:''};
+  flash('flash','<span class="spin"></span> loading the app report…','run');
+  let o; try{ o=await API.post('report',{app_uuid:CURR}); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o||!o.ok){ flash('flash','✗ '+esc((o&&o.error)||'failed'),'crit'); return; }
+  flashClear('flash'); const r=o.result||{}; REP=r.report||{}; APPS=r.apps||[];
+  CURR=(REP.app&&REP.app.uuid)||CURR;
+  render();
+}
+function appOptions(){
+  const sel=document.getElementById('appsel');
+  if(!APPS.length){ sel.innerHTML='<option value="">(no apps)</option>'; return; }
+  sel.innerHTML=APPS.map(a=>{ const tag=a.critical?(' · '+a.critical+' crit'):(a.high?(' · '+a.high+' high'):'');
+    return `<option value="${esc(a.uuid)}"${a.uuid===CURR?' selected':''}>${esc(a.name)}${tag}</option>`; }).join('');
+}
+function render(){
+  appOptions();
+  const B=document.getElementById('body');
+  if(!REP.available){ B.innerHTML='<section class="card"><p class="sub">No WAS apps in navi.db. Populate with <span class="mono">navi config update was</span> in <a href="/web/settings.html">Settings</a>.</p></section>'; return; }
+  const a=REP.app||{}, bs=REP.by_severity||{}, ow=a.owasp_list||[], age=ageDays(a.scan_completed_time);
+  let h='';
+  // app header
+  h+='<section class="card"><div class="toolbar" style="margin-bottom:6px"><div><h3 style="margin:0">'+esc(a.name)+'</h3>'
+    +'<p class="sub" style="margin:2px 0 0">'+(a.target?'<a class="applink" href="'+esc(a.target)+'" target="_blank" rel="noopener">'+esc(a.target)+' ↗</a>':'(no target)')
+    +' · <a class="applink" href="/agents/was_asset/page.html?app='+encodeURIComponent(a.uuid||'')+'" title="Beagle — web-app recon">🐾 recon</a>'+'</p></div>'
+    +'<span class="chip" style="margin-left:auto">'+(age==null?'never scanned':('scanned '+age+'d ago'))+'</span></div>'
+    +'<div class="kpi">'+kpiSev(fnum(a.critical),'Critical','var(--crit)','critical')+kpiSev(fnum(a.high),'High','var(--high)','high')+kpiSev(fnum(a.medium),'Medium','var(--med)','medium')
+    +kpiSev(fnum(a.low),'Low','','low')+kpiSev(fnum(a.info),'Info','','info')+kpiSev(fnum(a.findings_total),'Findings','','all')+'</div>'
+    +'<div class="kpi" style="margin-top:10px">'+kpi(fnum(a.pages_crawled),'Pages crawled')+kpi(fnum(a.requests_made),'Requests made')
+    +kpi(a.scan_completed_time?esc(String(a.scan_completed_time).slice(0,10)):'—','Last scan')+'</div>'
+    +(a.notes&&a.notes!=='No Scan Notes'?'<p class="sub" style="margin:10px 0 0">📝 '+esc(a.notes)+'</p>':'')+'</section>';
+
+  // OWASP profile + tech
+  h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px">';
+  const omax=Math.max(1,...ow.map(o=>o.count||0)); const anyOw=ow.some(o=>o.count>0);
+  h+='<section class="card" style="margin:0"><h3 style="margin:0 0 2px">OWASP Top-10 profile</h3><p class="seclbl">category counts for this app</p>'
+    +(anyOw?ow.map(o=>bar(o.code+' · '+o.label,o.count,omax,'var(--accent)')).join(''):'<p class="sub">No OWASP-categorised findings.</p>')+'</section>';
+  const tech=a.tech||[];
+  h+='<section class="card" style="margin:0"><h3 style="margin:0 0 2px">Technology stack</h3><p class="seclbl">detected during the scan</p>'
+    +(tech.length?'<div class="chips">'+tech.map(t=>'<span class="tchip">'+esc(t)+'</span>').join('')+'</div>':'<p class="sub">Nothing detected.</p>')
+    +(REP.top_plugins&&REP.top_plugins.length?'<h3 style="margin:16px 0 2px">Top plugins</h3><p class="seclbl">most frequent findings</p><div style="overflow-x:auto"><table class="nocsv"><tbody>'
+       +REP.top_plugins.slice(0,10).map(p=>`<tr><td>${svpill(p.risk_factor)}</td><td>${esc(p.name)}</td><td class="mono" style="text-align:right">${p.count}×</td></tr>`).join('')+'</tbody></table></div>':'')
+    +'</section></div>';
+
+  // findings table (filterable; severity KPIs above drive the same filter)
+  const f=REP.findings||[];
+  const counts={all:f.length}; SEV.forEach(([k])=>counts[k]=f.filter(x=>normSev(x.risk_factor)===k).length);
+  const segs=[['all','All']].concat(SEV.map(s=>[s[0],s[1]]));
+  h+='<section class="card" id="fcard" style="margin-top:16px"><div class="toolbar"><div><h3 style="margin:0">Findings</h3>'
+    +'<p class="sub" style="margin:2px 0 0">Click a severity above or a chip below to filter · click a finding to see its raw plugin output.</p></div></div>'
+    +'<div class="ftools"><div class="segbar" id="fseg">'
+      +segs.map(([k,l])=>`<button class="seg${k===FILTER.sev?' on':''}" data-sev="${k}">${l} <b>${counts[k]||0}</b></button>`).join('')+'</div>'
+    +'<input id="fsearch" class="fld" style="min-width:200px;flex:1;max-width:340px;padding:7px 10px" placeholder="filter — name, family, plugin, URL">'
+    +'<span class="chip" id="fcount"></span>'
+    +'<button class="btn ghost sm" id="fcsv" style="margin-left:auto">⤓ CSV</button></div>'
+    +'<div style="overflow-x:auto"><table id="ftbl" class="nocsv"><colgroup><col style="width:78px"><col><col style="width:120px"><col style="width:78px"><col style="width:150px"></colgroup>'
+    +'<thead><tr><th>Sev</th><th>Finding</th><th>Family</th><th>Plugin</th><th>URL</th></tr></thead><tbody>'
+    +(f.length?f.map(x=>{ const rf=normSev(x.risk_factor);
+        const hay=((x.name||'')+' '+(x.family||'')+' '+(x.plugin_id||'')+' '+(x.url||'')).toLowerCase();
+        return `<tr data-sev="${rf}" data-hay="${esc(hay)}"><td>${svpill(x.risk_factor)}</td>`
+        +`<td title="${esc(x.name)}"><a class="fname" data-pid="${esc(String(x.plugin_id||''))}" data-name="${esc(x.name||'')}">${esc(x.name||'')}</a></td>`
+        +`<td title="${esc(x.family)}">${esc(x.family||'')}</td>`
+        +`<td><a class="applink" href="/web/vuln.html?plugin=${encodeURIComponent(x.plugin_id||'')}" title="Plugin ${esc(String(x.plugin_id||''))} reference">${esc(String(x.plugin_id||''))}</a></td>`
+        +`<td title="${esc(x.url)}">${x.url?'<a class="applink" href="'+esc(x.url)+'" target="_blank" rel="noopener">'+esc(String(x.url).replace(/^https?:\/\//,''))+'</a>':'—'}</td></tr>`; }).join('')
+        +'<tr id="frow-empty" style="display:none"><td colspan="5" class="sub">No findings match this filter.</td></tr>'
+      :'<tr><td colspan="5" class="sub">No findings recorded for this app.</td></tr>')+'</tbody></table></div></section>';
+  B.innerHTML=h;
+  // wire: CSV, severity-KPI clicks, filter chips, search, finding→output drill-down
+  const cb=document.getElementById('fcsv'); if(cb)cb.onclick=()=>downloadCSV((a.name||'app')+'-findings.csv',['risk_factor','name','family','plugin_id','url','solution'],f);
+  B.querySelectorAll('[data-sev].kclick').forEach(k=>k.onclick=()=>setFilterSev(k.getAttribute('data-sev'),true));
+  document.querySelectorAll('#fseg .seg').forEach(s=>s.onclick=()=>setFilterSev(s.getAttribute('data-sev'),false));
+  const sb=document.getElementById('fsearch'); if(sb)sb.oninput=()=>{ FILTER.text=sb.value||''; applyFilter(false); };
+  const tb=document.querySelector('#ftbl tbody'); if(tb)tb.addEventListener('click',e=>{ const link=e.target.closest('.fname'); if(link){ e.preventDefault(); openOutput(link.getAttribute('data-pid'),link.getAttribute('data-name')); } });
+  applyFilter(false);
+}
+
+/* ---- findings filter (client-side over loaded findings) ---- */
+function setFilterSev(sev,scroll){ FILTER.sev=sev||'all'; applyFilter(scroll); }
+function applyFilter(scroll){
+  const rows=[...document.querySelectorAll('#ftbl tbody tr[data-sev]')];
+  const t=(FILTER.text||'').trim().toLowerCase(); let shown=0;
+  rows.forEach(tr=>{ const okS=FILTER.sev==='all'||tr.getAttribute('data-sev')===FILTER.sev;
+    const okT=!t||(tr.getAttribute('data-hay')||'').includes(t);
+    const vis=okS&&okT; tr.classList.toggle('hid',!vis); if(vis)shown++; });
+  const er=document.getElementById('frow-empty'); if(er)er.style.display=(rows.length&&!shown)?'':'none';
+  const fc=document.getElementById('fcount');
+  if(fc){ const clean=(FILTER.sev==='all'&&!t);
+    fc.textContent=clean?((REP.findings_count||rows.length)+(REP.findings_count>REP.findings_shown?' · first '+REP.findings_shown:'')+' findings'):(shown+' of '+rows.length+' shown'); }
+  document.querySelectorAll('#fseg .seg').forEach(s=>s.classList.toggle('on',s.getAttribute('data-sev')===FILTER.sev));
+  document.querySelectorAll('#body [data-sev].kclick').forEach(k=>k.classList.toggle('kactive',FILTER.sev!=='all'&&k.getAttribute('data-sev')===FILTER.sev));
+  if(scroll){ const c=document.getElementById('fcard'); if(c)c.scrollIntoView({behavior:'smooth',block:'start'}); }
+}
+
+/* ---- plugin-output drill-down (raw findings.output/proof/headers via was.plugin_output) ---- */
+async function openOutput(pid,name){
+  const m=document.getElementById('omodal'); m.style.display='flex';
+  document.getElementById('oicon').textContent='🔎';
+  document.getElementById('otitle').textContent=name||('Plugin '+pid);
+  const sv=document.getElementById('osev'); sv.style.display='none';
+  const body=document.getElementById('obody'); body.innerHTML='<span class="spin"></span> fetching plugin output…';
+  window._orawText='';
+  let o; try{ o=await API.post('plugin_output',{app_uuid:CURR,plugin_id:pid}); }catch(e){ o={ok:false,error:e.message}; }
+  const r=(o&&o.result)||null;
+  if(!o||!o.ok||!r){ body.innerHTML='<p class="sub">✗ '+esc((o&&o.error)||'failed to load output')+'</p>'; return; }
+  if(!r.found){ body.innerHTML='<p class="sub">'+esc(r.message||'No stored output for this plugin on this app.')+'</p>'; return; }
+  renderOutput(r);
+}
+function renderOutput(r){
+  document.getElementById('otitle').textContent=(r.name||('Plugin '+r.plugin_id))+' · '+r.plugin_id;
+  const sv=document.getElementById('osev'); sv.style.display=''; sv.className='sv sv-'+normSev(r.risk_factor); sv.textContent=normSev(r.risk_factor);
+  const P=[]; const ins=r.instances||[];
+  P.push('<p class="sub" style="margin:0 0 2px">'+esc(r.family||'General')+' · '+r.count+' instance'+(r.count===1?'':'s')+(r.is_html?' · contains captured markup':'')+'</p>');
+  if(r.description)P.push('<div class="olbl">description</div><div class="opre">'+esc(r.description)+'</div>');
+  const raw=[];
+  ins.forEach((x,i)=>{ const s=['<div class="oinst'+(i===0?' first':'')+'">'];
+    if(ins.length>1)s.push('<div class="olbl">instance '+(i+1)+'</div>');
+    if(x.url)s.push('<div class="ourl">'+esc(x.url)+'</div>');
+    if(x.output){ s.push('<div class="olbl">output</div><div class="opre">'+esc(x.output)+'</div>'); raw.push(x.output); }
+    if(x.proof){ s.push('<div class="olbl">proof</div><div class="opre">'+esc(x.proof)+'</div>'); }
+    if(x.request_headers){ s.push('<div class="olbl">request headers</div><div class="opre">'+esc(x.request_headers)+'</div>'); }
+    if(x.response_headers){ s.push('<div class="olbl">response headers</div><div class="opre">'+esc(x.response_headers)+'</div>'); }
+    if(!x.output&&!x.proof&&!x.request_headers&&!x.response_headers)s.push('<p class="sub" style="margin:4px 0 0">No stored text for this instance.</p>');
+    s.push('</div>'); P.push(s.join('')); });
+  if(r.solution)P.push('<div class="olbl">solution</div><div class="opre">'+esc(r.solution)+'</div>');
+  if(r.see_also)P.push('<div class="olbl">see also</div><div class="opre">'+esc(r.see_also)+'</div>');
+  window._orawText=raw.join('\n\n');
+  document.getElementById('obody').innerHTML=P.join('');
+}
+function closeOutput(){ document.getElementById('omodal').style.display='none'; }
+
+/* ---- email ---- */
+function emailComponents(){
+  const a=REP.app||{}, ow=a.owasp_list||[], f=REP.findings||[];
+  return [
+    {title:'App: '+(a.name||''),viz:'kpi',columns:['Critical','High','Medium','Low','Info'],
+     rows:[{Critical:a.critical,High:a.high,Medium:a.medium,Low:a.low,Info:a.info}]},
+    {title:'OWASP Top-10 profile',viz:'bar',label_col:'category',value_col:'count',columns:['category','count'],
+     rows:ow.map(o=>({category:o.code+' '+o.label,count:o.count}))},
+    {title:'Findings',viz:'table',columns:['severity','finding','family','url'],
+     rows:f.slice(0,40).map(x=>({severity:x.risk_factor,finding:x.name,family:x.family,url:x.url}))},
+  ];
+}
+document.getElementById('emailBtn').onclick=()=>{ const el=document.getElementById('emailForm'); const s=el.style.display==='none'; el.style.display=s?'flex':'none'; if(s)document.getElementById('emailTo').focus(); };
+document.getElementById('emailCancel').onclick=()=>{ document.getElementById('emailForm').style.display='none'; document.getElementById('emailRes').innerHTML=''; };
+async function sendEmail(){
+  const to=(document.getElementById('emailTo').value||'').trim(), res=document.getElementById('emailRes');
+  if(!to){ res.innerHTML='<span style="color:var(--crit)">enter a recipient</span>'; return; }
+  if(!REP||!REP.available){ res.innerHTML='<span style="color:var(--crit)">no data</span>'; return; }
+  res.innerHTML='<span class="spin"></span> sending…';
+  let o; try{ o=await EMAIL.post('dashboard',{to,title:'WAS App Report — '+((REP.app||{}).name||''),subject:'[Tenable] WAS App Report (Xolotl)',components:emailComponents(),confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+  if(o&&o.ok) res.innerHTML='<span style="color:var(--ok)">✓ sent to '+esc(to)+'</span>';
+  else if(o&&o.blocked) res.innerHTML='<span style="color:var(--cx-e7c66b)">email disabled — '+esc(o.reason||'set NAVI_ALLOW_WRITES=1 and NAVI_EMAIL=1')+'</span>';
+  else res.innerHTML='<span style="color:var(--crit)">✗ '+esc((o&&(o.error||o.message))||'failed')+'</span>';
+}
+document.getElementById('emailSend').onclick=sendEmail;
+document.getElementById('emailTo').addEventListener('keydown',e=>{ if(e.key==='Enter')sendEmail(); });
+document.getElementById('appsel').onchange=e=>{ const u=e.target.value; try{history.replaceState(null,'','?app='+encodeURIComponent(u));}catch(_){} load(u); };
+/* plugin-output modal — static handlers (wired once) */
+document.getElementById('oclose').onclick=closeOutput;
+document.getElementById('omodal').addEventListener('click',e=>{ if(e.target.id==='omodal')closeOutput(); });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape')closeOutput(); });
+document.getElementById('ocopy').onclick=()=>{ const b=document.getElementById('ocopy'),t=b.textContent;
+  try{ navigator.clipboard.writeText(window._orawText||''); b.textContent='✓ copied'; setTimeout(()=>b.textContent=t,1200);}catch(_){ b.textContent='copy failed'; setTimeout(()=>b.textContent=t,1200);} };
+mountAgentHeader({id:'was',icon:'🔬',name:'WAS App Report',sub:'Xolotl · per-app scan detail'});
+load(q('app'));
+</script>
+</body></html>

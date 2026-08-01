@@ -52,6 +52,8 @@ _DB_TABLES = [
      "help": "Software inventory (Mimir). Built via navi config software (credentialed scans)."},
     {"name": "Compliance", "table": "compliance", "update": "compliance",
      "help": "Compliance / audit results. navi config update compliance"},
+    {"name": "Fixed (SLA)", "table": "fixed", "update": "fixed",
+     "help": "Remediation history + SLA clock (Sköll). navi config update fixed, then Recalculate SLA below."},
     {"name": "EPSS", "table": "epss", "update": "epss",
      "help": "EPSS exploit-probability scores. Built via navi config epss."},
     {"name": "Routes", "table": "vuln_route", "update": "routes",
@@ -154,6 +156,25 @@ def reset_usage(p):
     return {"ok": True, "usage": llm.usage()}, 200
 
 
+def sla_get(p):
+    """Current per-severity SLA day-thresholds + fixed-table readiness (drives Sköll)."""
+    from core import sla as _sla
+    return {"ok": True, "thresholds": _sla.thresholds(), "fixed": _sla.fixed_status(),
+            "db_path": db.db_path()}, 200
+
+
+def sla_set(p):
+    """Overwrite the SLA thresholds via navi's own `config sla reset` (non-interactive
+    flags). Not tenant-write-gated — it's a local navi.db config write."""
+    from core import sla as _sla
+    r = dict(navi_cli.set_sla(p.get("critical"), p.get("high"), p.get("medium"), p.get("low")))
+    r["thresholds"] = _sla.thresholds()          # echo back what navi.db now holds
+    r["fixed"] = _sla.fixed_status()
+    if not r.get("ok") and not r.get("error"):
+        r["error"] = "navi config sla reset did not complete — check the navi binary / cwd"
+    return r, 200
+
+
 ACTIONS = {"status": status, "set_env": set_env, "db_checks": db_checks,
            "navi_start": navi_start, "navi_poll": navi_poll, "navi_jobs": navi_jobs,
-           "reset_usage": reset_usage}
+           "reset_usage": reset_usage, "sla_get": sla_get, "sla_set": sla_set}

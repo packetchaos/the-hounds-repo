@@ -128,7 +128,7 @@ async function cappTag(){
   o=o||{ok:false,error:'no response from server'};
   const detail=o.ok?` — ${o.path_tags||0} path-tag + ${o.route_tags||0} route-tag call(s)`+(o.writes_enabled?'. Allow ~30 min for Tenable.':' (gated — set NAVI_ALLOW_WRITES=1 and put navi on PATH).'):'';
   const msg=o.message||o.error||o.stderr||'failed';
-  r.innerHTML='<div class="callbox" style="color:'+(o.ok?'var(--ok)':'#ffb4c6')+'">'+(o.ok?`✓ Custom App:${name} tagged`+detail:'✗ '+esc(msg))+'</div>'
+  r.innerHTML='<div class="callbox" style="color:'+(o.ok?'var(--ok)':'var(--cx-ffb4c6)')+'">'+(o.ok?`✓ Custom App:${name} tagged`+detail:'✗ '+esc(msg))+'</div>'
     +((!o.ok&&o.needs_setup)?'<div class="sub" style="margin-top:6px;color:var(--warn)">Populate the routing tables first: <span class="mono">navi config update route</span> then <span class="mono">navi config update paths</span>, then re-sync navi.db.</div>':'');
   reset();
   scroll();

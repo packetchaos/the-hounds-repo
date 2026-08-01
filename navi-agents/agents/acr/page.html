@@ -164,7 +164,7 @@ async function applyBulk(){
   const o=await API.post('bulk_apply',{changes:sel,confirm:true});
   if(!o.ok){flash('bulkFlash','✗ '+(o.error||'failed'),'crit');reset();scroll();return;}
   flash('bulkFlash',`✓ Applied ${o.applied}/${o.total}.`+(o.writes_enabled?' Allow ~30 min for AES.':' (gated — set NAVI_ALLOW_WRITES=1)'),o.applied?'ok':'crit');
-  document.getElementById('bulkPreview').innerHTML=(o.results||[]).map(r=>`<div class="callbox" style="color:${r.ok?'var(--ok)':'#ffb4c6'}">${r.ok?'✓':'✗'} ${r.category}:${r.value} ${r.mod} ${r.score}${r.ok?(r.warning?' — '+r.warning:''):' — '+(r.message||r.stderr||'failed')}</div>`).join('');
+  document.getElementById('bulkPreview').innerHTML=(o.results||[]).map(r=>`<div class="callbox" style="color:${r.ok?'var(--ok)':'var(--cx-ffb4c6)'}">${r.ok?'✓':'✗'} ${r.category}:${r.value} ${r.mod} ${r.score}${r.ok?(r.warning?' — '+r.warning:''):' — '+(r.message||r.stderr||'failed')}</div>`).join('');
   scroll(); reset();}
 acrMod.onchange=acrPreview;acrScore.oninput=acrPreview;acrTag.onchange=acrPreview;acrSearch.oninput=renderAcr;
 document.getElementById('runAcr').onclick=runAcr;document.getElementById('acrApply').onclick=applyAcr;

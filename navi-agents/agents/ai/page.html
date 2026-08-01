@@ -45,7 +45,7 @@
 const API=agentApi('ai');
 let DATA=null;
 const ROLE_PRI={'Model Serving':6,'Vector DB / RAG':5,'GPU / Training':5,'MLOps':4,'Notebook / Dev':3,'AI Dev Tool':2,'LLM API Client':2,'Tenable AI plugin':1};
-const ROLE_COLOR={'Model Serving':'#fb923c','Vector DB / RAG':'#a97fd6','GPU / Training':'var(--ok)','MLOps':'#3fb0c9','Notebook / Dev':'#8b8fe6','AI Dev Tool':'#b48ead','LLM API Client':'#6ea8ff','Tenable AI plugin':'var(--accent)','AI':'var(--accent)'};
+const ROLE_COLOR={'Model Serving':'var(--cx-fb923c)','Vector DB / RAG':'var(--cx-a97fd6)','GPU / Training':'var(--ok)','MLOps':'var(--cx-3fb0c9)','Notebook / Dev':'var(--cx-8b8fe6)','AI Dev Tool':'#b48ead','LLM API Client':'var(--cx-6ea8ff)','Tenable AI plugin':'var(--accent)','AI':'var(--accent)'};
 const ATLAS_ORDER=['Reconnaissance','Resource Development','Initial Access','ML Model Access','Execution','Persistence','Privilege Escalation','Defense Evasion','Credential Access','Discovery','Collection','ML Attack Staging','Exfiltration','Impact'];
 /* FP suppression + egress allowlist persist in localStorage, exactly like the console */
 function fpLoad(){ try{return JSON.parse(localStorage.getItem('aiFP')||'{}');}catch(e){return {};} }
@@ -105,8 +105,8 @@ function render(){
   rt.querySelectorAll('button[data-role]').forEach(b=>b.onclick=()=>{const r=b.dataset.role; aiTag('AI Role',r,a.filter(x=>x.role===r).map(x=>x.asset_uuid),null,b);});
   hPageReset('aiTbl'); hPaginate('aiTbl', a, x=>'<tr>'+
     '<td title="'+esc(x.host||'')+'"><b>'+plink(x.asset_uuid,x.host)+'</b></td><td class="mono">'+esc(x.ip||'')+'</td>'+
-    '<td><span class="tagval" style="color:'+(ROLE_COLOR[x.role]||'var(--accent)')+'">'+esc(x.role)+'</span>'+((x.risk&&x.risk.kev)?' <span class="badge" style="color:#f43f5e;border-color:rgba(244,63,94,.5)" title="also carries a CISA-KEV finding">🔥 KEV</span>':'')+((x.risk&&x.risk.crit&&!(x.risk&&x.risk.kev))?' <span class="badge" style="color:#fb923c;border-color:rgba(251,146,60,.5)">⛔ crit</span>':'')+'</td>'+
-    '<td><div class="pillwrap">'+((x.exposed&&x.exposed.length)?(x.exposed.map(e=>'<span class="badge" style="color:#f43f5e;border-color:rgba(244,63,94,.5)" title="network-detected AI endpoint">⚠ '+esc(e.name)+':'+esc(e.port)+(e.auth==='unauth'?' unauth':'')+'</span>').join('')):'')+(x.frameworks.length?(x.frameworks.slice(0,6).map(fw=>'<span class="chip">'+esc(fw)+'</span>').join('')+(x.frameworks.length>6?'<span class="chip sub" title="'+esc(x.frameworks.slice(6).join(', '))+'">+'+(x.frameworks.length-6)+' more</span>':'')):((x.exposed&&x.exposed.length)?'':'<span class="sub">—</span>'))+'</div></td>'+
+    '<td><span class="tagval" style="color:'+(ROLE_COLOR[x.role]||'var(--accent)')+'">'+esc(x.role)+'</span>'+((x.risk&&x.risk.kev)?' <span class="badge" style="color:var(--cx-f43f5e);border-color:rgba(244,63,94,.5)" title="also carries a CISA-KEV finding">🔥 KEV</span>':'')+((x.risk&&x.risk.crit&&!(x.risk&&x.risk.kev))?' <span class="badge" style="color:var(--cx-fb923c);border-color:rgba(251,146,60,.5)">⛔ crit</span>':'')+'</td>'+
+    '<td><div class="pillwrap">'+((x.exposed&&x.exposed.length)?(x.exposed.map(e=>'<span class="badge" style="color:var(--cx-f43f5e);border-color:rgba(244,63,94,.5)" title="network-detected AI endpoint">⚠ '+esc(e.name)+':'+esc(e.port)+(e.auth==='unauth'?' unauth':'')+'</span>').join('')):'')+(x.frameworks.length?(x.frameworks.slice(0,6).map(fw=>'<span class="chip">'+esc(fw)+'</span>').join('')+(x.frameworks.length>6?'<span class="chip sub" title="'+esc(x.frameworks.slice(6).join(', '))+'">+'+(x.frameworks.length-6)+' more</span>':'')):((x.exposed&&x.exposed.length)?'':'<span class="sub">—</span>'))+'</div></td>'+
     '<td>'+(platLink(x.url,'Open ↗')||'<span class="sub">—</span>')+'</td>'+
     '<td style="white-space:nowrap"><button class="btn ghost sm" data-why="'+esc(String(x.asset_uuid))+'" title="show the evidence behind this detection">🔍 Why</button> <button class="btn sm" data-tag="'+esc(String(x.asset_uuid))+'">Tag</button></td></tr>',
     {cols:6, empty:'<tr><td colspan="6" class="sub">No AI/ML found (checked the AI plugin family + software + cpes + plugin output + endpoints).</td></tr>',
@@ -117,7 +117,7 @@ function render(){
 
 function why(x){
   if(!x)return;
-  const SRC={'ai-plugin':['Tenable AI plugin','var(--accent)'],'software':['Software inventory','var(--ok)'],'cpe':['CPE inventory','#b48ead'],'output':['Plugin output','#6ea8ff'],'endpoint':['Network endpoint','#fb923c']};
+  const SRC={'ai-plugin':['Tenable AI plugin','var(--accent)'],'software':['Software inventory','var(--ok)'],'cpe':['CPE inventory','#b48ead'],'output':['Plugin output','var(--cx-6ea8ff)'],'endpoint':['Network endpoint','var(--cx-fb923c)']};
   const rows=x.evidence.map((e,idx)=>{const s=SRC[e.src]||[e.src,'var(--mut)']; return '<div style="border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:8px">'
     +'<div class="toolbar" style="margin:0 0 4px;gap:6px;flex-wrap:wrap"><span class="chip" style="color:'+s[1]+';border-color:'+s[1]+'">'+esc(s[0])+'</span><b>'+esc(e.term)+'</b>'+(e.sig?'<span class="sub">via '+esc(e.sig)+'</span>':'')+(e.auth==='unauth'?'<span class="chip" style="color:var(--crit)">unauth</span>':'')+'<span style="flex:1"></span>'
     +'<button class="btn ghost sm" data-fp="'+idx+'">✕ false positive</button>'+(e.src!=='ai-plugin'?'<button class="btn ghost sm" data-gfp="'+esc(e.term)+'">suppress '+esc(e.term)+' everywhere</button>':'')+'</div>'
