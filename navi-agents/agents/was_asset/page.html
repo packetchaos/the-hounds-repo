@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Web App Recon · Beagle · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>
+.chips{display:flex;flex-wrap:wrap;gap:7px}
+.tchip{font-size:12px;background:var(--panel-2);border:1px solid var(--line);border-radius:100px;padding:4px 11px;color:var(--ink-2)}
+.sv{display:inline-block;padding:1px 8px;border-radius:100px;font-size:10.5px;font-weight:700;font-family:var(--mono);text-transform:uppercase}
+.sv-critical{background:var(--crit-bg);color:var(--crit)}.sv-high{background:var(--high-bg);color:var(--high)}.sv-medium{background:var(--med-bg);color:var(--med)}.sv-low{background:var(--panel-2);color:var(--low)}.sv-info{background:var(--panel-2);color:var(--ink-3)}
+.applink{color:var(--accent);text-decoration:none;font-weight:600}.applink:hover{text-decoration:underline}
+.seclbl{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+/* recon plugin cards */
+.rgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(258px,1fr));gap:10px}
+.rcard{display:flex;gap:11px;align-items:center;text-align:left;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 13px;cursor:pointer;font-family:inherit;color:inherit;transition:border-color .12s,background .12s,transform .05s;width:100%}
+.rcard:hover{border-color:var(--accent);background:var(--panel-2)}.rcard:active{transform:translateY(1px)}
+.rico{font-size:21px;line-height:1;flex-shrink:0}
+.rmeta{min-width:0;flex:1}
+.rlabel{font-weight:700;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rn{font-family:var(--mono);font-size:11px;color:var(--ink-3);font-weight:400}
+.rblurb{font-size:11.5px;color:var(--ink-3);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rmuted{opacity:.5;cursor:default}.rmuted:hover{border-color:var(--line);background:var(--panel)}
+.rarrow{margin-left:auto;color:var(--ink-3);font-size:18px}
+/* compact plugin rows */
+#itbl,#stbl{width:100%}.pname{color:var(--accent);cursor:pointer;text-decoration:none}.pname:hover{text-decoration:underline}
+/* plugin-output modal */
+.omodal{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:60;padding:24px}
+.obox{background:var(--panel);border:1px solid var(--line);border-radius:12px;max-width:920px;width:100%;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 18px 60px rgba(0,0,0,.4)}
+.ohead{display:flex;align-items:center;gap:10px;padding:13px 16px;border-bottom:1px solid var(--line)}
+.ohead .ot{font-size:15px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.obody{overflow:auto;padding:14px 16px}
+.opre{white-space:pre-wrap;word-break:break-word;font-family:var(--mono);font-size:12px;line-height:1.5;background:var(--bg-2);border:1px solid var(--line);border-radius:8px;padding:11px 12px;margin:4px 0 0;color:var(--ink-2)}
+.olbl{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin:15px 0 2px}
+.oinst{border-top:1px dashed var(--line);margin-top:14px;padding-top:8px}.oinst.first{border-top:0;margin-top:6px}
+.ourl{font-size:12px;color:var(--accent);word-break:break-all}
+</style>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+  <section class="card">
+    <div class="toolbar"><div><h2 style="margin:0">🐾 Web App Recon <span class="sub" style="font-weight:400">· Beagle</span></h2>
+      <p class="sub" style="margin:2px 0 0">One web app's terrain from navi's WAS info plugins — sitemap, scan telemetry, target facts, screenshot, external URLs, cookies, methods. Click any plugin for its raw output.</p></div>
+      <span style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <label class="sub" for="appsel" style="margin:0">App</label>
+        <select class="fld" id="appsel" style="min-width:200px;max-width:320px"></select>
+        <a class="btn ghost sm" href="/agents/was/page.html" title="Back to the consolidated WAS overview">← Overview</a></span></div>
+    <div id="flash" class="flash"></div>
+  </section>
+  <div id="body"></div>
+  <footer>Web App Recon · Beagle · read-only navi.db · recon = findings where scan_uuid = apps.uuid · raw output straight from findings.output</footer>
+</div>
+<div id="omodal" class="omodal" style="display:none">
+  <div class="obox">
+    <div class="ohead"><span id="oicon"></span><div class="ot" id="otitle"></div>
+      <span class="chip" id="osev" style="margin-left:4px"></span>
+      <button class="btn ghost sm" id="ocopy" style="margin-left:auto" title="Copy the raw output">⧉ Copy</button>
+      <button class="btn ghost sm" id="oclose" title="Close">✕</button></div>
+    <div class="obody" id="obody"></div>
+  </div>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('was_asset');
+let INF=null, APPS=[], CURR=null;
+const SEV=[['critical','Critical','var(--crit)'],['high','High','var(--high)'],['medium','Medium','var(--med)'],['low','Low','var(--low)'],['info','Info','var(--info)']];
+const fnum=n=>(n==null?'—':Number(n).toLocaleString());
+const normSev=v=>{ v=String(v||'info').toLowerCase(); return ['critical','high','medium','low','info'].includes(v)?v:'info'; };
+function q(k){ return new URLSearchParams(location.search).get(k)||''; }
+function ageDays(iso){ if(!iso)return null; const t=Date.parse(iso); if(isNaN(t))return null; return Math.max(0,Math.round((Date.now()-t)/86400000)); }
+function kpi(v,l,c){ return `<div class="k"><div class="v"${c?' style="color:'+c+'"':''}>${v}</div><div class="l">${esc(l)}</div></div>`; }
+function svpill(rf){ rf=normSev(rf); return `<span class="sv sv-${rf}">${rf}</span>`; }
+
+async function load(appUuid){
+  CURR=appUuid||q('app')||q('asset')||q('target')||'';
+  flash('flash','<span class="spin"></span> mapping the web app…','run');
+  let o; try{ o=await API.post('info',{app_uuid:CURR}); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o||!o.ok){ flash('flash','✗ '+esc((o&&o.error)||'failed'),'crit'); return; }
+  flashClear('flash'); const r=o.result||{}; INF=r.info||{}; APPS=r.apps||[];
+  CURR=(INF.app&&INF.app.uuid)||CURR;
+  render();
+}
+function appOptions(){
+  const sel=document.getElementById('appsel');
+  if(!APPS.length){ sel.innerHTML='<option value="">(no apps)</option>'; return; }
+  sel.innerHTML=APPS.map(a=>{ const tag=a.critical?(' · '+a.critical+' crit'):(a.high?(' · '+a.high+' high'):'');
+    return `<option value="${esc(a.uuid)}"${a.uuid===CURR?' selected':''}>${esc(a.name)}${tag}</option>`; }).join('');
+}
+function render(){
+  appOptions();
+  const B=document.getElementById('body');
+  if(!INF.available){ B.innerHTML='<section class="card"><p class="sub">No WAS apps in navi.db. Populate with <span class="mono">navi config update was</span> in <a href="/web/settings.html">Settings</a>.</p></section>'; return; }
+  const a=INF.app||{}, age=ageDays(a.scan_completed_time);
+  const recon=INF.recon||[], other=INF.other_info||[], sec=INF.security||[];
+  let h='';
+  // ---- app identity ----
+  h+='<section class="card"><div class="toolbar" style="margin-bottom:6px"><div><h3 style="margin:0">'+esc(a.name)+'</h3>'
+    +'<p class="sub" style="margin:2px 0 0">'+(a.target?'<a class="applink" href="'+esc(a.target)+'" target="_blank" rel="noopener">'+esc(a.target)+' ↗</a>':'(no target)')
+    +(a.asset_uuid?' · <span class="mono" title="Tenable asset UUID" style="font-size:11px;color:var(--ink-3)">asset '+esc(String(a.asset_uuid).slice(0,8))+'…</span>':'')+'</p></div>'
+    +'<span style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span class="chip">'+(age==null?'never scanned':('scanned '+age+'d ago'))+'</span>'
+    +'<a class="btn sm" href="/agents/was/report.html?app='+encodeURIComponent(a.uuid)+'" title="Full findings + severity filter">📄 App Report</a></span></div>'
+    +'<div class="kpi">'+kpi(fnum(a.critical),'Critical','var(--crit)')+kpi(fnum(a.high),'High','var(--high)')+kpi(fnum(a.medium),'Medium','var(--med)')
+    +kpi(fnum(a.low),'Low')+kpi(fnum(a.info),'Info')+kpi(fnum(a.findings_total),'Findings')+'</div>'
+    +'<div class="kpi" style="margin-top:10px">'+kpi(fnum(a.pages_crawled),'Pages crawled')+kpi(fnum(a.requests_made),'Requests made')
+    +kpi((INF.plugins_total||0),'Plugins fired')+kpi(a.scan_completed_time?esc(String(a.scan_completed_time).slice(0,10)):'—','Last scan')+'</div>'
+    +((a.tech&&a.tech.length)?'<p class="seclbl" style="margin:14px 0 6px">technology detected</p><div class="chips">'+a.tech.map(t=>'<span class="tchip">'+esc(t)+'</span>').join('')+'</div>':'')
+    +'</section>';
+
+  // ---- recon plugins (featured) ----
+  h+='<section class="card" style="margin-top:16px"><div class="toolbar"><div><h3 style="margin:0">Recon plugins</h3>'
+    +'<p class="sub" style="margin:2px 0 0">The informational plugins that map this app. Click one for its raw output.</p></div></div>';
+  if(recon.length){ h+='<div class="rgrid">'+recon.map(reconCard).join('')+'</div>'; }
+  else{ h+='<p class="sub">None of the known WAS recon plugins fired on this app. Any informational findings appear below.</p>'; }
+  h+='</section>';
+
+  // ---- two columns: other info + security ----
+  h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-top:16px">';
+  // other informational plugins
+  h+='<section class="card" style="margin:0"><h3 style="margin:0 0 2px">More informational plugins</h3><p class="seclbl">other info findings · '+(other.length)+'</p>';
+  if(other.length){ h+='<div style="overflow-x:auto"><table id="itbl" class="nocsv"><tbody>'
+      +other.map(p=>pluginRow(p)).join('')+'</tbody></table></div>'; }
+  else{ h+='<p class="sub">No other informational findings.</p>'; }
+  h+='</section>';
+  // security findings
+  h+='<section class="card" style="margin:0"><div class="toolbar"><div><h3 style="margin:0">Security findings</h3><p class="seclbl">non-info · '+(sec.length)+' plugins</p></div>'
+    +'<a class="btn ghost sm" style="margin-left:auto" href="/agents/was/report.html?app='+encodeURIComponent(a.uuid)+'">All findings →</a></div>';
+  if(sec.length){ h+='<div style="overflow-x:auto"><table id="stbl" class="nocsv"><tbody>'
+      +sec.slice(0,12).map(p=>pluginRow(p,true)).join('')+'</tbody></table></div>'
+      +(sec.length>12?'<p class="sub" style="margin:8px 0 0">+ '+(sec.length-12)+' more in the App Report.</p>':''); }
+  else{ h+='<p class="sub">No security findings — only informational plugins fired.</p>'; }
+  h+='</section></div>';
+
+  B.innerHTML=h;
+  // wire clicks (recon cards + plugin rows) → output drill-down
+  B.querySelectorAll('[data-pid]').forEach(el=>{ if(el.classList.contains('rmuted'))return;
+    el.addEventListener('click',e=>{ e.preventDefault(); openOutput(el.getAttribute('data-pid'),el.getAttribute('data-name')); }); });
+}
+function reconCard(p){
+  const has=p.has_output!==false;
+  return `<button class="rcard${has?'':' rmuted'}" ${has?'':'disabled '}data-pid="${esc(p.plugin_id)}" data-name="${esc(p.label||p.name||('Plugin '+p.plugin_id))}" title="${esc(p.blurb||p.name||'')}">`
+    +`<div class="rico">${p.icon||'🔎'}</div>`
+    +`<div class="rmeta"><div class="rlabel">${esc(p.label||p.name)}${p.count>1?' <span class="rn">×'+p.count+'</span>':''}</div>`
+    +`<div class="rblurb">${esc(p.blurb||p.name||'')}</div></div>`
+    +`<div class="rarrow">›</div></button>`;
+}
+function pluginRow(p,withSev){
+  return `<tr>${withSev?('<td style="width:74px">'+svpill(p.risk_factor)+'</td>'):''}`
+    +`<td><a class="pname" data-pid="${esc(String(p.plugin_id||''))}" data-name="${esc(p.name||'')}">${esc(p.name||('Plugin '+p.plugin_id))}</a>`
+    +`<div class="sub" style="font-size:11px">${esc(p.family||'')} · plugin ${esc(String(p.plugin_id||''))}</div></td>`
+    +`<td class="mono" style="text-align:right;width:48px;color:var(--ink-3)">${p.count>1?('×'+p.count):''}</td></tr>`;
+}
+
+/* ---- plugin-output drill-down (raw findings.output/proof/headers via was.plugin_output) ---- */
+async function openOutput(pid,name){
+  const m=document.getElementById('omodal'); m.style.display='flex';
+  document.getElementById('oicon').textContent='🔎';
+  document.getElementById('otitle').textContent=name||('Plugin '+pid);
+  const sv=document.getElementById('osev'); sv.style.display='none';
+  const body=document.getElementById('obody'); body.innerHTML='<span class="spin"></span> fetching plugin output…';
+  window._orawText='';
+  let o; try{ o=await API.post('plugin_output',{app_uuid:CURR,plugin_id:pid}); }catch(e){ o={ok:false,error:e.message}; }
+  const r=(o&&o.result)||null;
+  if(!o||!o.ok||!r){ body.innerHTML='<p class="sub">✗ '+esc((o&&o.error)||'failed to load output')+'</p>'; return; }
+  if(!r.found){ body.innerHTML='<p class="sub">'+esc(r.message||'No stored output for this plugin on this app.')+'</p>'; return; }
+  renderOutput(r);
+}
+function renderOutput(r){
+  document.getElementById('otitle').textContent=(r.name||('Plugin '+r.plugin_id))+' · '+r.plugin_id;
+  const sv=document.getElementById('osev'); sv.style.display=''; sv.className='sv sv-'+normSev(r.risk_factor); sv.textContent=normSev(r.risk_factor);
+  const P=[]; const ins=r.instances||[];
+  P.push('<p class="sub" style="margin:0 0 2px">'+esc(r.family||'General')+' · '+r.count+' instance'+(r.count===1?'':'s')+(r.is_html?' · contains captured markup':'')+'</p>');
+  if(r.description)P.push('<div class="olbl">description</div><div class="opre">'+esc(r.description)+'</div>');
+  const raw=[];
+  ins.forEach((x,i)=>{ const s=['<div class="oinst'+(i===0?' first':'')+'">'];
+    if(ins.length>1)s.push('<div class="olbl">instance '+(i+1)+'</div>');
+    if(x.url)s.push('<div class="ourl">'+esc(x.url)+'</div>');
+    if(x.output){ s.push('<div class="olbl">output</div><div class="opre">'+esc(x.output)+'</div>'); raw.push(x.output); }
+    if(x.proof){ s.push('<div class="olbl">proof</div><div class="opre">'+esc(x.proof)+'</div>'); }
+    if(x.request_headers){ s.push('<div class="olbl">request headers</div><div class="opre">'+esc(x.request_headers)+'</div>'); }
+    if(x.response_headers){ s.push('<div class="olbl">response headers</div><div class="opre">'+esc(x.response_headers)+'</div>'); }
+    if(!x.output&&!x.proof&&!x.request_headers&&!x.response_headers)s.push('<p class="sub" style="margin:4px 0 0">No stored text for this instance.</p>');
+    s.push('</div>'); P.push(s.join('')); });
+  if(r.solution)P.push('<div class="olbl">solution</div><div class="opre">'+esc(r.solution)+'</div>');
+  if(r.see_also)P.push('<div class="olbl">see also</div><div class="opre">'+esc(r.see_also)+'</div>');
+  window._orawText=raw.join('\n\n');
+  document.getElementById('obody').innerHTML=P.join('');
+}
+function closeOutput(){ document.getElementById('omodal').style.display='none'; }
+
+/* static handlers (wired once) */
+document.getElementById('oclose').onclick=closeOutput;
+document.getElementById('omodal').addEventListener('click',e=>{ if(e.target.id==='omodal')closeOutput(); });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape')closeOutput(); });
+document.getElementById('ocopy').onclick=()=>{ const b=document.getElementById('ocopy'),t=b.textContent;
+  try{ navigator.clipboard.writeText(window._orawText||''); b.textContent='✓ copied'; setTimeout(()=>b.textContent=t,1200);}catch(_){ b.textContent='copy failed'; setTimeout(()=>b.textContent=t,1200);} };
+document.getElementById('appsel').onchange=e=>{ const u=e.target.value; try{history.replaceState(null,'','?app='+encodeURIComponent(u));}catch(_){} load(u); };
+mountAgentHeader({id:'was_asset',icon:'🐾',name:'Web App Recon',sub:'Beagle · per-app recon'});
+load(q('app')||q('asset')||q('target'));
+</script>
+</body></html>
