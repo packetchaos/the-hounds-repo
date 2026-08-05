@@ -32,6 +32,15 @@ def _candidates():
     return res, cands, {c["value"] for c in cands}
 
 
+def prompt(p):
+    """Cheap, no-DB fetch of the editable reasoning prompt + key status so the
+    "Agent reasoning" panel is populated the instant the page opens — the full
+    discovery (run/reason) still waits for an explicit click, but the operator
+    always sees (and can edit) the prompt first, with or without an API key."""
+    return {"ok": True, "default_prompt": DEFAULT_PROMPT,
+            "llm_available": llm.available()}, 200
+
+
 def run(p):
     res = AGENT.run()
     # Ground truth for "applied": which of our tags ACTUALLY exist in navi.db right
@@ -96,9 +105,15 @@ def reason(p):
                      "priority": "high" if is_expired or d <= 30 else "med", "why": why})
     n_tag = sum(1 for x in plan if x["decision"] == "tag")
     scope = "already-expired certificate(s)" if expired_only else "certificate(s)"
-    note = ("Deterministic (no working model key — set ANTHROPIC_API_KEY to use the "
-            "editable reasoning prompt). " if not llm.available() or "fail" in out.get("message", "").lower()
-            else "")
+    if not llm.available():
+        note = ("Deterministic (no working model key — set ANTHROPIC_API_KEY to use the "
+                "editable reasoning prompt). ")
+    elif not out.get("ok"):
+        # Key IS present but the reasoning call failed — surface the REAL reason
+        # (HTTP 400, truncated JSON, SSL, credit) instead of blaming the key.
+        note = f"Deterministic fallback — the reasoning call failed: {out.get('message', 'unknown error')}. "
+    else:
+        note = ""
     return {"ok": True, "result": res,
             "assessment": f"{note}{n_tag} {scope} selected for tagging"
                           + (" by expiry urgency." if not expired_only else "."),
@@ -145,5 +160,5 @@ def tags_issues(p):
             "write_gate_reason": navi_cli.write_gate_reason()}, 200
 
 
-ACTIONS = {"run": run, "reason": reason, "tags_apply": tags_apply,
+ACTIONS = {"prompt": prompt, "run": run, "reason": reason, "tags_apply": tags_apply,
            "tags_issues": tags_issues}

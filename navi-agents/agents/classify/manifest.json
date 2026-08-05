@@ -1,0 +1,12 @@
+{
+  "id": "classify",
+  "name": "Asset Classification",
+  "icon": "📇",
+  "order": 3,
+  "category": "Discovery",
+  "codename": "Linnaeus Hound",
+  "summary": "Classifies every asset by WHAT IT IS — Windows / Linux / macOS / IoT (by device type) / OT / Network / Virtual / Cloud / Unclassified — to close the asset-detection loop that stalls ownership. Uses the 'no software enum = not IoT' rule, overlays ownership + risk per class, turns the Unclassified bucket into a reason-tagged worklist, and writes gated Class:<type> tags.",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": ["run", "assets", "tag", "os_plan"]
+}

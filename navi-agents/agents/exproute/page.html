@@ -11,9 +11,23 @@
   <section class="card">
     <div class="toolbar"><div><h2 style="margin:0">🧭 Exposure routes — owner mapping</h2>
       <p class="sub" style="margin:2px 0 0">Pull users &amp; groups (<b>navi</b> primary · <b>Tenable MCP</b> backup) and map exposure <b>routes</b> &amp; <b>paths</b> to owners in plain English. Each mapping tags every asset on the matched route/path with <span class="tagval">Owner : &lt;group/user&gt;</span> (gated).</p></div>
-      <button class="btn run sm" id="load" style="margin-left:auto">▶ Load owners + routes/paths</button></div>
+      <span style="margin-left:auto;display:flex;gap:6px">
+        <a class="btn ghost sm" href="/web/ownermap.html" title="See the full ownership picture — gaps, workload, coverage, reduction">🗺 Ownership Map</a>
+        <button class="btn run sm" id="load">▶ Load owners + routes/paths</button></span></div>
     <div id="flash" class="flash"></div>
     <div class="kpi" id="kpi"></div>
+  </section>
+
+  <section class="card" id="quickCard" style="display:none;border:1px solid var(--accent)">
+    <div class="toolbar" style="margin:0"><div><h2 style="margin:0">✍ Assign owner <span class="sub" id="qaScope"></span></h2>
+      <p class="sub" style="margin:2px 0 0" id="qaName"></p></div>
+      <a class="btn ghost sm" href="/web/ownermap.html" style="margin-left:auto">← Back to map</a></div>
+    <div id="qaTargets" style="margin-top:8px"></div>
+    <div class="toolbar" style="margin-top:8px;gap:8px;flex-wrap:wrap">
+      <input id="qaOwner" class="fld" style="min-width:260px" placeholder="owner — username, email, group, or friendly name">
+      <button class="btn run sm" id="qaTag">▶ Tag owner (gated)</button>
+      <button class="btn ghost sm" id="qaSkip">Skip</button></div>
+    <div id="qaFlash" class="flash"></div>
   </section>
 
   <section class="card" id="coverCard" style="display:none">
@@ -25,7 +39,8 @@
 
   <section class="card" id="mapCard" style="display:none">
     <h2 style="margin:0">Describe the ownership mapping</h2>
-    <p class="sub" style="margin:2px 0 8px">e.g. <i>"give all payment &amp; billing routes to VM Team, put /opt and nginx paths under Networking Systems, assign the docker routes to Custom Apps."</i></p>
+    <p class="sub" style="margin:2px 0 8px">e.g. <i>"give all payment &amp; billing routes to VM Team, put /opt and nginx paths under Networking Systems, assign the docker routes to Custom Apps."</i><br>
+      Or set a <b>disposition</b> instead of an owner — <i>"ignore the ICMP route, accept the OpenSSL route, all Windows Office routes are mitigated."</i> That tags <span class="tagval">Owner : &lt;route&gt;: Ignored / Accepted / Mitigated</span> so it drops off the gap list. Disposition phrases work even without a model key.</p>
     <div class="needs-llm">
       <textarea id="prompt" rows="4" class="fld" style="width:100%;box-sizing:border-box;font-family:ui-monospace,monospace;font-size:12px"></textarea>
       <div class="toolbar" style="margin-top:8px"><button class="btn run sm" id="interpret">▶ Interpret mapping</button>
@@ -42,10 +57,11 @@
       <p class="sub" style="margin:2px 0 0">Every route/path flows to the owner(s) assigned to it (from <span class="tagval">Owner</span> tags); band thickness ∝ assets. The red <b style="color:var(--crit)">⛔ Unassigned</b> node is <b>Ownerless Risk</b>. Click a route to see it in the mapping below.</p></div>
       <span style="display:flex;gap:6px;margin-left:auto;align-items:center">
         <button class="btn ghost sm snkfilt active" data-g="both">Both</button><button class="btn ghost sm snkfilt" data-g="route">Routes</button><button class="btn ghost sm snkfilt" data-g="path">Paths</button>
-        <span class="sub">Top</span><select id="snkTop" class="fld" style="padding:5px 8px;border-radius:7px;font-size:12px"><option>10</option><option selected>15</option><option>20</option><option>25</option></select>
+        <span class="sub">Top</span><select id="snkTop" class="fld" style="padding:5px 8px;border-radius:7px;font-size:12px"><option>10</option><option selected>15</option><option>20</option><option>25</option><option>30</option><option>40</option><option>50</option></select>
         <button class="btn run sm" id="snkBuild">▶ Build Sankey</button></span></div>
     <div id="snkFlash" class="flash"></div>
     <div id="snkGraph" style="width:100%;overflow-x:auto;margin-top:6px"></div>
+    <div id="snkUnmatched" style="margin-top:10px"></div>
   </section>
 
   <section class="card" id="ownersCard" style="display:none">
@@ -75,7 +91,7 @@ async function load(){ document.getElementById('load').disabled=true; flash('fla
   let o; try{ o=await API.post('load'); }catch(e){ o={ok:false,error:e.message}; }
   document.getElementById('load').disabled=false;
   if(!o||!o.ok){ flash('flash','✗ '+((o&&o.error)||'failed'),'crit'); return; }
-  DATA=o.result||{}; flashClear('flash');
+  DATA=o.result||{}; flashClear('flash'); try{ loadAppliedTags(); }catch(e){}
   const c=DATA.counts||{};
   document.getElementById('kpi').innerHTML=`<div class="k"><div class="v">${c.owners||0}</div><div class="l">owners (users+groups)</div></div><div class="k"><div class="v">${c.routes||0}</div><div class="l">routes</div></div><div class="k"><div class="v">${c.paths||0}</div><div class="l">distinct paths</div></div>`;
   document.getElementById('coverCard').style.display='block';
@@ -86,13 +102,13 @@ async function load(){ document.getElementById('load').disabled=true; flash('fla
   if(!(c.routes||c.paths)) flash('flash','⚠ No routes/paths in navi.db. Run navi config update route + paths, then reload.','warn');
 }
 /* ===== Ownership coverage (donuts) ===== */
-function donut(val,total,label,color){
+function donut(val,total,label,color,sub){
   const pct=total>0?Math.round(val/total*100):0, r=34, C=2*Math.PI*r, off=C*(1-(total>0?val/total:0));
   return `<div style="text-align:center;min-width:150px"><svg width="92" height="92" viewBox="0 0 92 92">
     <circle cx="46" cy="46" r="${r}" fill="none" stroke="var(--panel-2)" stroke-width="10"/>
     <circle cx="46" cy="46" r="${r}" fill="none" stroke="${color}" stroke-width="10" stroke-linecap="round" stroke-dasharray="${C}" stroke-dashoffset="${off}" transform="rotate(-90 46 46)"/>
     <text x="46" y="50" text-anchor="middle" font-size="19" font-weight="800" fill="var(--ink)">${pct}%</text></svg>
-    <div style="font-weight:600;font-size:13px">${label}</div><div class="sub" style="font-size:11.5px">${val} / ${total}</div></div>`;
+    <div style="font-weight:600;font-size:13px">${label}</div><div class="sub" style="font-size:11.5px">${sub!=null?sub:(val+' / '+total)}</div></div>`;
 }
 async function coverRun(){
   let o; try{ o=await API.post('coverage'); }catch(e){ return; }
@@ -101,16 +117,27 @@ async function coverRun(){
   const pf=v.path_findings||0, dp=v.total_paths||0, pr=pf>dp?Math.round((1-dp/pf)*100):0;
   const rf=v.route_findings||0, rc=v.total_routes||0, rr=rf>rc?Math.round((1-rc/rf)*100):0;
   const wbar=(a,b,label,color)=>{ const pct=a>0?Math.round(b/a*100):0; return `<div style="min-width:230px;flex:1"><div class="toolbar" style="margin:0 0 4px;justify-content:space-between"><span class="sub">${label}</span><b>${a.toLocaleString()} → ${b.toLocaleString()}</b></div><div style="height:12px;border-radius:99px;background:var(--panel-2);overflow:hidden"><div style="height:100%;width:${Math.max(pct,2)}%;background:${color};border-radius:99px"></div></div></div>`; };
+  const st=v.surface_total||0;
   document.getElementById('cover').innerHTML='<div style="display:flex;gap:30px;flex-wrap:wrap;justify-content:center;align-items:center;padding:6px 0">'
+    +donut(v.owners_assigned||0,v.users_total||0,'Owners with a route/path','#a78bfa',`${v.owners_assigned||0} of ${(v.users_total||0).toLocaleString()} users · ${Math.max(0,(v.users_total||0)-(v.owners_assigned||0)).toLocaleString()} with no assigned work`)
     +`<div style="text-align:center;min-width:150px"><div style="font-size:32px;font-weight:800;color:var(--accent)">${v.avg_routes||0}</div><div style="font-weight:600;font-size:13px">avg routes / asset</div><div class="sub" style="font-size:11.5px">${v.assets_with_routes} asset(s) · ${v.total_routes} routes</div></div>`
-    +donut(v.closed,v.assets_with_routes,'Assets closed — every route owned','#6ea8ff')
-    +donut(v.owned_paths,v.total_paths,'Distinct paths with an owner','#34d399')+'</div>'
+    +donut(v.routes_owned,v.total_routes,'Routes with an owner','#a78bfa')
+    +donut(v.owned_paths,v.total_paths,'Distinct paths with an owner','var(--ok)')+'</div>'
+    /* Decision outcomes — the result of what you did to each route/path, plus assets fully closed. */
+    +(st?('<div style="border-top:1px solid var(--line);margin-top:8px;padding-top:12px">'
+      +`<div class="toolbar" style="margin:0 0 6px;justify-content:center;gap:8px"><b>🧭 Decision outcomes</b><span class="sub">dispositions are % of ${st.toLocaleString()} routes + paths</span></div>`
+      +'<div style="display:flex;gap:30px;flex-wrap:wrap;justify-content:center;align-items:center">'
+      +donut(v.closed,v.assets_with_routes,'Assets closed — every route owned','#a78bfa')
+      +donut(v.mitigated||0,st,'Mitigated','var(--ok)')
+      +donut(v.accepted||0,st,'Risk accepted','#6ea8ff')
+      +donut(v.ignored||0,st,'Ignored','#8a99ad')
+      +'</div></div>'):'')
     +((pf||rf)?('<div style="border-top:1px solid var(--line);margin-top:8px;padding-top:12px">'
       +'<div class="toolbar" style="margin:0 0 8px;justify-content:center;gap:8px"><b>⚡ Workload reduction</b>'
-      +(pr?`<span class="chip" style="color:#34d399;border-color:rgba(52,211,153,.5)">${pr}% fewer path items to assign</span>`:'')
+      +(pr?`<span class="chip" style="color:var(--ok);border-color:rgba(52,211,153,.5)">${pr}% fewer path items to assign</span>`:'')
       +(rr?`<span class="chip" style="color:#6ea8ff;border-color:rgba(110,168,255,.5)">${rr}% fewer route items</span>`:'')+'</div>'
       +'<div style="display:flex;gap:26px;flex-wrap:wrap;justify-content:center">'
-      +(pf?wbar(pf,dp,'Path findings → distinct paths','#34d399'):'')
+      +(pf?wbar(pf,dp,'Path findings → distinct paths','var(--ok)'):'')
       +(rf?wbar(rf,rc,'Route vulns → routes','#6ea8ff'):'')+'</div>'
       +'<p class="sub" style="text-align:center;margin:8px 0 0">Assigning ownership by <b>distinct route/path</b> instead of per-finding collapses the triage queue — one owner decision covers many findings.</p></div>'):'')
     +(v.owned===0?'<p class="sub" style="text-align:center;margin-top:8px">No <span class="tagval">Owner</span> tags in navi.db yet — assign owners below, then <b>↻ Refresh navi.db</b>.</p>'
@@ -146,29 +173,69 @@ async function interpret(){ const prompt=document.getElementById('prompt').value
   flash('mapFlash','<span class="spin"></span> interpreting mapping with AI…','run');
   let o; try{ o=await API.post('interpret',{prompt}); }catch(e){ o={ok:false,message:e.message}; }
   if(!o.ok){ flash('mapFlash','✗ '+(o.message||'failed'),'crit'); return; }
-  MAP=o.mappings||[]; if(MAP.length){ flashClear('mapFlash'); }
+  MAP=o.mappings||[];
+  if(MAP.length){
+    if(o.truncated) flash('mapFlash','⚠ Assigned '+MAP.length+' so far — the batch was large and the model’s reply was cut off. Apply these, then run the same prompt again to assign the rest.','warn');
+    else flashClear('mapFlash');
+  }
   else flash('mapFlash','No mappings matched. '+((o.rejected||[]).slice(0,4).join('; ')||'Name routes/paths and owners more explicitly.'),'warn');
   renderMap();
 }
 function renderMap(){ document.getElementById('applyAll').style.display=MAP.length?'inline-block':'none';
   document.getElementById('mapCount').textContent=MAP.length?MAP.length+' mapping(s)':'';
-  document.querySelector('#mapTbl tbody').innerHTML=MAP.length?MAP.map((m,i)=>{const tv=(m.match+': '+m.owner);const B=tagBadge('Owner',tv,m._st);
-    return `<tr><td><span class="chip">${esc(m.kind)}</span></td><td class="mono" style="font-size:11px;word-break:break-word">${esc(m.match)}</td><td><span class="tagval">Owner : ${esc(tv)}</span></td><td>${esc(m.scope||'')}</td><td><span class="badge ${B.cls}">${B.label}</span></td><td>${B.done?'':`<button class="btn sm" data-m="${i}">▶ Tag (gated)</button>`}</td></tr>`;
-  }).join(''):'<tr><td colspan="6" class="sub">Interpret a mapping to preview…</td></tr>';
-  document.querySelectorAll('#mapTbl button[data-m]').forEach(b=>b.onclick=()=>applyOne(+b.dataset.m));
+  hPageReset('mapTbl'); hPaginate('mapTbl', MAP, m=>{const tv=(m.match+': '+m.owner);const B=tagBadge('Owner',tv,m._st);
+    return `<tr><td><span class="chip">${esc(m.kind)}</span></td><td class="mono" style="font-size:11px;word-break:break-word">${esc(m.match)}</td><td><span class="tagval">Owner : ${esc(tv)}</span></td><td>${esc(m.scope||'')}</td><td><span class="badge ${B.cls}">${B.label}</span></td><td>${B.done?'':`<button class="btn sm" data-m="${esc(m.match+'|'+m.owner)}">▶ Tag (gated)</button>`}</td></tr>`;},
+    {cols:6, empty:'<tr><td colspan="6" class="sub">Interpret a mapping to preview…</td></tr>',
+     wire:tb=>{ tb.querySelectorAll('button[data-m]').forEach(b=>b.onclick=()=>{ const idx=MAP.findIndex(x=>(x.match+'|'+x.owner)===b.dataset.m); if(idx>=0)applyOne(idx); }); }});
+}
+// Wait for the queued Owner-tag jobs (same background worker + Tagging log as every
+// other agent) so this page shows the REAL outcome instead of just "queued".
+async function pollJobs(ids, timeoutMs=25000){
+  const want=[...new Set((ids||[]).filter(x=>x!=null).map(String))]; let map={}; if(!want.length)return map;
+  const t0=Date.now();
+  while(Date.now()-t0<timeoutMs){
+    let o; try{ o=await jpost('/api/explore/tag_jobs',{}); }catch(e){ break; }
+    map={}; (o.jobs||[]).forEach(j=>{ map[String(j.id)]=j; });
+    if(!want.filter(id=>{const j=map[id];return !j||(j.status!=='done'&&j.status!=='error');}).length) break;
+    await new Promise(r=>setTimeout(r,900));
+  }
+  return map;
 }
 async function applyOne(i){ const m=MAP[i]; if(!m)return;
   flash('mapFlash','<span class="spin"></span> queueing Owner : '+esc(m.owner)+'…','run');
   let o; try{ o=await API.post('apply',{owner:m.owner,app:m.match,route_id:m.route_id,path:m.path,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
-  if(o.ok||o.queued||o.warning){ m._st='queued'; const jid=o.job_id||(o.result&&o.result.job_id); flash('mapFlash','Queued Owner : '+esc(m.match+': '+m.owner)+(jid?(' (job #'+jid+')'):'')+' — track it in the <a href="/web/tags-log.html">Tagging log</a>.','ok'); } else { flash('mapFlash','✗ '+(o.message||o.error||'rejected'),'crit'); }
+  if(!(o.ok||o.queued||o.warning)){ flash('mapFlash','✗ '+(o.message||o.error||'rejected'),'crit'); return; }
+  m._st='queued'; renderMap();
+  const jid=o.job_id||(o.result&&o.result.job_id);
+  flash('mapFlash','<span class="spin"></span> queued (job #'+esc(String(jid))+') — waiting on the background worker…','run');
+  const j=(await pollJobs([jid]))[String(jid)];
+  if(j&&j.status==='done'&&j.ok!==false&&!(j.result&&j.result.warning)){ m._st='applied'; flash('mapFlash','✓ Tagged Owner : '+esc(m.match+': '+m.owner)+' — in the <a href="/web/tags-log.html">Tagging log</a>.','ok'); }
+  else if(j&&j.status==='error'){ m._st=''; flash('mapFlash','✗ Owner : '+esc(m.match)+' — '+esc(j.message||'failed')+' (see <a href="/web/tags-log.html">Tagging log</a>)','crit'); }
+  else if(j&&j.result&&j.result.warning){ m._st=''; flash('mapFlash','⚠ '+esc(j.result.warning)+' (see <a href="/web/tags-log.html">Tagging log</a>)','warn'); }
+  else { flash('mapFlash','Owner : '+esc(m.match+': '+m.owner)+' still running — track it in the <a href="/web/tags-log.html">Tagging log</a>.','ok'); }
   renderMap();
 }
-async function applyAll(){ if(!MAP.length)return; let q=0;
-  for(let i=0;i<MAP.length;i++){ const m=MAP[i]; if(m._st==='queued'||tagApplied('Owner',m.match+': '+m.owner))continue;
-    flash('mapFlash','<span class="spin"></span> queueing '+(i+1)+'/'+MAP.length+'…','run');
-    try{ const o=await API.post('apply',{owner:m.owner,app:m.match,route_id:m.route_id,path:m.path,confirm:true}); if(o.ok||o.queued||o.warning){q++;m._st='queued';} }catch(e){}
+async function applyAll(){ if(!MAP.length)return;
+  const btn=document.getElementById('applyAll'); const lbl=btn&&btn.textContent;
+  const mf=document.getElementById('mapFlash');
+  const scroll=()=>{ if(mf)mf.scrollIntoView({behavior:'smooth',block:'center'}); };
+  const lock=()=>{ if(btn){ btn.disabled=true; btn.textContent='⏳ Sending…'; btn.style.opacity='.6'; btn.style.transform='translateY(1px)'; btn.style.cursor='default'; } };
+  const reset=()=>{ if(btn){ btn.disabled=false; btn.textContent=lbl; btn.style.opacity=''; btn.style.transform=''; btn.style.cursor=''; } };
+  lock(); const ids=[]; let q=0;
+  for(let i=0;i<MAP.length;i++){ const m=MAP[i]; if(m._st==='applied'||m._st==='queued'||tagApplied('Owner',m.match+': '+m.owner))continue;
+    flash('mapFlash','<span class="spin"></span> queueing '+(i+1)+'/'+MAP.length+'…','run'); if(i===0)scroll();
+    try{ const o=await API.post('apply',{owner:m.owner,app:m.match,route_id:m.route_id,path:m.path,confirm:true}); if(o.ok||o.queued||o.warning){q++;m._st='queued';const jid=o.job_id||(o.result&&o.result.job_id);if(jid!=null)ids.push(jid);} }catch(e){}
   }
-  flash('mapFlash','Queued '+q+' owner tag(s) on the background worker — watch the <a href="/web/tags-log.html">Tagging log</a>.','ok');
+  renderMap();
+  flash('mapFlash','<span class="spin"></span> Tags being sent to the Tagging log — queued '+q+' owner tag(s)…','run'); scroll();
+  const jm=await pollJobs(ids);
+  const byVal={}; Object.values(jm).forEach(j=>{ byVal['Owner|'+j.value]=j; });
+  let done=0,failed=0;
+  MAP.forEach(m=>{ const j=byVal['Owner|'+(m.match+': '+m.owner)]; if(!j)return;
+    if(j.status==='done'&&j.ok!==false&&!(j.result&&j.result.warning)){ m._st='applied'; done++; }
+    else if(j.status==='error'){ m._st=''; failed++; } });
+  flash('mapFlash',`✓ Tags sent to the Tagging log — applied ${done}${failed?', '+failed+' failed':''} of ${q} queued owner tag(s). Full detail in the <a href="/web/tags-log.html">Tagging log</a>.`, failed?'warn':'ok');
+  scroll(); reset();
   renderMap();
 }
 document.getElementById('load').onclick=load;
@@ -180,23 +247,75 @@ document.getElementById('interpret').onclick=interpret;
 document.getElementById('applyAll').onclick=applyAll;
 /* ===== Ownership Sankey — routes/paths → owners (from the exproute `map` action) ===== */
 let SNK=null, SNK_GF='both';
-const SNK_SC={owned:'#34d399',partial:'#e7c66b',unowned:'#f43f5e'};
+const SNK_SC={owned:'var(--ok)',partial:'#e7c66b',unowned:'#f43f5e',mitigated:'var(--ok)',accepted:'#6ea8ff',ignored:'#8a99ad'};
+const SNK_DNODE={mitigated:'✅ Mitigated',accepted:'✔ Accepted',ignored:'🚫 Ignored'};
+const SNK_RC={un:'#f43f5e',owned:'var(--ok)',mitigated:'var(--ok)',accepted:'#6ea8ff',ignored:'#8a99ad'};
+const SNK_UN='⛔ Unassigned';
+const _SNK_SPECIAL=[SNK_UN,'✅ Mitigated','✔ Accepted','🚫 Ignored'];
+function _snkSpecial(o){ return _SNK_SPECIAL.indexOf(o)>=0; }  // exact match (emoji-safe)
+function _snkColor(o){ return o===SNK_UN?'#f43f5e':o==='✅ Mitigated'?'var(--ok)':o==='✔ Accepted'?'#6ea8ff':o==='🚫 Ignored'?'#8a99ad':'var(--accent)'; }
 async function snkBuild(){ const b=document.getElementById('snkBuild'); b.disabled=true;
   flash('snkFlash','<span class="spin"></span> building the ownership map…','run');
   let o; try{ o=await API.post('map'); }catch(e){ o={ok:false,error:e.message}; }
   b.disabled=false;
   if(!o||!o.ok||!o.result){ flash('snkFlash','✗ '+esc((o&&(o.error||o.message))||'failed'),'crit'); return; }
-  SNK=o.result; flashClear('snkFlash'); snkRender();
+  SNK=o.result; flashClear('snkFlash'); snkRender(); snkUnmatched();
+}
+/* Owner tags that don't map to any route/path — surfaced so they never silently vanish. */
+let UNMATCHED=[];
+function snkUnmatched(){
+  const el=document.getElementById('snkUnmatched'); if(!el)return;
+  UNMATCHED=(SNK&&SNK.unmatched_owners)||[];
+  if(!UNMATCHED.length){ el.innerHTML=''; return; }
+  const rows=UNMATCHED.map((u,i)=>{
+    const owners=(u.owners||[]).join(', ');
+    const sug=(u.suggestions&&u.suggestions.length)
+      ? u.suggestions.map(s=>`<button class="btn ghost sm reretag" data-i="${i}" data-app="${esc(s)}" title="Re-tag ${esc(owners)}'s ${u.assets} asset(s) onto the exact route '${esc(s)}' (gated) so they land on the Sankey">🏷 ${esc(s)}</button>`).join(' ')
+      : '<span class="sub">no close route/path — assign directly above</span>';
+    return `<tr><td><span class="tagval">${esc(u.name)}</span></td><td>${esc(owners)}</td><td>${u.assets}</td>`
+      +`<td>${sug}<div class="sub reres" id="reres-${i}" style="margin-top:3px"></div></td></tr>`;
+  }).join('');
+  el.innerHTML='<div class="callbox" style="border-left:3px solid var(--warn,#e7c66b)">'
+    +'<b style="color:var(--warn,#e7c66b)">⚠ '+UNMATCHED.length+' owner tag'+(UNMATCHED.length>1?'s':'')+' don’t map to any route or path</b>'
+    +'<p class="sub" style="margin:4px 0 8px">These <span class="tagval">Owner</span> tags ARE in navi.db but their app-name doesn’t match a route/path name, so they can’t appear on the Sankey. Usually the name was truncated/abbreviated differently than navi’s route name. <b>Click a suggested route below</b> to re-tag that owner’s assets onto the exact route name (gated) — it then lands on the Sankey. Matching is case-insensitive, so only genuine name differences remain here.</p>'
+    +'<table><thead><tr><th>Tag app-name</th><th>Owner(s)</th><th>Assets</th><th>Closest route/path — click to re-tag</th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+  el.querySelectorAll('.reretag').forEach(b=>b.onclick=()=>reretag(+b.dataset.i, b.dataset.app));
+}
+/* one-click re-tag: apply the unmatched owner(s) to the exact route name so their assets
+   land on the Sankey. Same gated Owner-tag path + Tagging log as every other write. */
+async function reretag(i, app){
+  const u=UNMATCHED[i]; if(!u)return; const res=document.getElementById('reres-'+i);
+  const owners=(u.owners||[]).filter(Boolean);
+  if(!owners.length){ if(res)res.textContent='no owner to re-tag'; return; }
+  if(res)res.innerHTML='<span class="spin"></span> re-tagging '+esc(owners.join(', '))+' → '+esc(app)+'…';
+  const ids=[];
+  for(const owner of owners){
+    let o; try{ o=await API.post('apply',{owner,app,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+    if(!(o.ok||o.queued||o.warning)){ if(res)res.innerHTML='<span style="color:var(--crit)">✗ '+esc(o.message||o.error||'rejected')+'</span>'; return; }
+    const jid=o.job_id||(o.result&&o.result.job_id); if(jid!=null)ids.push(jid);
+  }
+  const jm=await pollJobs(ids); let done=0,failed=0;
+  Object.values(jm).forEach(j=>{ if(j.status==='done'&&j.ok!==false&&!(j.result&&j.result.warning))done++; else if(j.status==='error')failed++; });
+  if(res)res.innerHTML=failed
+    ? '<span style="color:var(--crit)">✗ '+failed+' failed (see <a href="/web/tags-log.html">log</a>)</span>'
+    : '<span style="color:var(--ok)">✓ re-tagged → <b>'+esc(app)+'</b> — click <b>▶ Build Sankey</b> to see it land. <a href="/web/tags-log.html">log</a></span>';
 }
 function snkRender(){ const wrap=document.getElementById('snkGraph'); if(!SNK){ wrap.innerHTML=''; return; }
   const N=parseInt((document.getElementById('snkTop')||{}).value||'15',10);
-  const items=(SNK.routes||[]).concat(SNK.paths||[]).filter(it=>SNK_GF==='both'||it.type===SNK_GF).filter(it=>it.assets>0).sort((a,b)=>b.assets-a.assets).slice(0,N);
+  const pool=(SNK.routes||[]).concat(SNK.paths||[]).filter(it=>SNK_GF==='both'||it.type===SNK_GF).filter(it=>it.assets>0||SNK_DNODE[it.status]);
+  // Top-N applies to the REAL routes/paths so the size selector is honoured; disposition sinks
+  // are additive (also capped at N) and never starve out unowned / ⛔ Unassigned.
+  const dispItems=pool.filter(it=>SNK_DNODE[it.status]).sort((a,b)=>b.assets-a.assets);
+  const restItems=pool.filter(it=>!SNK_DNODE[it.status]).sort((a,b)=>b.assets-a.assets);
+  const items=restItems.slice(0,N).concat(dispItems.slice(0,N)).sort((a,b)=>b.assets-a.assets);
   if(!items.length){ wrap.innerHTML='<p class="sub" style="padding:14px">No routes/paths with assets to chart. Assign owners / refresh navi.db, then rebuild.</p>'; return; }
   const links=[], ownerTot={}, UN='⛔ Unassigned';
-  items.forEach(it=>{ const owned=Math.max(0,it.owned_assets||0), un=Math.max(0,(it.assets||0)-owned), ow=(it.owners&&it.owners.length)?it.owners:[];
-    if(ow.length&&owned>0){ const per=owned/ow.length; ow.forEach(o=>{ links.push({fi:items.indexOf(it),to:o,v:per,kind:'owned'}); ownerTot[o]=(ownerTot[o]||0)+per; }); }
-    if(un>0){ links.push({fi:items.indexOf(it),to:UN,v:un,kind:'un'}); ownerTot[UN]=(ownerTot[UN]||0)+un; } });
-  const owners=Object.keys(ownerTot).sort((a,b)=> a===UN?1 : b===UN?-1 : (ownerTot[b]-ownerTot[a]));
+  items.forEach(it=>{ const fi=items.indexOf(it);
+    if(SNK_DNODE[it.status]){ const node=SNK_DNODE[it.status]; links.push({fi,to:node,v:it.assets,kind:it.status}); ownerTot[node]=(ownerTot[node]||0)+it.assets; return; }
+    const owned=Math.max(0,it.owned_assets||0), un=Math.max(0,(it.assets||0)-owned), ow=(it.owners&&it.owners.length)?it.owners:[];
+    if(ow.length&&owned>0){ const per=owned/ow.length; ow.forEach(o=>{ links.push({fi,to:o,v:per,kind:'owned'}); ownerTot[o]=(ownerTot[o]||0)+per; }); }
+    if(un>0){ links.push({fi,to:UN,v:un,kind:'un'}); ownerTot[UN]=(ownerTot[UN]||0)+un; } });
+  const owners=Object.keys(ownerTot).sort((a,b)=>{ const sa=_snkSpecial(a),sb=_snkSpecial(b); if(sa!==sb)return sa?1:-1; if(a===UN)return 1; if(b===UN)return -1; return ownerTot[b]-ownerTot[a]; });
   const sumL=items.reduce((s,it)=>s+it.assets,0), sumR=owners.reduce((s,o)=>s+ownerTot[o],0);
   const gap=8, maxNodes=Math.max(items.length,owners.length), bandH=Math.max(340,maxNodes*26);
   const scale=(bandH-Math.max(items.length-1,owners.length-1)*gap)/Math.max(sumL,sumR,1);
@@ -205,11 +324,11 @@ function snkRender(){ const wrap=document.getElementById('snkGraph'); if(!SNK){ 
   const rY={},rH={}; let ry=top; owners.forEach(o=>{ const h=Math.max(3,ownerTot[o]*scale); rY[o]=ry; rH[o]=h; ry+=h+gap; });
   const H=Math.max(yy,ry)+14, lOff={},rOff={}; let ribbons='';
   links.forEach(lk=>{ const th=Math.max(1,lk.v*scale), sy=lY[lk.fi]+(lOff[lk.fi]||0)+th/2; lOff[lk.fi]=(lOff[lk.fi]||0)+th;
-    const dy=rY[lk.to]+(rOff[lk.to]||0)+th/2; rOff[lk.to]=(rOff[lk.to]||0)+th; const mx=(leftX+nodeW+rightX)/2, c=lk.kind==='un'?'#f43f5e':'#34d399';
+    const dy=rY[lk.to]+(rOff[lk.to]||0)+th/2; rOff[lk.to]=(rOff[lk.to]||0)+th; const mx=(leftX+nodeW+rightX)/2, c=SNK_RC[lk.kind]||'var(--ok)';
     ribbons+='<path d="M'+(leftX+nodeW)+' '+sy.toFixed(1)+' C '+mx+' '+sy.toFixed(1)+', '+mx+' '+dy.toFixed(1)+', '+rightX+' '+dy.toFixed(1)+'" fill="none" stroke="'+c+'" stroke-opacity="0.42" stroke-width="'+th.toFixed(1)+'" data-i="'+lk.fi+'" data-o="'+esc(lk.to)+'"/>'; });
   const short=s=>{s=String(s);return s.length>30?('…'+s.slice(-29)):s;}; let ln='',rn='';
   items.forEach((it,i)=>{ const c=SNK_SC[it.status]||'#888'; ln+='<g class="xsl" data-i="'+i+'" data-name="'+esc(it.name)+'" style="cursor:pointer"><rect x="'+leftX+'" y="'+lY[i].toFixed(1)+'" width="'+nodeW+'" height="'+lH[i].toFixed(1)+'" rx="2" fill="'+c+'"/><text x="'+(leftX-8)+'" y="'+(lY[i]+lH[i]/2+4).toFixed(1)+'" text-anchor="end" font-size="12" fill="var(--ink)">'+esc(short(it.name))+'</text><text x="'+(leftX-8)+'" y="'+(lY[i]+lH[i]/2+16).toFixed(1)+'" text-anchor="end" font-size="9.5" fill="var(--mut)">'+it.owned_assets+'/'+it.assets+'</text></g>'; });
-  owners.forEach(o=>{ const un=o===UN; rn+='<g class="xso" data-o="'+esc(o)+'" style="cursor:pointer"><rect x="'+rightX+'" y="'+rY[o].toFixed(1)+'" width="'+nodeW+'" height="'+rH[o].toFixed(1)+'" rx="2" fill="'+(un?'#f43f5e':'var(--accent)')+'"/><text x="'+(rightX+nodeW+8)+'" y="'+(rY[o]+rH[o]/2+4).toFixed(1)+'" font-size="12" font-weight="600" fill="'+(un?'#f43f5e':'var(--accent)')+'">'+esc(o)+' <tspan font-weight="400" fill="var(--mut)">'+Math.round(ownerTot[o])+'</tspan></text></g>'; });
+  owners.forEach(o=>{ const nc=_snkColor(o); rn+='<g class="xso" data-o="'+esc(o)+'" style="cursor:pointer"><rect x="'+rightX+'" y="'+rY[o].toFixed(1)+'" width="'+nodeW+'" height="'+rH[o].toFixed(1)+'" rx="2" fill="'+nc+'"/><text x="'+(rightX+nodeW+8)+'" y="'+(rY[o]+rH[o]/2+4).toFixed(1)+'" font-size="12" font-weight="600" fill="'+nc+'">'+esc(o)+' <tspan font-weight="400" fill="var(--mut)">'+Math.round(ownerTot[o])+'</tspan></text></g>'; });
   wrap.innerHTML='<svg viewBox="0 0 '+W+' '+H+'" width="100%" style="min-width:700px"><text x="'+leftX+'" y="14" text-anchor="end" font-size="10.5" fill="var(--mut)">ROUTES / PATHS →</text><text x="'+(rightX+nodeW)+'" y="14" font-size="10.5" fill="var(--mut)">OWNERS</text>'+ribbons+ln+rn+'</svg>';
   const svg=wrap.querySelector('svg'), pth=svg.querySelectorAll('path');
   const hi=pred=>pth.forEach(p=>p.setAttribute('stroke-opacity',pred(p)?0.9:0.05)), reset=()=>pth.forEach(p=>p.setAttribute('stroke-opacity','0.42'));
@@ -221,7 +340,57 @@ function snkRender(){ const wrap=document.getElementById('snkGraph'); if(!SNK){ 
 document.getElementById('snkBuild').onclick=snkBuild;
 document.querySelectorAll('.snkfilt').forEach(b=>b.onclick=()=>{ document.querySelectorAll('.snkfilt').forEach(x=>x.classList.remove('active')); b.classList.add('active'); SNK_GF=b.dataset.g; if(SNK)snkRender(); });
 document.getElementById('snkTop').onchange=()=>{ if(SNK)snkRender(); };
+/* ===== Round-trip with the Ownership Map: arrive on one or MANY gaps, assign, bounce back ===== */
+let QA=[];   // [{kind,name}]
+function showQuickAssign(items){
+  QA=(items||[]).filter(x=>x&&x.name);
+  if(!QA.length)return;
+  document.getElementById('quickCard').style.display='';
+  document.getElementById('qaScope').textContent='· '+QA.length+' '+(QA.length===1?'item':'items');
+  document.getElementById('qaName').innerHTML=(QA.length===1
+    ? 'From the Ownership Map: assign an owner to the '+esc(QA[0].kind)+' below.'
+    : 'From the Ownership Map: assign ONE owner to these '+QA.length+' gaps.')
+    +' Tagging writes <span class="tagval">Owner : &lt;name&gt;: &lt;user&gt;</span> to every asset on each (gated), then bounce back to the map to watch the gaps close.';
+  document.getElementById('qaTargets').innerHTML='<div style="max-height:200px;overflow:auto;border:1px solid var(--line);border-radius:8px">'
+    +QA.map((x,i)=>`<div id="qat-${i}" style="display:flex;justify-content:space-between;gap:8px;padding:5px 9px;border-bottom:1px solid var(--line);font-size:12.5px"><span><span class="chip">${esc(x.kind)}</span> <span class="mono">${esc(x.name)}</span></span><span id="qast-${i}" class="sub">pending</span></div>`).join('')+'</div>';
+  const inp=document.getElementById('qaOwner'); inp.value=''; inp.focus();
+  document.getElementById('quickCard').scrollIntoView({behavior:'smooth',block:'center'});
+}
+async function qaApply(){
+  if(!QA.length)return; const owner=(document.getElementById('qaOwner').value||'').trim();
+  if(!owner){ flash('qaFlash','Enter an owner (user or group).','warn'); return; }
+  flash('qaFlash','<span class="spin"></span> resolving owner + queueing '+QA.length+'…','run');
+  const jobmap={};   // jid -> index
+  for(let i=0;i<QA.length;i++){ const x=QA[i]; const st=document.getElementById('qast-'+i);
+    let route_id=null, path=null;
+    if(x.kind==='route'){ const r=((DATA&&DATA.routes)||[]).find(y=>(y.app_name||'').toLowerCase()===x.name.toLowerCase()); route_id=r&&r.route_id; }
+    else { path=x.name; }
+    let o; try{ o=await API.post('apply',{owner,app:x.name,route_id,path,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+    if(o.ok||o.queued||o.warning){ const jid=o.job_id||(o.result&&o.result.job_id); if(jid!=null){jobmap[String(jid)]=i; if(st){st.textContent='queued #'+jid;}} else if(st){st.textContent='queued';} }
+    else { if(st){ st.textContent='✗ '+(o.message||o.error||'rejected'); st.style.color='var(--crit)'; } }
+  }
+  flash('qaFlash','<span class="spin"></span> queued — waiting on the background worker…','run');
+  const jm=await pollJobs(Object.keys(jobmap));
+  let done=0,failed=0;
+  Object.entries(jobmap).forEach(([jid,idx])=>{ const j=jm[jid], st=document.getElementById('qast-'+idx);
+    if(j&&j.status==='done'&&j.ok!==false&&!(j.result&&j.result.warning)){ done++; if(st){st.textContent='✓ tagged';st.style.color='var(--ok)';} }
+    else if(j&&j.status==='error'){ failed++; if(st){st.textContent='✗ '+(j.message||'failed');st.style.color='var(--crit)';} }
+    else if(st){ st.textContent='running…'; } });
+  flash('qaFlash','Tagged '+done+(failed?', '+failed+' failed':'')+' of '+QA.length+' → '+esc(owner)+'. <a href="/web/ownermap.html">🗺 See it on the Ownership Map</a> — Refresh navi.db there to watch the gaps close.', failed?'warn':'ok');
+  try{ coverRun(); }catch(e){}
+}
+document.getElementById('qaTag').onclick=qaApply;
+document.getElementById('qaOwner').addEventListener('keydown',e=>{ if(e.key==='Enter')qaApply(); });
+document.getElementById('qaSkip').onclick=()=>{ document.getElementById('quickCard').style.display='none'; QA=[]; };
+
 mountAgentHeader({icon:'🧭',name:'Exposure Routes',sub:'owner mapping · navi + Tenable MCP'});
-loadAppliedTags();
+/* explicit-run: nothing scans navi.db until ▶ Load — UNLESS we arrived from the map with
+   gap(s) to assign, in which case load, then open the quick-assign for them. */
+(function(){
+  let ho=null; try{ ho=JSON.parse(sessionStorage.getItem('atlas_assign')||'null'); }catch(e){}
+  if(!ho)return; try{ sessionStorage.removeItem('atlas_assign'); }catch(e){}
+  const items=Array.isArray(ho.items)?ho.items:(ho.name?[{kind:ho.kind,name:ho.name}]:[]);
+  if(items.length){ Promise.resolve(load()).then(()=>showQuickAssign(items.map(x=>({kind:x.kind==='path'?'path':'route',name:x.name})))); }
+})();
 </script>
 </body></html>

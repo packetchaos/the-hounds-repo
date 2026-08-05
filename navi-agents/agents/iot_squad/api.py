@@ -1,12 +1,19 @@
 """IoT Discovery Squad — self-contained HTTP actions."""
-from core import navi_cli, iot_registry
+from core import navi_cli, iot_registry, iot_common
 from .agent import IoTSquadOrchestrator
 
 AGENT = IoTSquadOrchestrator()
 
 
 def run(p):
-    return {"ok": True, "agent": AGENT.meta(), "result": AGENT.run()}, 200
+    p = p or {}
+    use_pack = bool(p.get("use_pack"))
+    res = AGENT.run(use_pack=use_pack)
+    return {"ok": True, "agent": AGENT.meta(), "result": res,
+            "options": {"use_pack": use_pack,
+                        "pack_size": len(iot_common.term_pack()),
+                        "byo_pack": bool(__import__("os").environ.get("IOT_TERM_PACK_PATH")),
+                        "supplied_carriers": len(iot_common.byo_carrier_plugins())}}, 200
 
 
 def _tag_selector(cat, val, s):
@@ -26,18 +33,25 @@ def tags_apply(p):
     if not p.get("confirm"):
         return {"ok": False, "error": "confirm=true required to apply tags"}, 400
     actions = {a["value"]: a for a in AGENT.result.get("tag_actions", [])}
+    # Unified inventory scheme: category 'Asset Inventory', value '<Facet>: <name>'. The UI
+    # may override the facet per device (facets map) or set one default for all (facet).
+    facets = p.get("facets") or {}
+    default_facet = (p.get("facet") or "").strip()
     results = []
     for v in p.get("values", []):
         a = actions.get(v)
         if not a:
             results.append({"value": v, "ok": False, "message": "no matching tag action"})
             continue
+        facet = (facets.get(v) or default_facet or a.get("facet") or "Device Type").strip()
+        tag_value = f"{facet}: {v}"
         # Each device is tagged via its navi built-in selectors — one navi command
         # per plugin/output/name — so no giant UUID --query (dodges the 1999 cap).
         sels = a.get("selectors") or ([{"query": a.get("query", "")}] if a.get("query") else [])
-        jobs = [_tag_selector(a["category"], a["value"], s) for s in sels]
+        jobs = [_tag_selector("Asset Inventory", tag_value, s) for s in sels]
         job_ids = [j.get("job_id") for j in jobs if j.get("job_id") is not None]
-        results.append({"value": v, "ok": True, "queued": True,
+        results.append({"value": v, "facet": facet, "tag_value": "Asset Inventory : " + tag_value,
+                        "ok": True, "queued": True,
                         "job_ids": job_ids, "job_id": (job_ids[0] if job_ids else None),
                         "commands": len(sels)})
     return {"ok": True, "results": results, "writes_enabled": navi_cli.writes_enabled(),
@@ -71,6 +85,20 @@ def detections_decide(p):
     return {"ok": True, **iot_registry.apply_decisions(decisions)}, 200
 
 
+def detections_export(p):
+    """Base-building: write the confirmed proposals from a rich-db hunt to a
+    reviewable learned base file (default) — or merge=True to fold in the seeds
+    too. Does NOT touch the live registry; the operator swaps the file in."""
+    if not p.get("confirm"):
+        return {"ok": False, "error": "confirm=true required to export a base"}, 400
+    proposals = p.get("proposals")
+    if proposals is None and AGENT.result:      # default: everything Agent 3 confirmed
+        proposals = AGENT.result.get("proposals", [])
+    if not proposals:
+        return {"ok": False, "error": "no proposals to export (run a hunt first)"}, 400
+    return {"ok": True, **iot_registry.export_base(proposals, merge=bool(p.get("merge")))}, 200
+
+
 def registry(p):
     data = iot_registry.load()
     return {"path": iot_registry.registry_path(),
@@ -78,4 +106,5 @@ def registry(p):
 
 
 ACTIONS = {"run": run, "tags_apply": tags_apply, "tag_candidate": tag_candidate,
-           "detections_decide": detections_decide, "registry": registry}
+           "detections_decide": detections_decide, "detections_export": detections_export,
+           "registry": registry}

@@ -6,7 +6,7 @@
 <style>
 .plink{color:var(--accent);text-decoration:none;font-weight:600}.plink:hover{text-decoration:underline}
 .barwrap{display:flex;height:22px;border-radius:100px;overflow:hidden;border:1px solid var(--line);margin:8px 0}
-.barwrap .ok{background:linear-gradient(90deg,#2e7d57,#3fae74)}.barwrap .bad{background:linear-gradient(90deg,#b9791a,#f5a623)}
+.barwrap .ok{background:linear-gradient(90deg,var(--cx-2e7d57),var(--cx-3fae74))}.barwrap .bad{background:linear-gradient(90deg,var(--cx-b9791a),var(--cx-f5a623))}
 .prob{color:var(--crit);font-weight:700}
 </style>
 </head><body>
@@ -61,6 +61,22 @@ async function run(){
 function dimRows(list,kind){
   return list.length?list.map(x=>`<tr><td class="${x.problematic?'prob':''}">${esc(x.key)}${x.problematic?' ⚠':''}</td><td>${x.assets}</td><td class="${x.problematic?'prob':''}">${dur(x.avg_sec)}</td><td class="mono">${dur(x.max_sec)}</td><td><button class="btn sm" data-kind="${kind}" data-val="${esc(x.key)}">Tag</button></td></tr>`).join(''):'<tr><td colspan="5" class="sub">None found.</td></tr>';
 }
+/* paginate the scan/scanner/policy tables — a busy env can have thousands of scans */
+const SE_PER=50; const _sePage={scanner:0,policy:0,scan:0};
+const _SE_MAP={scanner:['scanners','#scnTbl','scnPager'],policy:['policies','#polTbl','polPager'],scan:['scans','#scaTbl','scaPager']};
+function sePager(pid,total,kind){ const el=document.getElementById(pid); if(!el)return; const pages=Math.ceil(total/SE_PER);
+  if(pages<=1){ el.style.display='none'; el.innerHTML=''; return; } el.style.display='';
+  const p=_sePage[kind], a=p*SE_PER+1, b=Math.min(total,(p+1)*SE_PER);
+  el.innerHTML=`<button class="btn ghost sm" ${p<=0?'disabled':''} data-pv>‹ Prev</button><span class="sub" style="margin:0 10px">${a}–${b} of ${total}</span><button class="btn ghost sm" ${p>=pages-1?'disabled':''} data-nx>Next ›</button>`;
+  const pv=el.querySelector('[data-pv]'), nx=el.querySelector('[data-nx]');
+  if(pv)pv.onclick=()=>{ _sePage[kind]--; renderDim(kind); };
+  if(nx)nx.onclick=()=>{ _sePage[kind]++; renderDim(kind); }; }
+function renderDim(kind){ const [key,tbl,pid]=_SE_MAP[kind]; const list=(DATA&&DATA[key])||[];
+  const pages=Math.max(1,Math.ceil(list.length/SE_PER)); if(_sePage[kind]>=pages)_sePage[kind]=pages-1; if(_sePage[kind]<0)_sePage[kind]=0;
+  const slice=list.slice(_sePage[kind]*SE_PER,(_sePage[kind]+1)*SE_PER);
+  const tb=document.querySelector(tbl+' tbody'); tb.innerHTML=dimRows(slice,kind);
+  tb.querySelectorAll('button[data-kind]').forEach(b=>b.onclick=()=>tagDim(b.dataset.kind,b.dataset.val));
+  sePager(pid,list.length,kind); }
 function render(){
   const c=DATA.credential||{};
   document.getElementById('credCard').style.display='block';
@@ -68,18 +84,16 @@ function render(){
   document.getElementById('credKpi').innerHTML=
     `<div class="k"><div class="v">${c.total_assets||0}</div><div class="l">total assets</div></div>`+
     `<div class="k"><div class="v" style="color:var(--crit)">${c.cred_fail_assets||0}</div><div class="l">credential failures (104410)</div></div>`+
-    `<div class="k"><div class="v" style="color:#3fae74">${c.ok_assets||0}</div><div class="l">credentialed OK</div></div>`;
+    `<div class="k"><div class="v" style="color:var(--cx-3fae74)">${c.ok_assets||0}</div><div class="l">credentialed OK</div></div>`;
   const t=c.total_assets||1, bad=c.cred_fail_assets||0, ok=c.ok_assets||0;
   document.getElementById('credBar').innerHTML=`<div class="ok" style="width:${(ok/t*100).toFixed(1)}%"></div><div class="bad" style="width:${(bad/t*100).toFixed(1)}%"></div>`;
   const _cc=document.getElementById('credCount'); if(_cc)_cc.textContent='('+(c.assets||[]).length+')';
-  document.querySelector('#credTbl tbody').innerHTML=(c.assets||[]).length?c.assets.map(a=>`<tr><td><a class="plink" href="/web/asset.html?asset=${encodeURIComponent(a.asset_uuid)}">${esc(a.host)}</a></td><td class="mono">${esc(a.ip||'')}</td><td>${plat(a.url,'Open ↗')}</td></tr>`).join(''):'<tr><td colspan="3" class="sub">No credential failures. ✔</td></tr>';
+  hPageReset('credTbl'); hPaginate('credTbl', (c.assets||[]), a=>`<tr><td><a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(a.asset_uuid)}">${esc(a.host)}</a></td><td class="mono">${esc(a.ip||'')}</td><td>${plat(a.url,'Open ↗')}</td></tr>`, {empty:'<tr><td colspan="3" class="sub">No credential failures. ✔</td></tr>', cols:3});
   document.getElementById('scnCount').textContent=`(${DATA.scanners.length})`;
   document.getElementById('polCount').textContent=`(${DATA.policies.length})`;
   document.getElementById('scaCount').textContent=`(${DATA.scans.length})`;
-  document.querySelector('#scnTbl tbody').innerHTML=dimRows(DATA.scanners,'scanner');
-  document.querySelector('#polTbl tbody').innerHTML=dimRows(DATA.policies,'policy');
-  document.querySelector('#scaTbl tbody').innerHTML=dimRows(DATA.scans,'scan');
-  document.querySelectorAll('#dimCard button[data-kind]').forEach(b=>b.onclick=()=>tagDim(b.dataset.kind,b.dataset.val));
+  _sePage.scanner=0; _sePage.policy=0; _sePage.scan=0;
+  renderDim('scanner'); renderDim('policy'); renderDim('scan');
   wireCsv('scnCsv','scanners','scan-eval-by-scanner',{key:'scanner_ip'});
   wireCsv('polCsv','policies','scan-eval-by-policy',{key:'policy'});
   wireCsv('scaCsv','scans','scan-eval-by-scan',{key:'scan_name'});
@@ -110,9 +124,9 @@ document.getElementById('credTag').onclick=async()=>{
   reportTag(res,o,'Tagged credential failures');
 };
 function reportTag(res,o,okmsg){
-  if(!o.ok){ res.innerHTML='<div class="callbox" style="color:#ffb4c6">✗ '+(o.error||'failed')+'</div>'; return; }
+  if(!o.ok){ res.innerHTML='<div class="callbox" style="color:var(--cx-ffb4c6)">✗ '+(o.error||'failed')+'</div>'; return; }
   const r=o.result||{}; const okk=r.ok||/job_uuid|not subscriptable/.test(JSON.stringify(r));
-  res.innerHTML='<div class="callbox" style="color:'+(okk?'#7ee2a8':'#ffb4c6')+'">'+(okk?(okmsg+'.'+(o.writes_enabled?' Allow ~30 min for Tenable.':' (gated — set NAVI_ALLOW_WRITES=1 and put navi on PATH)')):('✗ '+(r.message||'tag failed')))+'</div>';
+  res.innerHTML='<div class="callbox" style="color:'+(okk?'var(--ok)':'var(--cx-ffb4c6)')+'">'+(okk?(okmsg+'.'+(o.writes_enabled?' Allow ~30 min for Tenable.':' (gated — set NAVI_ALLOW_WRITES=1 and put navi on PATH)')):('✗ '+(r.message||'tag failed')))+'</div>';
 }
 document.getElementById('run').onclick=run;
 mountAgentHeader({icon:'📈',name:'Scan Evaluations',sub:'scanner / policy / scan averages · credential coverage'});

@@ -68,6 +68,46 @@ function agentApi(agentId){
       try{ _harvestFindings(agentId, action, r, body); }catch(e){} return r; },
   };
 }
+
+/* Run a heavy agent action in the BACKGROUND (same pattern as the Tagging log).
+ * Returns immediately with a job; polls the Runs log and resolves with the result
+ * when it finishes. Usage:
+ *   const res = await runAgentJob('insights','run',{}, {onStart:id=>…}); render(res);
+ */
+async function runAgentJob(agentId, action, payload, opts){
+  opts = opts || {};
+  const start = await jpost(`/api/${agentId}/${action}`,
+    Object.assign({background:true}, payload||{}, opts.label?{_label:opts.label}:{}));
+  if(!start || !start.job_id){          // server answered inline (cached / not backgrounded)
+    if(opts.onDone) opts.onDone(start); return start;
+  }
+  if(opts.onStart) opts.onStart(start.job_id);
+  try{ hJobBadge(); }catch(e){}
+  const id = start.job_id;
+  return await new Promise(resolve => {
+    const tick = async () => {
+      let o; try{ o = await jget(`/api/jobs/${id}`); }catch(e){ setTimeout(tick, 2000); return; }
+      const j = o && o.job;
+      if(!j){ if(opts.onError) opts.onError('job not found'); resolve(null); return; }
+      if(j.status === 'done'){ try{hJobBadge();}catch(e){} if(opts.onDone) opts.onDone(j.result||{}); resolve(j.result||{}); return; }
+      if(j.status === 'error'){ try{hJobBadge();}catch(e){} if(opts.onError) opts.onError(j.message||'failed'); resolve(null); return; }
+      setTimeout(tick, 1500);           // queued / running — keep polling
+    };
+    tick();
+  });
+}
+
+/* Header badge: N runs in progress → link to the Runs log (mirrors the tag log). */
+async function hJobBadge(){
+  const el = document.getElementById('runsBadge'); if(!el) return;
+  try{
+    const o = await jget('/api/jobs'); const c = (o && o.counts) || {};
+    const active = (c.running||0) + (c.queued||0);
+    el.innerHTML = active
+      ? `<a class="chip" href="/web/agent-runs.html" title="Agent runs in progress" style="text-decoration:none;color:var(--accent)"><span class="spin"></span> ${active} run${active>1?'s':''}</a>`
+      : `<a class="chip" href="/web/agent-runs.html" title="Runs + query profile + index advisor" style="text-decoration:none">🧾 Runs &amp; queries</a>`;
+  }catch(e){ el.innerHTML=''; }
+}
 /* Deep-scan a run/tag response for asset UUIDs, plugin (finding) IDs, and a tag
    category:value, then registerFindings() so any agent gets the Gabriel hand-off for free.
    Named the email agent's own calls are ignored. */
@@ -76,7 +116,7 @@ function _harvestFindings(agentId, action, resp, reqBody){
   if(agentId==='email' || !resp || typeof resp!=='object') return;
   if(/^(status|recipients|preview|send|meta|health|schema)$/.test(action||'')) return;
   const uu=new Set(), fids=new Set(); let tag=null;
-  (function walk(o,depth){
+  function walk(o,depth){
     if(!o || depth>6) return;
     if(Array.isArray(o)){ o.forEach(v=>walk(v,depth+1)); return; }
     if(typeof o!=='object') return;
@@ -92,7 +132,12 @@ function _harvestFindings(agentId, action, resp, reqBody){
       if(typeof v==='string' && _UUID_RE.test(v)) uu.add(v);
       if(v && typeof v==='object') walk(v,depth+1);
     }
-  })(resp,0);
+  }
+  walk(resp,0);
+  // The REQUEST body is an equally good (often BETTER) source: a tag action sends the
+  // exact asset uuids / items it is tagging, while many agents' responses only echo a
+  // count. Without this, those hounds (e.g. Pythia) hand Gabriel a tag but zero assets.
+  walk(reqBody,0);
   // a tag the caller just requested (reqBody) is a good source too
   if(!tag && reqBody && reqBody.category && reqBody.value) tag={category:reqBody.category, value:reqBody.value};
   if(!uu.size && !fids.size && !tag) return;
@@ -105,6 +150,13 @@ function _harvestFindings(agentId, action, resp, reqBody){
 
 /* ---- Codenames + lore (the Hound Pack) — shown expandable in each agent header ---- */
 const CODENAMES = {
+  classify:{name:'Linnaeus Hound',lore:'Carl <b>Linnaeus</b>, the father of taxonomy who gave every living thing its name and rank \u2014 here he classifies every asset by what it <i>is</i> (Windows / Linux / macOS / IoT / OT / network / hypervisor), from the OS field with a plugin-output fallback, so the rest of the pack knows exactly what each host is.'},
+  was:{name:'Xolotl',lore:'<b>Xolotl</b>, the Aztec dog-god who guides souls through the shadow-world — here he walks your web apps\' hidden surface, the dynamic (DAST) findings that live behind the login and inside the request/response, mapping OWASP-class exposure a network scan never sees.'},
+  sla:{name:'Sk\u00f6ll',lore:'<b>Sk\u00f6ll</b>, the wolf that forever chases the sun across the sky — here he chases every finding against its clock, surfacing the SLA breaches: what is overdue, by how long, and for whom, so remediation deadlines can\'t quietly slip.'},
+  asset_ownership:{name:'Terminus',lore:'<b>Terminus</b>, the Roman god of boundary stones and property lines — he answers who owns each asset. Business leaders own groups of assets (Business Owner), technology owners hold routes &amp; paths (Owner, via Atlas), and a single Asset Owner can claim an asset\'s every route &amp; path. Surfaces what is unclaimed, what is blind, and what the pack knows about your crown jewels.'},
+  fused_score:{name:'Nemesis',lore:'<b>Nemesis</b>, the goddess of retribution who brings the reckoning to what has earned it — here she fuses every Hound\'s signal into one exposure score per asset, surfaces the worst from each and where they converge, ranks the estate worst-first, and turns a remediation play into a projected reduction. The pack\'s convergence page.'},
+  ex_apps:{name:'Vizsla',lore:'The <b>Vizsla</b> — a tireless pointer bred to range wide and mark its quarry — here it ranges the WAS inventory and points you at every web application navi has seen, so you can pick one and dig in.'},
+  ex_fixed:{name:'Coonhound',lore:'The <b>Coonhound</b> — bays the moment it trees its quarry — here it trails the findings that have been <b>fixed</b> (closed / remediated), so you can prove what is actually put to bed versus what only looks quiet.'},
  certificate:{name:'Certania Hound',lore:'Coined from <b>“certificate”</b> + the loyal hound. It stands watch over the chain of trust, sniffing out certificates about to expire.'},
  iot_squad:{name:'Cerberus Hound',lore:'<b>Cerberus</b>, the many-headed dog guarding the underworld’s gate. The IoT squad is a pack guarding the network edge — the unknown devices at the gate.'},
  acr:{name:'Anubis Hound',lore:'<b>Anubis</b>, who weighs the heart against the feather of truth. ACR calibration weighs each asset’s <i>true</i> criticality.'},
@@ -130,8 +182,13 @@ const CODENAMES = {
  ex_routes:{name:'Wolfhound',lore:'The <b>Wolfhound</b> — large enough to run down a wolf. The route explorer runs down application routes.'},
  ex_paths:{name:'Greyhound',lore:'The <b>Greyhound</b> — fastest of the hounds. The path explorer sprints through filesystem paths.'},
  argos:{name:'Argos Hound',lore:'<b>Argos</b>, Odysseus’s faithful hound — the only one who knew his master’s true identity after twenty years. Give it one UUID or IP and it recognizes that asset across every table, telling its whole story.'},
+ was_asset:{name:'Beagle',lore:'The <b>Beagle</b> — a scent hound that works a trail to map exactly where its quarry has been. Argos for web apps: point it at one app and it follows navi’s WAS info plugins to lay out the terrain — sitemap, scan telemetry, target facts, the screenshot, external URLs, cookies and methods — every plugin clickable to its raw stored output.'},
+ compliance:{name:'Minos',lore:'<b>Minos</b>, the mythic judge who weighs each case and renders a verdict — here he weighs the estate against its audit benchmarks. Pass, fail, warning; the controls failing the most assets; how failures map to NIST, PCI, HIPAA, CIS and ISO — and a way to assign an Audit Owner to a control’s failing assets.'},
+ custom_audit:{name:'Draco',lore:'<b>Draco</b>, the Athenian lawgiver who set down the first written legal code — here he turns a policy requirement into a written, enforceable Tenable <span class="mono">.audit</span> check. Describe the need in plain English and Claude drafts valid Nessus checks, or build one field-by-field from the platform catalog; Draco validates the syntax and auto-maps each check to its framework controls, then hands you a scan-ready file. Minos judges against benchmarks; Draco writes them.'},
+ compliance_asset:{name:'Sherlock',lore:'<b>Sherlock</b>, the detective — point him at one asset and he lays out every audit check it passed, failed or warned (actual vs expected, the fix, the framework mappings), then infers the connection between a failed control and the real findings that back it, so a config gap and the vuln proving it can be tagged and routed together.'},
  advanced:{name:'Deerhound',lore:'The <b>Deerhound</b> — a great sighthound bred to run down big game over vast open ground. The advanced search ranges across every table at once, joining and filtering the whole estate.'},
  email:{name:'Gabriel Hound',lore:'<b>Gabriel</b>, the messenger — the one who carries the word to those who need it. The email agent closes the loop: it takes what the pack found and delivers it to the humans who own it, with deep-links back into Tenable.'},
+ alert:{name:'Alert Raven',lore:'In the wild, <b>ravens ride with the wolf pack</b> — scouting ahead, then calling out where the kill (and the danger) is; the wolves hunt, the raven watches the sky. <b>Alert Raven</b> rides with the Hounds the same way: it keeps watch over navi.db and calls out — an email digest — the moment a tracked condition turns dangerous.'},
 };
 /* ---- "Deep dive" — the origin article + code behind each agent (script → agent) ----
    Each idea started as a Medium article by Casey Reid (packetchaos), became a navi
@@ -221,8 +278,12 @@ function deepDiveMeta(id){ const d=deepDive(id); if(!d) return '';
   if(d.article&&d.article.url) h+='<a href="'+d.article.url+'" target="_blank" rel="noopener" title="'+esc(d.article.title||'')+'" style="font-size:12px;color:var(--accent);font-weight:600;text-decoration:none">Deep dive ↗</a>';
   return h?('<div class="ddmeta" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:2px 0 0">'+h+'</div>'):''; }
 /* just the code link (shown with Execute / Open in the actions row) */
-function deepDiveCode(id){ const d=deepDive(id); if(!d||!d.code||!d.code.url) return '';
-  return '<a class="btn ghost sm" href="'+d.code.url+'" target="_blank" rel="noopener" title="'+esc(d.code.label||'Source code')+'">‹ › Code</a>'; }
+// The ‹ › Code link points at the agent's own folder in the-hounds-repo on GitHub.
+const HOUNDS_REPO='https://github.com/packetchaos/the-hounds-repo/tree/main/navi-agents/agents/';
+const HOUNDS_REPO_ALIAS={act1:'certificate',squad:'iot_squad',capp:'customapp',ident:'identity',scaneval:'scan_eval'};
+function houndsRepoUrl(id){ return HOUNDS_REPO+(HOUNDS_REPO_ALIAS[id]||id); }
+function deepDiveCode(id){ const d=deepDive(id); if(!d) return '';
+  return '<a class="btn ghost sm" href="'+houndsRepoUrl(id)+'" target="_blank" rel="noopener" title="Source — this hound in the-hounds-repo">‹ › Code</a>'; }
 /* ===== Per-agent intro: value line + expanded key capabilities (from the field guide) ===== */
 const AGENT_INTRO = {
  certificate:{does:"Keeps certificate expirations from becoming outages — finds every cert expiring within a year, shows exactly who's affected, and tags the risk before it bites.",caps:[
@@ -382,8 +443,8 @@ function _mountCodename(host){
   const intro = (typeof AGENT_INTRO!=='undefined' && AGENT_INTRO[id]) || null;
   let cb=document.getElementById('agent-codename');
   if(!cb){ cb=document.createElement('div'); cb.id='agent-codename'; cb.className='codebanner'; cb.style.cssText='margin:0 0 12px'; host.insertAdjacentElement('afterend',cb); }
-  const crestSm='<img src="/static/crests/'+id+'.png?v=3" alt="" onerror="this.replaceWith(document.createTextNode(\'🐾\'))">';
-  const bigCrest='<img class="introCrest" src="/static/crests/'+id+'.png?v=3" alt="'+esc(cn.name)+'" onerror="this.style.display=\'none\'">';
+  const crestSm='<img src="/static/crests/'+id+'.png?v=5" alt="" onerror="this.replaceWith(document.createTextNode(\'🐾\'))">';
+  const bigCrest='<img class="introCrest" src="/static/crests/'+id+'.png?v=5" alt="'+esc(cn.name)+'" onerror="this.style.display=\'none\'">';
   const doesHtml=(intro&&intro.does)?('<div class="introSec"><h4>What it does</h4><p class="introDoes">'+intro.does+'</p></div>'):'';
   const capsHtml=(intro&&intro.caps&&intro.caps.length)?('<div class="introSec"><h4>Key capabilities</h4><ul class="introCaps">'+intro.caps.map(c=>'<li>'+c+'</li>').join('')+'</ul></div>'):'';
   const loreHtml='<div class="introSec"><h4>What\'s in the name</h4><div class="introLore">'+cn.lore+'</div></div>';
@@ -500,22 +561,9 @@ const _NAV_ITEMS = [
   ['📜 AI Contract', '/agents/contract/page.html'],
   ['📧 Email · Gabriel', '/agents/email/page.html'],
   ['SEP'],
-  ['🏷 Tagging log', '/web/tags-log.html'],
-  ['SEP'],
-  ['📊 Dashboards', [
-    ['📊 Dashboard builder', '/agents/dashboard/page.html'],
-    ['🗂 Custom Dashboard', '/web/customdash.html'],
-    ['🗺 Ownership Map', '/web/ownermap.html'],
-  ]],
-  ['🔎 Search Hounds', [
-    ['🔦 Asset deep-dive · Argos', '/agents/argos/page.html'],
-    ['🧠 Advanced search', '/web/advanced.html'],
-    ['🔎 Assets', '/agents/ex_assets/page.html'],
-    ['🔎 Vulns', '/agents/ex_vulns/page.html'],
-    ['🔎 Plugins', '/agents/ex_plugins/page.html'],
-    ['🔎 Routes', '/agents/ex_routes/page.html'],
-    ['🔎 Paths', '/agents/ex_paths/page.html'],
-  ]],
+  ['📊 Dashboards', '/web/dashboards.html'],
+  ['🔎 Search Hounds', '/web/search.html'],
+  ['🛠 Tools', '/web/tools.html'],
 ];
 function _navddStyle(){
   if(document.getElementById('navddStyle')) return;
@@ -529,42 +577,290 @@ function _navddStyle(){
    +'color:var(--ink-2,#cfcfcf);padding:8px 11px;border-radius:7px;font-size:12.5px;cursor:pointer;white-space:nowrap}'
    +'.navdd-item:hover{background:var(--panel2,var(--bg-2,#222));color:var(--ink,#fff)}'
    +'.navdd-item.active{color:var(--accent,#d6f84c)}'
-   +'.navdd-caret{font-size:10px;opacity:.7;margin-left:2px}';
+   +'.navdd-caret{font-size:10px;opacity:.7;margin-left:2px}'
+   +'.searchsub{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin:0 0 6px;padding:9px 12px;'
+   +'background:var(--panel,#161616);border:1px solid var(--line,#333);border-radius:11px}'
+   +'.searchsub .lbl{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--mut,#8a99ad);margin-right:4px}'
+   +'.searchsub button{background:transparent;border:1px solid var(--line,#333);color:var(--ink-2,#cfcfcf);padding:6px 12px;border-radius:999px;font-size:12.5px;cursor:pointer;white-space:nowrap;transition:border-color .12s,background .12s}'
+   +'.searchsub button:hover{border-color:var(--accent);color:var(--ink,#fff)}'
+   +'.searchsub button.active{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}';
   document.head.appendChild(st);
 }
+// The Dashboards shelf — horizontal sub-bar on every dashboard page + the hub.
+const DASH_PAGES = [
+  ['📊 Dashboard builder','/agents/dashboard/page.html'],
+  ['🗂 Custom Dashboard', '/web/customdash.html'],
+  ['⚖️ Compliance',       '/web/compliancedash.html'],
+  ['🗺 Ownership Map',     '/web/ownermap.html'],
+];
+function mountDashboardsNav(){
+  const p = location.pathname;
+  const isDash = DASH_PAGES.some(s => p === s[1] || p.endsWith(s[1])) || p.endsWith('/web/dashboards.html');
+  const old = document.getElementById('dashsub'); if(old) old.remove();
+  if(!isDash) return;
+  const bar = document.createElement('nav'); bar.className = 'searchsub'; bar.id = 'dashsub';
+  bar.innerHTML = '<span class="lbl">📊 Dashboards</span>' + DASH_PAGES.map(s => {
+    const a = (p === s[1] || p.endsWith(s[1]));
+    return '<button class="' + (a ? 'active' : '') + '" data-href="' + s[1] + '">' + s[0] + '</button>';
+  }).join('');
+  const anchor = document.getElementById('topnav') || document.querySelector('header.top, #app-header, header');
+  if(anchor && anchor.parentNode) anchor.insertAdjacentElement('afterend', bar);
+  bar.querySelectorAll('button[data-href]').forEach(b => b.onclick = () => { location.href = b.dataset.href; });
+}
+// The Search-Hounds pack — shown as a horizontal sub-bar on every search page + the hub.
+const SEARCH_PAGES = [
+  ['🔦 Argos',   '/agents/argos/page.html'],
+  ['🧠 Advanced','/web/advanced.html'],
+  ['🔎 Assets',  '/agents/ex_assets/page.html'],
+  ['🔎 Vulns',   '/agents/ex_vulns/page.html'],
+  ['🔎 Plugins', '/agents/ex_plugins/page.html'],
+  ['🔎 Routes',  '/agents/ex_routes/page.html'],
+  ['🔎 Paths',   '/agents/ex_paths/page.html'],
+  ['🔎 Apps',    '/agents/ex_apps/page.html'],
+  ['🔎 Fixed',   '/agents/ex_fixed/page.html'],
+];
+function mountSearchNav(){
+  const p = location.pathname;
+  const isSearch = SEARCH_PAGES.some(s => p === s[1] || p.endsWith(s[1])) || p.endsWith('/web/search.html');
+  const old = document.getElementById('searchsub'); if(old) old.remove();
+  if(!isSearch) return;
+  const bar = document.createElement('nav'); bar.className = 'searchsub'; bar.id = 'searchsub';
+  bar.innerHTML = '<span class="lbl">🔎 Search Hounds</span>' + SEARCH_PAGES.map(s => {
+    const a = (p === s[1] || p.endsWith(s[1]));
+    return '<button class="' + (a ? 'active' : '') + '" data-href="' + s[1] + '">' + s[0] + '</button>';
+  }).join('');
+  const anchor = document.getElementById('topnav') || document.querySelector('header.top, #app-header, header');
+  if(anchor && anchor.parentNode) anchor.insertAdjacentElement('afterend', bar);
+  bar.querySelectorAll('button[data-href]').forEach(b => b.onclick = () => { location.href = b.dataset.href; });
+}
+// The Tools shelf — same horizontal-bar treatment as Search Hounds. "Refresh
+// navi.db" is an action (#refresh → naviRefresh), the rest navigate.
+const TOOLS_PAGES = [
+  ['↻ Refresh navi.db','#refresh'],
+  ['🏷 Tagging log',   '/web/tags-log.html'],
+  ['⚖ Tag compare',    '/web/tags.html'],
+  ['⚖ MCP compare',    '/agents/mcpcmp/page.html'],
+  ['🧾 Runs & queries','/web/agent-runs.html'],
+  ['⚙ Settings',       '/web/settings.html'],
+];
+function mountToolsNav(){
+  const p = location.pathname;
+  const isTools = TOOLS_PAGES.some(s => s[1] !== '#refresh' && (p === s[1] || p.endsWith(s[1]))) || p.endsWith('/web/tools.html');
+  const old = document.getElementById('toolssub'); if(old) old.remove();
+  if(!isTools) return;
+  const bar = document.createElement('nav'); bar.className = 'searchsub'; bar.id = 'toolssub';
+  bar.innerHTML = '<span class="lbl">🛠 Tools</span>' + TOOLS_PAGES.map(s => {
+    const a = (s[1] !== '#refresh' && (p === s[1] || p.endsWith(s[1])));
+    return '<button class="' + (a ? 'active' : '') + '" data-href="' + s[1] + '">' + s[0] + '</button>';
+  }).join('');
+  const anchor = document.getElementById('topnav') || document.querySelector('header.top, #app-header, header');
+  if(anchor && anchor.parentNode) anchor.insertAdjacentElement('afterend', bar);
+  bar.querySelectorAll('button[data-href]').forEach(b => b.onclick = () => {
+    if(b.dataset.href === '#refresh'){ if(typeof naviRefresh === 'function') naviRefresh(b); return; }
+    location.href = b.dataset.href;
+  });
+}
+/* ===== Custom dashboards — up to DASH_MAX, saved per-browser ==================
+   One store holds several named boards; the builder and the Custom Dashboard page
+   both read/write the ACTIVE board's items, so pinned components land on whatever
+   board is currently selected. The legacy single-array key is migrated + mirrored. */
+const DASH_MAX = 5;
+const DASH_STORE_KEY = 'navi-dashboards';
+const DASH_LEGACY_KEY = 'navi-dashboard';
+function _dashEsc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function _dashNewId(){ return 'd'+Date.now().toString(36)+Math.floor(Math.random()*1e4).toString(36); }
+function dashLoadStore(){
+  let s=null; try{ s=JSON.parse(localStorage.getItem(DASH_STORE_KEY)||'null'); }catch(e){}
+  if(!s || !Array.isArray(s.list) || !s.list.length){
+    let legacy=[]; try{ legacy=JSON.parse(localStorage.getItem(DASH_LEGACY_KEY)||'[]')||[]; }catch(e){}
+    const id=_dashNewId();
+    s={ v:2, active:id, list:[ {id, name:'Dashboard 1', items:Array.isArray(legacy)?legacy:[]} ] };
+    dashSaveStore(s);
+  }
+  if(!s.list.some(d=>d.id===s.active)) s.active=s.list[0].id;
+  return s;
+}
+function dashSaveStore(s){
+  try{ localStorage.setItem(DASH_STORE_KEY, JSON.stringify(s)); }catch(e){}
+  try{ const a=(s.list||[]).find(d=>d.id===s.active); localStorage.setItem(DASH_LEGACY_KEY, JSON.stringify(a?a.items:[])); }catch(e){}
+}
+function dashList(){ return dashLoadStore().list; }
+function dashActive(){ const s=dashLoadStore(); return s.list.find(d=>d.id===s.active)||s.list[0]; }
+function dashGetItems(){ return dashActive().items||[]; }
+function dashSetItems(items){ const s=dashLoadStore(); const a=s.list.find(d=>d.id===s.active)||s.list[0]; a.items=items||[]; dashSaveStore(s); }
+function dashSetActive(id){ const s=dashLoadStore(); if(s.list.some(d=>d.id===id)){ s.active=id; dashSaveStore(s); } }
+function dashAdd(name){ const s=dashLoadStore(); if(s.list.length>=DASH_MAX) return null; const id=_dashNewId();
+  s.list.push({id, name:(name||('Dashboard '+(s.list.length+1))), items:[]}); s.active=id; dashSaveStore(s); return id; }
+function dashRename(id,name){ const s=dashLoadStore(); const d=s.list.find(x=>x.id===id); if(d && name && name.trim()){ d.name=name.trim(); dashSaveStore(s); } }
+function dashRemove(id){ const s=dashLoadStore();
+  if(s.list.length<=1){ s.list[0].items=[]; dashSaveStore(s); return; }
+  s.list=s.list.filter(d=>d.id!==id); if(!s.list.some(d=>d.id===s.active)) s.active=s.list[0].id; dashSaveStore(s); }
+/* Portability — Export downloads every board as one JSON backup; Import merges
+   boards from a file back in (respecting the DASH_MAX cap), so dashboards move
+   across ports, browsers, and machines. */
+function dashExportDownload(){
+  const s=dashLoadStore();
+  const payload={ v:2, kind:'hounds-dashboards', exported:new Date().toISOString(),
+                  list:s.list.map(d=>({name:d.name, items:d.items||[]})) };
+  const blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});
+  const u=URL.createObjectURL(blob); const a=document.createElement('a');
+  a.href=u; a.download='hounds-dashboards-'+new Date().toISOString().slice(0,10)+'.json'; a.click();
+  setTimeout(()=>URL.revokeObjectURL(u),2000);
+}
+function dashImportObj(obj){
+  let boards=[];
+  if(obj && Array.isArray(obj.list)) boards=obj.list;
+  else if(Array.isArray(obj)){
+    if(obj.length && obj[0] && (obj[0].items || obj[0].name)) boards=obj;   // array of boards
+    else boards=[{name:'Imported', items:obj}];                            // bare component array
+  }
+  else if(obj && (obj.items || obj.name)) boards=[obj];
+  else return {added:0, skipped:0, error:'unrecognized file'};
+  let added=0, skipped=0, firstId=null;
+  boards.forEach(b=>{
+    const name=(b && b.name) ? String(b.name) : 'Imported';
+    const items=(b && Array.isArray(b.items)) ? b.items : (Array.isArray(b) ? b : []);
+    const id=dashAdd(name);
+    if(!id){ skipped++; return; }
+    dashSetItems(items); added++; if(!firstId) firstId=id;
+  });
+  if(firstId) dashSetActive(firstId);
+  return {added, skipped};
+}
+function _dashPickFile(cb){
+  let inp=document.getElementById('__dashImportInput');
+  if(!inp){ inp=document.createElement('input'); inp.type='file'; inp.accept='application/json,.json';
+    inp.id='__dashImportInput'; inp.style.display='none'; document.body.appendChild(inp); }
+  inp.value='';
+  inp.onchange=()=>{ const f=inp.files && inp.files[0]; if(!f) return;
+    const r=new FileReader(); r.onload=()=>{ try{ cb(JSON.parse(r.result)); }catch(e){ alert('Could not read that file — is it a dashboard JSON export?\n\n'+e.message); } };
+    r.readAsText(f); };
+  inp.click();
+}
+/* Render the tab strip into container #id; onChange() fires after any switch/add/
+   rename/delete so the page can reload its items and re-render. */
+function mountDashTabs(containerId, onChange){
+  const el=document.getElementById(containerId); if(!el) return;
+  const s=dashLoadStore(); el.className='dashtabs';
+  el.innerHTML='<span class="lbl">🗂 Dashboards</span>'+s.list.map(d=>{
+    const a=d.id===s.active;
+    return '<span class="dtab'+(a?' active':'')+'">'
+      +'<button class="dtab-name" data-sw="'+d.id+'" title="Switch to this dashboard">'+_dashEsc(d.name)+'</button>'
+      +(a?'<button class="dtab-ic" data-ren="'+d.id+'" title="Rename">✎</button>'
+         +'<button class="dtab-ic" data-del="'+d.id+'" title="Delete this dashboard">✕</button>':'')
+      +'</span>';
+  }).join('')
+  +(s.list.length<DASH_MAX
+     ? '<button class="dtab-add" title="New dashboard">+ New</button>'
+     : '<span class="dtab-max" title="Maximum reached">max '+DASH_MAX+'</span>')
+  +'<span class="dsep"></span>'
+  +'<button class="dtab-io" data-exp title="Download all dashboards as a JSON backup">⤓ Export</button>'
+  +'<button class="dtab-io" data-imp title="Import dashboards from a JSON backup (merges, up to '+DASH_MAX+')">⤒ Import</button>';
+  const done=()=>{ if(typeof onChange==='function') onChange(); };
+  el.querySelectorAll('[data-sw]').forEach(b=>b.onclick=()=>{ dashSetActive(b.dataset.sw); done(); });
+  el.querySelectorAll('[data-ren]').forEach(b=>b.onclick=()=>{ const cur=dashActive(); const n=prompt('Rename dashboard', cur.name); if(n!==null && n.trim()){ dashRename(b.dataset.ren, n); done(); } });
+  el.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{ const d=dashList().find(x=>x.id===b.dataset.del); const nm=d?d.name:'this dashboard';
+    if(confirm('Delete “'+nm+'” and its pinned components?')){ dashRemove(b.dataset.del); done(); } });
+  const addb=el.querySelector('.dtab-add'); if(addb) addb.onclick=()=>{ if(dashList().length>=DASH_MAX){ alert('You already have the maximum of '+DASH_MAX+' dashboards.'); return; }
+    const n=prompt('Name the new dashboard', 'Dashboard '+(dashList().length+1)); if(n===null) return; dashAdd(n.trim()); done(); };
+  const eb=el.querySelector('[data-exp]'); if(eb) eb.onclick=()=>dashExportDownload();
+  const ib=el.querySelector('[data-imp]'); if(ib) ib.onclick=()=>_dashPickFile(obj=>{
+    const r=dashImportObj(obj);
+    alert(r.error ? ('Import failed — '+r.error+'.') : ('Imported '+r.added+' dashboard'+(r.added===1?'':'s')+(r.skipped?' · skipped '+r.skipped+' (the '+DASH_MAX+'-board max was reached)':'')+'.'));
+    done();
+  });
+}
+/* Left-sidebar navigation model — grouped, guided-flow order. Item: [iconHTML, label, href]. */
+const _SIDE_GROUPS=[
+  [null,[
+    ['🐾','On the Scent','/agents/insights/page.html'],
+    ['<span class="hcrest sm" aria-hidden="true"></span>','Release the Hounds','/'],
+  ]],
+  ['Fast signal',[
+    ['🎯','MITRE ATT&CK','/agents/mitre/page.html'],
+    ['🛡️','CISA KEV','/agents/cisakev/page.html'],
+    ['🔩','EOL / Unsupported','/agents/eol/page.html'],
+    ['🔐','Certificates','/agents/certificate/page.html'],
+  ]],
+  ['Deeper analysis',[
+    ['🐾','IoT Discovery','/agents/iot_squad/page.html'],
+    ['⚛️','Post-Quantum','/agents/postquantum/page.html'],
+    ['🤖','AI Inventory','/agents/ai/page.html'],
+    ['🪪','Identity','/agents/identity/page.html'],
+    ['📦','Software','/agents/software/page.html'],
+    ['🏷️','Custom Apps','/agents/customapp/page.html'],
+    ['🕸️','Web Apps (WAS)','/agents/was/page.html'],
+    ['⚖️','Compliance','/agents/compliance/page.html'],
+    ['🕸️','Attack Paths','/agents/attackpath/page.html'],
+    ['🩺','Scan Evaluations','/agents/scan_eval/page.html'],
+  ]],
+  ['Organize',[
+    ['🛰️','Agent Groups','/agents/agentgroup/page.html'],
+    ['📇','Asset Classification','/agents/classify/page.html'],
+    ['🧭','Exposure Routes','/agents/exproute/page.html'],
+    ['📌','Asset Ownership','/agents/asset_ownership/page.html'],
+    ['⚖️','ACR Calibration','/agents/acr/page.html'],
+  ]],
+  ['Operationalize',[
+    ['📜','Custom Audit','/agents/custom_audit/page.html'],
+    ['⏱','SLA Adherence','/agents/sla/page.html'],
+    ['📧','Email · Gabriel','/agents/email/page.html'],
+    ['🐦‍⬛','Alert Raven','/agents/alert/page.html'],
+    ['🗑️','Tag Removal','/agents/tagremoval/page.html'],
+  ]],
+  ['Views',[
+    ['🎯','Exposure Score','/agents/fused_score/page.html'],
+    ['📊','Dashboards','/web/dashboards.html'],
+    ['🔦','Argos Deep-Dive','/agents/argos/page.html'],
+    ['🐾','Web App Recon','/agents/was_asset/page.html'],
+    ['🔍','Compliance Deep-Dive','/agents/compliance_asset/page.html'],
+    ['📜','AI Contract','/agents/contract/page.html'],
+  ]],
+  ['System',[
+    ['🔎','Search Hounds','/web/search.html'],
+    ['🛠','Tools','/web/tools.html'],
+  ]],
+];
 function mountTopNav(){
   const wrap = document.querySelector('.wrap'); if(!wrap) return;
-  _navddStyle();
+  _navddStyle();   // injects .searchsub styling used by the Dashboards/Search/Tools sub-bars
+  try{ if(localStorage.getItem('naviNavCollapsed')==='1') document.body.classList.add('navcollapsed'); }catch(e){}
   const old = document.getElementById('topnav'); if(old) old.remove();
   const p = location.pathname;
   const active = href => href === '/' ? (p === '/' || p === '/index.html')
                                       : (p === href || p.endsWith(href));
   const nav = document.createElement('nav'); nav.className = 'tabs'; nav.id = 'topnav';
-  nav.innerHTML = _NAV_ITEMS.map(it => {
-    if(it[0] === 'SEP') return '<span class="navsep"></span>';
-    if(Array.isArray(it[1])){
-      const anyActive = it[1].some(s => active(s[1]));
-      const menu = it[1].map(s => '<button class="navdd-item' + (active(s[1]) ? ' active' : '') +
-        '" data-href="' + s[1] + '">' + s[0] + '</button>').join('');
-      return '<span class="navdd"><button class="navdd-btn' + (anyActive ? ' active' : '') +
-        '">' + it[0] + ' <span class="navdd-caret">▾</span></button>' +
-        '<div class="navdd-menu">' + menu + '</div></span>';
-    }
-    const cls = (it[2] ? 'lens ' : '') + (active(it[1]) ? 'active' : '');
-    return '<button class="' + cls.trim() + '" data-href="' + it[1] + '">' + it[0] + '</button>';
+  nav.innerHTML = _SIDE_GROUPS.map(g => {
+    const head = g[0] ? '<div class="navgrp">' + g[0] + '</div>' : '';
+    const items = g[1].map(it => {
+      const lbl = String(it[1]).replace(/&/g,'&amp;');
+      return '<button class="' + (active(it[2]) ? 'active' : '') + '" data-href="' + it[2] + '">' +
+        '<span class="ico">' + it[0] + '</span><span class="lbl">' + lbl + '</span></button>';
+    }).join('');
+    return head + items;
   }).join('');
   const anchor = document.querySelector('header.top, #app-header, header');
   if(anchor && anchor.parentNode) anchor.insertAdjacentElement('afterend', nav);
   else wrap.prepend(nav);
-  nav.querySelectorAll('button[data-href]').forEach(b => b.onclick = (e) => { e.stopPropagation(); location.href = b.dataset.href; });
-  nav.querySelectorAll('.navdd-btn').forEach(b => b.onclick = (e) => {
-    e.stopPropagation(); const dd = b.parentNode; const wasOpen = dd.classList.contains('open');
-    nav.querySelectorAll('.navdd').forEach(x => x.classList.remove('open'));
-    if(!wasOpen) dd.classList.add('open');
+  nav.querySelectorAll('button[data-href]').forEach(b => b.onclick = (e) => {
+    e.stopPropagation(); location.href = b.dataset.href;
   });
-  if(!window.__navddDocClose){ window.__navddDocClose = true;
-    document.addEventListener('click', () => { const n=document.getElementById('topnav'); if(n) n.querySelectorAll('.navdd').forEach(x=>x.classList.remove('open')); });
+  // collapse toggle lives in the top bar (header)
+  const hdr = document.querySelector('header.top, #app-header');
+  if(hdr && !hdr.querySelector('.side-collapse')){
+    const cb = document.createElement('button');
+    cb.className = 'side-collapse'; cb.type = 'button';
+    cb.title = 'Collapse navigation'; cb.setAttribute('aria-label','Collapse navigation');
+    cb.textContent = '⇔';
+    cb.onclick = () => {
+      document.body.classList.toggle('navcollapsed');
+      try{ localStorage.setItem('naviNavCollapsed', document.body.classList.contains('navcollapsed') ? '1' : '0'); }catch(e){}
+    };
+    hdr.insertBefore(cb, hdr.firstChild);
   }
+  mountDashboardsNav();                 // horizontal Dashboards bar on dashboard pages + the hub
+  mountSearchNav();                     // horizontal Search-Hounds bar on search pages + the hub
+  mountToolsNav();                      // horizontal Tools bar on tool pages + the hub
 }
 if(document.readyState !== 'loading') mountTopNav();
 else document.addEventListener('DOMContentLoaded', mountTopNav);
@@ -575,11 +871,47 @@ else document.addEventListener('DOMContentLoaded', mountTopNav);
    why the ✨ features are greyed out. h.llm comes from /api/health. */
 function claudeChip(h){
   const ok = !!(h && h.llm);
-  if(ok) return `<span class="chip" title="Claude API key detected — AI features enabled" style="background:rgba(52,211,153,.14);border-color:rgba(52,211,153,.4);color:var(--ok,#34d399)">✦ Claude AI</span>`;
+  if(ok) return `<span class="chip" title="Claude API key detected — AI features enabled" style="background:var(--ok-bg);border-color:var(--ok);color:var(--ok)">✦ Claude AI</span>`;
   return `<span class="chip" title="No ANTHROPIC_API_KEY on the server — AI features (ask-which-agent, NL→SQL, contract policy, cert reasoning) are disabled. Set ANTHROPIC_API_KEY and restart." style="background:rgba(251,191,36,.14);border-color:rgba(251,191,36,.45);color:var(--warn,#fbbf24)">⚠ Claude: no API key</span>`;
 }
 
 /* Mount the shared header (logo, title, live health chips). */
+/* ===== Guided flow — a fixed order through the pack so each agent's header links to the
+   next logical one. Highlight the Signal (fast → deeper) → Organize the Work → Operationalize,
+   ending on the AI Contract. Agents not in the flow simply show no Next link. ===== */
+const AGENT_FLOW=['mitre','cisakev','eol','certificate',
+                  'iot_squad','postquantum',
+                  'ai','identity','software','customapp','attackpath','scan_eval',
+                  'agentgroup','classify','exproute','asset_ownership','acr',
+                  'email','alert','tagremoval','contract'];
+const AGENT_FLOW_LABEL={mitre:'MITRE ATT&CK',cisakev:'CISA KEV',eol:'EOL / Unsupported',certificate:'Certificates',
+  iot_squad:'IoT Discovery',postquantum:'Post-Quantum',
+  ai:'AI Inventory',identity:'Identity Inventory',software:'Software Analyzer',customapp:'Custom Apps',
+  attackpath:'Attack Paths',scan_eval:'Scan Evaluations',agentgroup:'Agent Groups',classify:'Asset Classification',
+  exproute:'Exposure Routes',asset_ownership:'Asset Ownership',acr:'ACR Calibration',
+  email:'Email & Reports',alert:'Alert Raven',tagremoval:'Tag Removal',contract:'AI Contract'};
+function _flowCurrentId(){
+  const m=(location.pathname||'').match(/\/agents\/([^\/]+)\//);
+  return (m&&m[1])||window.__AGENT_ID||'';
+}
+function mountNextAgent(host){
+  try{
+    if(!host) return;
+    const cur=_flowCurrentId(); const idx=AGENT_FLOW.indexOf(cur);
+    const old=host.querySelector('.nextagent'); if(old) old.remove();
+    const a=document.createElement('a'); a.className='nextagent';
+    if(idx>=0 && idx<AGENT_FLOW.length-1){
+      const nx=AGENT_FLOW[idx+1];
+      a.href='/agents/'+nx+'/page.html';
+      a.innerHTML='Next agent · <b>'+esc(AGENT_FLOW_LABEL[nx]||nx)+'</b> →';
+      a.title='Guided flow · step '+(idx+2)+' of '+AGENT_FLOW.length+' — '+(AGENT_FLOW_LABEL[nx]||nx);
+    } else if(cur==='contract'){
+      a.href='/'; a.innerHTML='✓ End of the guided flow · <b>All agents</b>';
+      a.title='You’ve reached the end of the pack — back to Release the Hounds';
+    } else { return; }   // not part of the guided flow → no Next link
+    host.appendChild(a);
+  }catch(e){}
+}
 async function mountAgentHeader(opts){
   opts = opts || {};
   // Pages that create a second agentApi('explore') at load time clobber __AGENT_ID;
@@ -592,41 +924,39 @@ async function mountAgentHeader(opts){
   const radar='<span class="hcrest brand" role="img" aria-label="The Hounds"></span>';
   host.innerHTML =
     `<a href="/" class="logo" title="All agents">${radar}</a>`+
-    `<h1>${esc(opts.name||'Navi Agent')}<small>${esc(opts.sub||'')}</small></h1>`+
+    `<h1>${esc(opts.name||'Navi Agent')}</h1>`+
     `<div class="meta" id="meta"></div>`;
   _mountCodename(host);
   mountTopNav();
+  mountNextAgent(host);
   try{
     const h = await jget('/api/health');
     window.__LLM_AVAILABLE = !!h.llm; applyLlmGate();
     const meta = document.getElementById('meta');
     const we = h.writes_enabled;
     meta.innerHTML =
+      (h.version?`<span class="chip" title="The Hounds version — 1.&lt;agents&gt;.&lt;build&gt;"><b>v${esc(h.version)}</b></span>`:'')+
       dataSourceChip(h)+
       claudeChip(h)+
-      (h.db_ok ? `<span class="chip">assets <b>${h.asset_total}</b></span>`+
+      (h.db_ok ? `<span class="chip">assets <b>${h.asset_total==null?'—':h.asset_total}</b></span>`+
                  (h.db_fresh?`<span class="chip">db <b>${String(h.db_fresh).slice(0,10)}</b></span>`:'')
                : `<span class="chip" style="color:var(--crit)">db: ${esc(h.error||'error')}</span>`)+
-      `<span class="chip gate ${we?'':''}">writes: ${we?'enabled':'gated'}</span>`+
-      `<a class="chip" id="naviRefreshChip" title="Pull freshly-applied tags/ACR into navi.db (runs in the background)" style="text-decoration:none;cursor:pointer">↻ Refresh navi.db</a>`+
-      // Tag compare sits right next to Refresh (same chip design)
-      `<a class="chip" href="/web/tags.html" title="Compare tags: Tenable ⇄ navi.db" style="text-decoration:none">⚖ Tag compare</a>`+
-      // MCP compare — purple chip, last in the row (just before the light/dark toggle)
-      `<a class="chip" href="/agents/mcpcmp/page.html" title="navi vs Tenable MCP command coverage" style="text-decoration:none;background:rgba(139,92,246,.16);border-color:rgba(139,92,246,.5);color:#a78bfa">⚖ MCP compare</a>`;
-    const rc=document.getElementById('naviRefreshChip'); if(rc) rc.onclick=naviRefresh;
+      `<span class="chip gate ${we?'':''}">writes: ${we?'enabled':'gated'}</span>`;
+    // Refresh / Tag compare / MCP compare / Runs & queries now live in the "🛠 Tools" nav dropdown.
   }catch(e){ /* no backend — header still shows */ }
 }
-/* Fire-and-forget navi.db refresh — kicks the sync server-side and returns at once. */
-async function naviRefresh(){
-  const rc=document.getElementById('naviRefreshChip');
-  if(rc){ rc.textContent='↻ refreshing…'; }
+/* Fire-and-forget navi.db refresh — kicks the sync server-side and returns at once.
+   `el` is the nav dropdown item that triggered it (label doubles as a status readout). */
+async function naviRefresh(el){
+  const set = t => { if(el && el.dataset && el.dataset.href==='#refresh'){ el.textContent = t; } };
+  set('↻ refreshing…');
   try{ const o=await agentApi('explore').post('navi_refresh',{kinds:['assets','vulns']});
-    if(rc){ rc.textContent = (o&&o.started&&o.started.length)?('↻ refreshing '+o.started.join('+')+'…'):'↻ Refresh navi.db'; }
+    set((o&&o.started&&o.started.length)?('↻ refreshing '+o.started.join('+')+'…'):'↻ Refresh navi.db');
     alert((o&&o.started&&o.started.length)
       ? 'navi.db refresh started in the background ('+o.started.join(', ')+'). On large environments this can take several minutes — it runs on its own; reload the page when it finishes to see new tags/ACR.'
       : 'Could not start refresh: '+((o&&o.message)||'navi not available on this server.'));
   }catch(e){ alert('Refresh failed to start: '+e.message); }
-  setTimeout(()=>{ if(rc) rc.textContent='↻ Refresh navi.db'; }, 8000);
+  setTimeout(()=>set('↻ Refresh navi.db'), 8000);
 }
 
 /* Data-source chip: amber = crafted sample fixture, green = live navi.db. */
@@ -635,11 +965,46 @@ function dataSourceChip(h){
   if(src==='fixture')
     return `<span class="chip" title="${esc((h&&h.provenance_note)||'crafted sample data')}" style="background:rgba(251,191,36,.14);border-color:rgba(251,191,36,.45);color:var(--warn,#fbbf24)">◆ SAMPLE data</span>`;
   if(src==='live')
-    return `<span class="chip" title="${esc((h&&h.db_path)||'navi.db')}" style="background:rgba(52,211,153,.14);border-color:rgba(52,211,153,.4);color:var(--ok,#34d399)">● LIVE navi.db</span>`;
+    return `<span class="chip" title="${esc((h&&h.db_path)||'navi.db')}" style="background:var(--ok-bg);border-color:var(--ok);color:var(--ok)">● LIVE navi.db</span>`;
   return `<span class="chip" style="color:var(--mut)">data: unknown</span>`;
 }
 
 /* Tiny flash helper. el = element id or node. kind = ok|run|warn|crit. */
+/* Shared client-side paginator for any DB-backed table. Drop-in:
+ *   hPaginate('tblId', rowsArray, rowObj => '<tr>…</tr>', {wire: tb => …, empty: '…', cols: 6});
+ * It slices to 50/page, auto-creates a "‹ Prev  a–b of N  Next ›" bar after the
+ * table, and re-runs the optional wire() so per-row buttons keep working on each
+ * page. Reset to the first page on a fresh load with hPageReset('tblId').  */
+window.__hpg = window.__hpg || {};
+function hPageReset(id){ window.__hpg[id] = 0; }
+function hPaginate(tblId, rows, rowHtml, opts){
+  opts = opts || {}; const PER = opts.per || 50; rows = rows || [];
+  const pages = Math.max(1, Math.ceil(rows.length / PER));
+  let page = window.__hpg[tblId] || 0; if(page >= pages) page = pages - 1; if(page < 0) page = 0;
+  window.__hpg[tblId] = page;
+  const tb = document.querySelector('#' + tblId + ' tbody'); if(!tb) return;
+  const slice = rows.slice(page * PER, (page + 1) * PER);
+  tb.innerHTML = rows.length ? slice.map(rowHtml).join('')
+    : (opts.empty || '<tr><td colspan="' + (opts.cols || 6) + '" class="sub">No rows.</td></tr>');
+  if(opts.wire){ try{ opts.wire(tb); }catch(e){} }
+  const pid = tblId + 'Pager';
+  let pel = document.getElementById(pid);
+  if(!pel){ const t = document.getElementById(tblId);
+    if(t && t.parentNode){ pel = document.createElement('div'); pel.id = pid; pel.className = 'toolbar';
+      pel.style.marginTop = '6px'; t.parentNode.insertBefore(pel, t.nextSibling); } }
+  if(pel){
+    if(pages <= 1){ pel.style.display = 'none'; pel.innerHTML = ''; }
+    else { pel.style.display = '';
+      const a = page * PER + 1, b = Math.min(rows.length, (page + 1) * PER);
+      pel.innerHTML = '<button class="btn ghost sm" ' + (page <= 0 ? 'disabled' : '') + ' data-hpv>‹ Prev</button>'
+        + '<span class="sub" style="margin:0 10px">' + a + '–' + b + ' of ' + rows.length + '</span>'
+        + '<button class="btn ghost sm" ' + (page >= pages - 1 ? 'disabled' : '') + ' data-hnx>Next ›</button>';
+      const pv = pel.querySelector('[data-hpv]'), nx = pel.querySelector('[data-hnx]');
+      if(pv) pv.onclick = () => { window.__hpg[tblId] = page - 1; hPaginate(tblId, rows, rowHtml, opts); };
+      if(nx) nx.onclick = () => { window.__hpg[tblId] = page + 1; hPaginate(tblId, rows, rowHtml, opts); };
+    }
+  }
+}
 function flash(el, html, kind){
   const n = typeof el==='string' ? document.getElementById(el) : el;
   if(!n) return;

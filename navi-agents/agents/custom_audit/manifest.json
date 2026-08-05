@@ -1,0 +1,12 @@
+{
+  "id": "custom_audit",
+  "name": "Custom Audit",
+  "icon": "📜",
+  "order": 18,
+  "category": "Operationalize",
+  "codename": "Draco",
+  "summary": "Draco — the lawgiver. Author a custom Tenable .audit file two ways: describe the check in plain English and Claude drafts valid Nessus checks, or build one field-by-field from the platform catalog — Windows config (registry, password/lockout/audit policy, user rights, service, REG_CHECK, WMI, PowerShell), Windows file-content (FILE_CONTENT_CHECK), and Unix/Linux/macOS (file, content, command, RPM, process, service). Live .audit preview, syntax validation, and auto-mapped framework references (NIST/PCI/HIPAA/CIS/ISO). Download a scan-ready .audit or a single check.",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": ["platforms", "draft", "render", "validate", "suggest", "parse"]
+}

@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Tools — The Hounds</title>
+<link rel="stylesheet" href="/static/console.css">
+<style>
+  .sgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;margin-top:14px}
+  .scard{display:block;text-decoration:none;border:1px solid var(--line);border-radius:12px;padding:14px 15px;background:var(--panel);cursor:pointer;text-align:left;font-family:inherit;transition:border-color .12s,transform .12s,background .12s}
+  .scard:hover{border-color:var(--accent);background:var(--panel-2);transform:translateY(-1px)}
+  .scard .t{font-weight:800;font-size:15px;color:var(--ink)}
+  .scard .n{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;margin:1px 0 6px}
+  .scard .d{font-size:12.5px;color:var(--ink-2);line-height:1.45}
+</style>
+</head><body>
+<div class="wrap">
+  <header class="top">
+    <div class="logo"><span class="hcrest brand" role="img" aria-label="The Hounds"></span></div>
+    <h1>Tools <small>NAVI.DB UTILITIES &amp; CONTROLS</small></h1>
+    <div class="meta" id="meta"></div>
+  </header>
+
+  <section class="card">
+    <div class="toolbar"><div><h2 style="margin:0">🛠 The tool shelf</h2>
+      <p class="sub" style="margin:2px 0 0">Jump to any tool from the bar above — it follows you onto every tool page so you can move between the tagging log, comparisons, run history, and settings without coming back here. <b>Refresh navi.db</b> re-syncs from the bar in place.</p></div></div>
+    <div class="sgrid" id="sgrid"></div>
+  </section>
+
+  <footer>Tools · the bar above is on every tool page</footer>
+</div>
+
+<script src="/static/console.js"></script>
+<script>
+const CARDS=[
+  {t:'↻ Refresh navi.db', n:'Re-sync', d:'Pull the latest assets, tags, and findings from Tenable into navi.db so every hound reads current data.', href:'#refresh'},
+  {t:'🏷 Tagging log', n:'Audit trail', d:'Every tag the hounds have queued or applied — status, args, and the navi command behind each one.', href:'/web/tags-log.html'},
+  {t:'⚖ Tag compare', n:'Drift check', d:'Compare what navi.db believes is tagged against the live Tenable tag set — catch stale or missing tags before a removal.', href:'/web/tags.html'},
+  {t:'⚖ MCP compare', n:'Same account?', d:'Confirm the navi MCP and the official Tenable MCP point at the same container and dataset.', href:'/agents/mcpcmp/page.html'},
+  {t:'🧾 Runs & queries', n:'Profiler', d:'The run history for every agent action, with the exact SQL each one issued and how long it took.', href:'/web/agent-runs.html'},
+  {t:'⚙ Settings', n:'Config & CLI', d:'Read/set env vars, check navi.db table freshness, watch long-running navi syncs, and see API token usage.', href:'/web/settings.html'},
+];
+document.getElementById('sgrid').innerHTML=CARDS.map(c=>
+  '<button class="scard" data-href="'+c.href+'"><div class="t">'+c.t+'</div><div class="n">'+c.n+'</div><div class="d">'+c.d+'</div></button>').join('');
+document.querySelectorAll('.scard[data-href]').forEach(b=>b.onclick=()=>{
+  if(b.dataset.href==='#refresh'){ if(typeof naviRefresh==='function') naviRefresh(b); return; }
+  location.href=b.dataset.href;
+});
+</script>
+</body></html>

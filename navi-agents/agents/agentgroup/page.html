@@ -45,16 +45,17 @@
 <script src="/static/console.js"></script>
 <script>
 const API=agentApi('agentgroup');
-let GROUPS=[], WRITES=false;
-function picked(){ return [...document.querySelectorAll('#grpTbl tbody input.gsel:checked')].map(c=>c.dataset.n); }
+let GROUPS=[], WRITES=false, _gSel=new Set(), _gRows=[];
+function picked(){ return [..._gSel]; }   // selection survives pagination
 function syncPick(){ const n=picked().length; document.getElementById('pickSel').textContent=n+' selected'; document.getElementById('pickTag').disabled=!n; }
 function renderGroups(){
   const f=(document.getElementById('grpFilter').value||'').toLowerCase();
-  const rows=GROUPS.filter(g=>!f||(g.name||'').toLowerCase().includes(f));
-  document.querySelector('#grpTbl tbody').innerHTML=rows.length?rows.map(g=>
-    `<tr><td><input type="checkbox" class="gsel" data-n="${esc(g.name)}"></td><td><b>${esc(g.name)}</b></td><td class="mono">${esc(g.gid||'')}</td><td class="mono" style="font-size:11px;color:var(--mut)">${esc(g.uuid||'')}</td></tr>`).join('')
-    :'<tr><td colspan="4" class="sub">No groups match.</td></tr>';
-  document.querySelectorAll('#grpTbl tbody input.gsel').forEach(c=>c.onchange=syncPick); syncPick();
+  _gRows=GROUPS.filter(g=>!f||(g.name||'').toLowerCase().includes(f));
+  hPageReset('grpTbl'); hPaginate('grpTbl', _gRows, g=>
+    `<tr><td><input type="checkbox" class="gsel" data-n="${esc(g.name)}"${_gSel.has(g.name)?' checked':''}></td><td><b>${esc(g.name)}</b></td><td class="mono">${esc(g.gid||'')}</td><td class="mono" style="font-size:11px;color:var(--mut)">${esc(g.uuid||'')}</td></tr>`,
+    {cols:4, empty:'<tr><td colspan="4" class="sub">No groups match.</td></tr>',
+     wire:tb=>{ tb.querySelectorAll('input.gsel').forEach(c=>c.onchange=()=>{ if(c.checked)_gSel.add(c.dataset.n); else _gSel.delete(c.dataset.n); syncPick(); }); }});
+  syncPick();
 }
 async function load(){
   document.getElementById('load').disabled=true; flash('flash','<span class="spin"></span> pulling agent groups (navi explore info agent-groups)…','run');
@@ -67,13 +68,20 @@ async function load(){
   renderGroups();
   if(!GROUPS.length) flash('flash','No agent groups found.','warn');
 }
-async function tagNames(names, flashId){
+async function tagNames(names, flashId, btn){
+  if(btn&&btn.disabled)return;
   if(!names.length){ flash(flashId,'No groups to tag.','warn'); return; }
   if(!WRITES && !confirm('Writes are gated (NAVI_ALLOW_WRITES not set) — jobs will queue but be blocked. Continue?')) return;
+  const fb=document.getElementById(flashId);
+  const scroll=()=>{ if(fb)fb.scrollIntoView({behavior:'smooth',block:'center'}); };
+  const reset=()=>{ if(!btn)return; btn.disabled=false; btn.textContent=btn.dataset.label; btn.style.opacity=''; btn.style.transform=''; btn.style.cursor=''; };
+  if(btn){ btn.dataset.label=btn.dataset.label||btn.textContent; btn.disabled=true; btn.textContent='⏳ Sending…'; btn.style.opacity='.6'; btn.style.transform='translateY(1px)'; btn.style.cursor='default'; }
   flash(flashId,'<span class="spin"></span> queuing '+names.length+' agent-group tag(s)…','run');
+  scroll();
   let o; try{ o=await API.post('tag',{groups:names,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
-  if(!o.ok){ flash(flashId,'✗ '+esc(o.error||'failed'),'crit'); return; }
+  if(!o.ok){ flash(flashId,'✗ '+esc(o.error||'failed'),'crit'); reset(); scroll(); return; }
   flash(flashId,'✓ queued '+o.queued+' tag(s) — watch the <a href="/web/tags-log.html">Tagging log</a>. Each tags Agent Group : &lt;name&gt; via navi --group.','ok');
+  scroll(); reset();
 }
 function nlTag(){
   const raw=(document.getElementById('nlList').value||'').split(/[\n,]+/).map(s=>s.trim()).filter(Boolean);
@@ -83,22 +91,29 @@ function nlTag(){
   raw.forEach(r=>{ const hit=byLower[r.toLowerCase()]; if(hit) matched.push(hit); else missed.push(r); });
   document.getElementById('nlMatch').textContent=matched.length+' matched'+(missed.length?(' · '+missed.length+' unmatched'):'');
   if(!matched.length){ flash('nlFlash','None of those names match a loaded agent group. Unmatched: '+esc(missed.slice(0,6).join(', ')),'crit'); return; }
-  tagNames([...new Set(matched)],'nlFlash').then(()=>{ if(missed.length) flash('nlFlash',document.getElementById('nlFlash').innerHTML+' <span style="color:var(--warn,#e7c66b)">(unmatched: '+esc(missed.slice(0,6).join(', '))+')</span>','ok'); });
+  tagNames([...new Set(matched)],'nlFlash',document.getElementById('nlTag')).then(()=>{ if(missed.length) flash('nlFlash',document.getElementById('nlFlash').innerHTML+' <span style="color:var(--warn,var(--cx-e7c66b))">(unmatched: '+esc(missed.slice(0,6).join(', '))+')</span>','ok'); });
 }
 async function tagAll(){
+  const btn=document.getElementById('tagAll'); if(btn&&btn.disabled)return;
   if(!GROUPS.length) return;
   if(!confirm('Tag ALL '+GROUPS.length+' agent groups? Each runs navi enrich tag --group on the background queue.')) return;
   if(!WRITES && !confirm('Writes are gated (NAVI_ALLOW_WRITES not set) — jobs will queue but be blocked. Continue?')) return;
+  const fb=document.getElementById('allFlash');
+  const scroll=()=>{ if(fb)fb.scrollIntoView({behavior:'smooth',block:'center'}); };
+  const reset=()=>{ if(!btn)return; btn.disabled=false; btn.textContent=btn.dataset.label; btn.style.opacity=''; btn.style.transform=''; btn.style.cursor=''; };
+  if(btn){ btn.dataset.label=btn.dataset.label||btn.textContent; btn.disabled=true; btn.textContent='⏳ Sending…'; btn.style.opacity='.6'; btn.style.transform='translateY(1px)'; btn.style.cursor='default'; }
   flash('allFlash','<span class="spin"></span> queuing all '+GROUPS.length+' groups…','run');
+  scroll();
   let o; try{ o=await API.post('tag_all',{confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
-  if(!o.ok){ flash('allFlash','✗ '+esc(o.error||'failed'),'crit'); return; }
+  if(!o.ok){ flash('allFlash','✗ '+esc(o.error||'failed'),'crit'); reset(); scroll(); return; }
   flash('allFlash','✓ queued '+o.queued+' of '+o.total_groups+' group tag(s) — watch the <a href="/web/tags-log.html">Tagging log</a>.','ok');
+  scroll(); reset();
 }
 document.getElementById('load').onclick=load;
 document.getElementById('grpFilter').addEventListener('input',()=>{ if(GROUPS.length) renderGroups(); });
-document.getElementById('selAll').onclick=()=>{ document.querySelectorAll('#grpTbl tbody input.gsel').forEach(c=>c.checked=true); syncPick(); };
-document.getElementById('selNone').onclick=()=>{ document.querySelectorAll('#grpTbl tbody input.gsel').forEach(c=>c.checked=false); syncPick(); };
-document.getElementById('pickTag').onclick=()=>tagNames(picked(),'flash');
+document.getElementById('selAll').onclick=()=>{ _gRows.forEach(g=>_gSel.add(g.name)); renderGroups(); };
+document.getElementById('selNone').onclick=()=>{ _gSel.clear(); renderGroups(); };
+document.getElementById('pickTag').onclick=function(){tagNames(picked(),'flash',this);};
 document.getElementById('nlTag').onclick=nlTag;
 document.getElementById('tagAll').onclick=tagAll;
 mountAgentHeader({icon:'🛰️',name:'Agent Group Tagging',sub:'Sirius · tag assets by Tenable agent group'});

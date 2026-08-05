@@ -423,27 +423,49 @@ def scan(db_path=None, fp=None, allow=None):
                        "exposed": [{"name": n, "port": v["port"], "auth": v["auth"]} for n, v in exp.items()]})
     assets.sort(key=lambda x: (-(ROLE_PRI.get(x["role"], 0)), -len(x["frameworks"])))
 
-    # ---- risk (KEV / critical / VPR) ----
+    # ---- risk (KEV / critical / VPR / EOL / MITRE ATT&CK) ----
     if assets and vcols:
         inl = ",".join("'" + _lit(x["asset_uuid"]) + "'" for x in assets)
         rk = {}
         try:
             sev_col = "severity" if "severity" in vcols else "'0'"
             score_col = "score" if "score" in vcols else ("vpr" if "vpr" in vcols else "0")
+            # EOL / unsupported is a finding signal, same idea as KEV — Tenable's
+            # unsupported-product plugins name the product as end-of-life.
+            eol_like = ("lower(plugin_name) LIKE '%unsupported%' OR lower(plugin_name) LIKE '%end of life%' "
+                        "OR lower(plugin_name) LIKE '%end-of-life%' OR lower(plugin_name) LIKE '%no longer supported%'")
             for r in db.query(f"SELECT asset_uuid, "
                               f"MAX(CASE WHEN xrefs LIKE '%CISA-KNOWN-EXPLOITED%' THEN 1 ELSE 0 END) kev, "
                               f"MAX(CASE WHEN lower({sev_col})='critical' OR {sev_col}='4' THEN 1 ELSE 0 END) crit, "
+                              f"MAX(CASE WHEN {eol_like} THEN 1 ELSE 0 END) eol, "
                               f"MAX(CAST({score_col} AS REAL)) vpr FROM vulns WHERE asset_uuid IN ({inl}) GROUP BY asset_uuid",
                               path=db_path):
                 rk[r["asset_uuid"]] = {"kev": int(r.get("kev") or 0), "crit": int(r.get("crit") or 0),
-                                       "vpr": float(r.get("vpr") or 0)}
+                                       "eol": int(r.get("eol") or 0), "vpr": float(r.get("vpr") or 0)}
+        except Exception:
+            pass
+        # MITRE ATT&CK techniques (Orthrus) + Lifecycle/EOL tags (Charon) the pack has applied
+        mit, eol_tag = {}, set()
+        try:
+            for r in db.query(f"SELECT asset_uuid, tag_key, tag_value FROM tags WHERE asset_uuid IN ({inl}) "
+                              "AND tag_key IN ('Mitre','Lifecycle')", path=db_path):
+                if (r.get("tag_key") or "") == "Mitre":
+                    mit.setdefault(r["asset_uuid"], []).append((r.get("tag_value") or "").strip())
+                else:
+                    eol_tag.add(r.get("asset_uuid"))
         except Exception:
             pass
         for x in assets:
-            x["risk"] = rk.get(x["asset_uuid"], {"kev": 0, "crit": 0, "vpr": 0})
+            base = rk.get(x["asset_uuid"], {"kev": 0, "crit": 0, "eol": 0, "vpr": 0})
+            techs = sorted({t for t in mit.get(x["asset_uuid"], []) if t})
+            base["eol"] = 1 if (base.get("eol") or x["asset_uuid"] in eol_tag) else 0
+            base["mitre"] = 1 if techs else 0
+            x["risk"] = base
+            x["mitre_techniques"] = techs
     else:
         for x in assets:
-            x["risk"] = {"kev": 0, "crit": 0, "vpr": 0}
+            x["risk"] = {"kev": 0, "crit": 0, "eol": 0, "vpr": 0, "mitre": 0}
+            x["mitre_techniques"] = []
 
     # ---- egress (capability + observed) ----
     for x in assets:
@@ -482,6 +504,8 @@ def scan(db_path=None, fp=None, allow=None):
     return {"ok": True, "assets": assets, "asset_count": len(assets), "byRole": by_role,
             "exposedCount": sum(1 for x in assets if x["exposed"]),
             "kevCount": sum(1 for x in assets if x["risk"]["kev"]),
+            "eolCount": sum(1 for x in assets if x["risk"].get("eol")),
+            "mitreCount": sum(1 for x in assets if x["risk"].get("mitre")),
             "egressCount": sum(1 for x in assets if x["egress"]),
             "shadowCount": sum(1 for x in assets if any(not e["sanctioned"] for e in x["egress"])),
             "role_acr": ROLE_ACR, "allow": list(allow),

@@ -42,13 +42,14 @@
       <div><label class="sub">Extra justification (optional)</label><input id="bulkNote" class="fld" placeholder="e.g. Q3 rebalance"></div>
     </div>
     <div class="toolbar" style="margin-top:10px"><button class="btn sm needs-llm" id="acrInterpret">✨ Interpret with AI</button><button class="btn ghost sm" id="acrParse">Parse as rules</button><button class="btn run sm" id="acrBulkApply" disabled>Apply all</button><span class="chip" id="bulkCount"></span></div>
+    <div class="no-llm-note sub" style="display:none;margin-top:8px;color:var(--warn)">✨ AI interpretation needs a language model — set <span class="mono">ANTHROPIC_API_KEY</span> on the server to enable “Interpret with AI”. You can still use <b>Parse as rules</b> with one rule per line, e.g. <span class="mono">if it's IoT reduce 5</span> or <span class="mono">if internet-facing set 9</span>.</div>
     <div id="bulkPreview"></div>
   </section>
 
   <section class="card">
-    <h2>All tags <span class="sub" id="acrCount"></span></h2><p class="sub">Live from <span class="mono">navi explore info tags</span>.</p>
-    <input id="acrSearch" class="fld" placeholder="filter…" style="margin-bottom:10px">
-    <table id="acrTbl"><thead><tr><th>Category</th><th>Value</th><th>Value UUID</th><th></th></tr></thead><tbody><tr><td colspan="4" class="sub">Load tags…</td></tr></tbody></table>
+    <h2>All tags <span class="sub" id="acrCount"></span></h2><p class="sub">Live from <span class="mono">navi explore info tags</span>. Grouped by category — click a category to expand.</p>
+    <div class="toolbar" style="margin-bottom:10px;gap:8px;align-items:center"><input id="acrSearch" class="fld" placeholder="filter…" style="flex:1;margin:0"><button class="btn ghost sm" id="acrExpandAll">Expand all</button><button class="btn ghost sm" id="acrCollapseAll">Collapse all</button></div>
+    <div id="acrGroups"><p class="sub">Load tags…</p></div>
   </section>
   <footer>ACR Calibration Agent · gated <span class="mono">navi enrich acr</span></footer>
 </div>
@@ -61,15 +62,30 @@ async function runAcr(){
   try{const o=await API.post('run');ACR=o.result||{tags:[]};renderAcr();}catch(e){flash('acrFlash','✗ '+e.message,'crit');}
   document.getElementById('runAcr').disabled=false;
 }
+let ACR_OPEN={};   /* category -> expanded? (persists across re-renders in this session) */
 function renderAcr(){
   if(!ACR)return;const sel=document.getElementById('acrTag');
-  sel.innerHTML=(ACR.tags||[]).map((t,i)=>`<option value="${i}">${t.category} : ${t.value}</option>`).join('')||'<option>(no tags — is navi on PATH?)</option>';
+  sel.innerHTML=(ACR.tags||[]).map((t,i)=>`<option value="${i}">${esc(t.category)} : ${esc(t.value)}</option>`).join('')||'<option>(no tags — is navi on PATH?)</option>';
+  document.getElementById('acrCount').textContent=`(${(ACR.tags||[]).length})`;
   const q=(document.getElementById('acrSearch').value||'').toLowerCase();
-  const rows=(ACR.tags||[]).filter(t=>!q||(t.category+' '+t.value).toLowerCase().includes(q));
-  const tb=document.querySelector('#acrTbl tbody');
-  tb.innerHTML=rows.length?rows.map(t=>`<tr><td>${esc(t.category)}</td><td><span class="tagval">${esc(t.value)}</span></td><td class="mono" style="font-size:11px;color:var(--mut)">${esc(t.uuid)}</td><td style="text-align:right"><button class="btn sm" data-cat="${esc(t.category)}" data-val="${esc(t.value)}">Set ACR</button></td></tr>`).join(''):'<tr><td colspan="4" class="sub">'+(ACR.message||'No tags.')+'</td></tr>';
-  tb.querySelectorAll('button[data-cat]').forEach(b=>b.onclick=()=>prefillAcr(b.dataset.cat,b.dataset.val));
-  document.getElementById('acrCount').textContent=`(${(ACR.tags||[]).length})`;acrPreview();
+  const groups={};
+  (ACR.tags||[]).forEach((t,i)=>{ if(q && !((t.category+' '+t.value).toLowerCase().includes(q)))return; (groups[t.category]=groups[t.category]||[]).push({t,i}); });
+  const cats=Object.keys(groups).sort((a,b)=>a.localeCompare(b));
+  const box=document.getElementById('acrGroups');
+  if(!cats.length){ box.innerHTML='<p class="sub">'+esc(ACR.message||'No tags match your filter.')+'</p>'; acrPreview(); return; }
+  box.innerHTML=cats.map(cat=>{
+    const open = q ? true : !!ACR_OPEN[cat];   /* searching auto-expands matches */
+    const items=groups[cat];
+    return `<div class="acrgrp" style="border:1px solid var(--line);border-radius:8px;margin-bottom:8px;overflow:hidden">`
+      +`<div class="acrgrphdr" data-cat="${esc(cat)}" style="display:flex;align-items:center;gap:8px;padding:9px 12px;cursor:pointer;background:var(--panel2)">`
+      +`<span class="acrchev" style="width:12px;display:inline-block">${open?'▾':'▸'}</span><b>${esc(cat)}</b><span class="chip" style="margin-left:auto">${items.length}</span></div>`
+      +`<div class="acrgrpbody" style="display:${open?'block':'none'}"><table style="margin:0"><tbody>`
+      +items.map(({t})=>`<tr><td style="width:60%"><span class="tagval">${esc(t.value)}</span></td><td class="mono" style="font-size:11px;color:var(--mut)">${esc(t.uuid||'')}</td><td style="text-align:right"><button class="btn sm" data-cat="${esc(t.category)}" data-val="${esc(t.value)}">Set ACR</button></td></tr>`).join('')
+      +`</tbody></table></div></div>`;
+  }).join('');
+  box.querySelectorAll('.acrgrphdr').forEach(h=>h.onclick=()=>{ const c=h.dataset.cat; ACR_OPEN[c]=!ACR_OPEN[c]; renderAcr(); });
+  box.querySelectorAll('button[data-cat]').forEach(b=>b.onclick=(e)=>{ e.stopPropagation(); prefillAcr(b.dataset.cat,b.dataset.val); });
+  acrPreview();
 }
 function prefillAcr(cat,val){
   if(!ACR)return; const i=(ACR.tags||[]).findIndex(t=>t.category===cat&&t.value===val); if(i<0)return;
@@ -80,43 +96,82 @@ function prefillAcr(cat,val){
 }
 function acrPreview(){if(!ACR)return;const mod=acrMod.value,sc=acrScore.value;document.getElementById('acrScoreLbl').textContent=mod==='set'?'Set to (1–10)':mod==='inc'?'Increase by (N)':'Decrease by (N)';const t=ACR.tags[acrTag.value];if(t)document.getElementById('acrPreview').textContent=mod==='set'?`Set ACR=${sc} on ${t.category}:${t.value}`:`${mod==='inc'?'Add':'Subtract'} ${sc} ${mod==='inc'?'to':'from'} ${t.category}:${t.value}`;}
 async function applyAcr(){
+  const btn=document.getElementById('acrApply'); if(btn&&btn.disabled)return;
   if(!ACR||!ACR.tags.length)return;const t=ACR.tags[acrTag.value];const mod=acrMod.value,score=Number(acrScore.value),note=acrNote.value.trim();
   const reasons=[...document.querySelectorAll('#acrReasons input:checked')].map(x=>x.value);
   if(!note)return flash('acrFlash','Business justification is required.','crit');
   if(!reasons.length)return flash('acrFlash','Select ≥1 Change Reason.','crit');
-  flash('acrFlash','<span class="spin"></span> applying…','run');
-  const o=await API.post('apply',{category:t.category,value:t.value,score,mod,note,reasons,confirm:true});
   const res=document.getElementById('acrResult');
+  const scroll=()=>{ if(res)res.scrollIntoView({behavior:'smooth',block:'center'}); };
+  const reset=()=>{ if(!btn)return; btn.disabled=false; btn.textContent=btn.dataset.label; btn.style.opacity=''; btn.style.transform=''; btn.style.cursor=''; };
+  if(btn){ btn.dataset.label=btn.dataset.label||btn.textContent; btn.disabled=true; btn.textContent='⏳ Sending…'; btn.style.opacity='.6'; btn.style.transform='translateY(1px)'; btn.style.cursor='default'; }
+  flash('acrFlash','<span class="spin"></span> applying…','run');
+  scroll();
+  const o=await API.post('apply',{category:t.category,value:t.value,score,mod,note,reasons,confirm:true});
   if(o.ok){flash('acrFlash',`✓ ACR ${mod} ${score} on ${t.category}:${t.value}.`+(o.warning?' '+o.warning:' Allow ~30 min for AES.'),'ok');res.innerHTML='<div class="callbox">'+(o.cmd||'')+'</div>';}
   else{flash('acrFlash','✗ '+(o.message||o.error||'failed'),'crit');res.innerHTML=o.cmd?'<div class="callbox">'+o.cmd+'</div>':'';}
+  scroll(); reset();
 }
 /* bulk */
 const RULE_RE=/^\s*if\s+(?:it'?s\s+|it\s+has\s+|it\s+contains\s+|tag\s+has\s+|the\s+)?["']?(.+?)["']?\s+(reduce|decrease|lower|drop|increase|raise|bump|set)\s+(?:it\s+)?(?:by\s+|to\s+)?(\d+)\s*$/i;
 function parseRules(text){const rules=[],bad=[];(text||'').split('\n').forEach(l=>{if(!l.trim())return;const m=RULE_RE.exec(l.trim());if(!m){bad.push(l.trim());return;}const v=m[2].toLowerCase();const mod=(v==='increase'||v==='raise'||v==='bump')?'inc':(v==='set')?'set':'dec';rules.push({raw:l.trim(),keyword:m[1].trim(),mod,score:+m[3]});});return{rules,bad};}
 function bulkReasons(){return[...document.querySelectorAll('#bulkReasons input:checked')].map(x=>x.value);}
-function setBulk(changes,source,meta){BULK={changes};const pv=document.getElementById('bulkPreview');document.getElementById('acrBulkApply').disabled=!changes.length;
-  pv.innerHTML=(meta||'')+`<p class="sub" style="margin:10px 0 4px">${changes.length} change(s) · <b>${source}</b></p><table><thead><tr><th>Tag</th><th>Action</th><th>Reason</th><th>Why</th></tr></thead><tbody>`+
-    (changes.length?changes.map(c=>`<tr><td>${c.category} : <span class="tagval">${c.value}</span></td><td><b>${c.mod==='set'?'set '+c.score:(c.mod==='inc'?'+':'−')+c.score}</b></td><td class="sub">${(c.reasons||[]).join(', ')}</td><td class="sub">${c.why||c.rule||''}</td></tr>`).join(''):'<tr><td colspan="4" class="sub">No changes.</td></tr>')+'</tbody></table>';
-  document.getElementById('bulkCount').textContent=`${changes.length} change(s)`;}
-function deterministicBulk(){const {rules,bad}=parseRules(acrRules.value);const reasons=bulkReasons(),extra=bulkNote.value.trim(),changes=[];
+function bulkSelected(){const pv=document.getElementById('bulkPreview');if(!pv)return (BULK.changes||[]);
+  const on=[...pv.querySelectorAll('.bulkChk')].filter(c=>c.checked).map(c=>+c.dataset.i);
+  return (BULK.changes||[]).filter((_,i)=>on.includes(i));}
+function bulkSync(){const pv=document.getElementById('bulkPreview');if(!pv)return;const chks=[...pv.querySelectorAll('.bulkChk')];
+  const on=chks.filter(c=>c.checked).length,tot=(BULK.changes||[]).length;
+  const btn=document.getElementById('acrBulkApply');if(btn){btn.disabled=!on;btn.textContent=btn.dataset.label||'Apply all';}
+  document.getElementById('bulkCount').textContent=tot?`${on} of ${tot} selected`:'0 change(s)';
+  const all=document.getElementById('bulkChkAll');if(all)all.checked=(on===tot&&tot>0);}
+function setBulk(changes,source,meta){BULK={changes};const pv=document.getElementById('bulkPreview');
+  const has=changes.length;
+  pv.innerHTML=(meta||'')+`<p class="sub" style="margin:10px 0 4px">${changes.length} change(s) · <b>${esc(source)}</b>`+(has?` · deselect any you don't want, then Apply. <a id="bulkAll" style="color:var(--accent);cursor:pointer">all</a> · <a id="bulkNone" style="color:var(--accent);cursor:pointer">none</a>`:'')+`</p><table><thead><tr><th style="width:1%;white-space:nowrap"><input type="checkbox" id="bulkChkAll" ${has?'checked':''} title="select / deselect all"></th><th>Tag</th><th>Action</th><th>Reason</th><th>Why</th></tr></thead><tbody>`+
+    (has?changes.map((c,i)=>`<tr><td style="text-align:center"><input type="checkbox" class="bulkChk" data-i="${i}" checked></td><td>${esc(c.category)} : <span class="tagval">${esc(c.value)}</span></td><td><b>${c.mod==='set'?'set '+c.score:(c.mod==='inc'?'+':'−')+c.score}</b></td><td class="sub">${esc((c.reasons||[]).join(', '))}</td><td class="sub">${esc(c.why||c.rule||'')}</td></tr>`).join(''):'<tr><td colspan="5" class="sub">No changes.</td></tr>')+'</tbody></table>';
+  pv.querySelectorAll('.bulkChk').forEach(c=>c.onchange=bulkSync);
+  const all=document.getElementById('bulkChkAll');if(all)all.onchange=()=>{pv.querySelectorAll('.bulkChk').forEach(c=>c.checked=all.checked);bulkSync();};
+  const aAll=document.getElementById('bulkAll');if(aAll)aAll.onclick=()=>{pv.querySelectorAll('.bulkChk').forEach(c=>c.checked=true);bulkSync();};
+  const aNone=document.getElementById('bulkNone');if(aNone)aNone.onclick=()=>{pv.querySelectorAll('.bulkChk').forEach(c=>c.checked=false);bulkSync();};
+  bulkSync();}
+async function deterministicBulk(){if(!await ensureTags())return flash('bulkFlash','No tags to work with — is <span class="mono">navi</span> on PATH? Click ▶ Load tags above, then try again.','crit');
+  const {rules,bad}=parseRules(acrRules.value);const reasons=bulkReasons(),extra=bulkNote.value.trim(),changes=[];
   (ACR?ACR.tags:[]).forEach(t=>{const hay=(t.category+' '+t.value).toLowerCase();const r=rules.find(x=>hay.includes(x.keyword.toLowerCase()));if(!r)return;if(r.mod==='set'&&(r.score<1||r.score>10))return;changes.push({category:t.category,value:t.value,mod:r.mod,score:r.score,reasons:reasons.length?reasons:['business'],note:`Bulk ACR rule: "${r.raw}"`+(extra?` — ${extra}`:''),rule:r.raw});});
   const warn=[];if(bad.length)warn.push(`${bad.length} line(s) not understood`);if(!reasons.length)warn.push('no reason — defaulting to business');
   setBulk(changes,'deterministic rules',warn.length?`<div class="flash show" style="background:rgba(251,191,36,.12);color:var(--warn)">${warn.join(' · ')}</div>`:'');}
+async function ensureTags(){ if(ACR&&ACR.tags&&ACR.tags.length)return true;
+  flash('bulkFlash','<span class="spin"></span> loading tags (navi explore info tags)…','run');
+  try{await runAcr();}catch(e){}
+  return !!(ACR&&ACR.tags&&ACR.tags.length); }
 async function interpretAI(){const prompt=acrRules.value.trim();if(!prompt)return flash('bulkFlash','Type an instruction first.','crit');
+  if(!await ensureTags())return flash('bulkFlash','No tags to work with — is <span class="mono">navi</span> on PATH? Click ▶ Load tags above, then try again.','crit');
   flash('bulkFlash','<span class="spin"></span> interpreting with AI…','run');const reasons=bulkReasons(),extra=bulkNote.value.trim();
-  let o;try{o=await API.post('interpret',{prompt,tags:ACR?ACR.tags:[]});}catch(e){o={ok:false,message:e.message};}
+  let o;try{o=await API.post('interpret',{prompt,tags:ACR.tags});}catch(e){o={ok:false,message:e.message};}
   if(o.ok){const changes=(o.changes||[]).map(c=>({category:c.category,value:c.value,mod:c.mod,score:c.score,reasons:reasons.length?reasons:(c.reasons||['business']),note:`AI ACR: "${prompt.slice(0,120)}"`+(c.why?` — ${c.why}`:'')+(extra?` — ${extra}`:''),why:c.why||''}));
-    flash('bulkFlash',`AI proposed ${changes.length} change(s).`+(o.rejected&&o.rejected.length?` (${o.rejected.length} rejected)`:''),'ok');setBulk(changes,'AI ('+(o.model||'llm')+')','');}
-  else{flash('bulkFlash',(o.message||'AI unavailable')+' — parsed as rules instead.','warn');deterministicBulk();}}
-async function applyBulk(){if(!BULK.changes.length)return;flash('bulkFlash','<span class="spin"></span> applying '+BULK.changes.length+' change(s)…','run');
-  const o=await API.post('bulk_apply',{changes:BULK.changes,confirm:true});
-  if(!o.ok){flash('bulkFlash','✗ '+(o.error||'failed'),'crit');return;}
+    if(!changes.length){flash('bulkFlash','The AI matched none of your '+ACR.tags.length+' tag(s)'+(o.rejected&&o.rejected.length?` (it suggested ${o.rejected.length} that aren’t in your tag list)`:'')+'. Name a tag category or value explicitly, or use Parse as rules.','warn');}
+    else flash('bulkFlash',`AI proposed ${changes.length} change(s).`+(o.rejected&&o.rejected.length?` (${o.rejected.length} rejected)`:''),'ok');
+    setBulk(changes,'AI ('+(o.model||'llm')+')','');}
+  else{const msg=(o.message||o.error||'AI unavailable');flash('bulkFlash',msg+(o.fallback?' — parsing as rules instead.':''),o.fallback?'warn':'crit');if(o.fallback)deterministicBulk();}}
+async function applyBulk(){
+  const btn=document.getElementById('acrBulkApply'); if(btn&&btn.disabled)return;
+  const sel=bulkSelected();
+  if(!sel.length)return flash('bulkFlash','Nothing selected — check at least one change to apply.','warn');
+  const pv=document.getElementById('bulkPreview');
+  const scroll=()=>{ if(pv)pv.scrollIntoView({behavior:'smooth',block:'center'}); };
+  const reset=()=>{ if(!btn)return; btn.disabled=false; btn.textContent=btn.dataset.label; btn.style.opacity=''; btn.style.transform=''; btn.style.cursor=''; };
+  if(btn){ btn.dataset.label=btn.dataset.label||btn.textContent; btn.disabled=true; btn.textContent='⏳ Sending…'; btn.style.opacity='.6'; btn.style.transform='translateY(1px)'; btn.style.cursor='default'; }
+  flash('bulkFlash','<span class="spin"></span> applying '+sel.length+' change(s)…','run');
+  scroll();
+  const o=await API.post('bulk_apply',{changes:sel,confirm:true});
+  if(!o.ok){flash('bulkFlash','✗ '+(o.error||'failed'),'crit');reset();scroll();return;}
   flash('bulkFlash',`✓ Applied ${o.applied}/${o.total}.`+(o.writes_enabled?' Allow ~30 min for AES.':' (gated — set NAVI_ALLOW_WRITES=1)'),o.applied?'ok':'crit');
-  document.getElementById('bulkPreview').innerHTML=(o.results||[]).map(r=>`<div class="callbox" style="color:${r.ok?'#7ee2a8':'#ffb4c6'}">${r.ok?'✓':'✗'} ${r.category}:${r.value} ${r.mod} ${r.score}${r.ok?(r.warning?' — '+r.warning:''):' — '+(r.message||r.stderr||'failed')}</div>`).join('');}
+  document.getElementById('bulkPreview').innerHTML=(o.results||[]).map(r=>`<div class="callbox" style="color:${r.ok?'var(--ok)':'var(--cx-ffb4c6)'}">${r.ok?'✓':'✗'} ${r.category}:${r.value} ${r.mod} ${r.score}${r.ok?(r.warning?' — '+r.warning:''):' — '+(r.message||r.stderr||'failed')}</div>`).join('');
+  scroll(); reset();}
 acrMod.onchange=acrPreview;acrScore.oninput=acrPreview;acrTag.onchange=acrPreview;acrSearch.oninput=renderAcr;
 document.getElementById('runAcr').onclick=runAcr;document.getElementById('acrApply').onclick=applyAcr;
 document.getElementById('acrInterpret').onclick=interpretAI;document.getElementById('acrParse').onclick=deterministicBulk;document.getElementById('acrBulkApply').onclick=applyBulk;
+document.getElementById('acrExpandAll').onclick=()=>{ if(!ACR)return; (ACR.tags||[]).forEach(t=>ACR_OPEN[t.category]=true); renderAcr(); };
+document.getElementById('acrCollapseAll').onclick=()=>{ ACR_OPEN={}; renderAcr(); };
 mountAgentHeader({icon:'🎯',name:'ACR Calibration Agent',sub:'set / +N / −N per tag · NL bulk'});
-runAcr();
+/* explicit-run: nothing loads until ▶ (protects a large navi.db) */
 </script>
 </body></html>

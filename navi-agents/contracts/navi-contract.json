@@ -1,0 +1,74 @@
+{
+  "name": "navi-contract",
+  "created": "2026-07-26T06:09:31Z",
+  "armed": true,
+  "schedule_hours": 4,
+  "wait_minutes": 0,
+  "navi_update": true,
+  "optimize": true,
+  "defaults": {
+    "top_n": 50,
+    "rank": "risk"
+  },
+  "acr": [],
+  "removal": {
+    "enabled": false,
+    "tags": [],
+    "pause_minutes": 30,
+    "navi_update": true
+  },
+  "agents": {
+    "iot_squad": {
+      "enabled": true,
+      "logic": ""
+    },
+    "customapp": {
+      "enabled": true,
+      "logic": ""
+    },
+    "exproute": {
+      "enabled": true,
+      "logic": ""
+    },
+    "eol": {
+      "enabled": true,
+      "logic": ""
+    },
+    "software": {
+      "enabled": true,
+      "logic": ""
+    },
+    "ai": {
+      "enabled": true,
+      "logic": ""
+    },
+    "identity": {
+      "enabled": true,
+      "logic": ""
+    },
+    "mitre": {
+      "enabled": true,
+      "logic": ""
+    },
+    "scan_eval": {
+      "enabled": true,
+      "logic": ""
+    },
+    "certificate": {
+      "enabled": true,
+      "logic": ""
+    },
+    "cisakev": {
+      "enabled": true,
+      "logic": ""
+    },
+    "postquantum": {
+      "enabled": true,
+      "logic": ""
+    },
+    "agentgroup": {
+      "enabled": true,
+      "logic": ""
+    }
+  }
+}

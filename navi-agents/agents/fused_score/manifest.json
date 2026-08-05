@@ -1,0 +1,12 @@
+{
+  "id": "fused_score",
+  "name": "Exposure Score",
+  "icon": "🎯",
+  "order": 24,
+  "category": "Views",
+  "summary": "The pack's convergence page (Nemesis Hound). Fuses every Hound's signal into ONE exposure score per asset — KEV+EPSS+VPR+ACR direct, plus attack path (Fenrir), identity (Janus), AI (Pythia), EOL (Charon), weak/expiring crypto (Certania+Heimdall), ATT&CK (Orthrus) and ownership (Terminus) from tags. Surfaces the worst finding from each Hound and where they converge on the same assets, ranks the estate worst-first, and turns a remediation play into a projected reduction justified by the signals it clears. High-level 'act now' actions; Priority tagging is gated.",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": ["load", "run", "overview", "tag", "refresh"],
+  "codename": "Nemesis Hound"
+}

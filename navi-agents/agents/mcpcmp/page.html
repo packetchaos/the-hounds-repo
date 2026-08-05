@@ -59,7 +59,7 @@ const NOTES=[
  ['navi is the ground-truth probe','navi can introspect which key/container it holds (<span class="mono">navi_explore_api</span>) and how fresh the local snapshot is (<span class="mono">navi_explore_info status</span> / the db timestamp). Use it to confirm both before blaming the account.'],
 ];
 function renderMatrix(){
-  const cell=v=>{const c=v==='✅'?'var(--ok,#34d399)':v==='☑'?'var(--warn,#e7c66b)':v==='—'?'var(--mut)':'var(--ink-2)';return `<td style="text-align:center;color:${c};font-weight:700">${v}</td>`;};
+  const cell=v=>{const c=v==='✅'?'var(--ok,var(--ok))':v==='☑'?'var(--warn,var(--cx-e7c66b))':v==='—'?'var(--mut)':'var(--ink-2)';return `<td style="text-align:center;color:${c};font-weight:700">${v}</td>`;};
   document.querySelector('#matrix tbody').innerHTML=MATRIX.map(r=>`<tr><td>${r[0]}</td>${cell(r[1])}${cell(r[2])}<td class="sub">${r[3]}</td></tr>`).join('');
   document.getElementById('notes').innerHTML=NOTES.map(n=>`<div class="callbox" style="margin-bottom:8px"><b>${n[0]}</b><div class="sub" style="margin-top:3px">${n[1]}</div></div>`).join('');
 }
@@ -69,8 +69,8 @@ async function snap(){ document.getElementById('snap').disabled=true; flash('fla
   if(!o||!o.ok){ flash('flash','✗ '+((o&&o.error)||'failed'),'crit'); return; }
   const r=o.result||{}; flashClear('flash');
   let freshTxt='unknown', col='var(--ink-2)';
-  if(r.db_fresh){ const d=new Date(r.db_fresh); if(!isNaN(d)){ const days=Math.floor((Date.now()-d.getTime())/86400000); freshTxt=String(r.db_fresh).slice(0,10)+(days>=0?(' ('+days+'d)'):''); col=days<=1?'var(--ok,#34d399)':(days<=7?'var(--warn,#e7c66b)':'var(--crit)'); } }
-  document.getElementById('kpi').innerHTML=`<div class="k"><div class="v">${r.asset_total!=null?r.asset_total:'—'}</div><div class="l">assets in navi.db</div></div><div class="k"><div class="v" style="color:${col};font-size:15px">${esc(freshTxt)}</div><div class="l">navi.db freshness</div></div><div class="k"><div class="v">${r.navi_category_count||0}</div><div class="l">navi tag categories</div></div><div class="k"><div class="v" style="color:${r.navi_available?'var(--ok,#34d399)':'var(--mut)'}">${r.navi_available?'on':'off'}</div><div class="l">navi CLI</div></div>`;
+  if(r.db_fresh){ const d=new Date(r.db_fresh); if(!isNaN(d)){ const days=Math.floor((Date.now()-d.getTime())/86400000); freshTxt=String(r.db_fresh).slice(0,10)+(days>=0?(' ('+days+'d)'):''); col=days<=1?'var(--ok,var(--ok))':(days<=7?'var(--warn,var(--cx-e7c66b))':'var(--crit)'); } }
+  document.getElementById('kpi').innerHTML=`<div class="k"><div class="v">${r.asset_total!=null?r.asset_total:'—'}</div><div class="l">assets in navi.db</div></div><div class="k"><div class="v" style="color:${col};font-size:15px">${esc(freshTxt)}</div><div class="l">navi.db freshness</div></div><div class="k"><div class="v">${r.navi_category_count||0}</div><div class="l">navi tag categories</div></div><div class="k"><div class="v" style="color:${r.navi_available?'var(--ok,var(--ok))':'var(--mut)'}">${r.navi_available?'on':'off'}</div><div class="l">navi CLI</div></div>`;
   document.getElementById('ident').innerHTML=
     `<div class="callbox" style="margin-top:8px">⏱ <b>Check freshness before blaming the account.</b> If Tenable shows assets/tags navi doesn't, the snapshot is stale — run a full <span class="mono">navi update -d</span>, then re-snapshot. Local snapshot: <span class="mono" style="color:${col}">${esc(freshTxt)}</span>.</div>`+
     (r.navi_identity?`<div class="callbox" style="margin-top:8px"><b>navi identity</b><div class="mono sub" style="margin-top:3px;white-space:pre-wrap">${esc(r.navi_identity)}</div></div>`:'')+

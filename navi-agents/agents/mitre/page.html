@@ -79,7 +79,7 @@ function render(){
   document.getElementById('apprCount').textContent=`${n} approved / ${acts.length}`;
   document.getElementById('apply').disabled=!n;
   const ha=PLAN.high_acr||[]; document.getElementById('highCount').textContent=`(${ha.length})`;
-  document.querySelector('#highTbl tbody').innerHTML=ha.length?ha.map(a=>`<tr><td><a class="plink" href="/web/asset.html?asset=${encodeURIComponent(a.asset_uuid)}">${esc(a.host)}</a></td><td class="mono">${esc(a.ip||'')}</td><td><b style="color:var(--crit)">${esc(String(a.acr))}</b></td><td>${(a.cves||[]).map(c=>`<span class="tagval">${esc(c)}</span>`).join(' ')}</td></tr>`).join(''):'<tr><td colspan="4" class="sub">No ACR&gt;7 assets with ATT&CK-mapped CVEs.</td></tr>';
+  hPageReset('highTbl'); hPaginate('highTbl', ha, a=>`<tr><td><a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(a.asset_uuid)}">${esc(a.host)}</a></td><td class="mono">${esc(a.ip||'')}</td><td><b style="color:var(--crit)">${esc(String(a.acr))}</b></td><td>${(a.cves||[]).map(c=>`<span class="tagval">${esc(c)}</span>`).join(' ')}</td></tr>`, {empty:'<tr><td colspan="4" class="sub">No ACR&gt;7 assets with ATT&CK-mapped CVEs.</td></tr>', cols:4});
 }
 document.querySelectorAll('#scope button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#scope button').forEach(x=>x.classList.remove('on'));b.classList.add('on');scope=b.dataset.s;run();});
 document.getElementById('dlCsv').href=CSV_URL;
@@ -102,13 +102,20 @@ document.getElementById('cancelBtn').onclick=()=>{document.getElementById('appro
 document.getElementById('approveAll').onclick=()=>{if(PLAN){PLAN.actions.forEach(a=>{if(appr[key(a)]!=='applied')appr[key(a)]='approved';});save();render();}};
 document.getElementById('reset').onclick=()=>{if(PLAN){PLAN.actions.forEach(a=>{if(appr[key(a)]!=='applied')delete appr[key(a)];});save();render();}};
 document.getElementById('apply').onclick=async()=>{
+  const btn=document.getElementById('apply'); if(btn&&btn.disabled)return;
   const acts=PLAN.actions.filter(a=>appr[key(a)]==='approved'); if(!acts.length)return;
-  const res=document.getElementById('res'); res.innerHTML='<div class="callbox"><span class="spin"></span> applying '+acts.length+' tag(s) via navi tag-by-CVE…</div>';
+  const res=document.getElementById('res');
+  const scroll=()=>{ if(res)res.scrollIntoView({behavior:'smooth',block:'center'}); };
+  const reset=()=>{ if(!btn)return; btn.disabled=false; btn.textContent=btn.dataset.label; btn.style.opacity=''; btn.style.transform=''; btn.style.cursor=''; };
+  if(btn){ btn.dataset.label=btn.dataset.label||btn.textContent; btn.disabled=true; btn.textContent='⏳ Sending…'; btn.style.opacity='.6'; btn.style.transform='translateY(1px)'; btn.style.cursor='default'; }
+  res.innerHTML='<div class="callbox"><span class="spin"></span> applying '+acts.length+' tag(s) via navi tag-by-CVE…</div>';
+  scroll();
   const o=await API.post('apply',{actions:acts,confirm:true});
-  if(!o.ok){res.innerHTML='<div class="callbox" style="color:#ffb4c6">✗ '+(o.error||'failed')+'</div>';return;}
+  if(!o.ok){res.innerHTML='<div class="callbox" style="color:var(--cx-ffb4c6)">✗ '+(o.error||'failed')+'</div>';reset();scroll();return;}
   (o.results||[]).forEach(r=>{ if(r.ok) appr[r.cve+'|'+r.value]='applied'; }); save();
-  res.innerHTML=`<div class="callbox" style="color:${o.applied?'#7ee2a8':'#ffb4c6'}">Applied ${o.applied}/${o.total}.`+(o.writes_enabled?' Allow ~30 min for Tenable.':' (gated — set NAVI_ALLOW_WRITES=1 and put navi on PATH)')+'</div>';
-  render();
+  res.innerHTML=`<div class="callbox" style="color:${o.applied?'var(--ok)':'var(--cx-ffb4c6)'}">Applied ${o.applied}/${o.total}.`+(o.writes_enabled?' Allow ~30 min for Tenable.':' (gated — set NAVI_ALLOW_WRITES=1 and put navi on PATH)')+'</div>';
+  reset(); render();   // render() re-derives the apply button's disabled state from remaining approvals
+  scroll();
 };
 mountAgentHeader({icon:'🎯',name:'MITRE ATT&CK Tagging',sub:'navi tag-by-CVE · live ATT&CK mapping'});
 requestApprove();   // human approves the external download before anything is fetched

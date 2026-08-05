@@ -1,38 +1,176 @@
-"""In-memory, session-only background tag queue.
+"""Background tag queue with a durable, shared log.
 
 Tag writes shell out to `navi`, which can take a while (and Tenable adds a
 ~30-minute propagation window). To keep the UI responsive, every tag write is
-enqueued here and executed by a single background worker thread — serially, so
-navi writes never collide. Jobs live only for the life of the server process
-(no disk persistence); restarting the server clears the log.
+enqueued here and executed by background worker threads. Execution state lives
+in-memory, but every job is ALSO mirrored to a small SQLite sidecar
+(``tag_jobs.db`` in the repo root, override with ``NAVI_TAGLOG_DB``) so the
+Tagging log:
 
-A single worker (not a pool) is deliberate: navi/sqlite writes serialize best
-one-at-a-time, and the original synchronous behavior was already one-at-a-time.
+  * survives a server restart (the log used to be wiped on every restart), and
+  * is shared across processes (so a job queued in one process is visible to the
+    Tagging log even if the read is served by another).
+
+The sidecar is strictly best-effort: if it can't be opened or written, tagging
+still works exactly as before off the in-memory list — persistence just degrades
+to session-only. Job IDs come from the DB (AUTOINCREMENT) so they never collide
+across processes; if the DB is unavailable we fall back to an in-process counter.
 """
 import itertools
+import json
 import os
+import sqlite3
 import threading
 import time
 import queue as _queue
 
 # A small gap between tag writes — a safety margin against Tenable-side API rate
-# limits on large runs. The worker is already serial (one tag at a time); tags on
-# thousands of assets can take 2-3 min each, so this gap is conservative. Tune via
-# NAVI_TAG_GAP_MS (set 0 to disable).
+# limits on large runs. Tune via NAVI_TAG_GAP_MS (set 0 to disable).
 _GAP = max(0.0, float(os.environ.get("NAVI_TAG_GAP_MS", "1500")) / 1000.0)
 
-_JOBS = []                 # newest-last list of job dicts (the log)
+_JOBS = []                 # in-memory mirror (this process); newest-last
 _LOCK = threading.Lock()
 _Q = _queue.Queue()
-_IDS = itertools.count(1)
+_IDS = itertools.count(1)  # fallback IDs only (when the sidecar DB is unavailable)
 
-# Worker POOL — run several tags in parallel. The work is serialized one-per-thread
-# but N threads can each have a navi tag in flight at once. Default from
-# NAVI_TAG_WORKERS (set 8 to run 8 at a time). Each worker still honors _GAP, so the
-# effective rate is ~ workers / gap — fast, but still paced.
+# Worker POOL — N threads, each running one navi tag at a time. Default from
+# NAVI_TAG_WORKERS. Each worker honors _GAP, so the effective rate is paced.
 _DESIRED = max(1, min(32, int(os.environ.get("NAVI_TAG_WORKERS", "4"))))
 _WORKERS = []
 _WLOCK = threading.Lock()
+
+# ---------------------------------------------------------------------------
+# Durable sidecar (SQLite). All ops best-effort — never let a DB hiccup break a
+# tag write. Reads fall back to the in-memory mirror when the DB is unavailable.
+# ---------------------------------------------------------------------------
+_DBPATH = os.environ.get("NAVI_TAGLOG_DB") or os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "tag_jobs.db")
+_DBLOCK = threading.Lock()
+_DB_OK = False
+
+
+def _b(v):
+    return None if v is None else (1 if v else 0)
+
+
+def _db_init():
+    global _DB_OK, _DESIRED
+    try:
+        con = sqlite3.connect(_DBPATH, timeout=5.0)
+        try:
+            con.execute("PRAGMA journal_mode=WAL")
+            con.execute(
+                "CREATE TABLE IF NOT EXISTS jobs("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, status TEXT, ok INTEGER, "
+                "message TEXT, created REAL, started REAL, finished REAL, op TEXT, "
+                "agent TEXT, category TEXT, value TEXT, selector TEXT, detail TEXT, spec TEXT)")
+            con.execute("CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, val TEXT)")
+            con.commit()
+        finally:
+            con.close()
+        _DB_OK = True
+    except Exception:
+        _DB_OK = False
+        return
+    # Adopt a previously-saved worker count — so the "parallel tags" setting sticks
+    # across restarts and is shared across processes (not just this one's memory).
+    try:
+        d = _meta_get("desired_workers")
+        if d is not None:
+            _DESIRED = max(1, min(32, int(d)))
+    except Exception:
+        pass
+
+
+def _dbexec(sql, params=(), want=None):
+    """want: 'id' → lastrowid, 'all' → fetchall, else commit-only. None on failure."""
+    if not _DB_OK:
+        return None
+    try:
+        with _DBLOCK:
+            con = sqlite3.connect(_DBPATH, timeout=5.0)
+            try:
+                con.execute("PRAGMA busy_timeout=5000")
+                cur = con.execute(sql, params)
+                if want == "all":
+                    return cur.fetchall()
+                con.commit()
+                return cur.lastrowid if want == "id" else True
+            finally:
+                con.close()
+    except Exception:
+        return None
+
+
+def _db_insert(job):
+    return _dbexec(
+        "INSERT INTO jobs(status,ok,message,created,started,finished,op,agent,"
+        "category,value,selector,detail,spec) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        (job.get("status"), _b(job.get("ok")), job.get("message", ""),
+         job.get("created"), job.get("started"), job.get("finished"),
+         job.get("op", "tag"), job.get("agent", ""), job.get("category", ""),
+         job.get("value", ""), job.get("selector", ""), job.get("detail", ""),
+         json.dumps(job.get("spec") or {})), want="id")
+
+
+def _db_update(job):
+    _dbexec("UPDATE jobs SET status=?,ok=?,message=?,started=?,finished=? WHERE id=?",
+            (job.get("status"), _b(job.get("ok")), job.get("message", ""),
+             job.get("started"), job.get("finished"), job.get("id")))
+
+
+def _db_all(limit=2000):
+    rows = _dbexec(
+        "SELECT id,status,ok,message,created,started,finished,op,agent,category,"
+        "value,selector,detail,spec FROM jobs ORDER BY id DESC LIMIT ?", (limit,), want="all")
+    if rows is None:
+        return None
+    out = []
+    for r in rows:
+        out.append({"id": r[0], "status": r[1],
+                    "ok": (None if r[2] is None else bool(r[2])),
+                    "message": r[3], "created": r[4], "started": r[5], "finished": r[6],
+                    "op": r[7], "agent": r[8], "category": r[9], "value": r[10],
+                    "selector": r[11], "detail": r[12],
+                    "spec": (json.loads(r[13]) if r[13] else {})})
+    return out
+
+
+def _db_counts():
+    rows = _dbexec("SELECT status, COUNT(*) FROM jobs GROUP BY status", want="all")
+    if rows is None:
+        return None
+    c = {"queued": 0, "running": 0, "done": 0, "error": 0, "total": 0}
+    for st, n in rows:
+        c[st] = c.get(st, 0) + n
+        c["total"] += n
+    return c
+
+
+def _meta_get(key):
+    rows = _dbexec("SELECT val FROM meta WHERE key=?", (key,), want="all")
+    if rows:
+        try:
+            return rows[0][0]
+        except Exception:
+            return None
+    return None
+
+
+def _meta_set(key, val):
+    _dbexec("INSERT OR REPLACE INTO meta(key, val) VALUES(?, ?)", (key, str(val)))
+
+
+def _synced_desired():
+    """The worker count, read from the shared sidecar when available so every
+    process/restart agrees; falls back to this process's value."""
+    d = _meta_get("desired_workers")
+    if d is not None:
+        try:
+            return max(1, min(32, int(d)))
+        except Exception:
+            pass
+    return _DESIRED
 
 
 def _now():
@@ -40,6 +178,15 @@ def _now():
 
 
 def _ensure_workers():
+    global _DESIRED
+    # Adopt the shared worker count (another process may have changed it) before
+    # sizing this process's pool — keeps parallelism consistent across processes.
+    d = _meta_get("desired_workers")
+    if d is not None:
+        try:
+            _DESIRED = max(1, min(32, int(d)))
+        except Exception:
+            pass
     with _WLOCK:
         _WORKERS[:] = [t for t in _WORKERS if t.is_alive()]
         while len(_WORKERS) < _DESIRED:
@@ -50,13 +197,13 @@ def _ensure_workers():
 
 
 def set_workers(n) -> int:
-    """Resize the pool at runtime (1-32). Extra workers retire after their current
-    job; new ones start immediately."""
+    """Resize the pool at runtime (1-32)."""
     global _DESIRED
     try:
         _DESIRED = max(1, min(32, int(n)))
     except Exception:
         pass
+    _meta_set("desired_workers", _DESIRED)   # persist + share across processes/restarts
     _ensure_workers()
     return _DESIRED
 
@@ -81,6 +228,7 @@ def _run(idx):
         with _LOCK:
             job["status"] = "running"
             job["started"] = _now()
+        _db_update(job)
         try:
             res = fn(**kwargs) or {}
             ok = bool(res.get("ok"))
@@ -91,12 +239,14 @@ def _run(idx):
                 job["message"] = (res.get("warning") or res.get("message")
                                   or res.get("stderr") or ("applied" if ok else "failed"))
                 job["finished"] = _now()
+            _db_update(job)
         except Exception as e:                       # pragma: no cover
             with _LOCK:
                 job["status"] = "error"
                 job["ok"] = False
                 job["message"] = str(e)
                 job["finished"] = _now()
+            _db_update(job)
         finally:
             _Q.task_done()
             if _GAP:
@@ -114,8 +264,7 @@ def _get(job_id):
 def submit(fn, kwargs, meta=None) -> dict:
     """Enqueue fn(**kwargs); returns the job stub immediately (status=queued)."""
     meta = meta or {}
-    jid = next(_IDS)
-    job = {"id": jid, "status": "queued", "ok": None, "message": "",
+    job = {"id": None, "status": "queued", "ok": None, "message": "",
            "created": _now(), "started": None, "finished": None,
            "op": meta.get("op", "tag"),
            "agent": meta.get("agent", ""), "category": meta.get("category", ""),
@@ -124,6 +273,10 @@ def submit(fn, kwargs, meta=None) -> dict:
            # the raw navi args, retained so the Tagging log can export a runnable
            # navi script (shell / python) for cron.
            "spec": dict(kwargs or {})}
+    jid = _db_insert(job)          # DB assigns a globally-unique id (best-effort)
+    if not jid:
+        jid = next(_IDS)           # fallback: in-process id when the sidecar is down
+    job["id"] = jid
     with _LOCK:
         _JOBS.append(job)
     _ensure_workers()
@@ -134,10 +287,9 @@ def submit(fn, kwargs, meta=None) -> dict:
 def record(meta, result) -> dict:
     """Append an already-finished write (e.g. a synchronous ACR change) to the log
     so the Tagging log and the contract builder see ACR changes alongside tags."""
-    jid = next(_IDS)
     ok = bool((result or {}).get("ok"))
     now = _now()
-    job = {"id": jid, "status": "done" if ok else "error", "ok": ok,
+    job = {"id": None, "status": "done" if ok else "error", "ok": ok,
            "message": (result or {}).get("warning") or (result or {}).get("message")
                       or ("applied" if ok else "failed"),
            "created": now, "started": now, "finished": now,
@@ -146,32 +298,51 @@ def record(meta, result) -> dict:
            "value": (meta or {}).get("value", ""), "selector": (meta or {}).get("selector", ""),
            "detail": (meta or {}).get("detail", ""),
            "spec": dict((meta or {}).get("spec") or {})}
+    jid = _db_insert(job)
+    if not jid:
+        jid = next(_IDS)
+    job["id"] = jid
     with _LOCK:
         _JOBS.append(job)
     return dict(job)
 
 
 def list_jobs() -> list:
+    """Newest-first. Reads the durable sidecar (shared + restart-proof); falls back
+    to this process's in-memory mirror only if the DB is unavailable."""
+    db = _db_all()
+    if db is not None:
+        return db
     with _LOCK:
         jobs = [dict(j) for j in _JOBS]
-    jobs.reverse()                                   # newest first for the UI
+    jobs.reverse()
     return jobs
 
 
 def counts() -> dict:
-    with _LOCK:
-        c = {"queued": 0, "running": 0, "done": 0, "error": 0, "total": len(_JOBS)}
-        for j in _JOBS:
-            c[j["status"]] = c.get(j["status"], 0) + 1
+    c = _db_counts()
+    if c is None:
+        with _LOCK:
+            c = {"queued": 0, "running": 0, "done": 0, "error": 0, "total": len(_JOBS)}
+            for j in _JOBS:
+                c[j["status"]] = c.get(j["status"], 0) + 1
     c["workers"] = workers_alive() or _DESIRED
-    c["desired_workers"] = _DESIRED
+    c["desired_workers"] = _synced_desired()
     return c
 
 
 def clear() -> int:
     """Drop finished (done/error) jobs from the log; keep queued/running."""
     global _JOBS
+    before = _db_counts()
+    _dbexec("DELETE FROM jobs WHERE status IN ('done','error')")
     with _LOCK:
-        before = len(_JOBS)
+        mem_before = len(_JOBS)
         _JOBS = [j for j in _JOBS if j["status"] in ("queued", "running")]
-        return before - len(_JOBS)
+        mem_dropped = mem_before - len(_JOBS)
+    if before is not None:
+        return before.get("done", 0) + before.get("error", 0)
+    return mem_dropped
+
+
+_db_init()

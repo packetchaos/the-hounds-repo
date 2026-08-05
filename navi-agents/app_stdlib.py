@@ -61,6 +61,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, launcher.health())
         if u == "/api/registry":
             return self._send(200, launcher.registry())
+        if u == "/api/jobs":
+            return self._send(200, launcher.jobs_list())
+        if u.startswith("/api/jobs/"):
+            return self._send(200, launcher.jobs_get(u[len("/api/jobs/"):]))
+        if u == "/api/profile":
+            return self._send(200, launcher.profile())
         if u.startswith("/static/"):
             return self._file(_safe_join(ASSETS, u[len("/static/"):]))
         if u.startswith("/web/"):
@@ -71,6 +77,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         u = urllib.parse.urlparse(self.path).path
+        if u == "/api/jobs/clear":
+            return self._send(200, launcher.jobs_clear())
+        if u == "/api/profile/clear":
+            return self._send(200, launcher.profile_clear())
         parts = u.strip("/").split("/")
         if len(parts) == 3 and parts[0] == "api":
             n = int(self.headers.get("Content-Length") or 0)

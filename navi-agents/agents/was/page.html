@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>WAS Overview · Xolotl · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>
+.barrow{display:grid;grid-template-columns:170px 1fr 128px;gap:12px;align-items:center;margin:7px 0}
+.barrow .bl{font-size:12.5px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.barrow .track{background:var(--bg-2);border:1px solid var(--line);border-radius:6px;overflow:hidden;height:18px}
+.barrow .bar{height:100%;border-radius:5px 0 0 5px;min-width:2px}
+.barrow .bv{font-family:var(--mono);font-size:11.5px;color:var(--ink-3);text-align:right}
+.seclbl{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.chips{display:flex;flex-wrap:wrap;gap:7px}
+.tchip{font-size:12px;background:var(--panel-2);border:1px solid var(--line);border-radius:100px;padding:4px 11px;color:var(--ink-2)}
+.tchip b{color:var(--ink);font-family:var(--mono);margin-left:5px}
+.setupcard{text-align:center;padding:26px 18px}.setupcard .big{font-size:15px;font-weight:700;margin-bottom:6px}
+.applink{color:var(--accent);text-decoration:none;font-weight:600}.applink:hover{text-decoration:underline}
+/* tagging tool */
+.tseg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.tseg button{background:var(--panel);border:0;border-right:1px solid var(--line);padding:7px 13px;font-size:12.5px;color:var(--ink-2);cursor:pointer;font-family:inherit;display:inline-flex;gap:6px;align-items:center;white-space:nowrap}
+.tseg button:last-child{border-right:0}.tseg button.on{background:var(--accent);color:#fff}.tseg button.on b{color:#fff}
+.tseg button:hover:not(.on){background:var(--panel-2)}.tseg b{font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+.tagrow{display:flex;gap:10px;align-items:center;padding:9px 2px;border-top:1px solid var(--line)}
+.tagrow:first-child{border-top:0}
+.tagrow .tl{min-width:0;flex:1}.tagrow .tl b{font-size:13.5px}
+.tagcat{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);white-space:nowrap}
+.gatebar{background:var(--panel-2);border:1px solid var(--line);border-left:3px solid var(--cx-e7c66b);border-radius:8px;padding:9px 12px;font-size:12.5px;color:var(--ink-2);margin:2px 0 12px}
+.tagdone{color:var(--ok);font-size:12px;font-weight:600;white-space:nowrap}
+.tres{font-size:12px;margin-left:auto;text-align:right}
+</style>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+  <section class="card">
+    <div class="toolbar"><div><h2 style="margin:0">🕸 WAS Overview <span class="sub" style="font-weight:400">· Xolotl guards the web apps</span></h2>
+      <p class="sub" style="margin:2px 0 0">Every web app navi has scanned, consolidated: severity, the OWASP Top-10 profile, technology inventory, and scan coverage. Click an app for its full <b>App Report</b>.</p></div>
+      <span style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <a class="btn ghost sm" href="/agents/was/report.html" title="Per-app deep-dive">🔬 App Report →</a>
+        <button class="btn run sm" id="refresh">↻ Refresh</button>
+        <button class="btn sm" id="emailBtn" title="Email this dashboard (gated)">📧 Email</button></span></div>
+    <div id="emailForm" style="display:none;margin-top:8px;gap:6px;align-items:center;flex-wrap:wrap">
+      <input id="emailTo" class="fld" style="min-width:240px;padding:8px 10px" placeholder="recipient email">
+      <button class="btn run sm" id="emailSend">▶ Send (gated)</button>
+      <button class="btn ghost sm" id="emailCancel">cancel</button><span id="emailRes" class="sub"></span></div>
+    <div id="flash" class="flash"></div>
+  </section>
+  <div id="body"></div>
+  <footer>WAS Overview · Xolotl · read-only navi.db · populate with <span class="mono">navi config update was</span> (Settings ▸ navi.db tables)</footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('was'), EMAIL=agentApi('email');
+let OV=null, TAGS=null, TAGW=null, TAGDIM='owasp';
+const SEV=[['critical','Critical','var(--crit)'],['high','High','var(--high)'],['medium','Medium','var(--med)'],['low','Low','var(--low)'],['info','Info','var(--info)']];
+const fnum=n=>(n==null?'—':Number(n).toLocaleString());
+function ageDays(iso){ if(!iso)return null; const t=Date.parse(iso); if(isNaN(t))return null; return Math.max(0,Math.round((Date.now()-t)/86400000)); }
+function bar(label,val,max,color,right){ const w=Math.max(2,Math.round((val/(max||1))*100));
+  return `<div class="barrow"><div class="bl" title="${esc(label)}">${esc(label)}</div><div class="track"><div class="bar" style="width:${w}%;background:${color}"></div></div><div class="bv">${right!=null?right:fnum(val)}</div></div>`; }
+function kpi(v,l,sub){ return `<div class="k"><div class="v">${v}</div><div class="l">${esc(l)}${sub?' · '+esc(sub):''}</div></div>`; }
+
+async function run(){
+  const rb=document.getElementById('refresh'); rb.disabled=true;
+  flash('flash','<span class="spin"></span> walking the WAS data…','run');
+  let o,tp;
+  try{ [o,tp]=await Promise.all([API.post('overview'), API.post('tag_plan').catch(()=>null)]); }
+  catch(e){ o={ok:false,error:e.message}; }
+  rb.disabled=false;
+  if(!o||!o.ok){ flash('flash','✗ '+esc((o&&o.error)||'failed'),'crit'); return; }
+  flashClear('flash'); OV=o.result||{};
+  if(tp&&tp.ok){ TAGS=tp.result||null; TAGW=tp.writes||null; } else { TAGS=null; TAGW=null; }
+  render();
+}
+function render(){
+  const B=document.getElementById('body');
+  if(!OV.available){
+    B.innerHTML=`<section class="card"><div class="setupcard"><div class="big">🕸 No WAS data yet</div>
+      <p class="sub">Xolotl reads the <b>apps</b> and <b>findings</b> tables. Populate them with <span class="mono">navi config update was</span> — do it from <a href="/web/settings.html"><b>Settings ▸ navi.db tables ▸ Web Apps</b></a> (needs a Tenable WAS license). Then refresh.</p>
+      <a class="btn run sm" href="/web/settings.html" style="margin-top:8px;display:inline-block">Open Settings →</a></div></section>`;
+    return;
+  }
+  const sv=OV.severity||{}, cov=OV.coverage||{};
+  let h='';
+  h+='<section class="card"><div class="kpi">'
+    +kpi(fnum(OV.apps),'Web apps scanned')
+    +kpi(fnum(OV.assets),'Assets','with a WAS scan')
+    +kpi(fnum(sv.critical),'Critical','findings')
+    +kpi(fnum(sv.high),'High','findings')
+    +kpi(fnum(OV.total_findings),'Total findings')
+    +kpi(fnum(OV.apps_with_crit),'Apps with criticals')
+    +kpi(fnum(OV.clean_apps),'Clean apps','no crit/high/med/low')
+    +kpi(fnum(cov.stale),'Stale scans','>'+cov.stale_days+'d old')
+    +'</div></section>';
+
+  // ---- bulk tagging tool (top: under the numbers, above findings) ----
+  h+=tagCardHTML();
+
+  // severity distribution
+  const smax=Math.max(1,...SEV.map(([k])=>sv[k]||0));
+  h+='<section class="card"><h3 style="margin:0 0 2px">Findings by severity</h3><p class="seclbl">summed across all apps</p>';
+  SEV.forEach(([k,lbl,c])=>{ h+=bar(lbl,sv[k]||0,smax,c,fnum(sv[k]||0)); });
+  h+='</section>';
+
+  // OWASP Top-10
+  const ow=OV.owasp||[]; const omax=Math.max(1,...ow.map(o=>o.count||0));
+  h+='<section class="card"><h3 style="margin:0 0 2px">OWASP Top-10 profile</h3><p class="seclbl">category counts summed across apps</p>';
+  ow.forEach(o=>{ h+=bar(o.code+' · '+o.label, o.count, omax, 'var(--accent)', fnum(o.count)); });
+  h+='</section>';
+
+  // technology inventory + scan coverage (two cards side by side via grid)
+  h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px">';
+  const tech=OV.tech||[];
+  h+='<section class="card" style="margin:0"><h3 style="margin:0 0 2px">Technology inventory</h3><p class="seclbl">apps per detected technology</p>'
+    +(tech.length?'<div class="chips">'+tech.map(t=>`<span class="tchip">${esc(t.tech)}<b>${t.apps}</b></span>`).join('')+'</div>':'<p class="sub">No technologies detected in the scanned apps.</p>')+'</section>';
+  h+='<section class="card" style="margin:0"><h3 style="margin:0 0 2px">Scan coverage</h3><p class="seclbl">crawl depth &amp; recency</p>'
+    +'<div class="kpi">'+kpi(fnum(cov.total_pages),'Pages crawled','total')+kpi(fnum(cov.total_requests),'Requests','total')
+    +kpi(fnum(cov.scanned_recent),'Fresh','≤'+cov.stale_days+'d')+kpi(fnum(cov.stale),'Stale','>'+cov.stale_days+'d')+'</div>'
+    +'<p class="sub" style="margin:8px 0 0">Newest scan '+(cov.newest?esc(String(cov.newest).slice(0,10)):'—')+' · oldest '+(cov.oldest?esc(String(cov.oldest).slice(0,10)):'—')+'</p></section>';
+  h+='</div>';
+
+  // per-app table
+  const rows=OV.apps_rows||[];
+  h+='<section class="card" style="margin-top:16px"><div class="toolbar"><h3 style="margin:0">Apps by risk</h3><span class="chip" style="margin-left:auto">'+rows.length+' app'+(rows.length===1?'':'s')+'</span></div>'
+    +'<div style="overflow-x:auto"><table class="nocsv"><thead><tr><th>App</th><th>Target</th><th>Crit</th><th>High</th><th>Med</th><th>Low</th><th>Info</th><th>Findings</th><th>Pages</th><th>Last scan</th><th>Recon</th></tr></thead><tbody>'
+    +rows.map(a=>{ const age=ageDays(a.scan_completed_time); const stale=age!=null&&age>cov.stale_days;
+      const href='/agents/was/report.html?app='+encodeURIComponent(a.uuid||'');
+      const aHref='/agents/was_asset/page.html?app='+encodeURIComponent(a.uuid||'');
+      const techTip=(a.tech&&a.tech.length)?('tech: '+a.tech.join(', ')):'no technologies detected';
+      return `<tr><td title="${esc(techTip)}"><a class="applink" href="${href}" title="Open the App Report">${esc(a.name)}</a></td>`
+        +`<td title="${esc(a.target)}" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(String(a.target||'').replace(/^https?:\/\//,''))}</td>`
+        +`<td class="mono"${a.critical?' style="color:var(--crit);font-weight:700"':''}>${a.critical}</td>`
+        +`<td class="mono"${a.high?' style="color:var(--high)"':''}>${a.high}</td><td class="mono">${a.medium}</td><td class="mono">${a.low}</td><td class="mono">${a.info}</td>`
+        +`<td class="mono">${fnum(a.findings_total)}</td><td class="mono">${fnum(a.pages_crawled)}</td>`
+        +`<td class="mono"${stale?' style="color:var(--cx-e7c66b)"':''}>${age==null?'—':age+'d'}</td>`
+        +`<td><a class="applink" href="${aHref}" title="Beagle — web-app recon (sitemap, target, screenshot, plugin output)">🐾 recon</a></td></tr>`;
+    }).join('')+'</tbody></table></div></section>';
+
+  B.innerHTML=h;
+  wireTagCard();
+}
+
+/* ---- bulk tagging (tag web-app assets by OWASP / severity / technology) ---- */
+const TAGDIMS=[['owasp','OWASP'],['severity','Severity'],['technology','Technology']];
+function tagCardHTML(){
+  if(!TAGS){ return ''; }
+  const gate=(TAGW&&TAGW.reason)?('<div class="gatebar">🔒 Writes are gated — tags won\'t apply until fixed: '+esc(TAGW.reason)+'</div>'):'';
+  const counts={owasp:(TAGS.owasp||[]).length,severity:(TAGS.severity||[]).length,technology:(TAGS.technology||[]).length};
+  const seg='<div class="tseg" id="tseg">'+TAGDIMS.map(([k,l])=>`<button data-dim="${k}"${k===TAGDIM?' class="on"':''}>${l} <b>${counts[k]||0}</b></button>`).join('')+'</div>';
+  const untag=TAGS.untaggable_apps?(' · <span class="sub">'+TAGS.untaggable_apps+' app(s) have no asset UUID and can\'t be tagged</span>'):'';
+  return '<section class="card" id="tagcard" style="margin-top:16px"><div class="toolbar"><div><h3 style="margin:0">🏷️ Tag web apps</h3>'
+    +'<p class="sub" style="margin:2px 0 0">Apply a Tenable asset tag to every web app that matches — on its asset UUID, exactly like a VM asset (via navi, gated). Pick a dimension, then tag a cohort.</p></div></div>'
+    +gate+seg+'<div id="taglist" style="margin-top:10px"></div>'
+    +'<p class="sub" style="margin:10px 0 0">'+TAGS.taggable_apps+' of '+TAGS.apps+' apps are taggable'+untag+' · applied tags land in the <a class="applink" href="/web/tags-log.html">Tagging log</a>.</p></section>';
+}
+function tagRows(dim){
+  const list=(TAGS&&TAGS[dim])||[];
+  if(!list.length) return '<p class="sub">No '+dim+' cohorts to tag in the scanned apps.</p>';
+  return list.map(c=>{
+    const dis=(c.taggable===0);
+    const meta=c.apps+' app'+(c.apps===1?'':'s')+(c.taggable!==c.apps?(' · '+c.taggable+' taggable'):'')+(c.no_asset?(' · '+c.no_asset+' no UUID'):'');
+    const right=c.applied?'<span class="tagdone">✓ tag exists</span>'
+      :`<button class="btn sm tagbtn" data-dim="${dim}" data-key="${esc(String(c.key))}"${dis?' disabled title="no taggable asset UUID"':''}>🏷️ Tag ${c.taggable}</button>`;
+    return `<div class="tagrow"><div class="tl"><b>${esc(c.label||c.value)}</b> <span class="sub">${esc(meta)}</span></div>`
+      +`<span class="tagcat">→ ${esc(c.category)} : ${esc(c.value)}</span>${right}</div>`;
+  }).join('');
+}
+function wireTagCard(){
+  const card=document.getElementById('tagcard'); if(!card) return;
+  const list=document.getElementById('taglist'); if(list) list.innerHTML=tagRows(TAGDIM);
+  document.querySelectorAll('#tseg button').forEach(b=>b.onclick=()=>{ TAGDIM=b.getAttribute('data-dim');
+    document.querySelectorAll('#tseg button').forEach(x=>x.classList.toggle('on',x===b));
+    document.getElementById('taglist').innerHTML=tagRows(TAGDIM); bindTagBtns(); });
+  bindTagBtns();
+}
+function bindTagBtns(){ document.querySelectorAll('#taglist .tagbtn').forEach(b=>b.onclick=()=>applyTag(b)); }
+async function applyTag(btn){
+  const dim=btn.getAttribute('data-dim'), key=btn.getAttribute('data-key');
+  const row=btn.closest('.tagrow');
+  let res=row.querySelector('.tres'); if(!res){ res=document.createElement('span'); res.className='tres'; row.appendChild(res); }
+  if(TAGW&&TAGW.reason){ res.innerHTML='<span style="color:var(--cx-e7c66b)">🔒 '+esc(TAGW.reason)+'</span>'; return; }
+  btn.disabled=true; btn.textContent='⏳ tagging…'; res.innerHTML='';
+  let o; try{ o=await API.post('tag',{confirm:true,dimension:dim,key:key}); }catch(e){ o={ok:false,error:e.message}; }
+  if(o&&o.ok&&o.queued){
+    res.innerHTML='<span style="color:var(--ok)">✓ queued — '+o.asset_count+' asset(s) · '+esc(o.value)+(o.write_gate_reason?'':' · track in Tagging log')+'</span>';
+    btn.textContent='✓ queued';
+    if(o.write_gate_reason) res.innerHTML='<span style="color:var(--cx-e7c66b)">queued but gated — '+esc(o.write_gate_reason)+'</span>';
+  } else if(o&&o.blocked){ res.innerHTML='<span style="color:var(--cx-e7c66b)">🔒 '+esc(o.message||o.write_gate_reason||'writes disabled')+'</span>'; btn.disabled=false; btn.textContent='🏷️ Tag '+key;
+  } else { res.innerHTML='<span style="color:var(--crit)">✗ '+esc((o&&(o.error||o.message))||'failed')+'</span>'; btn.disabled=false; btn.textContent='🏷️ retry'; }
+}
+
+/* ---- email (reuse Gabriel's email-safe dashboard renderer) ---- */
+function emailComponents(){
+  const sv=OV.severity||{}, ow=OV.owasp||[], rows=OV.apps_rows||[], cov=OV.coverage||{};
+  return [
+    {title:'WAS at a glance',viz:'kpi',columns:['Apps','Assets','Critical','High','Findings','Stale'],
+     rows:[{Apps:OV.apps,Assets:OV.assets,Critical:sv.critical,High:sv.high,Findings:OV.total_findings,Stale:cov.stale}]},
+    {title:'Findings by severity',viz:'bar',label_col:'severity',value_col:'count',columns:['severity','count'],
+     rows:SEV.map(([k,lbl])=>({severity:lbl,count:sv[k]||0}))},
+    {title:'OWASP Top-10 (summed across apps)',viz:'bar',label_col:'category',value_col:'count',columns:['category','count'],
+     rows:ow.map(o=>({category:o.code+' '+o.label,count:o.count}))},
+    {title:'Apps by risk',viz:'table',columns:['app','target','crit','high','med','low','info','findings'],
+     rows:rows.slice(0,25).map(a=>({app:a.name,target:a.target,crit:a.critical,high:a.high,med:a.medium,low:a.low,info:a.info,findings:a.findings_total}))},
+  ];
+}
+document.getElementById('emailBtn').onclick=()=>{ const f=document.getElementById('emailForm'); const s=f.style.display==='none'; f.style.display=s?'flex':'none'; if(s)document.getElementById('emailTo').focus(); };
+document.getElementById('emailCancel').onclick=()=>{ document.getElementById('emailForm').style.display='none'; document.getElementById('emailRes').innerHTML=''; };
+async function sendEmail(){
+  const to=(document.getElementById('emailTo').value||'').trim(), res=document.getElementById('emailRes');
+  if(!to){ res.innerHTML='<span style="color:var(--crit)">enter a recipient</span>'; return; }
+  if(!OV||!OV.available){ res.innerHTML='<span style="color:var(--crit)">no data to send</span>'; return; }
+  res.innerHTML='<span class="spin"></span> sending…';
+  let o; try{ o=await EMAIL.post('dashboard',{to,title:'WAS Overview — Xolotl',subject:'[Tenable] WAS Overview (Xolotl)',components:emailComponents(),confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+  if(o&&o.ok) res.innerHTML='<span style="color:var(--ok)">✓ sent to '+esc(to)+'</span>';
+  else if(o&&o.blocked) res.innerHTML='<span style="color:var(--cx-e7c66b)">email disabled — '+esc(o.reason||'set NAVI_ALLOW_WRITES=1 and NAVI_EMAIL=1')+'</span>';
+  else res.innerHTML='<span style="color:var(--crit)">✗ '+esc((o&&(o.error||o.message))||'failed')+'</span>';
+}
+document.getElementById('emailSend').onclick=sendEmail;
+document.getElementById('emailTo').addEventListener('keydown',e=>{ if(e.key==='Enter')sendEmail(); });
+document.getElementById('refresh').onclick=run;
+mountAgentHeader({id:'was',icon:'🕸',name:'WAS Overview',sub:'Xolotl · web-app scanning, consolidated'});
+run();
+</script>
+</body></html>

@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>WAS Apps Explorer · Vizsla · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>.applink{color:var(--accent);text-decoration:none;font-weight:600}.applink:hover{text-decoration:underline}
+#tbl{table-layout:fixed;width:100%}#tbl th,#tbl td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}</style>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+  <section class="card">
+    <h2 style="margin:0">🌐 WAS Apps Explorer <span class="sub" style="font-weight:400">· Vizsla points at the app</span></h2>
+    <p class="sub" style="margin:2px 0 8px">Search the <b>apps</b> table — filter by name, target, technology, severity presence, and scan recency. Click an app for its Xolotl <b>App Report</b>.</p>
+    <div class="kpi" id="kpi" style="margin-bottom:10px"></div>
+    <div class="toolbar">
+      <input id="q" placeholder="app name / target / technology…" style="flex:1;min-width:200px;padding:9px;border-radius:8px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink)">
+      <select class="fld" id="sev"><option value="">any severity</option><option value="crit">has critical</option><option value="high">has high</option><option value="clean">clean</option></select>
+      <select class="fld" id="recency"><option value="">any scan age</option><option value="fresh">scanned ≤30d</option><option value="stale">stale &gt;30d</option></select>
+      <button class="btn run sm" id="go">▶ Search</button>
+      <button class="btn ghost sm" id="csv">⤓ CSV</button>
+      <span class="chip" id="count"></span>
+    </div>
+    <div id="flash" class="flash"></div>
+    <table id="tbl"><colgroup><col><col style="width:200px"><col style="width:52px"><col style="width:52px"><col style="width:52px"><col style="width:52px"><col style="width:56px"><col style="width:150px"><col style="width:78px"></colgroup>
+      <thead><tr><th>App</th><th>Target</th><th>Crit</th><th>High</th><th>Med</th><th>Findings</th><th>Tech</th><th>Top OWASP</th><th>Last scan</th></tr></thead>
+      <tbody><tr><td colspan="9" class="sub">Search to load…</td></tr></tbody></table>
+    <div class="toolbar" id="pager"></div>
+  </section>
+  <footer>WAS Apps Explorer · Vizsla · read-only navi.db · populate with <span class="mono">navi config update was</span></footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('ex_apps'); const PAGE=200; let LAST=[];
+const fnum=n=>(n==null||n===''?'—':Number(n).toLocaleString());
+function ageDays(iso){ if(!iso)return null; const t=Date.parse(iso); if(isNaN(t))return null; return Math.max(0,Math.round((Date.now()-t)/86400000)); }
+async function go(off){ off=off||0;
+  document.getElementById('go').disabled=true; flash('flash','<span class="spin"></span> querying the apps table…','run');
+  const body={q:document.getElementById('q').value.trim(),sev:document.getElementById('sev').value,recency:document.getElementById('recency').value,offset:off};
+  let o; try{ o=await API.post('search',body); }catch(e){ o={ok:false,error:e.message}; }
+  document.getElementById('go').disabled=false;
+  if(!o||!o.ok){ flash('flash','✗ '+esc((o&&o.error)||'failed'),'crit'); return; }
+  const res=o.result||{};
+  if(res.missing){ flash('flash','The <b>apps</b> table isn’t built yet — run <span class="mono">navi config update was</span> from <a href="/web/settings.html">Settings ▸ navi.db tables</a>.','warn'); document.querySelector('#tbl tbody').innerHTML='<tr><td colspan="9" class="sub">No apps table.</td></tr>'; document.getElementById('kpi').innerHTML=''; return; }
+  flashClear('flash'); const rows=res.rows||[]; LAST=rows; const k=res.kpi||{};
+  document.getElementById('kpi').innerHTML=
+     kpi(fnum(k.total),'apps (filtered)')+kpi(fnum(k.with_crit),'with criticals','var(--crit)')
+    +kpi(fnum(k.with_high),'with high','var(--high)')+kpi(fnum(k.findings),'findings')+kpi(fnum(k.stale),'stale >30d','var(--cx-e7c66b)');
+  document.getElementById('count').textContent=rows.length+' shown';
+  document.querySelector('#tbl tbody').innerHTML=rows.length?rows.map(a=>{
+    const age=ageDays(a.scan_completed_time); const href='/agents/was/report.html?app='+encodeURIComponent(a.uuid||'');
+    return `<tr><td title="${esc(a.name)}"><a class="applink" href="${href}">${esc(a.name)}</a></td>`
+      +`<td title="${esc(a.target)}">${esc(String(a.target||'').replace(/^https?:\/\//,''))}</td>`
+      +`<td class="mono"${a.critical?' style="color:var(--crit);font-weight:700"':''}>${a.critical}</td>`
+      +`<td class="mono"${a.high?' style="color:var(--high)"':''}>${a.high}</td><td class="mono">${a.medium}</td>`
+      +`<td class="mono">${fnum(a.findings_total)}</td><td class="mono" title="${esc(a.tech_str||'')}">${a.tech_count}</td>`
+      +`<td title="${esc(a.top_owasp||'')}">${esc(a.top_owasp||'—')}</td>`
+      +`<td class="mono"${(age!=null&&age>30)?' style="color:var(--cx-e7c66b)"':''}>${age==null?'—':age+'d'}</td></tr>`;
+  }).join(''):'<tr><td colspan="9" class="sub">No matches.</td></tr>';
+  const pg=document.getElementById('pager'); const page=res.page||1;
+  pg.innerHTML='<button class="btn ghost sm" '+(off<=0?'disabled':'')+' id="pp">◀ Prev</button><span class="chip">page '+page+' · rows '+(rows.length?off+1:0)+'–'+(off+rows.length)+'</span><button class="btn ghost sm" '+(res.has_next?'':'disabled')+' id="pn">Next ▶</button>';
+  const pp=document.getElementById('pp'); if(pp)pp.onclick=()=>go(Math.max(0,off-PAGE));
+  const pn=document.getElementById('pn'); if(pn)pn.onclick=()=>go(off+PAGE);
+}
+function kpi(v,l,c){ return '<div class="k"><div class="v"'+(c?' style="color:'+c+'"':'')+'>'+v+'</div><div class="l">'+esc(l)+'</div></div>'; }
+document.getElementById('csv').onclick=()=>{ if(!LAST.length){alert('Nothing to export yet.');return;}
+  downloadCSV('was-apps.csv',['name','target','critical','high','medium','low','info','findings_total','tech_str','top_owasp','scan_completed_time'],LAST); };
+document.getElementById('go').onclick=()=>go(0);
+document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter')go(0);});
+['sev','recency'].forEach(id=>document.getElementById(id).onchange=()=>go(0));
+mountAgentHeader({id:'ex_apps',icon:'🌐',name:'WAS Apps Explorer',sub:'Vizsla · search the web-app inventory'});
+go(0);
+</script>
+</body></html>

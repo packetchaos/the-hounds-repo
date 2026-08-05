@@ -36,17 +36,20 @@
     </div>
   </section>
 
+  <section class="card" id="out" style="display:none">
+    <div class="toolbar" style="margin:0 0 8px"><h2 style="margin:0;font-size:15px">Tags — select the ones to remove</h2>
+      <span class="chip" id="pageInfo" style="margin-left:auto;display:none"></span></div>
+    <div style="overflow-x:auto"><table id="tbl"><thead><tr>
+      <th style="width:34px"></th><th>Category</th><th>Value</th><th style="width:90px">Assets</th>
+    </tr></thead><tbody></tbody></table></div>
+    <div id="pager" class="toolbar" style="margin-top:10px;display:none;align-items:center;gap:8px"></div>
+  </section>
+
   <section class="card" id="cmpCard">
     <div class="toolbar" style="margin:0"><h2 style="margin:0">⚖ Tag compare — Tenable ⇄ navi.db</h2>
       <button class="btn ghost sm" id="cmpBtn" style="margin-left:auto">↻ Re-compare</button></div>
     <p class="sub" style="margin:4px 0 0">Forced on load and again before every removal. <b>Tenable</b> is the live tenant (<span class="mono">navi explore info tags</span>); <b>navi.db</b> is the local <span class="mono">tags</span> table your <span class="mono">-remove</span> actually acts on. If a tag is live in Tenable but shows <b>0 / missing</b> in navi.db, a removal will clear nothing — sync assets first.</p>
     <div id="cmpBody" class="sub" style="margin-top:8px"><span class="spin"></span> comparing…</div>
-  </section>
-
-  <section class="card" id="out" style="display:none">
-    <div style="overflow-x:auto"><table id="tbl"><thead><tr>
-      <th style="width:34px"></th><th>Category</th><th>Value</th><th style="width:90px">Assets</th>
-    </tr></thead><tbody></tbody></table></div>
   </section>
   <footer>Garmr · tag removal · removals are gated by NAVI_ALLOW_WRITES and tracked in the Tagging log</footer>
 </div>
@@ -55,6 +58,10 @@
 const API=agentApi('tagremoval');
 const XAPI=agentApi('explore');
 let TAGS=[], WRITES=false;
+// selection lives in a Map (not the DOM) so it survives pagination + filtering —
+// "Select all" selects the ENTIRE filtered set, not just the 100 rows on screen.
+const SELECTED=new Map();     // keyOf -> {category,value}
+let PAGE=0; const PAGE_SIZE=100;
 let CMP=null;                 // {naviMap:{key:count}, tenSet:Set, ghosts:[], stale:bool}
 const keyOf=(c,v)=>((c||'')+''+(v||''));
 
@@ -104,19 +111,45 @@ async function updateAssets(){
   }
   setTimeout(()=>{ b.disabled=false; b.textContent='↻ Update assets (rebuild tags table)'; }, 4000);
 }
-function selected(){ return [...document.querySelectorAll('#tbl tbody input.tsel:checked')].map(c=>({category:c.dataset.cat,value:c.dataset.val})); }
-function syncButtons(){ const n=selected().length; document.getElementById('selCount').textContent=n+' selected';
+function selected(){ return [...SELECTED.values()]; }
+function syncButtons(){ const n=SELECTED.size; document.getElementById('selCount').textContent=n+' selected';
   document.getElementById('removeBtn').disabled=!n; document.getElementById('contractBtn').disabled=!n; }
-function renderTags(){
+function filteredRows(){
   const f=(document.getElementById('filter').value||'').toLowerCase();
-  const rows=TAGS.filter(t=>!f||((t.category||'')+' '+(t.value||'')).toLowerCase().includes(f));
-  document.getElementById('count').textContent=`(${rows.length} of ${TAGS.length})`;
-  document.querySelector('#tbl tbody').innerHTML = rows.length ? rows.map(t=>
-    `<tr><td><input type="checkbox" class="tsel" data-cat="${esc(t.category||'')}" data-val="${esc(t.value||'')}"></td>`+
+  return TAGS.filter(t=>!f||((t.category||'')+' '+(t.value||'')).toLowerCase().includes(f));
+}
+function renderPager(total,pages){
+  const pg=document.getElementById('pager'), info=document.getElementById('pageInfo');
+  if(total<=PAGE_SIZE){ if(pg)pg.style.display='none'; if(info)info.style.display='none'; return; }
+  const start=PAGE*PAGE_SIZE+1, end=Math.min(total,(PAGE+1)*PAGE_SIZE);
+  if(info){ info.style.display=''; info.textContent=`${start}–${end} of ${total}`; }
+  pg.style.display='flex';
+  pg.innerHTML=`<button class="btn ghost sm" id="pgPrev" ${PAGE<=0?'disabled':''}>‹ Prev</button>`+
+    `<span class="chip">Page ${PAGE+1} of ${pages}</span>`+
+    `<button class="btn ghost sm" id="pgNext" ${PAGE>=pages-1?'disabled':''}>Next ›</button>`+
+    `<span class="sub" style="margin-left:8px">${SELECTED.size} selected across all pages</span>`;
+  const pv=document.getElementById('pgPrev'), nx=document.getElementById('pgNext');
+  if(pv) pv.onclick=()=>{ if(PAGE>0){ PAGE--; renderTags(); } };
+  if(nx) nx.onclick=()=>{ if(PAGE<pages-1){ PAGE++; renderTags(); } };
+}
+function renderTags(){
+  const rows=filteredRows(), total=rows.length, pages=Math.max(1,Math.ceil(total/PAGE_SIZE));
+  if(PAGE>pages-1) PAGE=pages-1; if(PAGE<0) PAGE=0;
+  const pageRows=rows.slice(PAGE*PAGE_SIZE,(PAGE+1)*PAGE_SIZE);
+  document.getElementById('count').textContent=`(${total} of ${TAGS.length})`;
+  const tbody=document.querySelector('#tbl tbody');
+  tbody.innerHTML = pageRows.length ? pageRows.map(t=>{
+    const k=keyOf(t.category,t.value);
+    return `<tr><td><input type="checkbox" class="tsel" data-cat="${esc(t.category||'')}" data-val="${esc(t.value||'')}" ${SELECTED.has(k)?'checked':''}></td>`+
     `<td>${esc(t.category||'')}</td><td><b>${esc(t.value||'')}</b></td>`+
-    `<td class="mono">${t.assets==null?'<span class="sub">—</span>':t.assets}</td></tr>`).join('')
-    : '<tr><td colspan="4" class="sub">No tags match.</td></tr>';
-  document.querySelectorAll('#tbl tbody input.tsel').forEach(c=>c.onchange=syncButtons);
+    `<td class="mono">${t.assets==null?'<span class="sub">—</span>':t.assets}</td></tr>`;
+  }).join('') : '<tr><td colspan="4" class="sub">No tags match.</td></tr>';
+  tbody.querySelectorAll('input.tsel').forEach(c=>c.onchange=()=>{
+    const k=keyOf(c.dataset.cat,c.dataset.val);
+    if(c.checked) SELECTED.set(k,{category:c.dataset.cat,value:c.dataset.val}); else SELECTED.delete(k);
+    syncButtons(); renderPager(total,pages);
+  });
+  renderPager(total,pages);
   syncButtons();
   document.getElementById('out').style.display='block';
 }
@@ -126,29 +159,37 @@ async function load(){
   let o; try{ o=await API.post('run'); }catch(e){ o={ok:false,error:e.message}; }
   document.getElementById('loadBtn').disabled=false;
   if(!o.ok && !(o.result&&o.result.tags)){ flash('flash','✗ '+esc(o.error||(o.result&&o.result.message)||'failed — is navi on PATH?'),'crit'); return; }
-  TAGS=(o.result&&o.result.tags)||[]; flashClear('flash'); renderTags();
+  TAGS=(o.result&&o.result.tags)||[]; SELECTED.clear(); PAGE=0; flashClear('flash'); renderTags();
   if(!TAGS.length) flash('flash','No tags found. '+esc((o.result&&o.result.message)||''),'warn');
 }
 async function removeSel(){
+  const btn=document.getElementById('removeBtn'); if(btn&&btn.disabled)return;
   const tags=selected(); if(!tags.length) return;
+  const fb=document.getElementById('flash');
+  const scroll=()=>{ if(fb)fb.scrollIntoView({behavior:'smooth',block:'center'}); };
+  const reset=()=>{ if(!btn)return; btn.disabled=false; btn.textContent=btn.dataset.label; btn.style.opacity=''; btn.style.transform=''; btn.style.cursor=''; };
+  if(btn){ btn.dataset.label=btn.dataset.label||btn.textContent; btn.disabled=true; btn.textContent='⏳ Sending…'; btn.style.opacity='.6'; btn.style.transform='translateY(1px)'; btn.style.cursor='default'; }
   // FORCE a fresh compare so the operator can't remove against a stale tags table.
   flash('flash','<span class="spin"></span> forcing a tag compare before removal…','run');
+  scroll();
   await compare(); flashClear('flash');
   const ghostSel = CMP ? tags.filter(t=>CMP.ghosts.some(g=>keyOf(g.cat,g.val)===keyOf(t.category,t.value))) : [];
   if(CMP && !CMP.tenOk){
-    if(!confirm('The Tenable side of the tag compare did not load, so navi.db\'s sync state is unknown. A -remove may clear nothing if navi.db is behind. Continue anyway?')) return;
+    if(!confirm('The Tenable side of the tag compare did not load, so navi.db\'s sync state is unknown. A -remove may clear nothing if navi.db is behind. Continue anyway?')){ reset(); scroll(); return; }
   } else if(ghostSel.length){
     if(!confirm(ghostSel.length+' of your selected tag(s) are LIVE in Tenable but navi.db shows 0 / missing assets for them:\n\n'+
       ghostSel.slice(0,10).map(g=>' • '+(g.category||'')+' : '+(g.value||'')).join('\n')+
       (ghostSel.length>10?'\n …and '+(ghostSel.length-10)+' more':'')+
-      '\n\nnavi -remove clears what navi.db believes the tag carries, so removing these now will do NOTHING and the live tags will remain. Update assets first (button in the banner), wait for it to finish, then Re-compare.\n\nQueue the removals anyway?')) return;
+      '\n\nnavi -remove clears what navi.db believes the tag carries, so removing these now will do NOTHING and the live tags will remain. Update assets first (button in the banner), wait for it to finish, then Re-compare.\n\nQueue the removals anyway?')){ reset(); scroll(); return; }
   }
-  if(!WRITES && !confirm('Writes are gated on the server (NAVI_ALLOW_WRITES not set). The remove jobs will queue but be blocked. Continue anyway?')) return;
-  if(!confirm('Remove '+tags.length+' tag(s) from every asset that carries them? This runs navi -remove and cannot be undone from here.')) return;
+  if(!WRITES && !confirm('Writes are gated on the server (NAVI_ALLOW_WRITES not set). The remove jobs will queue but be blocked. Continue anyway?')){ reset(); scroll(); return; }
+  if(!confirm('Remove '+tags.length+' tag(s) from every asset that carries them? This runs navi -remove and cannot be undone from here.')){ reset(); scroll(); return; }
   flash('flash','<span class="spin"></span> queuing '+tags.length+' removal(s)…','run');
+  scroll();
   let o; try{ o=await API.post('remove',{tags,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
-  if(!o.ok){ flash('flash','✗ '+esc(o.error||'failed'),'crit'); return; }
+  if(!o.ok){ flash('flash','✗ '+esc(o.error||'failed'),'crit'); reset(); scroll(); return; }
   flash('flash','✓ queued '+o.queued+' removal job(s) — watch them in the <a href="/web/tags-log.html">Tagging log</a> (they appear as <b>remove</b>). Allow the ~30-min propagation window, run an <b>assets update</b>, then <b>Re-compare</b> here to confirm the tags cleared.','ok');
+  scroll(); reset();
 }
 async function toContract(){
   const tags=selected(); if(!tags.length) return;
@@ -158,9 +199,10 @@ async function toContract(){
   flash('flash','✓ added '+o.added+' tag(s) to the contract ('+o.total+' total in the removal list). Open the <a href="/agents/contract/page.html">AI Contract</a> → Tag removal to review. When armed, the contract removes these first, pauses, runs navi update, then re-tags.','ok');
 }
 document.getElementById('loadBtn').onclick=load;
-document.getElementById('filter').addEventListener('input',()=>{ if(TAGS.length) renderTags(); });
-document.getElementById('selAll').onclick=()=>{ document.querySelectorAll('#tbl tbody input.tsel').forEach(c=>c.checked=true); syncButtons(); };
-document.getElementById('selNone').onclick=()=>{ document.querySelectorAll('#tbl tbody input.tsel').forEach(c=>c.checked=false); syncButtons(); };
+document.getElementById('filter').addEventListener('input',()=>{ if(TAGS.length){ PAGE=0; renderTags(); } });
+// Select all = the ENTIRE filtered set (every page), not just the 100 rows on screen.
+document.getElementById('selAll').onclick=()=>{ filteredRows().forEach(t=>SELECTED.set(keyOf(t.category,t.value),{category:t.category,value:t.value})); renderTags(); };
+document.getElementById('selNone').onclick=()=>{ SELECTED.clear(); renderTags(); };
 document.getElementById('removeBtn').onclick=removeSel;
 document.getElementById('contractBtn').onclick=toContract;
 document.getElementById('cmpBtn').onclick=compare;

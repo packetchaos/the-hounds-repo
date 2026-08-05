@@ -11,7 +11,7 @@
 """
 import re
 
-from core import db
+from core import db, identity as _identity
 
 AGENT = None
 
@@ -81,13 +81,79 @@ _TAG_INTEL = [
 ]
 
 
+# Unified inventory scheme: category 'Asset Inventory', value '<Facet>: <val>'. Map each
+# facet to the Hound that owns it so the tag reads as e.g. 'Asset Inventory : IoT: …' → Cerberus.
+_FACET_INTEL = {
+    "iot": {"hound": "Cerberus", "agent": "iot_squad", "weight": 3, "band": "medium",
+            "why": "An IoT / embedded device — often unmanaged and hard to patch."},
+    "ot": {"hound": "Cerberus", "agent": "iot_squad", "weight": 4, "band": "high",
+           "why": "Operational-technology device — fragile, safety-critical, rarely patchable."},
+    "device type": {"hound": "Cerberus", "agent": "iot_squad", "weight": 3, "band": "medium",
+                    "why": "Classified by device type — an IoT/OT signal."},
+    "class": {"hound": "Linnaeus", "agent": "classify", "weight": 1, "band": "info",
+              "why": "Asset-class classification — what this asset IS."},
+    "os": {"hound": "Linnaeus", "agent": "classify", "weight": 1, "band": "info",
+           "why": "Operating-system classification."},
+    "app": {"hound": "Argus", "agent": "customapp", "weight": 1, "band": "info",
+            "why": "Part of a custom application."},
+    "cloud": {"hound": "Linnaeus", "agent": "classify", "weight": 1, "band": "info",
+              "why": "Cloud-hosted asset."},
+}
+
+
 def _decipher(cat, val):
     c = (cat or "").lower()
+    # Unified inventory scheme → split the facet out of the value and map it.
+    if c == "asset inventory" and ": " in (val or ""):
+        facet, sub = (val or "").split(": ", 1)
+        fk = facet.strip().lower()
+        meta = _FACET_INTEL.get(fk, {"hound": "Linnaeus", "agent": "classify", "weight": 1,
+                                     "band": "info", "why": "Inventory classification (" + facet.strip() + ")."})
+        return dict(meta, category=cat, value=val, facet=facet.strip(), subvalue=sub.strip())
     for key, meta in _TAG_INTEL:
         if key in c:
             return dict(meta, category=cat, value=val)
     return {"hound": "", "agent": "", "weight": 1, "band": "info", "category": cat,
             "value": val, "why": "A classification tag applied to this asset."}
+
+
+_DISPOSITIONS = {"ignored", "accepted", "mitigated"}
+
+
+def _ownership(tags_raw):
+    """Owners assigned to this asset, from its Owner tags (scheme '<app/route>: <user>').
+    Dispositions (Accepted/Ignored/Mitigated) are NOT owners and are excluded. Grouped by
+    owner, so the Argos ownership pie shows WHO is accountable and for which apps/routes."""
+    owners = {}
+    for t in tags_raw:
+        if (t.get("tag_key") or "").strip().lower() != "owner":
+            continue
+        v = (t.get("tag_value") or "").strip()
+        if ": " in v:
+            app, user = v.rsplit(": ", 1)
+        else:
+            app, user = v, ""
+        app, user = app.strip(), user.strip()
+        if not user or user.lower() in _DISPOSITIONS:
+            continue
+        e = owners.setdefault(user, {"owner": user, "apps": [], "count": 0})
+        if app and app not in e["apps"]:
+            e["apps"].append(app)
+        e["count"] += 1
+    return sorted(owners.values(), key=lambda x: (-x["count"], x["owner"].lower()))
+
+
+def _coverage(tags):
+    """Per-asset taxonomy completeness — is this asset OWNED and CLASSIFIED? Drives the Argos
+    coverage strip so the deep-dive doubles as a 'what's missing' worklist across the pack."""
+    agents = {t.get("agent") for t in tags}
+    facets = {(t.get("facet") or "").lower() for t in tags if t.get("facet")}
+    cats = {(t.get("category") or "").lower() for t in tags}
+    owned = "owner" in cats
+    classified = bool(facets & {"class", "os", "device type", "iot", "ot"}) or "class" in cats
+    device_typed = bool(facets & {"device type", "iot", "ot"})
+    return {"owned": owned, "classified": classified, "device_typed": device_typed,
+            "os_known": "os" in facets or bool(agents)}
 
 
 # --------------------------------------------------------------------------- #
@@ -304,6 +370,9 @@ def lookup(p):
                      "acr": acr, "aes": row.get("aes"),
                      "exposure_score": row.get("exposure_score")},
             "tags": tags,
+            "ownership": _ownership(tags_raw),
+            "identities": _identity.host_identities(uuid),
+            "coverage": _coverage(tags),
             "top_cves": top_cves,
             "top_vulns": [{"plugin_id": v.get("plugin_id"), "plugin_name": v.get("plugin_name"),
                            "severity": _sev_name(v.get("severity")), "vpr": v.get("vpr"),
@@ -312,6 +381,9 @@ def lookup(p):
             "software": software[:200],
             "certs": certs,
             "host": _host_profile(uuid),
+            # so the widgets can tell "no data for this asset" apart from "table not
+            # synced yet" and name the exact command to build it.
+            "tables": {"software": bool(_cols("software")), "certs": bool(_cols("certs"))},
             "counts": {"vulns": len(vulns), "tags": len(tags),
                        "software": len(software), "certs": len(certs)}}, 200
 
@@ -330,8 +402,112 @@ def live(p):
     return {"ok": bool(out.get("ok")), **out}, 200
 
 
+def output(p):
+    """Return the stored plugin OUTPUT for one finding on one asset, straight from navi.db
+    (``vulns.output``) — no navi CLI needed. Web/HTTP plugins (e.g. 24260) carry long output
+    that often contains HTML, so we hand back the raw stored string plus an ``is_html`` hint
+    and the instance count (a plugin can fire on several ports); the page renders it."""
+    target = (p.get("target") or p.get("uuid") or "").strip()
+    pid = str(p.get("plugin_id") or p.get("plugin") or "").strip()
+    if not target or not pid:
+        return {"ok": False, "error": "target (UUID/IP) and plugin_id required"}, 400
+    row, how = _resolve(target)
+    if not row:
+        return {"ok": True, "found": False, "message": f"No asset in navi.db matches '{target}'."}, 200
+    uuid = row.get("uuid")
+    vc = _cols("vulns")
+    if not vc or "output" not in vc:
+        return {"ok": True, "found": False, "plugin_id": pid,
+                "message": "navi.db has no vulns.output column yet — run `navi update vulns` "
+                           "to pull plugin output, then re-run Argos."}, 200
+    # port/protocol columns are optional — include them only if present so we can label instances.
+    extra = [c for c in ("port", "protocol") if c in vc]
+    sel = ", ".join(["plugin_name", "output"] + extra)
+    try:
+        rows = db.query(f"SELECT {sel} FROM vulns WHERE asset_uuid=? AND plugin_id=?;", (uuid, pid))
+    except Exception as e:
+        return {"ok": False, "error": str(e)}, 200
+    rows = [r for r in rows if (r.get("output") or "").strip()]
+    if not rows:
+        return {"ok": True, "found": False, "plugin_id": pid,
+                "message": "No stored output for this plugin on this asset. Try the live "
+                           "`navi explore uuid` views below (needs navi on the server)."}, 200
+    blocks = []
+    for r in rows:
+        loc = ""
+        if r.get("port") not in (None, "", 0, "0"):
+            loc = f"port {r.get('port')}" + (f"/{r.get('protocol')}" if r.get("protocol") else "")
+        blocks.append({"where": loc, "output": (r.get("output") or "").strip()})
+    joined = "\n\n".join((f"[{b['where']}]\n" if b["where"] else "") + b["output"] for b in blocks)
+    is_html = bool(re.search(r"</?(?:table|thead|tbody|tr|td|th|div|span|p|br|pre|ul|ol|li|"
+                             r"b|i|em|strong|h[1-6]|a|code|hr)\b", joined, re.I))
+    return {"ok": True, "found": True, "plugin_id": pid,
+            "plugin_name": rows[0].get("plugin_name"), "instances": len(rows),
+            "is_html": is_html, "output": joined, "blocks": blocks}, 200
+
+
+_HTML_START = re.compile(r"<!doctype html|<html[\s>]|<head[\s>]|<body[\s>]|<title[\s>]", re.I)
+
+
+def _extract_html(output):
+    """Pull a captured HTML document out of a plugin's text output (it sits below the
+    HTTP headers). Mirrors the old asset-detail page's extractor."""
+    if not output:
+        return None
+    m = _HTML_START.search(output)
+    if not m:
+        return None
+    html = output[m.start():]
+    end = html.lower().rfind("</html>")
+    if end >= 0:
+        html = html[:end + 7]
+    html = html.strip()
+    return html if len(html) > 20 else None
+
+
+def webpages(p):
+    """Findings on this asset whose stored output contains a captured web page — plugin
+    24260 & other HTTP plugins record the HTTP response, including the page HTML. Returns
+    each page's HTML so the Argos page can render it back in a locked sandbox (no scripts,
+    no network). Read-only, straight from navi.db."""
+    target = (p.get("target") or p.get("uuid") or "").strip()
+    if not target:
+        return {"ok": False, "error": "target (UUID/IP) required"}, 400
+    row, _ = _resolve(target)
+    if not row:
+        return {"ok": True, "found": False, "pages": [], "message": f"No asset in navi.db matches '{target}'."}, 200
+    uuid = row.get("uuid")
+    vc = _cols("vulns")
+    if not vc or "output" not in vc:
+        return {"ok": True, "found": False, "pages": [],
+                "message": "navi.db has no vulns.output column yet — run `navi update vulns`."}, 200
+    extra = [c for c in ("url", "port", "protocol") if c in vc]
+    sel = ", ".join(["plugin_id", "plugin_name", "output"] + extra)
+    try:
+        rows = db.query(f"SELECT {sel} FROM vulns WHERE asset_uuid=? AND output LIKE '%<%';", (uuid,))
+    except Exception as e:
+        return {"ok": False, "error": str(e)}, 200
+    pages, seen = [], set()
+    for r in rows:
+        html = _extract_html(r.get("output") or "")
+        if not html:
+            continue
+        pid = str(r.get("plugin_id") or "")
+        key = (pid, r.get("port"))
+        if key in seen:
+            continue
+        seen.add(key)
+        loc = ""
+        if r.get("port") not in (None, "", 0, "0"):
+            loc = f"port {r.get('port')}" + (f"/{r.get('protocol')}" if r.get("protocol") else "")
+        pages.append({"plugin_id": pid, "plugin_name": r.get("plugin_name") or "",
+                      "url": r.get("url") or "", "where": loc, "html": html})
+    pages.sort(key=lambda x: (x["plugin_id"], x["where"]))
+    return {"ok": True, "found": True, "pages": pages}, 200
+
+
 def run(p):
     return {"ok": True, "agent": _agent().meta(), "result": _agent().run()}, 200
 
 
-ACTIONS = {"run": run, "lookup": lookup, "live": live}
+ACTIONS = {"run": run, "lookup": lookup, "live": live, "output": output, "webpages": webpages}

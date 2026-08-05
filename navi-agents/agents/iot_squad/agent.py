@@ -1,21 +1,28 @@
 """The IoT agent squad — four cooperating agents.
 
-A1 IoTDiscoveryAgent   — detect known IoT devices; emit IoT:<name> tag actions;
-                          hand off (iot_name, trigger plugins) to A2.
-A2 PluginExpansionAgent — for each iot_name, search every plugin name+output for
-                          that name; capture matching plugins (with guardrails);
-                          hand the expanded plugin list to A3.
-A3 CrossReferenceAgent  — use the expanded plugin list to find OTHER assets that
-                          look like the same device; propose the newly-found
-                          plugins as default detections for human review.
-A4 IoTSquadOrchestrator — run A1->A2->A3, enforce quality, expose the two HITL
-                          gates (tag approval, detection approval).
+A1 IoTDiscoveryAgent   — detect known IoT devices from the registry; emit
+                          IoT:<name> tag actions; hand the confirmed hosts to A2.
+A2 CarrierHarvestAgent  — HOST-SCOPED: for each confirmed host, look at THAT
+                          host's own findings and capture the plugins whose
+                          name/output carry the device term ("carrier plugins").
+                          Optionally union an operator-supplied carrier list so
+                          you can hunt a rich db without waiting for a light-up.
+A3 CrossTermAgent       — sweep every carrier plugin for the whole term
+                          VOCABULARY (registry terms, incl. ones that found
+                          nothing on pass 1, + an optional known-IoT term pack)
+                          across the ENTIRE population. A term found inside a
+                          carrier plugin on >= max(2, 5%) assets becomes a
+                          (plugin -> term -> device) proposal: confirm / cross /
+                          new. Nothing is silently dropped — a coverage ledger
+                          records every combination tested.
+A4 IoTSquadOrchestrator — run A1->A2->A3, build the QA coverage ledger, surface
+                          the two HITL gates + the base-building export.
 
-All reads are read-only sqlite3. Tag writes and registry writes are gated and
-happen in the service layer after human approval.
+All reads are read-only sqlite3. Registry writes are gated behind human approval.
 """
 from core import iot_common as ic
 from core import iot_registry as reg
+from core import navi_cli
 from core.agents.base import Agent
 
 
@@ -24,7 +31,6 @@ def _sh(s):
 
 
 def _sel_cmd(cat, val, s):
-    """Human-readable navi command for one selector (for the HITL preview)."""
     if s.get("plugin"):
         return ('navi enrich tag --c %s --v %s --plugin %s%s'
                 % (_sh(cat), _sh(val), s["plugin"],
@@ -34,52 +40,77 @@ def _sel_cmd(cat, val, s):
     return 'navi enrich tag --c %s --v %s --query %s' % (_sh(cat), _sh(val), _sh(s.get("query", "")))
 
 
-def _iot_selectors(det, trig_plugins):
-    """Reproduce a registry detection with navi BUILT-INS instead of a giant
-    --query UUID list (the Tenable tag endpoint caps at 1999 UUIDs and navi loops
-    internally past that). Maps:
-      det.plugins       -> --plugin <id>                 (specific plugin)
-      det.name_contains -> --name "<text>"               (tag-by-plugin-name)
-      det.output_contains -> --plugin <trig> --output "<text>"  (narrow a broad
-                            plugin that matched by output, for triggers not already
-                            covered by an explicit plugin id)
-    --query is used ONLY when a device has no plugin/name signature (signal-fusion
-    OUI / mDNS / cert groups)."""
-    plugins = [str(p) for p in (det.get("plugins") or [])]
-    explicit = set(plugins)
-    sels = [{"plugin": p} for p in plugins]
-    for t in (det.get("name_contains") or []):
-        if t:
-            sels.append({"name": t})
-    for t in (det.get("output_contains") or []):
-        if len(str(t)) < 4:
-            continue
-        for pid in trig_plugins:
-            if str(pid) not in explicit and str(pid) != "signal-fusion":
-                sels.append({"plugin": str(pid), "output": t})
-    seen, out = set(), []
-    for s in sels:
-        k = tuple(sorted(s.items()))
-        if k not in seen:
-            seen.add(k)
-            out.append(s)
-    return out
+def _cover_selectors(det, rows):
+    """Minimal BUILT-IN selectors covering all detected assets: the fewest trigger
+    plugins (greedy set cover), each narrowed by the device's output term. Used when
+    the set is over the ~1999 UUID cap so navi tags by SIGNATURE server-side in one
+    shot per plugin, instead of looping UUID pages from a --query."""
+    detected = {r.get("asset_uuid") for r in rows if r.get("asset_uuid")}
+    p2a = {}
+    for r in rows:
+        pid = str(r.get("plugin_id") or "")
+        if pid:
+            p2a.setdefault(pid, set()).add(r.get("asset_uuid"))
+    cover, remaining = [], set(detected)
+    while remaining and p2a:
+        best = max(p2a, key=lambda p: len(p2a[p] & remaining))
+        gain = p2a[best] & remaining
+        if not gain:
+            break
+        cover.append(best)
+        remaining -= gain
+        p2a.pop(best)
+    out_terms = [str(t).strip() for t in (det.get("output_contains") or []) if len(str(t).strip()) >= 4]
+    if out_terms:
+        return [{"plugin": pid, "output": out_terms[0]} for pid in cover]
+    names = [str(t).strip() for t in (det.get("name_contains") or []) if str(t).strip()]
+    if names:
+        return [{"name": names[0]}]
+    return [{"plugin": pid} for pid in cover]
 
 
-def _iot_tag_action(name, h):
-    """Build one IoT tag action from a handoff entry — using its navi built-in
-    selectors, or falling back to a UUID --query only for signal-fusion groups
-    (no plugin signature)."""
+def _iot_selectors(det, rows=None, db_path=None):
+    """ONE broad, correct navi selector for a device — never 20× per asset, and never
+    a --query that would loop past the ~1999-UUID cap.
+
+      1) DEVICE-SPECIFIC plugins (`det.plugins`) → `--plugin <id>` each (built-in,
+         server-side, cap-proof).
+      2) else if the detected set is <= the UUID cap → ONE `--query` reproducing the
+         candidate-filtered detection (precise: tags exactly the detected assets).
+      3) else (> cap) → minimal BUILT-IN --plugin/--output set-cover, so navi tags by
+         signature server-side instead of paging UUIDs.
+    """
+    plugins = [str(p) for p in (det.get("plugins") or []) if str(p).strip()]
+    if plugins:
+        return [{"plugin": p} for p in dict.fromkeys(plugins)]
+    rows = rows or []
+    n = len({r.get("asset_uuid") for r in rows if r.get("asset_uuid")})
+    if n and n > navi_cli.UUID_CAP:
+        return _cover_selectors(det, rows)
+    q = ic.detection_query(det, db_path)
+    return [{"query": q}] if q else []
+
+
+# Default facet for a discovered device under the unified inventory scheme. 'Device Type'
+# is what the Classifier maps into the IoT / OT class, so these tags land on the graphs.
+IOT_DEFAULT_FACET = "Device Type"
+INVENTORY_CAT = "Asset Inventory"
+
+
+def _iot_tag_action(name, h, facet=IOT_DEFAULT_FACET):
     uuids = h.get("asset_uuids", []) or []
     sels = h.get("selectors")
     if not sels:
         q = ("SELECT asset_uuid FROM vulns WHERE asset_uuid IN ("
              + ",".join("'" + u + "'" for u in uuids) + ");") if uuids else ""
         sels = [{"query": q}] if q else []
-    cmds = [_sel_cmd("IoT", name, s) for s in sels]
-    return {"category": "IoT", "value": name, "asset_count": len(uuids),
-            "asset_uuids": uuids, "selectors": sels, "vendor": h.get("vendor", ""),
-            "tool_call": "\n".join(cmds),
+    # Unified inventory scheme (matches the Classifier): category 'Asset Inventory',
+    # value '<Facet>: <Value>'. The operator can change the facet in the UI before writing.
+    tagval = f"{facet}: {name}"
+    cmds = [_sel_cmd(INVENTORY_CAT, tagval, s) for s in sels]
+    return {"category": INVENTORY_CAT, "facet": facet, "value": name, "tag_value": tagval,
+            "asset_count": len(uuids), "asset_uuids": uuids, "selectors": sels,
+            "vendor": h.get("vendor", ""), "tool_call": "\n".join(cmds),
             "query": (sels[0].get("query", "") if sels else "")}
 
 
@@ -88,8 +119,8 @@ class IoTDiscoveryAgent(Agent):
     id = "iot_discovery"
     name = "IoT Discovery Agent"
     icon = "📡"
-    description = ("Detects known IoT devices from navi signatures, tags each "
-                   "IoT:<name>, and hands the plugin + IoT name to expansion.")
+    description = ("Detects known IoT devices from the registry, tags each "
+                   "IoT:<name>, and hands the confirmed hosts to carrier harvest.")
 
     def summary(self):
         if not self.result:
@@ -116,91 +147,168 @@ class IoTDiscoveryAgent(Agent):
                 detected.append({"iot_name": det["iot_name"], "vendor": det.get("vendor", ""), **a})
             handoff[det["iot_name"]] = {"iot_name": det["iot_name"],
                                         "vendor": det.get("vendor", ""),
+                                        "terms": ic.detection_terms(det),
                                         "trigger_plugins": sorted(trig_plugins),
                                         "asset_uuids": list(assets.keys()),
-                                        # navi BUILT-IN selectors for this device (no UUID --query)
-                                        "selectors": _iot_selectors(det, sorted(trig_plugins))}
-        # IoT:<name> tag actions (ADD only — removals are the Tag Removal agent's job)
+                                        "selectors": _iot_selectors(det, rows, db_path)}
         tag_actions = [_iot_tag_action(name, h) for name, h in handoff.items()]
         return {"detected": detected, "handoff": handoff, "tag_actions": tag_actions}
 
 
 # ---------------------------------------------------------------- A2
-class PluginExpansionAgent(Agent):
-    id = "iot_expansion"
-    name = "Plugin Expansion Agent"
+class CarrierHarvestAgent(Agent):
+    id = "iot_carrier"
+    name = "Carrier Harvest Agent"
     icon = "🔎"
-    description = ("Searches every plugin name and output for each IoT name and "
-                   "captures the plugins that mention it (guardrailed).")
+    description = ("Host-scoped: captures the carrier plugins on each confirmed "
+                   "host that leak the device term, plus any supplied carrier list.")
 
     def summary(self):
         if not self.result:
             return {}
-        return {"names": len(self.result["expanded"]),
-                "kept_plugins": sum(len(e["kept"]) for e in self.result["expanded"].values())}
+        return {"carriers": len(self.result["carriers"]),
+                "supplied": len(self.result["supplied"])}
 
     def _run(self, db_path=None, handoff=None):
         handoff = handoff or {}
-        data = reg.load()
-        expanded = {}
+        carriers = {}   # plugin_id -> record
+
+        def _rec(pid, pname):
+            return carriers.setdefault(str(pid), {
+                "plugin_id": str(pid), "plugin_name": pname or "",
+                "via_terms": [], "via_devices": [], "host_count": 0,
+                "source": "harvest"})
+
         for name, h in handoff.items():
-            if not ic.valid_iot_name(name):
-                expanded[name] = {"skipped": "name too short/ambiguous", "kept": [], "dropped": []}
+            # Only harvest carriers from REGISTRY-confirmed hosts. Signal-fusion
+            # (OUI/mDNS/cert) devices are a separate Gate-1 tagger and have no
+            # plugin-output term signature — letting them harvest would fabricate a
+            # term from their display name and make later cross-term hits read as
+            # 'confirm' instead of the 'new' discovery they actually are.
+            if h.get("fused"):
                 continue
-            # 'known' = plugins already promoted into the registry's explicit
-            # plugins list for this device. Kept plugins not yet promoted become
-            # proposals (Agent 3 asks the human to add them as defaults), even if
-            # they also triggered discovery this run via name/output match.
-            det = reg.detection_for(name, data)
-            known = set(det.get("plugins", []) if det else [])
-            kept, dropped, new = [], [], []
-            for p in ic.plugins_mentioning(name, db_path):
-                (kept if p["kept"] else dropped).append(p)
-                if p["kept"] and p["plugin_id"] not in known and not reg.is_rejected(name, p["plugin_id"], data):
-                    new.append(p)
-            expanded[name] = {"vendor": h.get("vendor", ""), "kept": kept,
-                              "dropped": dropped, "new": new}
-        return {"expanded": expanded}
+            terms = h.get("terms") or ic.detection_terms({"iot_name": name})
+            uuids = h.get("asset_uuids", [])
+            for row in ic.carrier_plugins_on_assets(uuids, terms, db_path):
+                c = _rec(row["plugin_id"], row["plugin_name"])
+                if row["term"] not in c["via_terms"]:
+                    c["via_terms"].append(row["term"])
+                if name not in c["via_devices"]:
+                    c["via_devices"].append(name)
+                c["host_count"] = max(c["host_count"], row["host_count"])
+                if not c["plugin_name"]:
+                    c["plugin_name"] = row["plugin_name"]
+
+        # operator-supplied carrier plugins (hunt mode — no light-up required)
+        supplied = ic.byo_carrier_plugins()
+        for pid in supplied:
+            c = _rec(pid, "")
+            if c["source"] == "harvest":
+                c["source"] = "harvest+supplied"
+            else:
+                c["source"] = "supplied"
+        return {"carriers": carriers, "supplied": supplied}
 
 
 # ---------------------------------------------------------------- A3
-class CrossReferenceAgent(Agent):
-    id = "iot_xref"
-    name = "Cross-Reference Agent"
+class CrossTermAgent(Agent):
+    id = "iot_xterm"
+    name = "Cross-Term Agent"
     icon = "🕸️"
-    description = ("Uses the expanded plugin list to find other matching assets "
-                   "and proposes new default detections for human review.")
+    description = ("Sweeps each carrier plugin for the whole term vocabulary "
+                   "across the population; proposes plugin→term→device detections.")
 
     def summary(self):
         if not self.result:
             return {}
-        return {"candidates": len(self.result["candidates"]),
-                "proposals": len(self.result["proposals"])}
+        return {"proposals": len(self.result["proposals"]),
+                "tested": self.result["tested"]}
 
-    def _run(self, db_path=None, expanded=None, discovery=None):
-        expanded = expanded or {}
-        discovery = discovery or {}
-        # assets already detected per name (to exclude from cross-ref)
-        already = {}
-        for name, h in (discovery.get("handoff", {}) or {}).items():
-            already[name] = set(h.get("asset_uuids", []))
+    def _run(self, db_path=None, carriers=None, use_pack=False):
+        carriers = carriers or {}
+        total = ic.asset_total(db_path)
+        floor = ic.cluster_floor(total)
 
-        candidates, proposals = [], []
-        for name, e in expanded.items():
-            kept_ids = [p["plugin_id"] for p in e.get("kept", [])]
-            # 1) cross-reference: other assets sharing the expanded plugins
-            for c in ic.assets_with_plugins(kept_ids, already.get(name, set()), db_path):
-                candidates.append({"iot_name": name, "asset_uuid": c["asset_uuid"],
-                                   "hostname": (c["hostname"] or "").strip() or "(none)",
-                                   "ip": c["ip_address"], "evidence_plugins": c["evidence"],
-                                   "pids": [p for p in str(c.get("pids") or "").split(",") if p]})
-            # 2) propose newly-found plugins as default detections (HITL gate)
-            for p in e.get("new", []):
-                proposals.append({"key": reg.proposal_key(name, p["plugin_id"]),
-                                  "iot_name": name, "vendor": e.get("vendor", ""),
-                                  "plugin_id": p["plugin_id"], "plugin_name": p["plugin_name"],
-                                  "asset_count": p["asset_count"], "prevalence": p["prevalence"]})
-        return {"candidates": candidates, "proposals": proposals}
+        # vocabulary: registry terms (incl. zero-hit devices) + optional pack.
+        # The registry is authoritative on naming: a pack term that duplicates a
+        # registry term (case-insensitive) is DROPPED so we don't propose the same
+        # device under a second name — it just confirms the registry device. This
+        # is the pack-vs-registry de-dupe (noise reduction).
+        vocab, seen = [], set()
+        reg_terms = set()
+        for t in reg.all_terms():
+            term_l = t["term"].strip().lower()
+            k = (term_l, t["iot_name"].lower())
+            if t["term"] and k not in seen and ic.valid_term(t["term"]):
+                seen.add(k)
+                reg_terms.add(term_l)
+                vocab.append({"term": t["term"], "iot_name": t["iot_name"],
+                              "vendor": t.get("vendor", ""), "source": "registry"})
+        pack_terms, pack_deduped = 0, 0
+        if use_pack:
+            for term, device in ic.term_pack().items():
+                term_l = term.strip().lower()
+                k = (term_l, device.lower())
+                if not term or not ic.valid_term(term):
+                    continue
+                if term_l in reg_terms:          # registry already owns this term
+                    pack_deduped += 1
+                    continue
+                if k in seen:
+                    continue
+                seen.add(k)
+                pack_terms += 1
+                vocab.append({"term": term, "iot_name": device, "vendor": "",
+                              "source": "pack"})
+
+        proposals, ledger = {}, []
+        tested = 0
+        for pid, c in carriers.items():
+            via_dev = {d.lower() for d in c.get("via_devices", [])}
+            via_terms = {t.lower() for t in c.get("via_terms", [])}
+            for v in vocab:
+                term, device = v["term"], v["iot_name"]
+                res = ic.plugin_carries_term(pid, term, db_path, total=total)
+                tested += 1
+                cnt, prev = res["count"], res["prevalence"]
+                if cnt < floor:
+                    if cnt > 0:
+                        ledger.append({"plugin_id": pid, "term": term, "iot_name": device,
+                                       "count": cnt, "floor": floor, "reason": "below_floor"})
+                    continue
+                if reg.is_rejected(device, pid):
+                    ledger.append({"plugin_id": pid, "term": term, "iot_name": device,
+                                   "count": cnt, "reason": "previously_rejected"})
+                    continue
+                reg_det = reg.detection_for(device)
+                already = reg_det and str(pid) in [str(x) for x in reg_det.get("plugins", [])]
+                if device.lower() in via_dev or term.lower() in via_terms:
+                    kind = "confirm"
+                elif reg_det:
+                    kind = "cross"
+                else:
+                    kind = "new"
+                warns = []
+                if str(pid) in ic.GENERIC_PLUGIN_DENYLIST:
+                    warns.append("generic/enumeration plugin — verify the term isn't incidental")
+                if prev > ic.PREVALENCE_MAX:
+                    warns.append(f"(plugin+term) on {prev*100:.0f}% of assets — unusually broad")
+                key = reg.proposal_key(device, pid)
+                cand = {"key": key, "plugin_id": str(pid),
+                        "plugin_name": c.get("plugin_name", ""), "term": term,
+                        "iot_name": device, "vendor": v.get("vendor", ""), "kind": kind,
+                        "source": v["source"], "asset_count": cnt, "prevalence": prev,
+                        "already_registered": bool(already),
+                        "asset_uuids": res["asset_uuids"][:200], "warnings": warns}
+                cur = proposals.get(key)
+                if not cur or cnt > cur["asset_count"]:
+                    proposals[key] = cand
+
+        plist = sorted(proposals.values(), key=lambda x: (-x["asset_count"], x["iot_name"]))
+        return {"proposals": plist, "ledger": ledger, "floor": floor, "total": total,
+                "vocab_size": len(vocab), "pack_terms": pack_terms,
+                "pack_deduped": pack_deduped, "tested": tested,
+                "floor_note": ic.floor_explainer(total)}
 
 
 # ---------------------------------------------------------------- A4
@@ -208,31 +316,27 @@ class IoTSquadOrchestrator(Agent):
     id = "iot_squad"
     name = "IoT Discovery Squad"
     icon = "🤖"
-    description = ("Runs Discovery → Expansion → Cross-Reference as one pipeline, "
-                   "enforces data-quality checks, and surfaces the two HITL gates.")
+    description = ("Runs Discovery → Carrier harvest → Cross-term as one pipeline, "
+                   "builds the QA coverage ledger, and surfaces the HITL gates.")
 
     def __init__(self):
         super().__init__()
         self.a1 = IoTDiscoveryAgent()
-        self.a2 = PluginExpansionAgent()
-        self.a3 = CrossReferenceAgent()
+        self.a2 = CarrierHarvestAgent()
+        self.a3 = CrossTermAgent()
 
     def summary(self):
         if not self.result:
             return {}
         return {"devices": len(self.result["discovery"]["detected"]),
-                "candidates": len(self.result["xref"]["candidates"]),
-                "proposals": len(self.result["xref"]["proposals"]),
+                "carriers": len(self.result["carriers"]["carriers"]),
+                "proposals": len(self.result["xterm"]["proposals"]),
                 "qa_flags": len(self.result["qa"]["flags"])}
 
-    def _run(self, db_path=None):
+    def _run(self, db_path=None, use_pack=False):
         d = self.a1.run(db_path)
-        e = self.a2.run(db_path=db_path, handoff=d["handoff"])
-        x = self.a3.run(db_path=db_path, expanded=e["expanded"], discovery=d)
 
-        # --- Signal-fusion discovery: device-type / OUI / mDNS / cert ---
-        # Surfaces a broad embedded/OT footprint, grouped into
-        # IoT:<class> tag actions. These are discovery-only (no plugin expansion).
+        # signal-fusion discovery (device-type / OUI / mDNS / cert) — Gate-1 tags
         try:
             from core import signals
             devs = (signals._iot(db_path) or {}).get("devices", [])
@@ -246,7 +350,8 @@ class IoTSquadOrchestrator(Agent):
                         else (vendor.split(",")[0] if vendor and vendor != "—"
                               else (typ if typ and typ not in ("unknown", "general-purpose") else "Embedded device")))
                 h = d["handoff"].setdefault(name, {"iot_name": name, "vendor": vendor or "",
-                                                   "trigger_plugins": ["signal-fusion"], "asset_uuids": [], "fused": True})
+                                                   "terms": [], "trigger_plugins": ["signal-fusion"],
+                                                   "asset_uuids": [], "fused": True})
                 h["fused"] = True
                 if u not in h["asset_uuids"]:
                     h["asset_uuids"].append(u)
@@ -254,42 +359,54 @@ class IoTSquadOrchestrator(Agent):
                     seen.add(u)
                     d["detected"].append({"iot_name": name, "vendor": vendor or "", "asset_uuid": u,
                                           "hostname": dev.get("host", ""), "ip": dev.get("ip", ""), "fused": True})
-            # rebuild tag_actions to include the fused groups — registry devices keep
-            # their native --plugin/--output/--name selectors; fused groups (no plugin
-            # signature) fall back to --query.
             d["tag_actions"] = [_iot_tag_action(nm, h) for nm, h in d["handoff"].items()]
         except Exception:
             pass
 
-        # ---- A4 quality assurance ----
+        c = self.a2.run(db_path=db_path, handoff=d["handoff"])
+        x = self.a3.run(db_path=db_path, carriers=c["carriers"], use_pack=use_pack)
+
+        # ---- A4 quality assurance: coverage ledger (nothing silently skipped) ----
         flags = []
-        # a) the same plugin proposed for >1 IoT name = ambiguous signal
-        seen = {}
+        # same plugin proposed for >1 device via cross-term = ambiguous carrier
+        by_plugin = {}
         for p in x["proposals"]:
-            seen.setdefault(p["plugin_id"], set()).add(p["iot_name"])
-        for pid, names in seen.items():
+            by_plugin.setdefault(p["plugin_id"], set()).add(p["iot_name"])
+        for pid, names in by_plugin.items():
             if len(names) > 1:
-                flags.append({"type": "ambiguous_plugin", "plugin_id": pid,
+                flags.append({"type": "multi_device_carrier", "plugin_id": pid,
                               "iot_names": sorted(names),
-                              "detail": "proposed for multiple IoT names — review carefully"})
-        # b) any generic plugin that slipped into a kept list
-        for name, ex in e["expanded"].items():
-            for p in ex.get("kept", []):
-                if p["plugin_id"] in ic.GENERIC_PLUGIN_DENYLIST:
-                    flags.append({"type": "generic_leak", "plugin_id": p["plugin_id"],
-                                  "iot_name": name})
-        # c) candidates with weak (single-plugin) evidence
-        weak = [c for c in x["candidates"] if c["evidence_plugins"] < 2]
-        qa = {"flags": flags, "weak_candidates": len(weak),
-              "checks": ["ambiguous_plugin", "generic_leak", "weak_evidence"],
-              "agents": {"discovery": self.a1.status, "expansion": self.a2.status,
-                         "xref": self.a3.status}}
+                              "detail": "one carrier plugin proposed for multiple devices "
+                                        "— expected for banner plugins, but review"})
+        warnings = [p for p in x["proposals"] if p["warnings"]]
+        dropped_below = [l for l in x["ledger"] if l["reason"] == "below_floor"]
+        rejected_skips = [l for l in x["ledger"] if l["reason"] == "previously_rejected"]
+        qa = {
+            "flags": flags,
+            "checks": ["multi_device_carrier", "generic_carrier", "broad_prevalence",
+                       "below_floor_ledger", "rejected_ledger"],
+            "coverage": {
+                "carriers": len(c["carriers"]),
+                "supplied_carriers": len(c["supplied"]),
+                "vocab_terms": x["vocab_size"], "pack_terms": x["pack_terms"],
+                "pack_deduped": x.get("pack_deduped", 0),
+                "combinations_tested": x["tested"],
+                "proposals": len(x["proposals"]),
+                "warned_proposals": len(warnings),
+                "dropped_below_floor": len(dropped_below),
+                "skipped_rejected": len(rejected_skips),
+                "floor": x["floor"], "assets": x["total"],
+                "floor_note": x.get("floor_note", ""),
+            },
+            "ledger": (dropped_below + rejected_skips)[:500],
+            "agents": {"discovery": self.a1.status, "carrier": self.a2.status,
+                       "xterm": self.a3.status},
+        }
 
         return {
             "registry": {"detections": len(reg.load()["detections"]),
                          "rejected": len(reg.load()["rejected"])},
-            "discovery": d, "expansion": e, "xref": x, "qa": qa,
-            # HITL gates surfaced for the UI / API:
-            "tag_actions": d["tag_actions"],          # gate 1 (Agent 1)
-            "proposals": x["proposals"],              # gate 2 (Agent 3)
+            "discovery": d, "carriers": c, "xterm": x, "qa": qa,
+            "tag_actions": d["tag_actions"],   # gate 1
+            "proposals": x["proposals"],       # gate 2
         }
