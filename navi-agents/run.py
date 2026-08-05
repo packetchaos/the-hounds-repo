@@ -17,6 +17,35 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 os.chdir(HERE)
+
+
+def load_dotenv():
+    """Load KEY=VALUE lines from a .env in the repo root (no pip dependency).
+    Lets you keep ANTHROPIC_API_KEY, ANTHROPIC_MODEL, NAVI_ALLOW_WRITES, NAVI_BIN,
+    etc. in a file instead of exporting them in every shell. Real environment
+    variables always win — a value already set in the shell is never overwritten."""
+    path = os.path.join(HERE, ".env")
+    if not os.path.exists(path):
+        return
+    try:
+        with open(path, encoding="utf-8") as f:
+            for raw in f:
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                if line.lower().startswith("export "):
+                    line = line[7:].lstrip()
+                key, _, val = line.partition("=")
+                key = key.strip()
+                val = val.strip().strip('"').strip("'")
+                if key and key not in os.environ:   # shell env wins
+                    os.environ[key] = val
+        print("loaded .env")
+    except Exception as e:
+        print("  could not read .env:", e)
+
+
+load_dotenv()
 os.environ.setdefault("NAVI_DB_PATH", os.path.join(HERE, "sample_navi.db"))
 os.environ.setdefault("NAVI_ALLOW_WRITES", "0")
 
@@ -35,7 +64,27 @@ def pip_install(*pkgs):
         return False
 
 
-if not os.path.exists(os.environ["NAVI_DB_PATH"]) and os.path.exists("make_sample_db.py"):
+def _fixture_needs_build(p):
+    """True if the DB at p is missing, empty, or an invalid fixture (no assets table/rows)."""
+    if not os.path.exists(p) or os.path.getsize(p) == 0:
+        return True
+    try:
+        import sqlite3
+        con = sqlite3.connect(p)
+        try:
+            n = con.execute("SELECT count(*) FROM assets").fetchone()[0]
+        finally:
+            con.close()
+        return not n
+    except Exception:
+        return True
+
+
+# Auto-(re)build the bundled sample when it's missing or empty (a 0-byte/partial file
+# used to slip through the old exists-only check and surface as "no assets table").
+# Guarded to the sample filename so a real navi.db the user points NAVI_DB_PATH at is never clobbered.
+_dbp = os.environ["NAVI_DB_PATH"]
+if os.path.basename(_dbp) == "sample_navi.db" and os.path.exists("make_sample_db.py") and _fixture_needs_build(_dbp):
     print("building sample dataset…")
     subprocess.run([sys.executable, "make_sample_db.py"], check=True)
 

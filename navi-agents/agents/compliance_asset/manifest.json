@@ -1,0 +1,12 @@
+{
+  "id": "compliance_asset",
+  "name": "Compliance Deep-Dive",
+  "icon": "🔍",
+  "order": 18,
+  "category": "Explore",
+  "codename": "Sherlock",
+  "summary": "Sherlock — the compliance asset detective. Point it at one asset: every audit check it passed/failed/warned, actual vs expected, framework mappings — plus the inferred link between a failed control and the real vulns backing it, which you can tag. Launched from Minos.",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": ["run", "detail", "tag"]
+}

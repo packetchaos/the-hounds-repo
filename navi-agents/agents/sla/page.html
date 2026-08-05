@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>SLA Adherence · Sköll · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>
+.barrow{display:grid;grid-template-columns:120px 1fr 220px;gap:12px;align-items:center;margin:8px 0}
+.barrow .bl{font-size:12.5px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.barrow .track{background:var(--bg-2);border:1px solid var(--line);border-radius:6px;overflow:hidden;height:20px}
+.barrow .bar{height:100%;border-radius:5px 0 0 5px;min-width:2px}
+.barrow .bv{font-family:var(--mono);font-size:11.5px;color:var(--ink-3);text-align:right}
+.seclbl{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.pill{display:inline-block;padding:2px 8px;border-radius:100px;font-size:11px;font-weight:600}
+.setupcard{text-align:center;padding:26px 18px}
+.setupcard .big{font-size:15px;font-weight:700;margin-bottom:6px}
+</style>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+
+  <section class="card">
+    <div class="toolbar"><div><h2 style="margin:0">⏱ SLA Adherence <span class="sub" style="font-weight:400">· Sköll chases the clock</span></h2>
+      <p class="sub" style="margin:2px 0 0">Are we hitting our SLAs? <b>Remediation</b> (were closed findings fixed in time) and <b>open-vuln aging</b> (how open findings are burning down their SLA window), segmented by owner/tag. A daily snapshot is saved for the trend view.</p></div>
+      <span style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <label class="sub" for="tagsel" style="margin:0">Segment by</label>
+        <select class="fld" id="tagsel" style="min-width:120px"></select>
+        <label class="sub" for="valsel" style="margin:0">Filter</label>
+        <select class="fld" id="valsel" style="min-width:130px" title="Scope every number to one value, or All for the whole estate"></select>
+        <button class="btn run sm" id="refresh">↻ Refresh</button>
+        <button class="btn sm" id="emailBtn" title="Email this dashboard (gated)">📧 Email</button></span></div>
+    <div id="emailForm" style="display:none;margin-top:8px;gap:6px;align-items:center;flex-wrap:wrap">
+      <input id="emailTo" class="fld" style="min-width:240px;padding:8px 10px" placeholder="recipient email">
+      <button class="btn run sm" id="emailSend">▶ Send (gated)</button>
+      <button class="btn ghost sm" id="emailCancel">cancel</button>
+      <span id="emailRes" class="sub"></span></div>
+    <div id="flash" class="flash"></div>
+  </section>
+
+  <div id="body"></div>
+  <footer>SLA Adherence · Sköll · read-only navi.db · thresholds &amp; the Fixed table are set in <a href="/web/settings.html">Settings</a></footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('sla'), EMAIL=agentApi('email');
+let DASH=null, TAGKEY=null, TAGVAL='';
+const SEV=[['critical','Critical','var(--crit)'],['high','High','var(--high)'],['medium','Medium','var(--med)'],['low','Low','var(--low)']];
+const SEVC={critical:'var(--crit)',high:'var(--high)',medium:'var(--med)',low:'var(--low)'};
+const fnum=n=>(n==null?'—':Number(n).toLocaleString());
+function bar(label,pct,color,right){ const w=Math.max(2,Math.min(100,Math.round(pct||0)));
+  return `<div class="barrow"><div class="bl" title="${esc(label)}">${esc(label)}</div><div class="track"><div class="bar" style="width:${w}%;background:${color}"></div></div><div class="bv">${right||''}</div></div>`; }
+
+async function run(){
+  const rb=document.getElementById('refresh'); rb.disabled=true;
+  flash('flash','<span class="spin"></span> crunching SLA numbers from navi.db…','run');
+  const payload={}; if(TAGKEY)payload.tag_key=TAGKEY; if(TAGVAL)payload.tag_value=TAGVAL;
+  let o; try{ o=await API.post('run', payload); }catch(e){ o={ok:false,error:e.message}; }
+  rb.disabled=false;
+  if(!o||!o.ok){ flash('flash','✗ '+esc((o&&o.error)||'failed'),'crit'); return; }
+  flashClear('flash'); DASH=o.result||{}; TAGKEY=DASH.tag_key||TAGKEY; TAGVAL=DASH.tag_value||''; render();
+}
+
+function tagOptions(){
+  const rdy=DASH.readiness||{}; const keys=rdy.tag_keys||[]; const sel=document.getElementById('tagsel');
+  if(!keys.length){ sel.innerHTML='<option value="">(no tags)</option>'; return; }
+  sel.innerHTML=keys.map(k=>`<option value="${esc(k.key)}"${k.key===DASH.tag_key?' selected':''}>${esc(k.key)} (${k.assets})</option>`).join('');
+}
+function valOptions(){
+  const sel=document.getElementById('valsel'); const vals=DASH.tag_values||[]; const tk=DASH.tag_key||'';
+  const opts=[`<option value="">All ${esc(tk)||'assets'}${vals.length?' ('+vals.length+')':''}</option>`];
+  vals.forEach(v=>opts.push(`<option value="${esc(v.value)}"${v.value===DASH.tag_value?' selected':''}>${esc(v.value)} (${v.assets})</option>`));
+  sel.innerHTML=opts.join('');
+}
+
+function render(){
+  tagOptions(); valOptions();
+  const rdy=DASH.readiness||{}, B=document.getElementById('body');
+  if(!rdy.sla_set){
+    B.innerHTML=`<section class="card"><div class="setupcard"><div class="big">⏱ Set your SLA policy first</div>
+      <p class="sub">Sköll needs per-severity remediation windows (days) before it can measure adherence. Set them in <a href="/web/settings.html"><b>Settings ▸ SLA policy</b></a> — one click runs <span class="mono">navi config sla reset</span>. Then <b>Build Fixed</b> + <b>Recalculate SLA</b> to unlock remediation history.</p>
+      <a class="btn run sm" href="/web/settings.html" style="margin-top:8px;display:inline-block">Open Settings →</a></div></section>`;
+    return;
+  }
+  const vd=DASH.verdict||{}, oa=DASH.open_aging||{}, rem=DASH.remediation||{}, th=rdy.thresholds||{};
+  let h='';
+
+  // ---- scope indicator ----
+  h+='<section class="card"><div class="toolbar" style="margin-bottom:10px"><div class="seclbl" style="margin:0">'
+    +(DASH.tag_value?('🎯 Scoped to '+esc(DASH.tag_key)+' = <b style="color:var(--accent)">'+esc(DASH.tag_value)+'</b> — every number below is just this segment')
+       :('🌐 All assets — headline numbers are the whole estate; use <b>Filter</b> to scope them to one '+esc(DASH.tag_key||'value')))
+    +'</div>'+(DASH.tag_value?'<button class="btn ghost sm" id="clearScope" style="margin-left:auto">✕ clear filter</button>':'')+'</div>';
+
+  // ---- headline KPIs ----
+  h+='<div class="kpi">'
+    +kpi(vd.available&&vd.adherence_pct!=null?vd.adherence_pct+'%':'—','SLA adherence (verdict)',vd.available?null:'run Recalculate SLA')
+    +kpi(oa.available?fnum(oa.breached):'—','Open past SLA','present risk')
+    +kpi(oa.available&&oa.within_pct!=null?oa.within_pct+'%':'—','Open within SLA','of '+fnum(oa.open)+' open')
+    +kpi(rem.available&&rem.met_pct!=null?rem.met_pct+'%':'—','Fixed within SLA',rem.available?fnum(rem.total)+' closed':'needs Fixed table')
+    +'</div></section>';
+
+  // ---- open aging ----
+  if(oa.available){
+    const bysev={}; (oa.by_severity||[]).forEach(r=>bysev[r.sev]=r);
+    h+='<section class="card"><h3 style="margin:0 0 2px">🔥 Open findings vs the SLA clock</h3>'
+      +'<p class="seclbl">breach rate by severity · age measured from first seen</p>';
+    SEV.forEach(([k,lbl,c])=>{ const r=bysev[k]; if(!r)return;
+      const oc=+r.open_ct||0, br=+r.breached||0, pct=oc?100*br/oc:0;
+      h+=bar(lbl,pct,c,`${fnum(br)} breached / ${fnum(oc)} open · avg ${r.avg_age_days}d <span class="sub">(SLA ${th[k]}d)</span>`); });
+    // by owner
+    h+=`<p class="seclbl" style="margin-top:16px">open breaches by ${esc(DASH.tag_key)}</p>`;
+    const bo=oa.by_owner||[]; const maxb=Math.max(1,...bo.map(r=>+r.breached||0));
+    if(!bo.length){ h+='<p class="sub">No assets carry a “'+esc(DASH.tag_key)+'” tag yet.</p>'; }
+    else h+='<div style="overflow-x:auto"><table class="nocsv"><thead><tr><th>'+esc(DASH.tag_key)+'</th><th>Open</th><th>Past SLA</th><th>Breach %</th><th style="width:34%">​</th></tr></thead><tbody>'
+      +bo.map(r=>{const pct=+r.breach_pct||0,w=Math.max(2,Math.round(100*(+r.breached||0)/maxb));
+        return `<tr><td>${esc(r.seg)}</td><td class="mono">${fnum(r.open_ct)}</td><td class="mono">${fnum(r.breached)}</td><td class="mono">${pct}%</td><td><div class="track" style="height:14px"><div class="bar" style="width:${w}%;background:${pct>=50?'var(--crit)':pct>=20?'var(--high)':'var(--med)'}"></div></div></td></tr>`;}).join('')
+      +'</tbody></table></div>';
+    h+='</section>';
+  }
+
+  // ---- remediation ----
+  h+='<section class="card"><div class="toolbar" style="margin-bottom:8px"><h3 style="margin:0">✅ Remediation performance</h3>'
+    +'<a class="btn ghost sm" href="/agents/ex_fixed/page.html" style="margin-left:auto" title="Row-level remediation history + SLA verdicts">🩹 Explore fixed table (Coonhound) →</a></div>';
+  if(!rem.available){
+    h+='<p class="sub">No remediation verdicts yet. Build the <b>Fixed</b> table and run <b>Recalculate SLA</b> in <a href="/web/settings.html">Settings</a>, then refresh — Sköll will show, per severity and per owner, whether closed findings were fixed inside their SLA window.</p>';
+  } else {
+    const bysev={}; (rem.by_severity||[]).forEach(r=>bysev[r.sev]=r);
+    h+='<p class="seclbl">fixed-in-SLA rate by severity · closed findings only</p>';
+    SEV.forEach(([k,lbl,c])=>{ const r=bysev[k]; if(!r)return; const tot=+r.total||0,met=+r.met||0,pct=tot?100*met/tot:0;
+      h+=bar(lbl,pct,'var(--ok)',`${fnum(met)} in SLA / ${fnum(tot)} fixed${r.avg_fix_days!=null?' · avg fix '+r.avg_fix_days+'d':''} <span class="sub">(SLA ${th[k]}d)</span>`); });
+    h+=`<p class="seclbl" style="margin-top:16px">fixed-in-SLA by ${esc(DASH.tag_key)}</p>`;
+    const bo=rem.by_owner||[];
+    if(!bo.length) h+='<p class="sub">No closed findings on tagged assets yet.</p>';
+    else h+='<div style="overflow-x:auto"><table class="nocsv"><thead><tr><th>'+esc(DASH.tag_key)+'</th><th>Fixed</th><th>In SLA</th><th>Missed</th><th>Met %</th></tr></thead><tbody>'
+      +bo.map(r=>`<tr><td>${esc(r.seg)}</td><td class="mono">${fnum(r.total)}</td><td class="mono">${fnum(r.met)}</td><td class="mono">${fnum(r.missed)}</td><td class="mono">${r.met_pct}%</td></tr>`).join('')
+      +'</tbody></table></div>';
+  }
+  h+='</section>';
+
+  h+='<section class="card"><p class="sub" style="margin:0">📈 Each refresh saves a dated snapshot of the <b>whole-estate</b> numbers (open breaches, adherence %, by severity) to the trend store — that history is what <b>Hati</b>, the trending agent, will chart over time. Filtered views aren\'t snapshotted.</p></section>';
+  B.innerHTML=h;
+  const cs=document.getElementById('clearScope'); if(cs)cs.onclick=()=>{ TAGVAL=''; run(); };
+}
+function kpi(v,l,sub){ return `<div class="k"><div class="v">${v}</div><div class="l">${esc(l)}${sub?' · '+esc(sub):''}</div></div>`; }
+
+/* ---- email the dashboard (reuse Gabriel's email-safe dashboard renderer) ---- */
+function emailComponents(){
+  const oa=DASH.open_aging||{}, rem=DASH.remediation||{}, vd=DASH.verdict||{}, tk=DASH.tag_key||'owner';
+  const comps=[];
+  comps.push({title:'SLA adherence',viz:'kpi',columns:['Adherence','Open past SLA','Within SLA'],
+    rows:[{'Adherence':(vd.adherence_pct!=null?vd.adherence_pct+'%':'—'),'Open past SLA':oa.breached!=null?oa.breached:'—','Within SLA':(oa.within_pct!=null?oa.within_pct+'%':'—')}]});
+  if(oa.available){
+    comps.push({title:'Open findings past SLA — by severity',note:'age vs the per-severity SLA window',viz:'bar',
+      label_col:'severity',value_col:'past SLA',columns:['severity','past SLA'],
+      rows:(oa.by_severity||[]).map(r=>({severity:r.sev,'past SLA':r.breached}))});
+    comps.push({title:'Open SLA breaches by '+tk,viz:'bar',label_col:tk,value_col:'past SLA',columns:[tk,'past SLA'],
+      rows:(oa.by_owner||[]).slice(0,15).map(r=>({[tk]:r.seg,'past SLA':r.breached}))});
+  }
+  if(rem.available){
+    comps.push({title:'Remediation — fixed within SLA by '+tk,viz:'table',columns:[tk,'fixed','in SLA','missed','met %'],
+      rows:(rem.by_owner||[]).slice(0,15).map(r=>({[tk]:r.seg,fixed:r.total,'in SLA':r.met,missed:r.missed,'met %':r.met_pct+'%'}))});
+  }
+  return comps;
+}
+document.getElementById('emailBtn').onclick=()=>{ const f=document.getElementById('emailForm'); const show=f.style.display==='none'; f.style.display=show?'flex':'none'; if(show)document.getElementById('emailTo').focus(); };
+document.getElementById('emailCancel').onclick=()=>{ document.getElementById('emailForm').style.display='none'; document.getElementById('emailRes').innerHTML=''; };
+async function sendEmail(){
+  const to=(document.getElementById('emailTo').value||'').trim(), res=document.getElementById('emailRes');
+  if(!to){ res.innerHTML='<span style="color:var(--crit)">enter a recipient</span>'; return; }
+  if(!DASH||!(DASH.readiness||{}).sla_set){ res.innerHTML='<span style="color:var(--crit)">set SLA first</span>'; return; }
+  res.innerHTML='<span class="spin"></span> sending…';
+  const scope=DASH.tag_value?(' — '+DASH.tag_key+': '+DASH.tag_value):'';
+  let o; try{ o=await EMAIL.post('dashboard',{to,title:'SLA Adherence — Sköll'+scope,subject:'[Tenable] SLA Adherence (Sköll)'+scope,components:emailComponents(),confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+  if(o&&o.ok){ res.innerHTML='<span style="color:var(--ok)">✓ sent to '+esc(to)+'</span>'; }
+  else if(o&&o.blocked){ res.innerHTML='<span style="color:var(--cx-e7c66b)">email disabled — '+esc(o.reason||'set NAVI_ALLOW_WRITES=1 and NAVI_EMAIL=1')+'</span>'; }
+  else { res.innerHTML='<span style="color:var(--crit)">✗ '+esc((o&&(o.error||o.message))||'failed')+'</span>'; }
+}
+document.getElementById('emailSend').onclick=sendEmail;
+document.getElementById('emailTo').addEventListener('keydown',e=>{ if(e.key==='Enter')sendEmail(); });
+
+document.getElementById('refresh').onclick=run;
+document.getElementById('tagsel').onchange=e=>{ TAGKEY=e.target.value; TAGVAL=''; run(); };
+document.getElementById('valsel').onchange=e=>{ TAGVAL=e.target.value; run(); };
+mountAgentHeader({id:'sla',icon:'⏱',name:'SLA Adherence',sub:'Sköll · remediation + open-aging vs the SLA clock'});
+run();
+</script>
+</body></html>

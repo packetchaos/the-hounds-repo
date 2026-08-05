@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Compliance · Minos · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>
+.barrow{display:grid;grid-template-columns:210px 1fr 120px;gap:12px;align-items:center;margin:7px 0}
+.barrow .bl{font-size:12.5px;color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.barrow .track{background:var(--bg-2);border:1px solid var(--line);border-radius:6px;overflow:hidden;height:18px}
+.barrow .bar{height:100%;border-radius:5px 0 0 5px;min-width:2px}
+.barrow .bv{font-family:var(--mono);font-size:11.5px;color:var(--ink-3);text-align:right}
+.seclbl{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.st{display:inline-block;padding:1px 8px;border-radius:100px;font-size:10.5px;font-weight:700;font-family:var(--mono);text-transform:uppercase}
+.st-passed{background:var(--panel-2);color:var(--ok)}.st-failed{background:var(--crit-bg);color:var(--crit)}.st-warning{background:var(--med-bg);color:var(--med)}.st-unknown{background:var(--panel-2);color:var(--ink-3)}
+.applink{color:var(--accent);text-decoration:none;font-weight:600}.applink:hover{text-decoration:underline}
+.fwchip{font-size:11.5px;background:var(--panel-2);border:1px solid var(--line);border-radius:100px;padding:3px 10px;color:var(--ink-2)}.fwchip b{color:var(--ink);font-family:var(--mono);margin-left:5px}
+.setupcard{text-align:center;padding:26px 18px}.setupcard .big{font-size:15px;font-weight:700;margin-bottom:6px}
+.ctrlname{max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tagrow{display:flex;gap:10px;align-items:center;padding:9px 2px;border-top:1px solid var(--line);flex-wrap:wrap}
+.tagrow:first-child{border-top:0}.tagrow .tl{min-width:200px;flex:1}.tagrow .tl b{font-size:13px}
+.gatebar{background:var(--panel-2);border:1px solid var(--line);border-left:3px solid var(--cx-e7c66b);border-radius:8px;padding:9px 12px;font-size:12.5px;color:var(--ink-2);margin:2px 0 12px}
+.tres{font-size:12px;flex-basis:100%}
+</style>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+  <section class="card">
+    <div class="toolbar"><div><h2 style="margin:0">⚖️ Compliance <span class="sub" style="font-weight:400">· Minos weighs the estate</span></h2>
+      <p class="sub" style="margin:2px 0 0">Every asset judged against its audit benchmarks: pass / fail / warning, the controls failing the most assets, framework coverage, and per-asset scorecards. Click an asset for its full <b>deep-dive</b>.</p></div>
+      <span style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <a class="btn ghost sm" href="/agents/compliance_asset/page.html" title="Per-asset checks + audit↔vuln correlation">🔍 Asset deep-dive →</a>
+        <button class="btn run sm" id="refresh">↻ Refresh</button></span></div>
+    <div id="flash" class="flash"></div>
+  </section>
+  <div id="body"></div>
+  <footer>Compliance · Minos · read-only navi.db · populate with <span class="mono">navi config update compliance</span></footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('compliance');
+let OV=null, WRITES=null;
+const STAT=[['passed','Passed','var(--ok)'],['failed','Failed','var(--crit)'],['warning','Warning','var(--med)'],['unknown','Unknown','var(--ink-3)']];
+const fnum=n=>(n==null?'—':Number(n).toLocaleString());
+function bar(label,val,max,color,right){ const w=Math.max(2,Math.round((val/(max||1))*100));
+  return `<div class="barrow"><div class="bl" title="${esc(label)}">${esc(label)}</div><div class="track"><div class="bar" style="width:${w}%;background:${color}"></div></div><div class="bv">${right!=null?right:fnum(val)}</div></div>`; }
+function kpi(v,l,c,sub){ return `<div class="k"><div class="v"${c?' style="color:'+c+'"':''}>${v}</div><div class="l">${esc(l)}${sub?' · '+esc(sub):''}</div></div>`; }
+function ctrlShort(name){ return String(name||'').replace(/\s+/g,' ').trim(); }
+
+async function run(){
+  const rb=document.getElementById('refresh'); rb.disabled=true;
+  flash('flash','<span class="spin"></span> weighing the estate against its benchmarks…','run');
+  let o; try{ o=await API.post('overview'); }catch(e){ o={ok:false,error:e.message}; }
+  rb.disabled=false;
+  if(!o||!o.ok){ flash('flash','✗ '+esc((o&&o.error)||'failed'),'crit'); return; }
+  flashClear('flash'); OV=o.result||{}; WRITES=o.writes||null; render();
+}
+function render(){
+  const B=document.getElementById('body');
+  if(!OV.available){
+    B.innerHTML=`<section class="card"><div class="setupcard"><div class="big">⚖️ No compliance data yet</div>
+      <p class="sub">Minos reads the <b>compliance</b> table. Populate it with <span class="mono">navi config update compliance</span> (needs audit/benchmark scans in Tenable), then refresh.</p></div></section>`;
+    return;
+  }
+  const bs=OV.by_status||{}; let h='';
+  // KPIs
+  h+='<section class="card"><div class="kpi">'
+    +kpi(fnum(OV.assets),'Assets audited')
+    +kpi(fnum(OV.checks),'Controls')
+    +kpi(fnum(OV.passed),'Passed','var(--ok)')
+    +kpi(fnum(OV.failed),'Failed','var(--crit)')
+    +kpi(fnum(OV.warning),'Warnings','var(--med)')
+    +kpi(OV.pass_pct!=null?OV.pass_pct+'%':'—','Pass rate','pass ÷ (pass+fail)')
+    +kpi(fnum(OV.failed_controls),'Failing controls')
+    +'</div></section>';
+  // status distribution
+  const smax=Math.max(1,...STAT.map(([k])=>bs[k]||0));
+  h+='<section class="card"><h3 style="margin:0 0 2px">Results by status</h3><p class="seclbl">every check × asset</p>';
+  STAT.forEach(([k,lbl,c])=>{ h+=bar(lbl,bs[k]||0,smax,c,fnum(bs[k]||0)); });
+  h+='</section>';
+  // controls by asset failures + frameworks (two cards)
+  h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px">';
+  const tf=OV.top_failing||[];
+  h+='<section class="card" style="margin:0"><h3 style="margin:0 0 2px">Controls failing the most assets</h3><p class="seclbl">top failing audit checks</p>'
+    +(tf.length?'<div style="overflow-x:auto"><table class="nocsv"><thead><tr><th>Control</th><th>Failed</th><th>Pass</th><th>Warn</th></tr></thead><tbody>'
+      +tf.slice(0,15).map(c=>`<tr><td class="ctrlname" title="${esc(c.check_name)}">${esc(ctrlShort(c.check_name))}</td>`
+        +`<td class="mono" style="color:var(--crit);font-weight:700">${c.failed}</td><td class="mono">${c.passed}</td><td class="mono">${c.warning}</td></tr>`).join('')
+      +'</tbody></table></div>':'<p class="sub">No failing controls.</p>')+'</section>';
+  const fw=OV.frameworks||[]; const fmax=Math.max(1,...fw.map(f=>f.failed||0));
+  h+='<section class="card" style="margin:0"><h3 style="margin:0 0 2px">Framework exposure</h3><p class="seclbl">failed control-instances mapped to each framework</p>'
+    +(fw.length?fw.slice(0,12).map(f=>bar(f.framework,f.failed,fmax,'var(--accent)',fnum(f.failed))).join(''):'<p class="sub">No framework references.</p>')+'</section>';
+  h+='</div>';
+  // audit files
+  const af=OV.audit_files||[];
+  if(af.length){ h+='<section class="card" style="margin-top:16px"><h3 style="margin:0 0 2px">Audit benchmarks</h3><p class="seclbl">the .audit policies run</p>'
+    +'<div style="overflow-x:auto"><table class="nocsv"><thead><tr><th>Benchmark</th><th>Controls</th><th>Assets</th><th>Failed</th><th>Passed</th></tr></thead><tbody>'
+    +af.map(a=>`<tr><td title="${esc(a.audit_file)}">${esc(a.audit_file)}</td><td class="mono">${a.checks}</td><td class="mono">${a.assets}</td><td class="mono" style="color:var(--crit)">${a.failed}</td><td class="mono">${a.passed}</td></tr>`).join('')
+    +'</tbody></table></div></section>'; }
+  // assets by compliance
+  const rows=OV.assets_rows||[];
+  h+='<section class="card" style="margin-top:16px"><div class="toolbar"><h3 style="margin:0">Assets by compliance</h3><span class="chip" style="margin-left:auto">'+rows.length+' asset'+(rows.length===1?'':'s')+'</span></div>'
+    +'<div style="overflow-x:auto"><table class="nocsv"><thead><tr><th>Asset</th><th>Pass %</th><th>Passed</th><th>Failed</th><th>Warn</th><th>Deep-dive</th></tr></thead><tbody>'
+    +rows.map(a=>{ const nm=a.hostname||a.ip||(String(a.asset_uuid||'').slice(0,12)+'…');
+      const dd='/agents/compliance_asset/page.html?asset='+encodeURIComponent(a.asset_uuid||'');
+      return `<tr><td title="${esc(a.asset_uuid)}">${esc(nm)}${a.ip&&a.hostname?' <span class="sub">'+esc(a.ip)+'</span>':''}</td>`
+        +`<td class="mono"${a.pass_pct!=null&&a.pass_pct<50?' style="color:var(--crit)"':''}>${a.pass_pct!=null?a.pass_pct+'%':'—'}</td>`
+        +`<td class="mono">${a.passed}</td><td class="mono"${a.failed?' style="color:var(--crit);font-weight:700"':''}>${a.failed}</td><td class="mono">${a.warning}</td>`
+        +`<td><a class="applink" href="${dd}" title="Sherlock — per-asset checks + audit↔vuln links">🔍 open</a></td></tr>`; }).join('')
+    +'</tbody></table></div></section>';
+  // tag-by-control
+  h+=tagCardHTML();
+  B.innerHTML=h;
+  wireTag();
+}
+
+/* ---- tag a control's failing assets with an Audit Owner ---- */
+function tagCardHTML(){
+  const tf=(OV.top_failing||[]).slice(0,20);
+  if(!tf.length) return '';
+  const gate=(WRITES&&WRITES.reason)?('<div class="gatebar">🔒 Writes are gated — tags won\'t apply until fixed: '+esc(WRITES.reason)+'</div>'):'';
+  const rows=tf.map((c,i)=>`<div class="tagrow" data-cid="${esc(c.check_id)}">`
+    +`<div class="tl"><b class="ctrlname" title="${esc(c.check_name)}" style="display:inline-block;vertical-align:bottom">${esc(ctrlShort(c.check_name))}</b> <span class="sub">${c.failed} failing asset${c.failed===1?'':'s'}</span></div>`
+    +`<input class="fld ownin" data-cid="${esc(c.check_id)}" placeholder="owner (e.g. platform-team)" style="min-width:180px;padding:6px 9px">`
+    +`<button class="btn sm tagbtn" data-cid="${esc(c.check_id)}" data-fa="${c.failed}">🏷️ Assign owner</button></div>`).join('');
+  return '<section class="card" id="tagcard" style="margin-top:16px"><div class="toolbar"><div><h3 style="margin:0">🏷️ Assign an Audit Owner</h3>'
+    +'<p class="sub" style="margin:2px 0 0">Pick a failing control, type who owns it, and tag its failing assets — category <span class="mono">Audit Owner</span> on each asset UUID, via navi (gated). Same mechanism as VM/WAS tags.</p></div></div>'
+    +gate+rows+'<p class="sub" style="margin:10px 0 0">Applied tags land in the <a class="applink" href="/web/tags-log.html">Tagging log</a>.</p></section>';
+}
+function wireTag(){
+  document.querySelectorAll('#tagcard .tagbtn').forEach(b=>b.onclick=()=>applyTag(b));
+  document.querySelectorAll('#tagcard .ownin').forEach(inp=>inp.addEventListener('keydown',e=>{ if(e.key==='Enter'){ const b=document.querySelector('.tagbtn[data-cid="'+CSS.escape(inp.getAttribute('data-cid'))+'"]'); if(b)applyTag(b); } }));
+}
+async function applyTag(btn){
+  const cid=btn.getAttribute('data-cid'), row=btn.closest('.tagrow');
+  const inp=row.querySelector('.ownin'), owner=(inp.value||'').trim();
+  let res=row.querySelector('.tres'); if(!res){ res=document.createElement('span'); res.className='tres'; row.appendChild(res); }
+  if(!owner){ res.innerHTML='<span style="color:var(--cx-e7c66b)">enter an owner name first</span>'; inp.focus(); return; }
+  if(WRITES&&WRITES.reason){ res.innerHTML='<span style="color:var(--cx-e7c66b)">🔒 '+esc(WRITES.reason)+'</span>'; return; }
+  btn.disabled=true; btn.textContent='⏳ tagging…'; res.innerHTML='';
+  let o; try{ o=await API.post('tag',{confirm:true,check_id:cid,owner}); }catch(e){ o={ok:false,error:e.message}; }
+  if(o&&o.ok&&o.queued){ res.innerHTML='<span style="color:var(--ok)">✓ queued — Audit Owner: '+esc(o.value)+' on '+o.asset_count+' asset(s)'+(o.write_gate_reason?'':' · track in Tagging log')+'</span>'; btn.textContent='✓ queued';
+    if(o.write_gate_reason){ res.innerHTML='<span style="color:var(--cx-e7c66b)">queued but gated — '+esc(o.write_gate_reason)+'</span>'; } }
+  else if(o&&o.blocked){ res.innerHTML='<span style="color:var(--cx-e7c66b)">🔒 '+esc(o.message||'writes disabled')+'</span>'; btn.disabled=false; btn.textContent='🏷️ Assign owner'; }
+  else { res.innerHTML='<span style="color:var(--crit)">✗ '+esc((o&&(o.error||o.message))||'failed')+'</span>'; btn.disabled=false; btn.textContent='🏷️ retry'; }
+}
+document.getElementById('refresh').onclick=run;
+mountAgentHeader({id:'compliance',icon:'⚖️',name:'Compliance',sub:'Minos · audit benchmarks, judged'});
+run();
+</script>
+</body></html>

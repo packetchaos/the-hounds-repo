@@ -161,3 +161,159 @@ def compute(db_path=None):
             "identities": ident, "mitre_high_acr": mitre_high, "custom_apps": custom,
             "docker_hosts": docker, "web_apps": web, "cloud_assets": cloud,
             "ai_assets": ai, "asset_total": total, "stories": stories}
+
+
+# --------------------------------------------------------------------------- #
+#  The Scent Board — Sphinx's estate brain (redesign)                          #
+#                                                                              #
+#  Nemesis scores each ASSET; Sphinx rolls that same fusion up to the ESTATE:  #
+#  where every Hound's domain stands, what you're BLIND to, the cross-Hound    #
+#  surprises no single agent sees, and a hand-off to Nemesis to act. Read-only.#
+# --------------------------------------------------------------------------- #
+def _sc(sql, db_path=None):
+    try:
+        return db.scalar(sql, path=db_path) or 0
+    except Exception:
+        return 0
+
+
+def scent_board(db_path=None):
+    from core import fused_score
+    fo = {}
+    try:
+        fo = fused_score.overview(db_path)
+    except Exception:
+        fo = {}
+    rows = fo.get("assets", []) if fo.get("ok") else []
+    fk = fo.get("kpi", {}) if fo.get("ok") else {}
+    total = fk.get("assets") or _sc("SELECT COUNT(uuid) FROM assets", db_path)
+
+    def cnt(pred):
+        return sum(1 for r in rows if pred(r))
+
+    def _hound_silent(r):
+        # the pack found NOTHING on it — no KEV and no hound-derived factor fired
+        f = r.get("factors", {})
+        return (not r.get("kev")) and all(not f.get(k) for k in ("path", "ident", "ai", "eol", "cry", "mit"))
+
+    kev = cnt(lambda r: r.get("kev"))
+    crown = cnt(lambda r: r.get("crown"))
+    eol = cnt(lambda r: r.get("eol"))
+    crypto = cnt(lambda r: r.get("crypto"))
+    path = cnt(lambda r: r.get("path"))
+    ident = cnt(lambda r: r.get("ident"))
+    ai = cnt(lambda r: r.get("ai"))
+    exposed = cnt(lambda r: r.get("exposed"))
+    unowned = cnt(lambda r: r.get("unowned"))
+    blind = cnt(lambda r: r.get("blind"))
+    no_signal = cnt(_hound_silent)
+
+    def pct(a, b):
+        return round(100.0 * a / b, 1) if b else 0.0
+
+    # ---- classic single-signal rollup (certs / iot / etc.) reused from compute() ----
+    try:
+        c = compute(db_path)
+    except Exception:
+        c = {}
+
+    # ---- estate posture — one tile per domain (Hound). status: ok|warn|crit|off ----
+    def tile(id, domain, hound, icon, value, sub, status, href):
+        return {"id": id, "domain": domain, "hound": hound, "icon": icon,
+                "value": value, "sub": sub, "status": status, "href": href}
+
+    crit_assets = fk.get("critical", 0)
+    posture = [
+        tile("exposure", "Exposure score", "Nemesis", "🎯", crit_assets,
+             f"{crit_assets} critical · estate {fk.get('estate', 0)}", "crit" if crit_assets else "ok",
+             "/agents/fused_score/page.html"),
+        tile("kev", "CISA KEV", "Laelaps", "🔥", kev, "actively exploited", "crit" if kev else "ok",
+             "/agents/cisakev/page.html"),
+        tile("crown", "Crown jewels", "Anubis", "👑", crown,
+             f"{cnt(lambda r: r.get('crown') and r.get('unowned'))} unowned", "warn" if crown else "off",
+             "/agents/acr/page.html"),
+        tile("cert", "Certificates", "Certania", "🔐", c.get("certs_failing", 0),
+             f"{c.get('certs_expired', 0)} already expired", "warn" if c.get("certs_failing") else "ok",
+             "/agents/certificate/page.html"),
+        tile("eol", "EOL / crypto decay", "Charon+Heimdall", "🔩", eol + crypto,
+             f"{eol} EOL · {crypto} weak crypto", "warn" if (eol + crypto) else "ok",
+             "/agents/eol/page.html"),
+        tile("ident", "Identity exposure", "Janus", "🪪", ident, "NHI / credential reuse",
+             "warn" if ident else "off", "/agents/identity/page.html"),
+        tile("path", "Attack paths", "Fenrir", "🕸", path, "foothold → crown jewel",
+             "crit" if path else "off", "/agents/attackpath/page.html"),
+        tile("ai", "AI exposure", "Pythia", "🧠", ai, f"{cnt(lambda r: r.get('ai') == 'shadow')} shadow",
+             "warn" if ai else "off", "/agents/ai/page.html"),
+        tile("iot", "IoT / OT", "Cerberus", "🐾", c.get("iot_devices", 0), "unmanageable devices",
+             "warn" if c.get("iot_devices") else "off", "/agents/iot_squad/page.html"),
+        tile("own", "Ownership coverage", "Terminus", "📌", f"{pct(total - unowned, total)}%",
+             f"{unowned} unclaimed", "crit" if pct(unowned, total) > 50 else "warn" if unowned else "ok",
+             "/agents/asset_ownership/page.html"),
+    ]
+    # ---- domains that come from their own engines (may be 'not run' on this navi.db) ----
+    try:
+        from core import compliance as _comp
+        co = _comp.overview(db_path)
+        if co.get("available") and co.get("assets_total"):
+            fails = co.get("assets_failing", co.get("failing", 0))
+            posture.append(tile("compliance", "Compliance", "Minos", "⚖️",
+                                 f"{co.get('pass_pct', co.get('compliant_pct', 0))}%",
+                                 f"{fails} failing", "crit" if fails else "ok", "/agents/compliance/page.html"))
+        else:
+            posture.append(tile("compliance", "Compliance", "Minos", "⚖️", "—", "no audit data yet", "off", "/agents/compliance/page.html"))
+    except Exception:
+        pass
+    try:
+        from core import sla as _sla
+        so = _sla.readiness(db_path)
+        if so.get("sla_set"):
+            posture.append(tile("sla", "SLA adherence", "Sköll", "⏱", "set", "SLA thresholds active", "warn", "/agents/sla/page.html"))
+        else:
+            posture.append(tile("sla", "SLA adherence", "Sköll", "⏱", "—", "no SLA set", "off", "/agents/sla/page.html"))
+    except Exception:
+        pass
+    try:
+        from core import was as _was
+        wo = _was.overview(db_path)
+        if wo.get("available") and wo.get("apps"):
+            posture.append(tile("was", "Web apps (WAS)", "Xolotl", "🕸️", wo.get("findings", wo.get("apps", 0)),
+                                 f"{wo.get('apps', 0)} apps", "warn", "/agents/was/page.html"))
+        else:
+            posture.append(tile("was", "Web apps (WAS)", "Xolotl", "🕸️", "—", "no WAS data yet", "off", "/agents/was/page.html"))
+    except Exception:
+        pass
+
+    # ---- blind spots — the dark matter Sphinx is named for (risk by ABSENCE) ----
+    unclassified = _sc("SELECT COUNT(uuid) FROM assets WHERE uuid NOT IN "
+                       "(SELECT DISTINCT asset_uuid FROM tags WHERE tag_key='Class')", db_path)
+    no_tier = _sc("SELECT COUNT(uuid) FROM assets WHERE uuid NOT IN "
+                  "(SELECT DISTINCT asset_uuid FROM tags WHERE tag_key='Business Tier')", db_path)
+    blind_spots = [
+        {"label": "No Hound signal", "count": no_signal, "sub": "the pack found nothing — truly dark", "sev": "crit"},
+        {"label": "Uncredentialed / blind", "count": blind, "sub": "Chronos — scan can't see inside", "sev": "crit"},
+        {"label": "Unclassified", "count": unclassified, "sub": "Linnaeus — type unknown", "sev": "warn"},
+        {"label": "Unowned", "count": unowned, "sub": "Terminus — nobody accountable", "sev": "warn"},
+        {"label": "No business tier", "count": no_tier, "sub": "criticality unrated", "sev": "warn"},
+        {"label": "Shadow AI", "count": cnt(lambda r: r.get("ai") == "shadow"), "sub": "Pythia — AI off the sanctioned list", "sev": "warn"},
+    ]
+
+    # ---- convergence — the cross-Hound surprises no single agent sees ----
+    def conv(text, n, sev):
+        return {"text": text, "count": n, "sev": sev, "href": "/agents/fused_score/page.html"}
+    convergence = [c for c in [
+        conv("crown jewels with no owner", cnt(lambda r: r.get("crown") and r.get("unowned")), "crit"),
+        conv("crown jewels the scan can't see (blind)", cnt(lambda r: r.get("crown") and r.get("blind")), "crit"),
+        conv("KEV-exploitable assets nobody owns", cnt(lambda r: r.get("kev") and r.get("unowned")), "crit"),
+        conv("KEV-exploitable AND internet-exposed", cnt(lambda r: r.get("kev") and r.get("exposed")), "crit"),
+        conv("EOL software on a crown jewel", cnt(lambda r: r.get("eol") and r.get("crown")), "warn"),
+        conv("attack-path targets nobody owns", cnt(lambda r: r.get("path") == "target" and r.get("unowned")), "warn"),
+        conv("credential-reuse hosts that are KEV-exploitable", cnt(lambda r: r.get("ident", 0) >= 2 and r.get("kev")), "crit"),
+    ] if c["count"] > 0]
+    convergence.sort(key=lambda x: (-{"crit": 2, "warn": 1}.get(x["sev"], 0), -x["count"]))
+
+    return {"ok": True, "asset_total": total,
+            "nemesis": {"critical": crit_assets, "high": fk.get("high", 0),
+                        "estate": fk.get("estate", 0), "avg": fk.get("avg", 0),
+                        "top": [{"host": r["host"], "score": r["score"]} for r in rows[:5]]},
+            "posture": posture, "blind": blind_spots, "convergence": convergence,
+            "classic": c}

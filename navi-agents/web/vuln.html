@@ -11,7 +11,7 @@
 .plink:hover{text-decoration:underline}
 .crumb{font-size:12px;color:var(--mut);margin:0 0 10px}
 .crumb a{color:var(--accent);text-decoration:none}
-.out{font-family:ui-monospace,monospace;font-size:11px;color:#9fd0ff;white-space:pre-wrap;word-break:break-word;max-width:560px}
+.out{font-family:ui-monospace,monospace;font-size:11px;color:var(--cx-9fd0ff);white-space:pre-wrap;word-break:break-word;max-width:560px}
 </style>
 </head><body>
 <div class="wrap">
@@ -50,7 +50,7 @@ async function load(){
   const t=document.querySelector('#atbl tbody');
   document.getElementById('acount').textContent=`(${o.assets.length})`;
   t.innerHTML = o.assets.length ? o.assets.map(a=>
-    `<tr><td><a class="plink" href="/web/asset.html?asset=${encodeURIComponent(a.asset_uuid)}">${esc(a.hostname)}</a>${plat(a.finding_url,'Finding ↗')||plat(a.asset_url,'Asset ↗')}</td>`+
+    `<tr><td><a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(a.asset_uuid)}">${esc(a.hostname)}</a>${plat(a.finding_url,'Finding ↗')||plat(a.asset_url,'Asset ↗')}</td>`+
     `<td class="mono">${esc(a.ip_address||'')}</td><td class="out">${esc((a.output||'').slice(0,260))}</td>`+
     `<td class="mono">${esc((a.last_found||'').slice(0,10))}</td></tr>`).join('')
     : '<tr><td colspan="4" class="sub">No affected assets.</td></tr>';

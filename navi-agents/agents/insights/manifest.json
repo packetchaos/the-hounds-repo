@@ -1,13 +1,14 @@
 {
   "id": "insights",
-  "name": "Unknown Unknowns",
+  "name": "On the Scent",
   "icon": "\ud83d\udc1d",
   "order": 0,
   "category": "Overview",
-  "summary": "Aggregates the unknown-unknowns in navi.db \u2014 failing certs, shadow software, IoT, identities, MITRE on high-ACR assets, custom apps \u2014 as click-through stat tiles.",
+  "summary": "Sphinx \u2014 the estate brain. Rolls the same fusion Nemesis scores per asset up to the whole estate: a posture board across every Hound (KEV, crown jewels, certs, EOL/crypto, identity, attack paths, AI, IoT, ownership coverage, compliance, SLA, WAS), a blind-spots panel (the unknown-unknowns \u2014 assets with no Hound signal, uncredentialed, unclassified, unowned), the cross-Hound surprises no single agent sees (crown jewels unowned/blind, KEV+exposed, EOL on a crown jewel), and a hand-off to Nemesis to act.",
   "needs_backend": true,
   "page": "page.html",
   "actions": [
+    "board",
     "run"
   ],
   "codename": "Sphinx Hound"

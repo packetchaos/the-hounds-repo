@@ -13,6 +13,9 @@
   #aiTbl{table-layout:fixed;width:100%}
   #aiTbl th,#aiTbl td{vertical-align:top;overflow:hidden}
   #aiTbl td:nth-child(1),#aiTbl td:nth-child(2){text-overflow:ellipsis;white-space:nowrap}
+  #aiTbl td:nth-child(4){white-space:normal;word-break:break-word}
+  .pillwrap{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
+  .pillwrap .chip,.pillwrap .badge{margin:0}
   #aiwhyov{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto}
   .egbox,.atbox{border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px}
   pre.snip{white-space:pre-wrap;word-break:break-word;margin:4px 0 0;font-size:12px;color:var(--ink);max-height:150px;overflow:auto;background:var(--bg-2);padding:6px 8px;border-radius:6px}
@@ -20,7 +23,7 @@
 </head><body>
 <div class="wrap">
   <header class="top" id="app-header"></header>
-  <section class="card" style="background:radial-gradient(120% 140% at 90% -20%,var(--amber-glow),transparent 60%),var(--panel)">
+  <section class="card" style="background:var(--panel)">
     <div class="toolbar"><div><div class="acode">Pythia Hound</div><h2 style="margin:0">🧠 AI Inventory</h2>
       <p class="sub" style="margin:2px 0 0">Discovers AI/ML by <b>content</b> — the Tenable AI plugin family <b>plus</b> the <span class="mono">software</span> &amp; <span class="mono">cpes</span> inventories, plugin output, and network <b>endpoints</b> — and classifies each asset by <b>role</b>. Flags <b>exposed/unauth endpoints</b>, maps <b>data-egress</b> (shadow vs sanctioned) and <b>MITRE ATLAS</b>. Every row has a <b>🔍 Why</b> — inspect the evidence and dismiss false positives. Tag by role via <span class="mono">navi tag --query</span> (gated).</p></div>
       <button class="btn run sm" id="run" style="margin-left:auto">▶ Run</button></div>
@@ -42,7 +45,7 @@
 const API=agentApi('ai');
 let DATA=null;
 const ROLE_PRI={'Model Serving':6,'Vector DB / RAG':5,'GPU / Training':5,'MLOps':4,'Notebook / Dev':3,'AI Dev Tool':2,'LLM API Client':2,'Tenable AI plugin':1};
-const ROLE_COLOR={'Model Serving':'#fb923c','Vector DB / RAG':'#a97fd6','GPU / Training':'#34d399','MLOps':'#3fb0c9','Notebook / Dev':'#e0b341','AI Dev Tool':'#b48ead','LLM API Client':'#6ea8ff','Tenable AI plugin':'var(--accent)','AI':'var(--accent)'};
+const ROLE_COLOR={'Model Serving':'#fb923c','Vector DB / RAG':'#a97fd6','GPU / Training':'var(--ok)','MLOps':'#3fb0c9','Notebook / Dev':'#8b8fe6','AI Dev Tool':'#b48ead','LLM API Client':'#6ea8ff','Tenable AI plugin':'var(--accent)','AI':'var(--accent)'};
 const ATLAS_ORDER=['Reconnaissance','Resource Development','Initial Access','ML Model Access','Execution','Persistence','Privilege Escalation','Defense Evasion','Credential Access','Discovery','Collection','ML Attack Staging','Exfiltration','Impact'];
 /* FP suppression + egress allowlist persist in localStorage, exactly like the console */
 function fpLoad(){ try{return JSON.parse(localStorage.getItem('aiFP')||'{}');}catch(e){return {};} }
@@ -50,7 +53,7 @@ function fpSave(o){ try{localStorage.setItem('aiFP',JSON.stringify(o));}catch(e)
 function fpCount(o){ o=o||{}; return (o.assets?Object.keys(o.assets).length:0)+(o.fw?Object.keys(o.fw).length:0)+(o.gfw?Object.keys(o.gfw).length:0); }
 function allowLoad(){ try{var v=localStorage.getItem('aiEgressAllow'); if(v)return JSON.parse(v);}catch(e){} return null; }
 function allowSave(l){ try{localStorage.setItem('aiEgressAllow',JSON.stringify(l));}catch(e){} }
-const plink=(u,txt)=>u?`<a href="/web/asset.html?asset=${encodeURIComponent(u)}" style="color:var(--accent);text-decoration:none">${esc(txt)}</a>`:esc(txt);
+const plink=(u,txt)=>u?`<a href="/agents/argos/page.html?target=${encodeURIComponent(u)}" style="color:var(--accent);text-decoration:none">${esc(txt)}</a>`:esc(txt);
 const platLink=(url,txt)=>url?`<a href="${esc(url)}" target="_blank" class="chip" style="text-decoration:none">${esc(txt||'Tenable ↗')}</a>`:'';
 
 async function run(){
@@ -61,15 +64,22 @@ async function run(){
   if(!o||!o.ok||!o.result){ flash('flash','✗ '+esc((o&&(o.error||o.message))||'failed'),'crit'); return; }
   DATA=o.result; flashClear('flash'); render();
 }
-async function aiTag(category,value,uuids,note){
+async function aiTag(category,value,uuids,note,btn){
+  if(btn&&btn.disabled)return;
   if(!uuids||!uuids.length){ flash('flash','Nothing to tag.','warn'); return; }
   const nv=prompt('Tag '+uuids.length+' asset(s) under "'+category+' : "\nValue (edit if you like):', value);
   if(nv===null) return;
+  const fb=document.getElementById('flash');
+  const scroll=()=>{ if(fb)fb.scrollIntoView({behavior:'smooth',block:'center'}); };
+  const reset=()=>{ if(!btn)return; btn.disabled=false; btn.textContent=btn.dataset.label; btn.style.opacity=''; btn.style.transform=''; btn.style.cursor=''; };
+  if(btn){ btn.dataset.label=btn.dataset.label||btn.textContent; btn.disabled=true; btn.textContent='⏳ Sending…'; btn.style.opacity='.6'; btn.style.transform='translateY(1px)'; btn.style.cursor='default'; }
   flash('flash','<span class="spin"></span> queuing '+esc(category)+' : '+esc(nv)+' ('+uuids.length+' assets)…','run');
+  scroll();
   let o; try{ o=await API.post('tag',{category,value:nv,uuids,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
-  if(!o||!o.ok){ flash('flash','✗ '+esc((o&&(o.error||(o.result&&o.result.message)))||'tag failed'),'crit'); return; }
+  if(!o||!o.ok){ flash('flash','✗ '+esc((o&&(o.error||(o.result&&o.result.message)))||'tag failed'),'crit'); reset(); scroll(); return; }
   const gated=!o.writes_enabled;
   flash('flash','✓ queued '+esc(category)+' : '+esc(nv)+' on '+o.count+' asset(s)'+(note?(' — '+esc(note)):'')+(gated?' <span class="sub">(gated — set NAVI_ALLOW_WRITES=1)</span>':' — see the <a href="/web/tags-log.html">Tagging log</a>.'),gated?'warn':'ok');
+  scroll(); reset();
 }
 
 function render(){
@@ -78,6 +88,8 @@ function render(){
   document.getElementById('kpi').innerHTML='<div class="k"><div class="v">'+DATA.asset_count+'</div><div class="l">assets running AI/ML</div></div>'
     +roles.map(r=>'<div class="k"><div class="v" style="color:'+(ROLE_COLOR[r]||'var(--accent)')+'">'+br[r]+'</div><div class="l">'+esc(r)+'</div></div>').join('')
     +(DATA.kevCount?'<div class="k" style="border-color:var(--crit)"><div class="v" style="color:var(--crit)">'+DATA.kevCount+'</div><div class="l">🔥 KEV-exposed AI</div></div>':'')
+    +(DATA.eolCount?'<div class="k" style="border-color:var(--high)"><div class="v" style="color:var(--high)">'+DATA.eolCount+'</div><div class="l">🔩 EOL AI</div></div>':'')
+    +(DATA.mitreCount?'<div class="k"><div class="v">'+DATA.mitreCount+'</div><div class="l">🎯 ATT&CK-mapped</div></div>':'')
     +(DATA.shadowCount?'<div class="k" style="border-color:var(--crit)"><div class="v" style="color:var(--crit)">'+DATA.shadowCount+'</div><div class="l">🛰️ shadow egress</div></div>':'')
     +(DATA.exposedCount?'<div class="k" style="border-color:var(--crit)"><div class="v" style="color:var(--crit)">'+DATA.exposedCount+'</div><div class="l">⚠ exposed endpoints</div></div>':'');
   document.getElementById('resultCard').style.display='';
@@ -90,23 +102,24 @@ function render(){
     +(kevA.length?'<button class="btn run sm" id="tagKev" style="border-color:var(--crit)">🔥 Tag '+kevA.length+' AI×KEV → AI Priority</button>':'')
     +(roles.length?('<span class="sub" style="align-self:center">Tag by role:</span>'+roles.map(r=>'<button class="btn sm" data-role="'+esc(r)+'">'+esc(r)+' ('+br[r]+')</button>').join('')):'');
   const fpr=document.getElementById('fpReset'); if(fpr)fpr.onclick=()=>{ fpSave({}); run(); };
-  const eb=document.getElementById('tagExp'); if(eb)eb.onclick=()=>aiTag('AI Exposed','Endpoint',exA.map(x=>x.asset_uuid),'attack surface');
-  const kb=document.getElementById('tagKev'); if(kb)kb.onclick=()=>aiTag('AI Priority','KEV-exposed',kevA.map(x=>x.asset_uuid),'highest urgency');
-  rt.querySelectorAll('button[data-role]').forEach(b=>b.onclick=()=>{const r=b.dataset.role; aiTag('AI Role',r,a.filter(x=>x.role===r).map(x=>x.asset_uuid));});
-  document.querySelector('#aiTbl tbody').innerHTML=a.length?a.map((x,i)=>'<tr>'+
+  const eb=document.getElementById('tagExp'); if(eb)eb.onclick=()=>aiTag('AI Exposed','Endpoint',exA.map(x=>x.asset_uuid),'attack surface',eb);
+  const kb=document.getElementById('tagKev'); if(kb)kb.onclick=()=>aiTag('AI Priority','KEV-exposed',kevA.map(x=>x.asset_uuid),'highest urgency',kb);
+  rt.querySelectorAll('button[data-role]').forEach(b=>b.onclick=()=>{const r=b.dataset.role; aiTag('AI Role',r,a.filter(x=>x.role===r).map(x=>x.asset_uuid),null,b);});
+  hPageReset('aiTbl'); hPaginate('aiTbl', a, x=>'<tr>'+
     '<td title="'+esc(x.host||'')+'"><b>'+plink(x.asset_uuid,x.host)+'</b></td><td class="mono">'+esc(x.ip||'')+'</td>'+
-    '<td><span class="tagval" style="color:'+(ROLE_COLOR[x.role]||'var(--accent)')+'">'+esc(x.role)+'</span>'+((x.risk&&x.risk.kev)?' <span class="badge" style="color:#f43f5e;border-color:rgba(244,63,94,.5)" title="also carries a CISA-KEV finding">🔥 KEV</span>':'')+((x.risk&&x.risk.crit&&!(x.risk&&x.risk.kev))?' <span class="badge" style="color:#fb923c;border-color:rgba(251,146,60,.5)">⛔ crit</span>':'')+'</td>'+
-    '<td>'+((x.exposed&&x.exposed.length)?(x.exposed.map(e=>'<span class="badge" style="color:#f43f5e;border-color:rgba(244,63,94,.5)" title="network-detected AI endpoint">⚠ '+esc(e.name)+':'+esc(e.port)+(e.auth==='unauth'?' unauth':'')+'</span>').join(' ')+' '):'')+(x.frameworks.length?(x.frameworks.slice(0,8).map(fw=>'<span class="chip">'+esc(fw)+'</span>').join('')+(x.frameworks.length>8?'<span class="sub">+'+(x.frameworks.length-8)+'</span>':'')):((x.exposed&&x.exposed.length)?'':'<span class="sub">—</span>'))+'</td>'+
+    '<td><span class="tagval" style="color:'+(ROLE_COLOR[x.role]||'var(--accent)')+'">'+esc(x.role)+'</span>'+((x.risk&&x.risk.kev)?' <span class="badge" style="color:#f43f5e;border-color:rgba(244,63,94,.5)" title="also carries a CISA-KEV finding">🔥 KEV</span>':'')+((x.risk&&x.risk.crit&&!(x.risk&&x.risk.kev))?' <span class="badge" style="color:#fb923c;border-color:rgba(251,146,60,.5)">⛔ crit</span>':'')+((x.risk&&x.risk.eol)?' <span class="badge" style="color:#e0913a;border-color:rgba(224,145,58,.5)" title="runs end-of-life / unsupported software (Charon)">🔩 EOL</span>':'')+((x.risk&&x.risk.mitre)?' <span class="badge" style="color:#6ea8e6;border-color:rgba(110,168,230,.5)" title="MITRE ATT&CK techniques: '+esc((x.mitre_techniques||[]).slice(0,8).join(", "))+'">🎯 ATT&amp;CK</span>':'')+'</td>'+
+    '<td><div class="pillwrap">'+((x.exposed&&x.exposed.length)?(x.exposed.map(e=>'<span class="badge" style="color:#f43f5e;border-color:rgba(244,63,94,.5)" title="network-detected AI endpoint">⚠ '+esc(e.name)+':'+esc(e.port)+(e.auth==='unauth'?' unauth':'')+'</span>').join('')):'')+(x.frameworks.length?(x.frameworks.slice(0,6).map(fw=>'<span class="chip">'+esc(fw)+'</span>').join('')+(x.frameworks.length>6?'<span class="chip sub" title="'+esc(x.frameworks.slice(6).join(', '))+'">+'+(x.frameworks.length-6)+' more</span>':'')):((x.exposed&&x.exposed.length)?'':'<span class="sub">—</span>'))+'</div></td>'+
     '<td>'+(platLink(x.url,'Open ↗')||'<span class="sub">—</span>')+'</td>'+
-    '<td style="white-space:nowrap"><button class="btn ghost sm" data-why="'+i+'" title="show the evidence behind this detection">🔍 Why</button> <button class="btn sm" data-tag="'+i+'">Tag</button></td></tr>').join(''):'<tr><td colspan="6" class="sub">No AI/ML found (checked the AI plugin family + software + cpes + plugin output + endpoints).</td></tr>';
-  document.querySelectorAll('#aiTbl button[data-why]').forEach(b=>b.onclick=()=>why(a[+b.dataset.why]));
-  document.querySelectorAll('#aiTbl button[data-tag]').forEach(b=>b.onclick=()=>{const x=a[+b.dataset.tag]; aiTag('AI Role',x.role,[x.asset_uuid]);});
+    '<td style="white-space:nowrap"><button class="btn ghost sm" data-why="'+esc(String(x.asset_uuid))+'" title="show the evidence behind this detection">🔍 Why</button> <button class="btn sm" data-tag="'+esc(String(x.asset_uuid))+'">Tag</button></td></tr>',
+    {cols:6, empty:'<tr><td colspan="6" class="sub">No AI/ML found (checked the AI plugin family + software + cpes + plugin output + endpoints).</td></tr>',
+     wire:tb=>{ tb.querySelectorAll('button[data-why]').forEach(b=>b.onclick=()=>{const x=a.find(o=>String(o.asset_uuid)===b.dataset.why); if(x)why(x);});
+       tb.querySelectorAll('button[data-tag]').forEach(b=>b.onclick=()=>{const x=a.find(o=>String(o.asset_uuid)===b.dataset.tag); if(x)aiTag('AI Role',x.role,[x.asset_uuid],null,b);}); }});
   renderEgress(); renderAtlas();
 }
 
 function why(x){
   if(!x)return;
-  const SRC={'ai-plugin':['Tenable AI plugin','var(--accent)'],'software':['Software inventory','#34d399'],'cpe':['CPE inventory','#b48ead'],'output':['Plugin output','#6ea8ff'],'endpoint':['Network endpoint','#fb923c']};
+  const SRC={'ai-plugin':['Tenable AI plugin','var(--accent)'],'software':['Software inventory','var(--ok)'],'cpe':['CPE inventory','#b48ead'],'output':['Plugin output','#6ea8ff'],'endpoint':['Network endpoint','#fb923c']};
   const rows=x.evidence.map((e,idx)=>{const s=SRC[e.src]||[e.src,'var(--mut)']; return '<div style="border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:8px">'
     +'<div class="toolbar" style="margin:0 0 4px;gap:6px;flex-wrap:wrap"><span class="chip" style="color:'+s[1]+';border-color:'+s[1]+'">'+esc(s[0])+'</span><b>'+esc(e.term)+'</b>'+(e.sig?'<span class="sub">via '+esc(e.sig)+'</span>':'')+(e.auth==='unauth'?'<span class="chip" style="color:var(--crit)">unauth</span>':'')+'<span style="flex:1"></span>'
     +'<button class="btn ghost sm" data-fp="'+idx+'">✕ false positive</button>'+(e.src!=='ai-plugin'?'<button class="btn ghost sm" data-gfp="'+esc(e.term)+'">suppress '+esc(e.term)+' everywhere</button>':'')+'</div>'
@@ -140,19 +153,19 @@ function renderEgress(){
   const allowChips=allow.map((v,i)=>'<span class="chip" style="gap:4px">'+esc(v)+' <span data-alrm="'+i+'" style="cursor:pointer;color:var(--crit)">✕</span></span>').join(' ');
   out.innerHTML='<div class="card" style="background:var(--panel-2)"><div class="toolbar" style="margin:0 0 6px;flex-wrap:wrap"><b>🛰️ AI data-egress governance</b>'
     +'<span class="chip">'+assets.length+' can egress</span><span class="chip">'+dests.length+' destination(s)</span>'
-    +(dests.some(d=>!d.sanctioned)?'<span class="chip" style="color:var(--crit);border-color:var(--crit)">'+dests.filter(d=>!d.sanctioned).length+' shadow</span>':'<span class="chip" style="color:#34d399">all sanctioned</span>')
+    +(dests.some(d=>!d.sanctioned)?'<span class="chip" style="color:var(--crit);border-color:var(--crit)">'+dests.filter(d=>!d.sanctioned).length+' shadow</span>':'<span class="chip" style="color:var(--ok)">all sanctioned</span>')
     +'<span style="flex:1"></span>'+(shadowUuids.size?'<button class="btn run sm" id="egShadow" style="border-color:var(--crit)">⚠ Tag '+shadowUuids.size+' shadow → AI Egress : Shadow</button>':'')+'</div>'
     +'<p class="sub" style="margin:0 0 8px">Where AI data can leave the box — installed clients (<i>capability</i>) + destination hosts in plugin output (<i>observed</i>). Capability + configured destinations, not proven exfiltration. Gated.</p>'
     +'<div class="toolbar" style="margin:0 0 10px;flex-wrap:wrap;gap:6px"><span class="sub">Sanctioned:</span>'+allowChips+'<input id="egAllowIn" placeholder="add e.g. api.openai.com" style="padding:6px;border-radius:7px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink);min-width:180px"><button class="btn sm" id="egAllowAdd">+ add</button></div>'
     +Object.keys(byCat).map(cat=>'<div class="egbox"><div class="toolbar" style="margin:0 0 6px"><b>'+esc(cat)+'</b></div>'
-      +byCat[cat].map(d=>'<div class="toolbar" style="margin:0 0 4px;flex-wrap:wrap;gap:6px"><span class="tagval mono">'+esc(d.dest)+'</span>'+(d.sanctioned?'<span class="chip" style="color:#34d399">sanctioned</span>':'<span class="chip" style="color:var(--crit);border-color:var(--crit)">shadow</span>')+'<span class="chip">'+d.assets.size+' asset(s)</span>'+(d.via.observed?'<span class="chip" title="seen in plugin output">observed</span>':'<span class="chip" title="inferred from client">capability</span>')+'<span style="flex:1"></span><button class="btn sm" data-egtag="'+esc(d.cat+'|'+d.dest)+'">🏷 Tag</button>'+(!d.sanctioned?'<button class="btn ghost sm" data-egallow="'+esc(d.dest)+'">✓ sanction</button>':'')+'</div>').join('')
+      +byCat[cat].map(d=>'<div class="toolbar" style="margin:0 0 4px;flex-wrap:wrap;gap:6px"><span class="tagval mono">'+esc(d.dest)+'</span>'+(d.sanctioned?'<span class="chip" style="color:var(--ok)">sanctioned</span>':'<span class="chip" style="color:var(--crit);border-color:var(--crit)">shadow</span>')+'<span class="chip">'+d.assets.size+' asset(s)</span>'+(d.via.observed?'<span class="chip" title="seen in plugin output">observed</span>':'<span class="chip" title="inferred from client">capability</span>')+'<span style="flex:1"></span><button class="btn sm" data-egtag="'+esc(d.cat+'|'+d.dest)+'">🏷 Tag</button>'+(!d.sanctioned?'<button class="btn ghost sm" data-egallow="'+esc(d.dest)+'">✓ sanction</button>':'')+'</div>').join('')
       +'</div>').join('')+'</div>';
   const add=v=>{v=String(v||'').trim(); if(!v)return; const l=allowLoad()||(DATA.allow||[]).slice(); if(l.indexOf(v)<0){l.push(v);allowSave(l);} run();};
   const ab=document.getElementById('egAllowAdd'); if(ab)ab.onclick=()=>add(document.getElementById('egAllowIn').value);
   out.querySelectorAll('[data-alrm]').forEach(s=>s.onclick=()=>{const l=(allowLoad()||(DATA.allow||[]).slice()); l.splice(+s.dataset.alrm,1); allowSave(l); run();});
   out.querySelectorAll('[data-egallow]').forEach(b=>b.onclick=()=>add(b.dataset.egallow));
-  out.querySelectorAll('[data-egtag]').forEach(b=>b.onclick=()=>{const d=byDest[b.dataset.egtag]; if(!d)return; aiTag('AI Egress',d.sanctioned?d.dest:('Shadow : '+d.dest),Array.from(d.assets));});
-  const st=document.getElementById('egShadow'); if(st)st.onclick=()=>aiTag('AI Egress','Shadow',Array.from(shadowUuids),'review / raise ACR 8');
+  out.querySelectorAll('[data-egtag]').forEach(b=>b.onclick=()=>{const d=byDest[b.dataset.egtag]; if(!d)return; aiTag('AI Egress',d.sanctioned?d.dest:('Shadow : '+d.dest),Array.from(d.assets),null,b);});
+  const st=document.getElementById('egShadow'); if(st)st.onclick=()=>aiTag('AI Egress','Shadow',Array.from(shadowUuids),'review / raise ACR 8',st);
 }
 
 const ATLAS_URL=id=>'https://atlas.mitre.org/techniques/'+id;
@@ -170,11 +183,11 @@ function renderAtlas(){
     +tacs.map(tac=>'<div class="atbox"><div class="toolbar" style="margin:0 0 6px"><b>'+esc(tac)+'</b></div>'
       +byTac[tac].sort((a,b)=>b.assets.size-a.assets.size).map(d=>'<div class="toolbar" style="margin:0 0 4px;flex-wrap:wrap;gap:6px"><a href="'+ATLAS_URL(d.id)+'" target="_blank" class="tagval mono" style="color:var(--accent)">'+esc(d.id)+'</a><span>'+esc(d.name)+'</span><span class="chip">'+d.assets.size+' asset(s)</span><span class="sub" title="'+esc(Object.keys(d.whys).join(' · '))+'" style="cursor:help">why?</span><span style="flex:1"></span><button class="btn sm" data-atl="'+esc(d.id)+'">🏷 Tag</button></div>').join('')
       +'</div>').join('')+'</div>';
-  out.querySelectorAll('[data-atl]').forEach(b=>b.onclick=()=>{const d=byTech[b.dataset.atl]; if(!d)return; aiTag('AI ATLAS',d.id,Array.from(d.assets),d.name);});
+  out.querySelectorAll('[data-atl]').forEach(b=>b.onclick=()=>{const d=byTech[b.dataset.atl]; if(!d)return; aiTag('AI ATLAS',d.id,Array.from(d.assets),d.name,b);});
 }
 
 document.getElementById('run').onclick=run;
-document.getElementById('tagAll').onclick=()=>{ if(!DATA||!DATA.assets.length)return; aiTag('AI','Present',DATA.assets.map(x=>x.asset_uuid)); };
+document.getElementById('tagAll').onclick=function(){ if(!DATA||!DATA.assets.length)return; aiTag('AI','Present',DATA.assets.map(x=>x.asset_uuid),null,this); };
 mountAgentHeader({id:'ai',icon:'🧠',name:'AI Inventory',sub:'Pythia · content-first AI/ML discovery'});
 /* no auto-run — user clicks ▶ Run (protects a busy navi.db) */
 </script>

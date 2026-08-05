@@ -1,0 +1,3 @@
+{"date": "2026-07-31", "ts": "2026-08-01T06:28:17+00:00", "metrics": {"open_total": 13852, "open_breached": 1996, "open_approaching": 6251, "open_within_pct": 85.6, "verdict_adherence_pct": 88.6, "remediation_met_pct": 100.0, "remediation_total": 8, "open_breached_critical": 1996, "open_critical": 1996, "open_breached_high": 0, "open_high": 7656, "open_breached_low": 0, "open_low": 543, "open_breached_medium": 0, "open_medium": 3657}, "dims": {"tag_key": "Owner"}}
+{"date": "2026-08-01", "ts": "2026-08-02T04:24:27+00:00", "metrics": {}, "dims": {"tag_key": "Owner"}}
+{"date": "2026-08-04", "ts": "2026-08-04T22:39:49+00:00", "metrics": {}, "dims": {"tag_key": "Owner"}}

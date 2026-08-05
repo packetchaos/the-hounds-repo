@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Compliance Dashboard · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>
+  /* dashboard tab strip (compliance-scoped, own store — up to 5) */
+  .ctabs{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin:10px 0 0}
+  .ctab{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink-2);
+    border-radius:10px;padding:7px 11px;font-size:12.5px;cursor:pointer;transition:.12s;white-space:nowrap}
+  .ctab:hover{border-color:var(--accent);color:var(--ink)}
+  .ctab.on{background:var(--accent);color:#eef1fb;border-color:var(--accent)}
+  .ctab .fw{font-family:var(--mono);font-size:9.5px;opacity:.8;border-left:1px solid rgba(255,255,255,.25);padding-left:6px}
+  .ctab .x{opacity:.55;font-weight:700}.ctab .x:hover{opacity:1}
+  .ctadd{border:1px dashed var(--line);background:transparent;color:var(--ink-3);border-radius:10px;padding:7px 11px;font-size:12.5px;cursor:pointer}
+  .ctadd:hover{border-color:var(--accent);color:var(--ink)}
+  /* framework picker */
+  .fwpick{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px}
+  .fwpick select{background:var(--bg-2);color:var(--ink);border:1px solid var(--line);border-radius:10px;
+    padding:9px 12px;font-size:14px;font-family:var(--display);font-weight:600;min-width:220px}
+  .fwpick .lock{font-size:11px;color:var(--ink-3);font-family:var(--mono);border:1px solid var(--line);border-radius:20px;padding:3px 9px}
+  /* KPI strip */
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-top:14px}
+  .kpi{border:1px solid var(--line);border-radius:12px;background:var(--bg-2);padding:12px 13px;border-left-width:3px;border-left-color:var(--accent)}
+  .kpi .kv{font-family:var(--display);font-weight:700;font-size:26px;line-height:1.05}
+  .kpi .kl{font-size:11px;color:var(--ink-3);margin-top:3px}
+  .kpi.ok{border-left-color:var(--ok)} .kpi.ok .kv{color:var(--ok)}
+  .kpi.crit{border-left-color:var(--crit)} .kpi.crit .kv{color:var(--crit)}
+  .kpi.warn{border-left-color:var(--high)} .kpi.warn .kv{color:var(--high)}
+  /* board layout */
+  .brow{display:grid;grid-template-columns:190px 1fr;gap:16px;margin-top:14px;align-items:start}
+  @media(max-width:720px){.brow{grid-template-columns:1fr}}
+  .donutwrap{display:flex;flex-direction:column;align-items:center;gap:8px;border:1px solid var(--line);border-radius:12px;background:var(--bg-2);padding:12px}
+  .leg{display:flex;flex-direction:column;gap:4px;width:100%;font-size:11.5px}
+  .leg div{display:flex;align-items:center;gap:6px}.leg .sw{width:10px;height:10px;border-radius:3px;display:inline-block}
+  /* failing controls */
+  .ctl{border:1px solid var(--line);border-radius:11px;background:var(--bg-2);padding:10px 12px;margin-bottom:8px;cursor:pointer;transition:.12s}
+  .ctl:hover{border-color:var(--accent)}
+  .ctl .cbar-l{display:flex;justify-content:space-between;gap:12px;align-items:baseline}
+  .ctl .cn{font-weight:600;font-size:13px;color:var(--ink)}
+  .ctl .cc{font-family:var(--mono);font-size:10px;color:var(--accent);white-space:nowrap}
+  .ctl .cbar{position:relative;height:16px;border-radius:6px;background:var(--panel-2);margin-top:7px;overflow:hidden}
+  .ctl .cbar-f{position:absolute;left:0;top:0;bottom:0;background:linear-gradient(90deg,#c53b40,#e5484d);border-radius:6px}
+  .ctl .cv{position:absolute;right:7px;top:0;line-height:16px;font-size:10.5px;font-weight:700;color:var(--ink)}
+  .ctl .cmeta{font-size:10.5px;color:var(--ink-3);margin-top:5px}
+  /* per-asset table */
+  table.grid{width:100%;border-collapse:collapse;margin-top:6px;font-size:12.5px;table-layout:fixed}
+  table.grid th,table.grid td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line);overflow:hidden;text-overflow:ellipsis}
+  table.grid th{color:var(--ink-3);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+  table.grid td.host{font-family:var(--mono);font-size:11.5px}
+  .pbar{position:relative;height:14px;border-radius:5px;background:var(--panel-2);overflow:hidden}
+  .pbar-f{position:absolute;left:0;top:0;bottom:0;border-radius:5px}
+  .pbar span{position:absolute;right:5px;top:0;line-height:14px;font-size:10px;color:var(--ink)}
+  /* audit-file chips */
+  .afgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:9px;margin-top:6px}
+  .af{border:1px solid var(--line);border-radius:10px;background:var(--bg-2);padding:9px 11px}
+  .af .an{font-family:var(--mono);font-size:11px;color:var(--ink-2)}
+  .af .abar{display:flex;height:9px;border-radius:5px;overflow:hidden;margin-top:6px;background:var(--panel-2)}
+  .af .abar i{display:block}
+  /* custom widgets */
+  .wgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;margin-top:12px}
+  .wcard{border:1px solid var(--line);border-radius:12px;background:var(--bg-2);padding:12px 13px;position:relative}
+  .wcard h4{margin:0 0 6px;font-size:13px;display:flex;align-items:center;gap:7px}
+  .wcard .wx{margin-left:auto;color:var(--ink-3);cursor:pointer;font-weight:700}.wcard .wx:hover{color:var(--crit)}
+  .wcard .wtag{font-family:var(--mono);font-size:9px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.05em}
+  .addform{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}
+  .addform input,.addform select{background:var(--bg-2);color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:8px 10px;font-size:12.5px}
+  .addform input.sql{flex:1;min-width:260px;font-family:var(--mono);font-size:11.5px}
+  .hbar{display:flex;align-items:center;gap:8px;margin:3px 0;font-size:11.5px}
+  .hbar .hl{width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink-2)}
+  .hbar .ht{flex:1;height:13px;border-radius:5px;background:var(--panel-2);overflow:hidden;position:relative}
+  .hbar .ht i{position:absolute;left:0;top:0;bottom:0;background:var(--accent);border-radius:5px}
+  .hbar .hv{width:52px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--ink)}
+  /* control drill panel */
+  #drill{display:none;margin-top:10px;border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:12px 14px}
+  .assignrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}
+  .assignrow input{background:var(--bg-2);color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:8px 10px;font-size:12.5px;min-width:190px}
+  .gate{font-size:11px;color:var(--ink-3);border:1px solid var(--line);border-radius:20px;padding:3px 9px}
+</style>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+
+  <section class="card">
+    <div class="toolbar"><div><div class="acode">Minos Hound</div><h2 style="margin:0">⚖️ Compliance Dashboard</h2>
+      <p class="sub" style="margin:2px 0 0">Framework-first. Pick a framework (HIPAA, PCI-DSS, NIST 800-53, CIS, ISO 27001…) and every audit finding mapped to it rolls up into an <b>adherence board</b> — controls, failing checks, per-asset pass rate. Up to <b>5 saved compliance dashboards</b>; you can pin vuln/SQL widgets alongside, but the board stays locked on the selected framework.</p></div>
+      <button class="btn run sm" id="refresh" style="margin-left:auto">↻ Refresh</button></div>
+    <div class="ctabs" id="cTabs"></div>
+    <div class="fwpick">
+      <span style="font-size:12px;color:var(--ink-3)">Framework</span>
+      <select id="fwSelect"><option value="">— loading frameworks —</option></select>
+      <span class="lock">🔒 board locked to framework</span>
+      <span class="chip" id="fwChip" style="margin-left:auto"></span>
+    </div>
+    <div id="flash" class="flash"></div>
+  </section>
+
+  <section class="card" id="boardCard" style="display:none">
+    <div class="kpis" id="kpis"></div>
+    <div class="brow">
+      <div class="donutwrap" id="donutWrap"></div>
+      <div>
+        <h3 style="margin:0 0 6px;font-size:14px">🚩 Top failing controls <span class="sub" style="font-weight:400">— click one to assign an Audit Owner</span></h3>
+        <div id="topFail"></div>
+      </div>
+    </div>
+    <div id="drill"></div>
+    <h3 style="margin:16px 0 2px;font-size:14px">🖥 Per-asset adherence <span class="sub" style="font-weight:400">— weakest assets first</span></h3>
+    <table class="grid" id="assetTbl"><thead><tr><th style="width:34%">Asset</th><th style="width:16%">Pass %</th><th>Adherence</th><th style="width:16%">Pass / Fail / Warn</th></tr></thead><tbody></tbody></table>
+    <h3 style="margin:16px 0 2px;font-size:14px">📁 Coverage by audit file</h3>
+    <div class="afgrid" id="afGrid"></div>
+  </section>
+
+  <section class="card" id="widgetCard" style="display:none">
+    <div class="toolbar" style="margin:0"><div><h3 style="margin:0;font-size:14px">📌 Pinned widgets</h3>
+      <p class="sub" style="margin:2px 0 0">Extra charts on this dashboard — compliance rollups or vuln/SQL widgets from navi.db (read-only <code>SELECT</code>). Saved with this dashboard in your browser.</p></div></div>
+    <div class="addform">
+      <select id="wPreset">
+        <option value="">＋ Add widget…</option>
+        <optgroup label="Compliance">
+          <option value="comp:status">Compliance status mix</option>
+          <option value="comp:auditfail">Failing checks by audit file</option>
+        </optgroup>
+        <optgroup label="Vulnerabilities">
+          <option value="vuln:family">Critical/High vulns by family</option>
+          <option value="vuln:topassets">Top assets by open criticals</option>
+          <option value="vuln:kev">KEV-tagged assets</option>
+        </optgroup>
+        <option value="sql:custom">Custom SQL…</option>
+      </select>
+      <input class="sql" id="wSql" placeholder="SELECT col, COUNT(*) FROM vulns GROUP BY col LIMIT 12" style="display:none">
+      <input id="wTitle" placeholder="widget title" style="display:none;min-width:160px">
+      <button class="btn sm" id="wAdd" style="display:none">Add</button>
+    </div>
+    <div class="wgrid" id="wGrid"></div>
+  </section>
+
+  <footer>Compliance Dashboard · Minos · framework adherence from the compliance audit table · pinned widgets saved in this browser · reads navi.db read-only</footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const CAPI=agentApi('compliance'), EAPI=agentApi('explore');
+const CKEY='navi-compliance-dashboards', CMAX=5;
+
+/* ---------- compliance-scoped dashboard store (own, up to 5) ---------- */
+function cNewId(){return 'c'+Date.now().toString(36)+Math.floor(Math.random()*1e4).toString(36);}
+function cLoad(){ try{const s=JSON.parse(localStorage.getItem(CKEY)); if(s&&s.list&&s.list.length) return s;}catch(e){}
+  const id=cNewId(); return {list:[{id,name:'Compliance 1',framework:'',items:[]}],active:id}; }
+function cSave(s){ localStorage.setItem(CKEY,JSON.stringify(s)); }
+function cActive(){ const s=cLoad(); return s.list.find(d=>d.id===s.active)||s.list[0]; }
+function cSetActive(id){ const s=cLoad(); if(s.list.some(d=>d.id===id)){s.active=id;cSave(s);} }
+function cAdd(){ const s=cLoad(); if(s.list.length>=CMAX) return null; const id=cNewId();
+  s.list.push({id,name:'Compliance '+(s.list.length+1),framework:'',items:[]}); s.active=id; cSave(s); return id; }
+function cRename(id,name){ const s=cLoad(); const d=s.list.find(x=>x.id===id); if(d&&name&&name.trim()){d.name=name.trim();cSave(s);} }
+function cRemove(id){ const s=cLoad(); if(s.list.length<=1) return; s.list=s.list.filter(d=>d.id!==id);
+  if(s.active===id) s.active=s.list[0].id; cSave(s); }
+function cSetFramework(fw){ const d=cActive(); const s=cLoad(); const t=s.list.find(x=>x.id===d.id); t.framework=fw; cSave(s); }
+function cItems(){ return cActive().items||[]; }
+function cSetItems(items){ const d=cActive(); const s=cLoad(); const t=s.list.find(x=>x.id===d.id); t.items=items||[]; cSave(s); }
+
+/* ---------- tab strip ---------- */
+function mountCTabs(){
+  const s=cLoad(); const el=document.getElementById('cTabs');
+  el.innerHTML=s.list.map(d=>{
+    const on=d.id===s.active;
+    return `<span class="ctab ${on?'on':''}" data-id="${d.id}">`+
+      `<span class="nm">${esc(d.name)}</span>`+
+      (d.framework?`<span class="fw">${esc(d.framework)}</span>`:'')+
+      (on&&s.list.length>1?` <span class="x" data-x="${d.id}" title="delete">✕</span>`:'')+`</span>`;
+  }).join('') + (s.list.length<CMAX?`<button class="ctadd" id="cAddBtn">＋ dashboard (${s.list.length}/${CMAX})</button>`:'');
+  el.querySelectorAll('.ctab').forEach(t=>{
+    t.querySelector('.nm').onclick=()=>{ cSetActive(t.dataset.id); syncActive(); };
+    t.querySelector('.nm').ondblclick=()=>{ const n=prompt('Rename dashboard',t.querySelector('.nm').textContent); if(n){cRename(t.dataset.id,n); mountCTabs();} };
+  });
+  el.querySelectorAll('.x').forEach(x=>x.onclick=e=>{ e.stopPropagation(); if(confirm('Delete this compliance dashboard?')){cRemove(x.dataset.x); syncActive();} });
+  const add=document.getElementById('cAddBtn'); if(add) add.onclick=()=>{ if(cAdd()){ mountCTabs(); syncActive(); } };
+}
+
+/* ---------- framework dropdown ---------- */
+let FRAMEWORKS=[];
+async function loadFrameworks(){
+  let o; try{ o=await CAPI.post('frameworks'); }catch(e){ o={ok:false,error:e.message}; }
+  const res=o.result||o;
+  if(!res||res.available===false||!(res.frameworks&&res.frameworks.length)){ document.getElementById('fwSelect').innerHTML='<option value="">no compliance data — run an audit scan</option>'; flash('flash','✗ '+esc((res&&res.error)||o.error||'no compliance findings in navi.db'),'warn'); return; }
+  FRAMEWORKS=res.frameworks||[];
+  const sel=document.getElementById('fwSelect');
+  sel.innerHTML='<option value="">— choose a framework —</option>'+FRAMEWORKS.map(f=>
+    `<option value="${esc(f.framework)}">${esc(f.framework)} · ${f.pass_pct}% pass · ${f.failed} failing</option>`).join('');
+  const want=cActive().framework;
+  const has=FRAMEWORKS.some(f=>f.framework===want);
+  const pick=has?want:(FRAMEWORKS[0]&&FRAMEWORKS[0].framework)||'';
+  sel.value=pick; if(pick){ cSetFramework(pick); }
+  sel.onchange=()=>{ cSetFramework(sel.value); mountCTabs(); renderBoard(); };
+  flashClear('flash');
+}
+
+/* ---------- adherence board ---------- */
+function donutSVG(p,f,w){
+  const tot=(p+f+w)||1, C=2*Math.PI*52; const segs=[['var(--ok)',p],['var(--crit)',f],['var(--high)',w]];
+  let off=0, arcs='';
+  segs.forEach(([col,val])=>{ const len=C*val/tot;
+    arcs+=`<circle cx="70" cy="70" r="52" fill="none" stroke="${col}" stroke-width="16" stroke-linecap="butt" stroke-dasharray="${len.toFixed(2)} ${(C-len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 70 70)"/>`;
+    off+=len; });
+  const pct=Math.round(p/tot*100);
+  return `<svg viewBox="0 0 140 140" width="150" height="150"><circle cx="70" cy="70" r="52" fill="none" stroke="var(--line)" stroke-width="16"/>${arcs}`+
+    `<text x="70" y="66" text-anchor="middle" font-family="var(--display)" font-weight="700" font-size="27" fill="var(--ink)">${pct}%</text>`+
+    `<text x="70" y="86" text-anchor="middle" font-size="10.5" fill="var(--ink-3)">adherence</text></svg>`;
+}
+function band(pct){ return pct>=80?'ok':(pct>=50?'warn':'crit'); }
+function bandColor(pct){ return pct>=80?'var(--ok)':(pct>=50?'var(--high)':'var(--crit)'); }
+
+async function renderBoard(){
+  const fw=cActive().framework;
+  const bc=document.getElementById('boardCard'), wc=document.getElementById('widgetCard');
+  if(!fw){ bc.style.display='none'; wc.style.display='none'; document.getElementById('fwChip').textContent=''; return; }
+  flash('flash','<span class="spin"></span> rolling up '+esc(fw)+' adherence…','run');
+  let o; try{ o=await CAPI.post('framework',{framework:fw}); }catch(e){ o={ok:false,error:e.message}; }
+  const r=o.result||o;
+  const v=(r&&r.result)?r.result:r;
+  if(!v||v.available===false){ flash('flash','✗ no findings mapped to '+esc(fw),'warn'); bc.style.display='none'; wc.style.display='none'; return; }
+  flashClear('flash');
+  document.getElementById('fwChip').textContent=v.results+' findings · '+v.assets+' assets';
+  // KPIs
+  const passK=band(v.pass_pct);
+  document.getElementById('kpis').innerHTML=
+    kpi(v.framework,'framework','')+
+    kpi(v.pass_pct+'%','adherence',passK)+
+    kpi(v.controls,'controls assessed','')+
+    kpi(v.failing_controls,'controls with a failure',v.failing_controls?'crit':'ok')+
+    kpi(v.assets,'assets assessed','')+
+    kpi(v.results,'total check results','');
+  // donut + legend
+  const bs=v.by_status||{};
+  document.getElementById('donutWrap').innerHTML=donutSVG(v.passed,v.failed,v.warning)+
+    `<div class="leg"><div><span class="sw" style="background:var(--ok)"></span>Passed <b style="margin-left:auto">${v.passed}</b></div>`+
+    `<div><span class="sw" style="background:var(--crit)"></span>Failed <b style="margin-left:auto">${v.failed}</b></div>`+
+    `<div><span class="sw" style="background:var(--high)"></span>Warning <b style="margin-left:auto">${v.warning}</b></div></div>`;
+  // top failing controls
+  const tf=(v.top_failing||[]).filter(c=>c.failed>0).slice(0,10);
+  const maxF=Math.max(1,...tf.map(c=>c.failed));
+  document.getElementById('topFail').innerHTML=tf.length?tf.map(c=>{
+    const w=Math.round(c.failed/maxF*100), ctrls=(c.controls||[]).join(', ');
+    return `<div class="ctl" data-check="${esc(c.check_id)}" data-name="${esc(c.check_name)}">`+
+      `<div class="cbar-l"><span class="cn">${esc(c.check_name)}</span><span class="cc">${esc(ctrls||'—')}</span></div>`+
+      `<div class="cbar"><div class="cbar-f" style="width:${w}%"></div><span class="cv">${c.failed} fail</span></div>`+
+      `<div class="cmeta">${c.assets} assets affected · ${c.pass_pct}% pass${c.audit_file?' · '+esc(c.audit_file):''}</div></div>`;
+  }).join(''):'<p class="sub">No failing controls — full adherence on this framework. 🎉</p>';
+  document.querySelectorAll('#topFail .ctl').forEach(el=>el.onclick=()=>openDrill(el.dataset.check,el.dataset.name));
+  document.getElementById('drill').style.display='none';
+  // per-asset
+  const rows=(v.assets_rows||[]).slice().sort((a,b)=>a.pass_pct-b.pass_pct).slice(0,40);
+  document.querySelector('#assetTbl tbody').innerHTML=rows.map(a=>{
+    const host=esc(a.hostname||a.ip||a.asset_uuid||'(unknown)');
+    return `<tr><td class="host" title="${host}">${host}</td>`+
+      `<td style="color:${bandColor(a.pass_pct)};font-weight:700">${a.pass_pct}%</td>`+
+      `<td><div class="pbar"><div class="pbar-f" style="width:${a.pass_pct}%;background:${bandColor(a.pass_pct)}"></div></div></td>`+
+      `<td class="sub">${a.passed} / ${a.failed} / ${a.warning}</td></tr>`;
+  }).join('')||'<tr><td colspan="4" class="sub">No per-asset rows.</td></tr>';
+  // audit files
+  document.getElementById('afGrid').innerHTML=(v.audit_files||[]).map(a=>{
+    const t=(a.passed+a.failed+a.warning)||1;
+    return `<div class="af"><div class="an">${esc(a.audit_file||'(file)')}</div>`+
+      `<div class="abar"><i style="width:${a.passed/t*100}%;background:var(--ok)"></i>`+
+      `<i style="width:${a.failed/t*100}%;background:var(--crit)"></i>`+
+      `<i style="width:${a.warning/t*100}%;background:var(--high)"></i></div>`+
+      `<div class="sub" style="font-size:10.5px;margin-top:5px">${a.passed} pass · ${a.failed} fail · ${a.warning} warn</div></div>`;
+  }).join('')||'<p class="sub">—</p>';
+  bc.style.display='block'; wc.style.display='block';
+  renderWidgets();
+}
+function kpi(val,label,cls){ return `<div class="kpi ${cls||''}"><div class="kv">${esc(String(val))}</div><div class="kl">${esc(label)}</div></div>`; }
+
+/* ---------- control drill-down + Assign Audit Owner (gated write via navi) ---------- */
+let WRITES=null;
+function openDrill(checkId,name){
+  const d=document.getElementById('drill'); d.style.display='block';
+  const gated = WRITES && WRITES.enabled;
+  d.innerHTML=`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">`+
+    `<b style="font-size:13px">${esc(name)}</b><span class="cc" style="font-family:var(--mono);font-size:10.5px;color:var(--accent)">${esc(checkId)}</span>`+
+    `<span style="margin-left:auto;color:var(--ink-3);cursor:pointer" id="drClose">✕ close</span></div>`+
+    `<p class="sub" style="margin:6px 0 0">Assign an <b>Audit Owner</b> to every asset that <b>fails</b> this control — tagged in navi on the same asset UUIDs (${gated?'writes enabled':'<span class="gate">write-gated</span>'}).</p>`+
+    `<div class="assignrow"><input id="ownerIn" placeholder="owner name (e.g. GRC — Jordan)"><button class="btn run sm" id="assignBtn">▶ Assign Audit Owner${gated?'':' (gated)'}</button><span class="sub" id="assignRes"></span></div>`;
+  document.getElementById('drClose').onclick=()=>d.style.display='none';
+  document.getElementById('assignBtn').onclick=async()=>{
+    const owner=document.getElementById('ownerIn').value.trim();
+    const res=document.getElementById('assignRes');
+    if(!owner){ res.textContent='enter an owner name'; return; }
+    res.innerHTML='<span class="spin"></span> tagging…';
+    let o; try{ o=await CAPI.post('tag',{check_id:checkId,owner,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+    const rr=o.result||o;
+    if(rr.ok||rr.queued){ res.innerHTML='✓ '+(rr.queued?'queued':'tagged')+' '+(rr.asset_count||0)+' asset(s) → '+esc(rr.value||owner); }
+    else{ res.innerHTML='✗ '+esc(rr.message||rr.error||'failed'); }
+  };
+}
+
+/* ---------- pinned widgets (compliance + vuln/SQL) ---------- */
+const PRESETS={
+  'comp:status':   {title:'Compliance status mix', sql:"SELECT status, COUNT(*) AS checks FROM compliance GROUP BY status ORDER BY checks DESC", viz:'bar'},
+  'comp:auditfail':{title:'Failing checks by audit file', sql:"SELECT audit_file, COUNT(*) AS failed FROM compliance WHERE status='failed' GROUP BY audit_file ORDER BY failed DESC LIMIT 12", viz:'bar'},
+  'vuln:family':   {title:'Critical/High vulns by family', sql:"SELECT plugin_family AS family, COUNT(*) AS findings FROM vulns WHERE severity IN ('Critical','High') GROUP BY plugin_family ORDER BY findings DESC LIMIT 12", viz:'bar'},
+  'vuln:topassets':{title:'Top assets by open criticals', sql:"SELECT a.hostname AS host, COUNT(*) AS criticals FROM vulns v JOIN assets a ON a.uuid=v.asset_uuid WHERE v.severity='Critical' GROUP BY a.hostname ORDER BY criticals DESC LIMIT 12", viz:'bar'},
+  'vuln:kev':      {title:'KEV-tagged assets', sql:"SELECT tag_value AS kev, COUNT(DISTINCT asset_uuid) AS assets FROM tags WHERE tag_key='CISA KEV' GROUP BY tag_value ORDER BY assets DESC LIMIT 12", viz:'bar'}
+};
+const wPreset=document.getElementById('wPreset'), wSql=document.getElementById('wSql'), wTitle=document.getElementById('wTitle'), wAdd=document.getElementById('wAdd');
+wPreset.onchange=()=>{
+  const v=wPreset.value;
+  if(!v){ [wSql,wTitle,wAdd].forEach(x=>x.style.display='none'); return; }
+  if(v==='sql:custom'){ wSql.style.display=''; wTitle.style.display=''; wAdd.style.display=''; wSql.value=''; wTitle.value=''; wSql.focus(); }
+  else { const p=PRESETS[v]; wSql.style.display=''; wTitle.style.display=''; wAdd.style.display=''; wSql.value=p.sql; wTitle.value=p.title; }
+};
+wAdd.onclick=()=>{
+  const sql=wSql.value.trim(), title=wTitle.value.trim()||'Widget';
+  if(!/^\s*(select|with)\b/i.test(sql)){ flash('flash','✗ widget query must be a read-only SELECT','warn'); return; }
+  const items=cItems(); items.push({id:cNewId(),title,sql,viz:(PRESETS[wPreset.value]||{}).viz||'auto'}); cSetItems(items);
+  wPreset.value=''; [wSql,wTitle,wAdd].forEach(x=>x.style.display='none');
+  renderWidgets();
+};
+function wbars(cols,rows){
+  const lc=cols[0], vc=cols.find((c,i)=>i>0 && rows.every(r=>r[c]===null||!isNaN(parseFloat(r[c]))))||cols[1]||cols[0];
+  if(!vc || vc===lc) return wtable(cols,rows);
+  const max=Math.max(1,...rows.map(r=>parseFloat(r[vc])||0));
+  return rows.slice(0,14).map(r=>{
+    const w=Math.round((parseFloat(r[vc])||0)/max*100);
+    return `<div class="hbar"><span class="hl" title="${esc(String(r[lc]))}">${esc(String(r[lc]))}</span>`+
+      `<span class="ht"><i style="width:${w}%"></i></span><span class="hv">${esc(String(r[vc]))}</span></div>`;
+  }).join('');
+}
+function wtable(cols,rows){
+  return `<table class="grid"><thead><tr>${cols.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>`+
+    rows.slice(0,12).map(r=>`<tr>${cols.map(c=>`<td>${esc(String(r[c]==null?'':r[c]))}</td>`).join('')}</tr>`).join('')+'</tbody></table>';
+}
+async function renderWidgets(){
+  const items=cItems(); const g=document.getElementById('wGrid');
+  if(!items.length){ g.innerHTML='<p class="sub" style="grid-column:1/-1">No pinned widgets yet — add one above (the framework board always stays on top).</p>'; return; }
+  g.innerHTML=items.map(it=>`<div class="wcard" data-id="${it.id}"><h4>📊 ${esc(it.title)}<span class="wx" data-x="${it.id}" title="remove">✕</span></h4><div class="wtag">navi.db · SELECT</div><div class="wbody" id="wb-${it.id}"><span class="spin"></span></div></div>`).join('');
+  g.querySelectorAll('.wx').forEach(x=>x.onclick=()=>{ cSetItems(cItems().filter(i=>i.id!==x.dataset.x)); renderWidgets(); });
+  for(const it of items){
+    const body=document.getElementById('wb-'+it.id); if(!body) continue;
+    let o; try{ o=await EAPI.post('run_sql',{sql:it.sql}); }catch(e){ o={ok:false,message:e.message}; }
+    const r=o.result||o;
+    if(!r||!r.ok){ body.innerHTML='<p class="sub">✗ '+esc((r&&r.message)||'query failed')+'</p>'; continue; }
+    if(!r.rows||!r.rows.length){ body.innerHTML='<p class="sub">No rows.</p>'; continue; }
+    body.innerHTML=(it.viz==='table')?wtable(r.columns,r.rows):wbars(r.columns,r.rows);
+  }
+}
+
+/* ---------- refresh / sync ---------- */
+function syncActive(){ mountCTabs(); const fw=cActive().framework; const sel=document.getElementById('fwSelect'); if(sel) sel.value=fw||''; renderBoard(); }
+document.getElementById('refresh').onclick=()=>{ renderBoard(); };
+
+async function loadWrites(){ try{ const o=await CAPI.post('overview'); const r=o||{}; WRITES=r.writes||(r.result&&r.result.writes)||{enabled:false}; }catch(e){ WRITES={enabled:false}; } }
+
+(async function init(){
+  mountAgentHeader({icon:'⚖️',name:'Compliance Dashboard',sub:'Minos · framework adherence · up to 5 dashboards'});
+  mountCTabs();
+  await Promise.all([loadFrameworks(), loadWrites()]);
+  renderBoard();
+})();
+</script>
+</body></html>

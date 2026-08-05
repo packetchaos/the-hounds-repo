@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dashboards — The Hounds</title>
+<link rel="stylesheet" href="/static/console.css">
+<style>
+  .sgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;margin-top:14px}
+  .scard{display:block;text-decoration:none;border:1px solid var(--line);border-radius:12px;padding:14px 15px;background:var(--panel);cursor:pointer;text-align:left;font-family:inherit;transition:border-color .12s,transform .12s,background .12s}
+  .scard:hover{border-color:var(--accent);background:var(--panel-2);transform:translateY(-1px)}
+  .scard .t{font-weight:800;font-size:15px;color:var(--ink)}
+  .scard .n{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.05em;margin:1px 0 6px}
+  .scard .d{font-size:12.5px;color:var(--ink-2);line-height:1.45}
+</style>
+</head><body>
+<div class="wrap">
+  <header class="top">
+    <div class="logo"><span class="hcrest brand" role="img" aria-label="The Hounds"></span></div>
+    <h1>Dashboards <small>BUILD · PIN · MAP</small></h1>
+    <div class="meta" id="meta"></div>
+  </header>
+
+  <section class="card">
+    <div class="toolbar"><div><h2 style="margin:0">📊 Your dashboards</h2>
+      <p class="sub" style="margin:2px 0 0">Jump to any dashboard tool from the bar above — it follows you across each one. Build views in the <b>Dashboard builder</b>, pin them to a <b>Custom Dashboard</b> (keep up to five), or open the <b>Ownership Map</b>. All read navi.db read-only.</p></div></div>
+    <div class="sgrid" id="sgrid"></div>
+  </section>
+
+  <footer>Dashboards · the bar above is on every dashboard page · up to 5 custom boards per browser</footer>
+</div>
+
+<script src="/static/console.js"></script>
+<script>
+const CARDS=[
+  {t:'📊 Dashboard builder', n:'Daedalus', d:'Ask in plain English or pick a starter metric — the model writes the navi.db SQL, you see it, then it renders. Pin components to a board.', href:'/agents/dashboard/page.html'},
+  {t:'🗂 Custom Dashboard', n:'Up to 5 boards', d:'Your pinned components as a standalone, refreshable board. Keep up to five named dashboards and switch between them with the tab strip.', href:'/web/customdash.html'},
+  {t:'🗺 Ownership Map', n:'Who owns the risk', d:'Route exposure to owners — see which teams carry the most critical, KEV, and high-VPR findings, and act from there.', href:'/web/ownermap.html'},
+];
+document.getElementById('sgrid').innerHTML=CARDS.map(c=>
+  '<a class="scard" href="'+c.href+'"><div class="t">'+c.t+'</div><div class="n">'+c.n+'</div><div class="d">'+c.d+'</div></a>').join('');
+// quick glance: how many custom boards exist
+try{ if(typeof dashList==='function'){ const n=dashList().length; const m=document.getElementById('meta'); if(m) m.innerHTML='<span class="chip">'+n+' / '+DASH_MAX+' custom board'+(n===1?'':'s')+'</span>'; } }catch(e){}
+</script>
+</body></html>

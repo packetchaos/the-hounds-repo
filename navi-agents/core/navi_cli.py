@@ -212,7 +212,23 @@ def _selector_summary(query, cve, plugin_name, scanid, plugin, output, route_id,
         return "group", str(group)
     if xrefs:
         return "xref", str(xrefs) + (" / " + str(xid) if xid else "")
-    return "query", (query or "")[:200]
+    return "query", _query_summary(query)
+
+
+def _query_summary(q, cap=180):
+    """Readable one-line summary of a --query selector for the Tagging log. A raw slice of a
+    long `... IN ('a','b',… )` list looked like *broken* SQL (unclosed paren) in the log, so
+    collapse the IN-list to its count instead of cutting it mid-token."""
+    q = " ".join((q or "").split())
+    if len(q) <= cap:
+        return q
+    m = re.search(r"\bIN\s*\(\s*'", q, re.I)
+    if m:
+        inner = q[m.end() - 1:]                      # from the first quote
+        n = inner.count("','") + 1                   # quoted, comma-separated values
+        head = q[:m.start()].rstrip()
+        return f"{head} IN (… {n} values)"
+    return q[:cap - 1] + "…"
 
 
 def tag(category: str, value: str, query: str = "", remove: bool = False,
@@ -534,9 +550,10 @@ def mail_status() -> dict:
 
 
 def _mail_exec(to: str, subject: str = "navi report", message: str = "",
-               file: str = "") -> dict:
-    """Run `navi action mail --to <addr> --subject <s> --message <body> [--file <path>]`.
-    SMTP is configured out-of-band. Double-gated (writes + email)."""
+               file: str = "", html: str = "") -> dict:
+    """Run `navi action mail --to <addr> --subject <s> --message <body> [--html <path>] [--file <path>]`.
+    ``html`` is a path to an HTML file navi renders as the email body (``message`` stays the
+    plaintext fallback). SMTP is configured out-of-band. Double-gated (writes + email)."""
     if not allow_writes():
         return {"ok": False, "blocked": True,
                 "message": "writes disabled on server (set NAVI_ALLOW_WRITES=1)"}
@@ -553,6 +570,8 @@ def _mail_exec(to: str, subject: str = "navi report", message: str = "",
            "--subject", subject or "navi report"]
     if message:
         cmd += ["--message", message]
+    if html:
+        cmd += ["--html", html]
     if file:
         cmd += ["--file", file]
     pretty = " ".join(shlex.quote(c) for c in cmd)
@@ -579,11 +598,12 @@ def _mail_exec(to: str, subject: str = "navi report", message: str = "",
 
 
 def mail(to: str, subject: str = "navi report", message: str = "", file: str = "",
-         agent: str = "email", sync: bool = True) -> dict:
+         html: str = "", agent: str = "email", sync: bool = True) -> dict:
     """Send an email via `navi action mail` and record it in the Tagging log as the
-    accountability ledger (who was notified, when). Runs synchronously by default —
-    a send is a discrete, user-confirmed action, not a background job."""
-    res = _mail_exec(to=to, subject=subject, message=message, file=file)
+    accountability ledger (who was notified, when). ``html`` is a path to an HTML file
+    navi renders as the body (``message`` is the plaintext fallback). Runs synchronously
+    by default — a send is a discrete, user-confirmed action, not a background job."""
+    res = _mail_exec(to=to, subject=subject, message=message, file=file, html=html)
     try:
         from core import tagq
         tagq.record({"agent": agent, "category": "Email", "value": to,
@@ -639,6 +659,51 @@ def explore_info(subcommand: str) -> dict:
                 "stderr": p.stderr[-500:]}
     except Exception as e:
         return {"ok": False, "stdout": "", "message": str(e)}
+
+
+def set_sla(critical, high, medium, low) -> dict:
+    """Overwrite the per-severity SLA day-thresholds via
+    `navi config sla reset --critical .. --high .. --medium .. --low ..`.
+    This writes navi's LOCAL `sla` table (like `config update`), so it is NOT a tenant
+    write and is NOT write-gated — it only needs the navi CLI on the box."""
+    if not navi_available():
+        return {"ok": False, "error": f"navi binary '{NAVI_BIN}' not found — set NAVI_BIN to its full path"}
+
+    def _v(x):
+        try:
+            n = int(float(x))
+        except (TypeError, ValueError):
+            return None
+        return n if n >= 0 else None
+    vals = {"critical": _v(critical), "high": _v(high), "medium": _v(medium), "low": _v(low)}
+    if any(v is None for v in vals.values()):
+        return {"ok": False, "error": "all four SLA thresholds must be whole numbers of days (0 or more)"}
+    cmd = [(_resolve_navi() or NAVI_BIN), "config", "sla", "reset",
+           "--critical", str(vals["critical"]), "--high", str(vals["high"]),
+           "--medium", str(vals["medium"]), "--low", str(vals["low"])]
+    try:
+        p = subprocess.run(cmd, cwd=_navi_cwd(), capture_output=True, text=True, timeout=120)
+        return {"ok": p.returncode == 0, "thresholds": vals,
+                "stdout": (p.stdout or "")[-1500:], "stderr": (p.stderr or "")[-800:],
+                "cmd": " ".join(shlex.quote(c) for c in cmd)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def sla_calculate() -> dict:
+    """Run `navi config sla calculate` — stamps Pass/Fail SLA verdicts into the `fixed`
+    table. Compute over local data (not a tenant write); not write-gated. Can be slow on
+    a big fixed table, so the Settings page streams it via cli_jobs; this sync helper is
+    for programmatic use with a generous timeout."""
+    if not navi_available():
+        return {"ok": False, "error": f"navi binary '{NAVI_BIN}' not found — set NAVI_BIN to its full path"}
+    cmd = [(_resolve_navi() or NAVI_BIN), "config", "sla", "calculate"]
+    try:
+        p = subprocess.run(cmd, cwd=_navi_cwd(), capture_output=True, text=True, timeout=600)
+        return {"ok": p.returncode == 0, "stdout": (p.stdout or "")[-2000:],
+                "stderr": (p.stderr or "")[-800:], "cmd": " ".join(shlex.quote(c) for c in cmd)}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 
 def explore_uuid(target: str, view: str = "") -> dict:

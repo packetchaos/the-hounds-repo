@@ -101,7 +101,7 @@ def routes(q="", offset=0):
         params = [f"%{q}%", f"%{q}%"]
     try:
         rows = db.query(
-            f"SELECT app_name, vuln_type, total_vulns, plugin_list FROM vuln_route {where} "
+            f"SELECT route_id, app_name, vuln_type, total_vulns, plugin_list FROM vuln_route {where} "
             f"ORDER BY total_vulns DESC LIMIT {PAGE+1} OFFSET {int(offset)};", tuple(params))
     except Exception:
         rows = []

@@ -47,9 +47,9 @@ async function tagRoute(r){
   const value=prompt('Tag value for route "'+(r.app_name||'')+'" (editable):',r.app_name||'route'); if(value===null)return;
   const res=document.getElementById('tagRes'); res.innerHTML='<div class="callbox"><span class="spin"></span> tagging via navi tag --route_id…</div>';
   let o; try{ o=await API.post('tag',{route_id:r.route_id,value:value.trim()||r.app_name,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
-  if(!o.ok){ res.innerHTML='<div class="callbox" style="color:#ffb4c6">✗ '+(o.error||'failed')+'</div>'; return; }
+  if(!o.ok){ res.innerHTML='<div class="callbox" style="color:var(--cx-ffb4c6)">✗ '+(o.error||'failed')+'</div>'; return; }
   const rr=o.result||{}; const okk=rr.ok||/job_uuid|not subscriptable/.test(JSON.stringify(rr));
-  res.innerHTML='<div class="callbox" style="color:'+(okk?'#7ee2a8':'#ffb4c6')+'">'+(okk?('Tagged Route : '+esc(value)+'.'+(o.writes_enabled?' Allow ~30 min for Tenable.':' (gated — set NAVI_ALLOW_WRITES=1 and put navi on PATH)')):('✗ '+(rr.message||'tag failed')))+'</div>';
+  res.innerHTML='<div class="callbox" style="color:'+(okk?'var(--ok)':'var(--cx-ffb4c6)')+'">'+(okk?('Tagged Route : '+esc(value)+'.'+(o.writes_enabled?' Allow ~30 min for Tenable.':' (gated — set NAVI_ALLOW_WRITES=1 and put navi on PATH)')):('✗ '+(rr.message||'tag failed')))+'</div>';
 }
 document.getElementById('go').onclick=()=>go(0);
 document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter')go(0);});

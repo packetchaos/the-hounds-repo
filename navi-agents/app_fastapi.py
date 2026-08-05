@@ -33,6 +33,31 @@ def registry():
     return launcher.registry()
 
 
+@app.get("/api/jobs")
+def jobs():
+    return launcher.jobs_list()
+
+
+@app.get("/api/jobs/{job_id}")
+def job_get(job_id: int):
+    return launcher.jobs_get(job_id)
+
+
+@app.post("/api/jobs/clear")
+def jobs_clear():
+    return launcher.jobs_clear()
+
+
+@app.get("/api/profile")
+def profile():
+    return launcher.profile()
+
+
+@app.post("/api/profile/clear")
+def profile_clear():
+    return launcher.profile_clear()
+
+
 @app.post("/api/{agent_id}/{action}")
 async def act(agent_id: str, action: str, request: Request):
     try:

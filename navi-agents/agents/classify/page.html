@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Asset Classification · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>
+  .cov{display:flex;gap:20px;flex-wrap:wrap;align-items:center;margin:6px 0 2px}
+  .cov .big{font-size:46px;font-weight:800;line-height:1}
+  .cbar{height:12px;border-radius:99px;background:var(--panel-2);overflow:hidden;display:flex}
+  .cbar i{height:100%;display:block}
+  .clsrow{border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin-bottom:10px;cursor:pointer}
+  .clsrow:hover{border-color:var(--accent)}
+  .dot{width:12px;height:12px;border-radius:3px;display:inline-block;vertical-align:middle}
+  .chip2{display:inline-block;font-size:11px;background:var(--panel-2);border:1px solid var(--line);border-radius:99px;padding:1px 8px;margin:2px 3px 0 0}
+  .pill{font-size:10.5px;font-weight:700;padding:2px 7px;border-radius:5px}
+  .p-kev{background:rgba(244,63,94,.16);color:var(--cx-fb7185)}.p-crit{background:rgba(251,146,60,.16);color:var(--cx-fb923c)}.p-cloud{background:rgba(110,168,255,.14);color:var(--cx-6ea8ff)}
+  table{table-layout:fixed;width:100%}td,th{overflow:hidden;text-overflow:ellipsis}
+  /* Content links (asset drill-downs, members, breadcrumb) had no color rule, so they fell
+     back to the browser's default blue — unreadable on the dark theme. Use the theme accent. */
+  .plink,.memrow a,.crumb2 a{color:var(--accent);text-decoration:underline;text-underline-offset:2px;font-weight:600;cursor:pointer}
+  .plink:hover,.memrow a:hover,.crumb2 a:hover{opacity:.82}
+  /* ---- sunburst ---- */
+  #sunWrap{display:grid;grid-template-columns:minmax(300px,400px) 1fr;gap:22px;align-items:start}
+  @media(max-width:900px){#sunWrap{grid-template-columns:1fr}}
+  #sunSvg{width:100%;height:auto;display:block;filter:drop-shadow(0 0 30px rgba(0,0,0,.35))}
+  #sunSvg path.arc{cursor:pointer;transition:opacity .18s, transform .18s;transform-box:fill-box}
+  #sunSvg g.ring{transition:opacity .35s ease, transform .35s ease;transform-origin:center;transform-box:view-box}
+  .crumb2{display:flex;flex-wrap:wrap;gap:4px;align-items:center;font-size:12.5px;margin:0 0 6px}
+  .crumb2 a{color:var(--accent);cursor:pointer;text-decoration:none;padding:1px 7px;border:1px solid var(--line);border-radius:99px;background:var(--panel-2)}
+  .crumb2 a:hover{border-color:var(--accent)}
+  .vhero{display:flex;gap:10px;flex-wrap:wrap;margin:2px 0 10px}
+  .vhero .v{background:var(--panel-2);border:1px solid var(--line);border-radius:10px;padding:8px 12px;min-width:92px}
+  .vhero .v b{font-size:22px;font-weight:800;display:block;line-height:1}
+  .vhero .v span{font-size:11px;color:var(--mut)}
+  .contchip{display:inline-block;font-family:var(--mono);font-size:11px;background:#0d1524;border:1px solid #23406e;color:var(--cx-7ec8ff);border-radius:6px;padding:1px 7px;margin:2px 3px 0 0}
+  #sunTip{position:fixed;pointer-events:none;z-index:50;background:#0d0f14;border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:12px;color:var(--ink);box-shadow:0 6px 24px rgba(0,0,0,.5);display:none;max-width:300px}
+  #memPanel{border:1px solid var(--line);border-radius:12px;padding:12px;min-height:120px}
+  .memrow{display:flex;justify-content:space-between;gap:8px;padding:5px 4px;border-bottom:1px solid var(--line);font-size:12.5px}
+  .memrow a{color:var(--accent);text-decoration:none}
+  /* ---- three pies ---- */
+  #pieRow{display:flex;flex-direction:column;gap:18px;align-items:center}
+  .piePanel{width:100%;text-align:center}
+  .pieTitle{font-size:13px;font-weight:700;color:var(--ink-2);margin-bottom:4px}
+  .pieHost{min-height:340px;display:flex;align-items:center;justify-content:center}
+  /* OS Signals pies: stack the pie over its legend so both pies render at the SAME size
+     (a wide side-by-side legend was shrinking the right pie) and the key sits below. */
+  #osExplorer .pieHost{flex-direction:column;justify-content:flex-start}
+  #osExplorer .pieHost svg{width:100%;max-width:300px}
+  .pieHost svg .slice{cursor:pointer;transition:opacity .15s,transform .15s;transform-box:fill-box;transform-origin:center}
+  .pieGrey{width:260px;height:260px;border-radius:50%;border:2px dashed var(--line);display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--mut);font-size:15px;text-align:center;padding:0 24px;box-sizing:border-box;opacity:.55}
+  .pieLegend{display:flex;flex-wrap:wrap;gap:6px 14px;justify-content:center;margin-top:12px}
+  .pieLegend span{font-size:13.5px;color:var(--ink);display:inline-flex;align-items:center;gap:6px}
+  .pieLegend i{width:13px;height:13px;border-radius:3px;display:inline-block}
+</style>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+
+  <section class="card" style="background:var(--panel)">
+    <div class="toolbar"><div><div class="acode">Linnaeus Hound</div><h2 style="margin:0">📇 Asset Classification</h2>
+      <p class="sub" style="margin:2px 0 0">Every asset, classified by <b>what it is</b> — so nothing is unknown. Unknown assets are what stall ownership, so the <b>Unclassified</b> bucket is a reason-tagged worklist that should shrink over time. IoT and OT are separate. Rule: <i>you can't pull a software inventory off an IoT device</i>, so software enum ⇒ general-purpose host.</p></div>
+      <span style="margin-left:auto;display:flex;gap:6px"><a class="btn ghost sm" href="/web/ownermap.html" title="Hand classified assets to Atlas for ownership">🗺 Ownership Map</a>
+      <button class="btn run sm" id="run">▶ Classify assets</button></span></div>
+    <div id="flash" class="flash"></div>
+    <div class="cov" id="cov"></div>
+  </section>
+
+  <section class="card" id="sunCard" style="display:none">
+    <div class="toolbar" style="margin:0 0 8px"><div><h2 style="margin:0">🌐 Environment Explorer</h2>
+      <p class="sub" style="margin:2px 0 0">Two coordinated views — overall <b>classification</b> and, for a selected class, its <b>sub-types</b>. Click a sub-type slice to list its assets → jump into <b>Argos</b>.</p></div>
+      <span style="margin-left:auto;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <span style="display:flex;gap:4px;align-items:center"><span class="sub">Group by</span>
+          <button class="btn ghost sm grpby active" data-g="class">Class</button>
+          <button class="btn ghost sm grpby" data-g="subnet">Subnet</button></span></span></div>
+    <div id="sunWrap">
+      <div>
+        <div id="crumb" class="crumb2"></div>
+        <div id="tagBar" style="margin:2px 0 8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center"></div>
+        <div id="pieRow">
+          <div class="piePanel"><div class="pieTitle" id="titleA">Classification</div><div id="pieA" class="pieHost"></div></div>
+          <div class="piePanel"><div class="pieTitle" id="titleB">Sub-type</div><div id="pieB" class="pieHost"></div></div>
+        </div>
+        <div id="sunHost" style="display:none"></div>
+      </div>
+      <div>
+        <div id="memHead" class="sub" style="margin:0 0 6px">Click a <b>sub-type</b> slice to list its assets → Argos.</div>
+        <div id="memPanel"></div>
+      </div>
+    </div>
+  </section>
+  <div id="sunTip"></div>
+
+  <section class="card" id="signalsCard" style="display:none">
+    <div class="toolbar" style="margin:0 0 6px"><div><h2 style="margin:0">📡 OS Signals</h2>
+      <p class="sub" style="margin:2px 0 0">Two connected pies over the <b>OS-ID plugin output</b> (11936) — click an OS (Windows / Linux / macOS) to drill into its versions, then click a version to <b>tag by that OS</b>. Tagging auto-populates the classification pies above. Edit the tag name before writing if you like; writes are gated.</p></div>
+      <button class="btn ghost sm" id="sigRefresh" style="margin-left:auto">↻ Re-detect</button></div>
+    <div id="sigFlash" class="flash"></div>
+
+    <!-- ===== AI prompt: tag by OS gated on a confidence % (mirrors Atlas' Describe ownership) ===== -->
+    <div id="osAsk" class="callbox" style="border-left:3px solid var(--accent);margin:0 0 16px">
+      <h3 style="margin:0 0 2px">🤖 Describe the OS tagging</h3>
+      <p class="sub" style="margin:2px 0 8px">Plain English over the OS-ID plugin output (11936), which carries an <b>OS type</b> and a <b>confidence %</b>. Filter by confidence and OS, then write <span class="mono">Asset Inventory : OS: &lt;value&gt;</span> tags (gated). e.g. <i>"tag all my assets by OS that has a confidence of over 75%"</i> · <i>"tag windows assets by OS with confidence ≥ 90"</i> · <i>"tag by OS family, high confidence"</i>. Works without a model key.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start">
+        <input id="osPrompt" class="fld" style="flex:1;min-width:300px;padding:9px 12px" placeholder="tag all my assets by OS that has a confidence of over 75%">
+        <button class="btn run sm" id="osInterpret">▶ Interpret</button>
+        <button class="btn sm" id="osApplyAll" style="display:none">▶ Apply all (gated)</button>
+      </div>
+      <div id="osAskFlash" class="flash"></div>
+      <div id="osPlanBox"></div>
+    </div>
+
+    <!-- ===== OS explorer: family → version, click to focus the tag ===== -->
+    <div id="osExplorer">
+      <div style="display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start">
+        <div class="piePanel" style="flex:1 1 300px"><div class="pieTitle" id="osTitleA">Operating system</div><div id="osPieA" class="pieHost"></div></div>
+        <div class="piePanel" style="flex:1 1 300px"><div class="pieTitle" id="osTitleB">Version / type</div><div id="osPieB" class="pieHost"></div></div>
+        <div style="flex:0 0 230px;display:flex;flex-direction:column;gap:8px;padding-top:22px">
+          <div class="sub" style="font-weight:700;text-transform:uppercase;letter-spacing:.04em">Tag everything</div>
+          <button class="btn sm" id="tagAllOs">🏷 Tag all by OS<br><span class="sub">Windows / Linux / macOS</span></button>
+          <button class="btn sm" id="tagAllOsType">🏷 Tag all by OS type<br><span class="sub">specific version</span></button>
+          <div id="bulkRes" class="sub" style="margin-top:2px"></div>
+        </div>
+      </div>
+      <!-- click-to-focus tag editor -->
+      <div id="osFocus" style="margin-top:12px"></div>
+    </div>
+
+    <h3 style="margin:20px 0 4px">Other device signals <span class="sub" id="otherMeta"></span></h3>
+    <p class="sub" style="margin:0 0 8px">Network gear, hypervisors, and IoT/OT device types (non-OS). Edit the facet or name, then tag.</p>
+    <div id="sigBody"></div>
+  </section>
+
+  <section class="card" id="classCard" style="display:none">
+    <h2 style="margin:0 0 6px">Classes <span class="sub" id="clsMeta"></span></h2>
+    <div id="classes"></div>
+  </section>
+
+  <section class="card" id="drillCard" style="display:none">
+    <div class="toolbar" style="margin:0"><div><h2 style="margin:0" id="drillTitle">Assets</h2>
+      <p class="sub" id="drillSub" style="margin:2px 0 0"></p></div>
+      <span style="margin-left:auto;display:flex;gap:6px" id="drillActions"></span></div>
+    <div id="tagFlash" class="flash"></div>
+    <table id="dtbl"><colgroup><col><col style="width:120px"><col style="width:150px"><col style="width:150px"><col style="width:70px"><col style="width:90px"></colgroup>
+      <thead><tr><th>Host</th><th>IP</th><th>Sub-type</th><th>Evidence</th><th>ACR</th><th>Owner</th></tr></thead>
+      <tbody><tr><td colspan="6" class="sub">Pick a class above.</td></tr></tbody></table>
+  </section>
+  <footer>Asset Classification · Linnaeus · read-only until you approve a gated <span class="mono">Class:</span> tag</footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('classify');
+let DATA=null, CUR=null;
+const COL={"Windows":"var(--cx-6ea8ff)","Linux":"var(--cx-e7c66b)","macOS":"#9aa7b8","IoT":"var(--cx-a78bfa)","OT":"var(--cx-f43f5e)","Network":"var(--cx-3fb0c9)","Virtual Infrastructure":"var(--ok)","Cloud":"var(--cx-6ea8ff)","Unclassified":"var(--cx-f43f5e)"};
+const col=c=>COL[c]||"#8a99ad";
+
+async function run(){
+  document.getElementById('run').disabled=true; flash('flash','<span class="spin"></span> classifying every asset from navi.db…','run');
+  let o; try{ o=await API.post('run'); }catch(e){ o={ok:false,error:e.message}; }
+  document.getElementById('run').disabled=false;
+  if(!o||!o.ok||!o.result){ flash('flash','✗ '+esc((o&&(o.error||o.message))||'failed'),'crit'); return; }
+  DATA=o.result; if(DATA.error){ flash('flash','✗ '+esc(DATA.error),'crit'); return; }
+  flashClear('flash'); render(); explore();
+}
+function render(){
+  const s=DATA.stats||{};
+  const stat=(v,l,c)=>`<div style="text-align:center;min-width:90px"><div style="font-size:27px;font-weight:800;color:${c||'var(--ink)'}">${v}</div><div class="sub">${l}</div></div>`;
+  document.getElementById('cov').innerHTML=
+    `<div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center;width:100%">`
+    +stat((s.total||0).toLocaleString(),'total assets')
+    +stat((s.servers||0).toLocaleString(),'servers','var(--cx-6ea8ff)')
+    +stat((s.workstations||0).toLocaleString(),'workstations','var(--cx-e7c66b)')
+    +stat((s.iot||0).toLocaleString(),'IoT','var(--cx-a78bfa)')
+    +(s.ot?stat((s.ot||0).toLocaleString(),'OT','var(--cx-f43f5e)'):'')
+    +stat((s.unclassified||0).toLocaleString(),'unclassified','var(--cx-f43f5e)')
+    +stat((s.unclassified_pct||0)+'%','unclassified','var(--cx-f43f5e)')
+    +`</div>`
+    +`<div style="width:100%;margin-top:8px"><div class="cbar">${(DATA.classes||[]).map(c=>`<i style="width:${(c.count/DATA.total*100).toFixed(2)}%;background:${col(c.cls)}" title="${esc(c.cls)}: ${c.count}"></i>`).join('')}</div></div>`
+    +(!DATA.tagged_any?`<div class="callbox" style="width:100%;border-left:3px solid var(--warn,var(--cx-e7c66b));margin-top:10px"><b style="color:var(--warn,var(--cx-e7c66b))">No classification tags yet.</b> Classification is driven only by tags. Use <b>📡 OS Signals</b> below to detect and tag your environment — everything fills in as you tag.</div>`:'');
+  renderSignals();
+  document.getElementById('signalsCard').style.display='';   // OS Signals + "Describe the OS tagging" prompt
+  document.getElementById('classCard').style.display='';
+  document.getElementById('clsMeta').textContent='('+(DATA.classes||[]).length+')';
+  document.getElementById('classes').innerHTML=(DATA.classes||[]).map(c=>{
+    const ownPct=c.count?Math.round(c.owned/c.count*100):0;
+    const subs=(c.subs||[]).slice(0,8).map(s=>`<span class="chip2">${esc(s.name)} · ${s.count}</span>`).join('');
+    const risk=(c.kev?`<span class="pill p-kev">${c.kev} KEV</span> `:'')+(c.critical?`<span class="pill p-crit">${c.critical} crit</span> `:'')+(c.cloud?`<span class="pill p-cloud">${c.cloud} cloud</span>`:'');
+    return `<div class="clsrow" data-c="${esc(c.cls)}"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">`
+      +`<span class="dot" style="background:${col(c.cls)}"></span><b style="font-size:15px">${esc(c.cls)}</b>`
+      +`<span class="mono" style="font-size:18px;font-weight:700">${c.count.toLocaleString()}</span>`
+      +`<span style="margin-left:auto;display:flex;gap:6px;align-items:center">${risk}</span></div>`
+      +`<div style="display:flex;align-items:center;gap:10px;margin-top:8px"><div class="cbar" style="flex:1"><i style="width:${ownPct}%;background:var(--ok)"></i><i style="width:${100-ownPct}%;background:var(--panel-2)"></i></div>`
+      +`<span class="sub" style="white-space:nowrap">${c.owned}/${c.count} owned</span></div>`
+      +`<div style="margin-top:6px">${subs}</div></div>`;
+  }).join('');
+  document.querySelectorAll('#classes .clsrow').forEach(el=>el.onclick=()=>drill(el.dataset.c));
+}
+function drill(cls){
+  CUR=cls;
+  const c=(DATA.classes||[]).find(x=>x.cls===cls)||{};
+  const rows=(DATA.assets||[]).filter(r=>r.cls===cls);
+  document.getElementById('drillCard').style.display='';
+  document.getElementById('drillTitle').innerHTML=`<span class="dot" style="background:${col(cls)}"></span> ${esc(cls)} <span class="sub">(${rows.length})</span>`;
+  document.getElementById('drillSub').textContent=(c.subs||[]).map(s=>`${s.name}: ${s.count}`).join(' · ');
+  // actions: tag (gated) + hand to Atlas — OR manual classification for the unknowns
+  const acts=document.getElementById('drillActions'); acts.innerHTML='';
+  const isU=cls==='Unclassified';
+  if(!isU){
+    acts.innerHTML=`<button class="btn sm" id="tagCls">🏷 Tag <span class="tagval">Class : ${esc(cls)}</span> (gated)</button>`
+      +`<a class="btn ghost sm" href="/web/ownermap.html" title="Assign owners to this class in Atlas">🗺 Own in Atlas →</a>`;
+    document.getElementById('tagCls').onclick=()=>tagClass(cls);
+  } else {
+    UNSEL.clear();
+    acts.innerHTML=`<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">`
+      +`<span class="sub">Classify by hand:</span>`
+      +`<select id="ucFacet" class="fld" title="Tag category">${fopt('Device Type')}</select>`
+      +`<input id="ucVal" class="fld" placeholder="value — e.g. Printer, Windows 10, Firewall" style="min-width:210px">`
+      +`<button class="btn sm" id="ucTag">🏷 Tag <span id="ucN">0</span> selected (gated)</button>`
+      +`<button class="btn ghost sm" id="ucAll">Select all ${rows.length}</button>`
+      +`<span id="ucRes" class="sub"></span></div>`;
+    document.getElementById('ucTag').onclick=()=>tagUnclassified();
+    document.getElementById('ucAll').onclick=()=>{ const pick=UNSEL.size<rows.length; UNSEL.clear();
+      if(pick)rows.forEach(r=>r.uuid&&UNSEL.add(r.uuid)); syncUcSel();
+      document.getElementById('ucAll').textContent=pick?'Clear selection':('Select all '+rows.length); };
+    document.getElementById('drillSub').innerHTML='Tick the unknowns you recognize, set a <b>category + value</b>, and tag them (gated) — they move out of Unclassified. '+(c.subs||[]).map(s=>`${s.name}: ${s.count}`).join(' · ');
+  }
+  hPaginate('dtbl', rows, r=>{
+    const own=r.owned?'<span class="badge b-applied">owned</span>':'<span class="badge b-pending">—</span>';
+    const badges=(r.kev?'<span class="pill p-kev">KEV</span> ':'')+(r.critical?'<span class="pill p-crit">crit</span> ':'')+(r.cloud?`<span class="pill p-cloud">${esc(r.cloud)}</span>`:'');
+    const evidence=isU?esc(r.reason||''):esc(r.method||'');
+    const cb=isU?`<input type="checkbox" class="ucsel" data-u="${esc(r.uuid)}" style="margin-right:7px;vertical-align:middle">`:'';
+    return `<tr><td>${cb}<a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(r.uuid)}" title="Open in Argos asset deep-dive">${esc(r.hostname||'(none)')}</a> ${badges}</td>`
+      +`<td class="mono">${esc(r.ip||'')}</td><td>${esc(r.sub||'—')}</td>`
+      +`<td class="sub" style="font-size:11.5px">${evidence}${r.confidence&&r.confidence!=='n/a'?(' · '+esc(r.confidence)):''}</td>`
+      +`<td class="mono">${r.acr!=null&&r.acr!==''?esc(String(r.acr)):'—'}</td><td>${own}</td></tr>`;
+  }, {cols:6, empty:'<tr><td colspan="6" class="sub">No assets.</td></tr>', wire:isU?wireUcSel:undefined});
+  document.getElementById('drillCard').scrollIntoView({behavior:'smooth',block:'start'});
+}
+/* ---- manual classification of Unclassified assets: multi-select + gated tag ---- */
+let UNSEL=new Set();
+function _ucN(){ const n=document.getElementById('ucN'); if(n)n.textContent=UNSEL.size; }
+function wireUcSel(){ document.querySelectorAll('#dtbl .ucsel').forEach(cb=>{ cb.checked=UNSEL.has(cb.dataset.u);
+  cb.onchange=()=>{ cb.checked?UNSEL.add(cb.dataset.u):UNSEL.delete(cb.dataset.u); _ucN(); }; }); _ucN(); }
+function syncUcSel(){ document.querySelectorAll('#dtbl .ucsel').forEach(cb=>cb.checked=UNSEL.has(cb.dataset.u)); _ucN(); }
+async function tagUnclassified(){
+  const facet=(document.getElementById('ucFacet')||{}).value||'Device Type';
+  const value=((document.getElementById('ucVal')||{}).value||'').trim();
+  const res=document.getElementById('ucRes'); const uuids=[...UNSEL];
+  if(!value){ if(res)res.innerHTML='<span style="color:var(--crit)">enter a value first</span>'; return; }
+  if(!uuids.length){ if(res)res.innerHTML='<span style="color:var(--crit)">tick some assets first</span>'; return; }
+  const ok=await writeTag(facet,value,uuids,res,uuids.length);
+  if(ok) afterTag();
+}
+async function pollJobs(ids, timeoutMs=25000){
+  const want=[...new Set((ids||[]).filter(x=>x!=null).map(String))]; let map={}; if(!want.length)return map;
+  const t0=Date.now();
+  while(Date.now()-t0<timeoutMs){
+    let o; try{ o=await jpost('/api/explore/tag_jobs',{}); }catch(e){ break; }
+    map={}; (o.jobs||[]).forEach(j=>{ map[String(j.id)]=j; });
+    if(!want.filter(id=>{const j=map[id];return !j||(j.status!=='done'&&j.status!=='error');}).length) break;
+    await new Promise(r=>setTimeout(r,900));
+  }
+  return map;
+}
+async function tagClass(cls){
+  flash('tagFlash','<span class="spin"></span> queueing gated tag for '+esc(cls)+'…','run');
+  let o; try{ o=await API.post('tag',{cls,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+  if(!(o.ok||o.queued||o.warning)){ flash('tagFlash','✗ '+esc(o.error||o.message||'rejected')+(o.write_gate_reason?(' — '+esc(o.write_gate_reason)):''),'crit'); return; }
+  const jid=o.job_id||(o.result&&o.result.job_id);
+  flash('tagFlash','<span class="spin"></span> tagging '+(o.asset_count||'')+' asset(s) Class:'+esc(cls)+' (job #'+esc(String(jid))+')…','run');
+  const j=(await pollJobs([jid]))[String(jid)];
+  if(j&&j.status==='done'&&j.ok!==false&&!(j.result&&j.result.warning)){ flash('tagFlash','✓ Tagged '+(o.asset_count||'')+' asset(s) <span class="tagval">Class : '+esc(cls)+'</span> — see the <a href="/web/tags-log.html">Tagging log</a>. Now assign owners in <a href="/web/ownermap.html">Atlas</a>.','ok'); }
+  else if(j&&j.status==='error'){ flash('tagFlash','✗ '+esc(j.message||'failed')+' (see <a href="/web/tags-log.html">Tagging log</a>)','crit'); }
+  else if(!o.writes_enabled){ flash('tagFlash','<b>Nothing written.</b> '+esc(o.write_gate_reason||'Writes are gated — set NAVI_ALLOW_WRITES=1')+'.','warn'); }
+  else { flash('tagFlash','Queued — track it in the <a href="/web/tags-log.html">Tagging log</a>.','ok'); }
+}
+/* ===================== Environment Explorer — zoomable sunburst ===================== */
+let TREE=null, VIRT=null, FOCUS=[], GROUPBY='class';
+const SZ=680, CX=340, CY=340, RINGS=[64,152,226,292,340];
+const PAL=[234,210,186,160,266,196,220,280,150,246,174,200,250,168];
+const short=(s,n)=>{s=String(s);return s.length>n?(s.slice(0,n-1)+'…'):s;};
+function pt(a,r){return [CX+Math.cos(a)*r, CY+Math.sin(a)*r];}
+function arcPath(a0,a1,ri,ro){
+  const large=(a1-a0)>Math.PI?1:0;
+  const [x0,y0]=pt(a0,ro),[x1,y1]=pt(a1,ro),[x2,y2]=pt(a1,ri),[x3,y3]=pt(a0,ri);
+  return `M${x0.toFixed(1)},${y0.toFixed(1)} A${ro},${ro} 0 ${large} 1 ${x1.toFixed(1)},${y1.toFixed(1)} L${x2.toFixed(1)},${y2.toFixed(1)} A${ri},${ri} 0 ${large} 0 ${x3.toFixed(1)},${y3.toFixed(1)} Z`;
+}
+function annotate(node, path, depth){
+  node._path=path; node._depth=depth;
+  (node.children||[]).forEach(k=>{ const cp=Object.assign({},path); const d=depth+1;
+    if(GROUPBY==='class'){ if(d===1)cp.cls=k.name; else if(d===2)cp.sub=k.name; else if(d===3)cp.software=k.name; else if(d===4)cp.version=k.name; }
+    else { if(d===1)cp.subnet=k.name; else if(d===2)cp.cls=k.name; else if(d===3)cp.software=k.name; else if(d===4)cp.version=k.name; }
+    annotate(k, cp, d); });
+}
+async function explore(){
+  let o; try{ o=await API.post('tree',{by:GROUPBY}); }catch(e){ return; }
+  if(!o||!o.ok||!o.result||!o.result.root){ return; }
+  TREE=o.result.root; VIRT=o.result.virt; annotate(TREE,{},0); FOCUS=[TREE]; SELA=null; SELB=null;
+  document.getElementById('sunCard').style.display=''; renderView();   // virtualization widget removed for now
+}
+/* ===== view switch: three coordinated pies (default) or sunburst ===== */
+let VIEW='pies', SELA=null, SELB=null;
+function showView(v){ VIEW=v;
+  document.getElementById('pieRow').style.display=(v==='pies')?'flex':'none';
+  document.getElementById('tagBar').style.display=(v==='pies')?'flex':'none';
+  document.getElementById('sunHost').style.display=(v==='sun')?'':'none';
+  document.getElementById('crumb').style.display=(v==='sun')?'flex':'none';
+}
+function renderView(){ if(!TREE)return; if(VIEW==='pies'){ showView('pies'); renderPies(); } else { showView('sun'); drawSun(); } }
+function showTip(node,tot){ const t=document.getElementById('sunTip'); t.style.display='block';
+  t.innerHTML=`<b>${esc(node.name)}</b><br>${(node.value||0).toLocaleString()} asset(s) · ${(node.value/tot*100).toFixed(1)}%`; }
+function moveTip(e){ const t=document.getElementById('sunTip'); t.style.left=(e.clientX+14)+'px'; t.style.top=(e.clientY+12)+'px'; }
+function hideTip(){ document.getElementById('sunTip').style.display='none'; }
+function paintPie(host, nodes, opts){
+  opts=opts||{};
+  if(opts.exclude) nodes=(nodes||[]).filter(n=>!opts.exclude.includes(n.name));
+  if(!nodes||!nodes.length){ host.innerHTML=`<div class="pieGrey">${esc(opts.greyMsg||'—')}</div>`; return; }
+  const C=100, RI=42, RO=94, sum=nodes.reduce((s,n)=>s+Math.max(n.value,1e-6),0);
+  const center=(opts.centerTotal!=null)?opts.centerTotal:sum;   // pie A shows the FULL inventory total
+  let a=-Math.PI/2, segs=[];
+  nodes.forEach((n,i)=>{ const sp=2*Math.PI*Math.max(n.value,1e-6)/sum; segs.push({n,i,a0:a,a1:a+sp,hue:(opts.color?opts.color(n.name,i):PAL[i%PAL.length])}); a+=sp; });
+  const arc=(a0,a1)=>{ const lg=(a1-a0)>Math.PI?1:0; const p=(g,r)=>[C+Math.cos(g)*r,C+Math.sin(g)*r];
+    const [x0,y0]=p(a0,RO),[x1,y1]=p(a1,RO),[x2,y2]=p(a1,RI),[x3,y3]=p(a0,RI);
+    return `M${x0.toFixed(1)},${y0.toFixed(1)} A${RO},${RO} 0 ${lg} 1 ${x1.toFixed(1)},${y1.toFixed(1)} L${x2.toFixed(1)},${y2.toFixed(1)} A${RI},${RI} 0 ${lg} 0 ${x3.toFixed(1)},${y3.toFixed(1)} Z`; };
+  const fillOf=s=>(typeof s.hue==='string')?s.hue:`hsl(${s.hue} 68% 52%)`;
+  const paths=segs.map(s=>{ const on=opts.activeName===s.n.name;
+    return `<path class="slice" d="${arc(s.a0,s.a1)}" fill="${fillOf(s)}" stroke="${on?'#fff':'#0b0d12'}" stroke-width="${on?2.6:1.2}" data-i="${s.i}"/>`; }).join('');
+  host.innerHTML=`<svg viewBox="0 0 200 200" style="width:100%;max-width:420px">${paths}`
+    +`<text x="100" y="98" text-anchor="middle" font-size="19" font-weight="800" fill="var(--ink)">${center.toLocaleString()}</text>`
+    +`<text x="100" y="114" text-anchor="middle" font-size="8.5" fill="var(--mut)">${esc(opts.centerLabel||'assets')}</text></svg>`
+    +`<div class="pieLegend">${segs.slice(0,10).map(s=>`<span><i style="background:${fillOf(s)}"></i>${esc(short(s.n.name,18))} · ${(s.n.value||0).toLocaleString()}</span>`).join('')}${segs.length>10?`<span class="sub">+${segs.length-10} more</span>`:''}</div>`;
+  const svg=host.querySelector('svg');
+  svg.querySelectorAll('.slice').forEach(p=>{ const s=segs[+p.dataset.i];
+    p.onmouseenter=()=>{ svg.querySelectorAll('.slice').forEach(q=>q.style.opacity=q===p?1:.4); showTip(s.n,sum); opts.onHover&&opts.onHover(s.n); };
+    p.onmousemove=moveTip; p.onmouseleave=()=>{ svg.querySelectorAll('.slice').forEach(q=>q.style.opacity=1); hideTip(); opts.onLeave&&opts.onLeave(); };
+    p.onclick=()=>{ opts.onClick&&opts.onClick(s.n); }; });
+}
+function renderPies(){
+  const all=(TREE&&TREE.children)||[];
+  const byClass=(GROUPBY==='class');
+  document.getElementById('titleA').textContent=(byClass?'Classification':'Subnet')+' — total inventory';
+  paintPie(document.getElementById('pieA'), all, {greyMsg:'run classify',
+    centerTotal:(DATA&&DATA.total)||all.reduce((s,n)=>s+(n.value||0),0), centerLabel:'total assets',
+    exclude:byClass?['Unclassified']:null, color:byClass?(nm=>col(nm)):null, activeName:SELA&&SELA.name,
+    onHover:n=>paintB(n), onLeave:()=>paintB(SELA),
+    onClick:n=>{ SELA=(SELA&&SELA.name===n.name)?null:n; SELB=null; paintB(SELA); renderTagBar();
+      if(!SELA){ document.getElementById('memHead').innerHTML='Click a <b>sub-type</b> slice to list its assets → Argos.'; document.getElementById('memPanel').innerHTML=''; } }});
+  paintB(SELA); renderTagBar();
+}
+function paintB(cnode){
+  const t=document.getElementById('titleB');
+  if(!cnode){ paintPie(document.getElementById('pieB'),[],{greyMsg:'← hover or click a class'}); t.textContent='Sub-type'; return; }
+  t.textContent=short(cnode.name,18)+' — sub-type';
+  const subs=(cnode.children||[]).map(s=>({name:s.name==='(no software inventory)'?'—':s.name, value:s.value}));
+  paintPie(document.getElementById('pieB'), cnode.children||[], {greyMsg:'no sub-types', activeName:SELB&&SELB.name,
+    centerTotal:cnode.value, centerLabel:short(cnode.name,14),
+    onClick:n=>{ SELB=(SELB&&SELB.name===n.name)?null:n; renderTagBar(); if(SELB) loadMembers(SELB); }});
+}
+function _facetB(){ return ['Windows','Linux','macOS'].includes(SELA&&SELA.name)?'OS':(['IoT','OT'].includes(SELA&&SELA.name)?'Device Type':'Sub'); }
+function renderTagBar(){
+  const bar=document.getElementById('tagBar'); if(!bar)return; let h='';
+  if(SELA){ const fa=(GROUPBY==='subnet'?'Subnet':'Class'); h+=`<button class="btn ghost sm invtag" data-f="${fa}" data-v="${esc(SELA.name)}" data-lvl="a">🏷 ${fa}: ${esc(short(SELA.name,16))}</button>`; }
+  if(SELA&&SELB){ const fb=_facetB(); h+=`<button class="btn ghost sm invtag" data-f="${fb}" data-v="${esc(SELB.name)}" data-lvl="b">🏷 ${fb}: ${esc(short(SELB.name,16))}</button>`; }
+  bar.innerHTML=(h?'<span class="sub">Tag inventory (gated):</span> '+h:'<span class="sub">Click a slice to select a cohort to tag.</span>')+' <span id="tagRes" class="sub"></span>';
+  bar.querySelectorAll('.invtag').forEach(b=>b.onclick=()=>invTag(b.dataset.f,b.dataset.v,b.dataset.lvl));
+}
+async function invTag(facet,value,lvl){
+  const res=document.getElementById('tagRes'); res.innerHTML='<span class="spin"></span> queueing…';
+  const path={}; if(GROUPBY==='class'){ if(SELA)path.cls=SELA.name; if(lvl!=='a'&&SELB)path.sub=SELB.name; }
+  else { if(SELA)path.subnet=SELA.name; if(lvl!=='a'&&SELB)path.cls=SELB.name; }
+  let o; try{ o=await API.post('tag',Object.assign({facet,value,confirm:true},path)); }catch(e){ o={ok:false,error:e.message}; }
+  if(!(o.ok||o.queued||o.warning)){ res.innerHTML='<span style="color:var(--crit)">✗ '+esc(o.error||o.message||'rejected')+'</span>'; return; }
+  const jid=o.job_id||(o.result&&o.result.job_id); const j=(await pollJobs([jid]))[String(jid)];
+  if(j&&j.status==='done'&&j.ok!==false&&!(j.result&&j.result.warning)) res.innerHTML='<span style="color:var(--ok)">✓ '+esc(o.value||'')+' · '+(o.asset_count||'')+' assets — <a href="/web/tags-log.html">log</a></span>';
+  else if(j&&j.status==='error') res.innerHTML='<span style="color:var(--crit)">✗ '+esc(j.message||'failed')+'</span>';
+  else if(!o.writes_enabled) res.innerHTML='<span class="warn2">writes gated — '+esc(o.write_gate_reason||'set NAVI_ALLOW_WRITES=1')+'</span>';
+  else res.innerHTML='queued — see <a href="/web/tags-log.html">log</a>';
+}
+document.querySelectorAll('.viewby').forEach(b=>b.onclick=()=>{ document.querySelectorAll('.viewby').forEach(x=>x.classList.remove('active')); b.classList.add('active'); VIEW=(b.dataset.v==='sun')?'sun':'pies'; renderView(); });
+function drawSun(){
+  const focus=FOCUS[FOCUS.length-1]; const arcs=[];
+  const MAXK=[24,18,16,14];
+  (function layout(node, ring, a0, a1, hue){
+    if(ring>=RINGS.length-1) return; let kids=node.children||[]; if(!kids.length) return;
+    if(kids.length>MAXK[ring]){ kids=[...kids].sort((a,b)=>b.value-a.value);
+      const rest=kids.slice(MAXK[ring]); kids=kids.slice(0,MAXK[ring]).concat([{name:'Other ('+rest.length+')',value:rest.reduce((s,k)=>s+(k.value||0),0)}]); }
+    const tot=kids.reduce((s,k)=>s+Math.max(k.value,1e-6),0); let a=a0;
+    kids.forEach((k,i)=>{ const span=(a1-a0)*Math.max(k.value,1e-6)/tot; const b=a+span;
+      const h=(ring===0)?PAL[i%PAL.length]:hue;
+      arcs.push({node:k,ring,a0:a,a1:b,hue:h}); layout(k,ring+1,a,b,h); a=b; });
+  })(focus, 0, -Math.PI/2, -Math.PI/2+2*Math.PI, 210);
+  let paths='',labels='';
+  arcs.forEach((s,idx)=>{ const ri=RINGS[s.ring],ro=RINGS[s.ring+1];
+    const fill=`hsl(${s.hue} 68% ${42+s.ring*8}%)`;
+    paths+=`<path class="arc" d="${arcPath(s.a0,s.a1,ri,ro)}" fill="${fill}" stroke="#0b0d12" stroke-width="1" data-i="${idx}"/>`;
+    if((s.a1-s.a0)>0.14 && s.ring<3){ const mid=(s.a0+s.a1)/2, mr=(ri+ro)/2; const [lx,ly]=pt(mid,mr);
+      let deg=mid*180/Math.PI; if(deg>90&&deg<270)deg+=180;
+      labels+=`<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" transform="rotate(${deg.toFixed(1)} ${lx.toFixed(1)} ${ly.toFixed(1)})" text-anchor="middle" dominant-baseline="middle" font-size="10.5" fill="#0b0d12" font-weight="600" pointer-events="none">${esc(short(s.node.name,Math.max(3,Math.floor((s.a1-s.a0)*ro/6))))}</text>`; }
+  });
+  const fname=focus._depth?focus.name:'Environment';
+  const svg=`<svg id="sunSvg" viewBox="0 0 ${SZ} ${SZ}"><g class="ring">`+paths+labels
+    +`<circle class="hub" cx="${CX}" cy="${CY}" r="${RINGS[0]-6}" fill="var(--panel-2)" stroke="var(--line)" stroke-width="1.5" style="cursor:pointer"/>`
+    +`<text x="${CX}" y="${CY-4}" text-anchor="middle" font-size="15" font-weight="800" fill="var(--ink)" pointer-events="none">${esc(short(fname,16))}</text>`
+    +`<text x="${CX}" y="${CY+15}" text-anchor="middle" font-size="12" fill="var(--mut)" pointer-events="none">${(focus.value||0).toLocaleString()} assets</text>`
+    +`</g></svg>`;
+  const host=document.getElementById('sunHost'); host.innerHTML=svg;
+  const g=host.querySelector('g.ring'); g.style.opacity=0; g.style.transform='scale(.94)';
+  requestAnimationFrame(()=>{ g.style.opacity=1; g.style.transform='scale(1)'; });
+  wireSun(arcs); renderCrumb();
+}
+function wireSun(arcs){
+  const host=document.getElementById('sunHost'), svg=host.querySelector('svg'), tip=document.getElementById('sunTip');
+  const focus=FOCUS[FOCUS.length-1], tot=focus.value||1;
+  svg.querySelectorAll('path.arc').forEach(p=>{ const s=arcs[+p.dataset.i];
+    p.onmouseenter=e=>{ svg.querySelectorAll('path.arc').forEach(q=>q.style.opacity=(q===p?1:0.32));
+      tip.style.display='block'; tip.innerHTML=`<b>${esc(s.node.name)}</b><br>${(s.node.value||0).toLocaleString()} asset(s) · ${(s.node.value/tot*100).toFixed(1)}%`+(s.node.children?'<br><span style="color:var(--cx-7ec8ff)">click to zoom</span>':'<br><span style="color:var(--cx-7ec8ff)">click to list assets</span>'); };
+    p.onmousemove=e=>{ tip.style.left=(e.clientX+14)+'px'; tip.style.top=(e.clientY+12)+'px'; };
+    p.onmouseleave=()=>{ svg.querySelectorAll('path.arc').forEach(q=>q.style.opacity=1); tip.style.display='none'; };
+    p.onclick=()=>{ tip.style.display='none'; if(s.node.children&&s.node.children.length){ FOCUS.push(s.node); drawSun(); } else { loadMembers(s.node); } };
+  });
+  const hub=svg.querySelector('.hub'); if(hub) hub.onclick=()=>{ if(FOCUS.length>1){ FOCUS.pop(); drawSun(); } };
+}
+function renderCrumb(){
+  const el=document.getElementById('crumb');
+  el.innerHTML=FOCUS.map((n,i)=>`<a data-i="${i}">${esc(short(n._depth?n.name:'Environment',18))}</a>`+(i<FOCUS.length-1?'<span class="sub">›</span>':'')).join('');
+  el.querySelectorAll('a').forEach(a=>a.onclick=()=>{ FOCUS=FOCUS.slice(0,+a.dataset.i+1); drawSun(); });
+}
+let MEM=[], MEMPAGE=0, MEMHEAD='', MEM_PER=25;
+async function loadMembers(node){
+  const head=document.getElementById('memHead'), panel=document.getElementById('memPanel');
+  head.innerHTML=`<b>${esc(node.name)}</b> · loading assets…`; panel.innerHTML='<span class="spin"></span>';
+  let o; try{ o=await API.post('members', node._path||{}); }catch(e){ o={ok:false}; }
+  if(!o||!o.ok){ panel.innerHTML='<span class="sub">lookup failed</span>'; return; }
+  MEM=o.assets||[]; MEMPAGE=0;
+  MEMHEAD=`<b>${esc(node.name)}</b> · ${o.count} asset(s)`+(o.count>MEM.length?` (showing ${MEM.length})`:'');
+  renderMem();
+}
+function renderMem(){
+  const head=document.getElementById('memHead'), panel=document.getElementById('memPanel');
+  head.innerHTML=MEMHEAD||'';
+  if(!MEM.length){ panel.innerHTML='<span class="sub">No assets.</span>'; return; }
+  const pages=Math.ceil(MEM.length/MEM_PER)||1; if(MEMPAGE>=pages)MEMPAGE=0;
+  const a0=MEMPAGE*MEM_PER, slice=MEM.slice(a0, a0+MEM_PER);
+  const rows=slice.map(a=>{
+    const badges=(a.kev?'<span class="pill p-kev">KEV</span> ':'')+(a.critical?'<span class="pill p-crit">crit</span> ':'')+(a.owned?'<span class="badge b-applied">owned</span>':'');
+    return `<div class="memrow"><span><a href="/agents/argos/page.html?target=${encodeURIComponent(a.uuid)}" title="Open in Argos asset deep-dive">${esc(a.hostname||a.ip||'(asset)')}</a> <span class="sub mono">${esc(a.ip||'')}</span></span><span>${badges}</span></div>`;
+  }).join('');
+  const pager=pages>1?`<div class="toolbar" style="margin-top:8px;justify-content:center;gap:12px">`
+    +`<button class="btn ghost sm" id="mprev" ${MEMPAGE<=0?'disabled':''}>‹ Prev</button>`
+    +`<span class="sub">${a0+1}–${Math.min(MEM.length,a0+MEM_PER)} of ${MEM.length}</span>`
+    +`<button class="btn ghost sm" id="mnext" ${MEMPAGE>=pages-1?'disabled':''}>Next ›</button></div>`:'';
+  panel.innerHTML=rows+pager;
+  const pv=document.getElementById('mprev'), nx=document.getElementById('mnext');
+  if(pv)pv.onclick=()=>{ MEMPAGE--; renderMem(); };
+  if(nx)nx.onclick=()=>{ MEMPAGE++; renderMem(); };
+}
+/* ===== OS Signals — detect → gated tag (mirrors the IoT squad) ===== */
+const FACETS=['OS','Class','Device Type','App','Cloud','IoT'];
+const fopt=sel=>FACETS.map(f=>`<option${f===sel?' selected':''}>${f}</option>`).join('');
+function renderSignals(){ loadOsBreakdown(); renderOtherSignals(); }
+
+/* ===== "Describe the OS tagging" — NL prompt → confidence-gated OS cohorts → gated tag ===== */
+let OSPLAN=null;
+async function osInterpret(){
+  const prompt=(document.getElementById('osPrompt').value||'').trim();
+  if(!prompt){ flash('osAskFlash','Type what to tag — e.g. "tag all assets by OS over 75% confidence".','warn'); return; }
+  flash('osAskFlash','<span class="spin"></span> reading OS-ID plugin output (11936)…','run');
+  let o; try{ o=await API.post('os_plan',{prompt}); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o||!o.ok){ flash('osAskFlash','✗ '+esc((o&&(o.error||o.message))||'failed'),'crit'); return; }
+  OSPLAN=o; flashClear('osAskFlash'); renderOsPlan(o);
+}
+function renderOsPlan(o){
+  const box=document.getElementById('osPlanBox'), apply=document.getElementById('osApplyAll');
+  const fam=(o.families&&o.families.length)?(' · '+o.families.join(', ')):'';
+  const grp=o.group==='family'?'OS family':'specific OS';
+  const noconf=(o.scanned||0)-(o.with_confidence||0);
+  const head='<p class="sub" style="margin:10px 0 6px"><b>Confidence ≥ '+o.threshold+'%</b>'+fam
+    +' · grouped by '+grp+' · <b>'+o.matched+'</b> of '+o.scanned+' fingerprinted asset(s) match'
+    +(noconf>0?(' <span class="sub">('+noconf+' had no confidence value in their output)</span>'):'')+'</p>';
+  if(!o.cohorts||!o.cohorts.length){ box.innerHTML=head+'<p class="sub">'+esc(o.note||'Nothing to tag.')+'</p>'; apply.style.display='none'; return; }
+  const rows=o.cohorts.map((c,i)=>`<tr>
+    <td><span class="chip">${esc(c.family)}</span></td>
+    <td><b class="mono">Asset Inventory : OS: ${esc(c.value)}</b></td>
+    <td class="mono">${c.count}</td>
+    <td class="mono">${c.conf_min}–${c.conf_max}%</td>
+    <td><button class="btn ghost sm osApplyOne" data-i="${i}">🏷 Tag</button> <span class="sub osres" id="osres-${i}"></span></td></tr>`).join('');
+  box.innerHTML=head+'<div style="overflow:auto"><table style="width:100%"><thead><tr><th>Family</th><th>Tag to write</th><th>Assets</th><th>Confidence</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>';
+  box.querySelectorAll('.osApplyOne').forEach(b=>b.onclick=()=>osApplyOne(+b.dataset.i));
+  apply.style.display='inline-block';
+}
+async function osApplyOne(i){
+  const c=OSPLAN&&OSPLAN.cohorts[i]; if(!c)return false;
+  const res=document.getElementById('osres-'+i);
+  const ok=await writeTag('OS', c.value, c.uuids, res, c.count);
+  if(ok) afterTag();
+  return ok;
+}
+async function osApplyAll(){
+  if(!OSPLAN||!OSPLAN.cohorts||!OSPLAN.cohorts.length) return;
+  const btn=document.getElementById('osApplyAll'); btn.disabled=true;
+  // fire every tag at once — each queues immediately, so all land in the Tagging log
+  // together instead of waiting for the previous one's job to finish.
+  const r=await Promise.all(OSPLAN.cohorts.map((c,i)=>postTag('OS', c.value, c.uuids, document.getElementById('osres-'+i), c.count)));
+  btn.disabled=false; if(r.some(x=>x&&x.ok)) afterTag();
+}
+
+/* --- shared gated write: post → poll → report into resEl; resolves true on success --- */
+async function writeTag(facet,value,uuids,resEl,count){
+  value=(value||'').trim();
+  if(!value){ if(resEl)resEl.innerHTML='<span style="color:var(--crit)">✗ tag name can\'t be empty</span>'; return false; }
+  if(resEl)resEl.innerHTML='<span class="spin"></span> queueing '+(count||uuids.length)+'…';
+  let o; try{ o=await API.post('tag',{facet,value,uuids,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+  if(!(o.ok||o.queued||o.warning)){ if(resEl)resEl.innerHTML='<span style="color:var(--crit)">✗ '+esc(o.error||o.message||'rejected')+'</span>'; return false; }
+  const jids=(o.job_ids&&o.job_ids.length)?o.job_ids:[o.job_id||(o.result&&o.result.job_id)];
+  const jm=await pollJobs(jids);
+  const doneAll=jids.length&&jids.every(id=>{ const j=jm[String(id)]; return j&&j.status==='done'&&j.ok!==false&&!(j.result&&j.result.warning); });
+  const anyErr=jids.some(id=>{ const j=jm[String(id)]; return j&&j.status==='error'; });
+  if(doneAll){ if(resEl)resEl.innerHTML='<span style="color:var(--ok)">✓ '+esc('Asset Inventory: '+facet+': '+value)+' · '+(o.asset_count||'')+' assets'+((o.chunks||1)>1?(' ('+o.chunks+' batches)'):'')+' — <span class="spin"></span> updating the classification pies…</span>'; return true; }
+  if(anyErr){ const j=jids.map(id=>jm[String(id)]).find(x=>x&&x.status==='error'); if(resEl)resEl.innerHTML='<span style="color:var(--crit)">✗ '+esc((j&&j.message)||'failed')+' (see <a href="/web/tags-log.html">log</a>)</span>'; return false; }
+  if(!o.writes_enabled){ if(resEl)resEl.innerHTML='<span style="color:var(--cx-e7c66b)"><b>Nothing written.</b> '+esc(o.write_gate_reason||'writes gated — set NAVI_ALLOW_WRITES=1')+'</span>'; return false; }
+  if(resEl)resEl.innerHTML='queued'+((o.chunks||1)>1?(' ('+o.chunks+' batches)'):'')+' — see <a href="/web/tags-log.html">Tagging log</a>'; return true;
+}
+
+/* --- post-only gated write (NO per-job poll) — used by the bulk applies so all tags
+   queue at once and land in the Tagging log immediately instead of one-at-a-time. --- */
+async function postTag(facet,value,uuids,resEl,count){
+  value=(value||'').trim();
+  if(!value){ if(resEl)resEl.innerHTML='<span style="color:var(--crit)">✗ tag name can\'t be empty</span>'; return {ok:false,jids:[]}; }
+  if(resEl)resEl.innerHTML='<span class="spin"></span> sending '+(count||uuids.length)+'…';
+  let o; try{ o=await API.post('tag',{facet,value,uuids,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+  if(!(o.ok||o.queued||o.warning)){ if(resEl)resEl.innerHTML='<span style="color:var(--crit)">✗ '+esc(o.error||o.message||'rejected')+'</span>'; return {ok:false,jids:[],o}; }
+  const jids=(o.job_ids&&o.job_ids.length)?o.job_ids:[o.job_id||(o.result&&o.result.job_id)].filter(x=>x!=null);
+  if(!jids.length && !o.writes_enabled){ if(resEl)resEl.innerHTML='<span style="color:var(--cx-e7c66b)"><b>Nothing written.</b> '+esc(o.write_gate_reason||'writes gated — set NAVI_ALLOW_WRITES=1')+'</span>'; return {ok:false,jids:[],o}; }
+  if(resEl)resEl.innerHTML='<span style="color:var(--ok)">✓ sent to the <a href="/web/tags-log.html">Tagging log</a>'+((o.chunks||1)>1?(' ('+o.chunks+' batches)'):'')+'</span>';
+  return {ok:true,jids,o};
+}
+
+/* ---------- OS explorer: two pies (family → version) + focus editor + bulk ---------- */
+let OSFAM=[], OSSEL=null;   // OSSEL = selected family node
+async function loadOsBreakdown(){
+  const a=document.getElementById('osPieA');
+  a.innerHTML='<div class="pieGrey">detecting…</div>';
+  let o; try{ o=await API.post('os_breakdown'); }catch(e){ o={ok:false}; }
+  OSFAM=(o&&o.ok&&o.result&&o.result.families)||[]; OSSEL=null;
+  const exp=document.getElementById('osExplorer');
+  if(!OSFAM.length){ exp.querySelector('#osPieA').innerHTML='<div class="pieGrey" style="opacity:.9">No OS fingerprints on the untagged set.<br><span class="sub">Reads OS-ID plugin output (11936), credentialed software-enum, and the OS field. Run <span class="mono">navi update</span> if this looks empty.</span></div>';
+    document.getElementById('osPieB').innerHTML=''; document.getElementById('osFocus').innerHTML=''; document.getElementById('osTitleB').textContent='Version / type'; return; }
+  paintOsA();
+  document.getElementById('osPieB').innerHTML='<div class="pieGrey">← click an OS on the left</div>';
+  document.getElementById('osTitleB').textContent='Version / type';
+  focusFrom(null);
+}
+function _fnodes(){ return OSFAM.map(f=>({name:f.family, value:f.count, _f:f})); }
+function paintOsA(){
+  const total=OSFAM.reduce((s,f)=>s+f.count,0);
+  paintPie(document.getElementById('osPieA'), _fnodes(), {centerTotal:total, centerLabel:'OS-detected',
+    color:nm=>col(nm), activeName:OSSEL&&OSSEL.family,
+    onClick:n=>{ OSSEL=(OSSEL&&OSSEL.family===n._f.family)?null:n._f; paintOsA(); paintOsB(); focusFrom('family'); }});
+}
+function paintOsB(){
+  const t=document.getElementById('osTitleB'), host=document.getElementById('osPieB');
+  if(!OSSEL){ host.innerHTML='<div class="pieGrey">← click an OS on the left</div>'; t.textContent='Version / type'; return; }
+  t.textContent=OSSEL.family+' — version / type';
+  const nodes=(OSSEL.versions||[]).map(v=>({name:v.name, value:v.count, _v:v}));
+  paintPie(host, nodes, {centerTotal:OSSEL.count, centerLabel:OSSEL.family,
+    onClick:n=>focusFrom('version', n._v)});
+}
+function focusFrom(level, vnode){
+  const el=document.getElementById('osFocus');
+  if(!level){ el.innerHTML='<div class="sub" style="padding:8px 0">Click an OS (left) to tag the whole family, or drill into a version (right) to tag that specific build. You can rename before writing.</div>'; return; }
+  let facet='OS', value, count, uuids;
+  if(level==='version' && vnode){ value=vnode.name; count=vnode.count; uuids=vnode.uuids; }
+  else { value=OSSEL.family; count=OSSEL.count; uuids=OSSEL.uuids; }
+  el.innerHTML=`<div class="callbox" style="display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap;font-family:var(--body);color:var(--ink)">`
+    +`<div><div class="sub">Tag category</div><select id="osFacet" class="fld">${fopt(facet)}</select></div>`
+    +`<div style="flex:1;min-width:200px"><div class="sub">Tag name (editable)</div><input id="osVal" class="fld" style="width:100%" value="${esc(value)}"/></div>`
+    +`<div style="text-align:center"><div class="sub">Assets</div><div style="font-size:24px;font-weight:800;line-height:1">${count.toLocaleString()}</div></div>`
+    +`<button class="btn" id="osTagBtn">🏷 Tag (gated)</button>`
+    +`</div><div id="osFocusRes" class="sub" style="margin-top:6px"></div>`;
+  document.getElementById('osTagBtn').onclick=async()=>{
+    const ok=await writeTag(document.getElementById('osFacet').value, document.getElementById('osVal').value, uuids,
+      document.getElementById('osFocusRes'), count);
+    if(ok) afterTag();   // re-classify so the top pies fill in with this OS
+  };
+}
+/* after any successful tag, re-run classify so the two classification pies (and stats)
+   populate with what was just tagged — the loop the OS explorer feeds. */
+let _refreshT=null;
+function afterTag(){ clearTimeout(_refreshT); _refreshT=setTimeout(()=>{ try{ run(); }catch(e){} }, 1000); }
+async function bulkTag(level){
+  const res=document.getElementById('bulkRes');
+  const btn=document.getElementById(level==='family'?'tagAllOs':'tagAllOsType'); const lbl=btn&&btn.innerHTML;
+  const scroll=()=>{ if(res)res.scrollIntoView({behavior:'smooth',block:'center'}); };
+  const jobs=[]; OSFAM.forEach(f=>{ if(level==='family') jobs.push({facet:'OS',value:f.family,uuids:f.uuids,count:f.count});
+    else (f.versions||[]).forEach(v=>jobs.push({facet:'OS',value:v.name,uuids:v.uuids,count:v.count})); });
+  if(!jobs.length){ res.textContent='nothing to tag'; return; }
+  if(btn){ btn.disabled=true; btn.innerHTML='⏳ Sending…'; btn.style.opacity='.6'; btn.style.transform='translateY(1px)'; btn.style.cursor='default'; }
+  res.innerHTML=`<span style="color:var(--ok);font-weight:600"><span class="spin"></span> Sending ${jobs.length} OS tag(s) to the Tagging log…</span>`; scroll();
+  // fire all at once so they queue together and appear in the log immediately
+  const results=await Promise.all(jobs.map(j=>postTag(j.facet,j.value,j.uuids,null,j.count)));
+  const ok=results.filter(r=>r&&r.ok).length;
+  res.innerHTML=`<span style="color:${ok?'var(--ok)':'var(--cx-e7c66b)'};font-weight:600">✓ ${ok}/${jobs.length} OS tag(s) sent to the Tagging log</span> — <span class="spin"></span> updating the pies… <a href="/web/tags-log.html">Tagging log</a>`; scroll();
+  if(btn){ btn.disabled=false; btn.innerHTML=lbl; btn.style.opacity=''; btn.style.transform=''; btn.style.cursor=''; }
+  if(ok) afterTag();
+}
+document.getElementById('tagAllOs').onclick=()=>bulkTag('family');
+document.getElementById('tagAllOsType').onclick=()=>bulkTag('version');
+
+/* ---------- Other (non-OS) device signals: editable rows ---------- */
+let COHORTS=[];
+async function renderOtherSignals(){
+  const body=document.getElementById('sigBody'); body.innerHTML='<span class="spin"></span> detecting…';
+  let o; try{ o=await API.post('signals'); }catch(e){ o={ok:false}; }
+  if(!o||!o.ok||!o.result){ body.innerHTML='<span class="sub">detection failed</span>'; return; }
+  COHORTS=(o.result.cohorts||[]).filter(c=>c.facet!=='OS');   // OS handled by the pies above
+  document.getElementById('otherMeta').textContent='('+COHORTS.length+')';
+  if(!COHORTS.length){ body.innerHTML='<p class="sub">No non-OS device signals on the untagged set.</p>'; return; }
+  body.innerHTML='<table><colgroup><col style="width:140px"><col><col style="width:64px"><col style="width:150px"></colgroup>'
+    +'<thead><tr><th>Facet</th><th>Tag name (editable)</th><th>Assets</th><th></th></tr></thead><tbody>'
+    +COHORTS.map((c,i)=>`<tr><td><select class="fld sigfacet" id="sigfacet-${i}" style="width:100%">${fopt(c.facet)}</select></td>`
+      +`<td><input class="fld sigval" id="sigval-${i}" value="${esc(c.value)}" style="width:100%" title="detected: ${esc(c.value)}"/>`
+      +`<div class="sub" style="margin-top:2px">${esc((c.sample||[]).slice(0,2).join(', '))}</div></td>`
+      +`<td class="mono">${c.count}</td>`
+      +`<td><button class="btn sm sigtag" data-i="${i}">🏷 Tag (gated)</button></td></tr>`).join('')
+    +'</tbody></table><div id="sigRes" class="sub" style="margin-top:8px"></div>';
+  body.querySelectorAll('.sigtag').forEach(b=>b.onclick=async()=>{ const i=+b.dataset.i, c=COHORTS[i];
+    const ok=await writeTag((document.getElementById('sigfacet-'+i)||{}).value||c.facet,
+             (document.getElementById('sigval-'+i)||{}).value||c.value, c.uuids,
+             document.getElementById('sigRes'), c.count);
+    if(ok) afterTag(); });
+}
+document.getElementById('sigRefresh').onclick=renderSignals;
+document.getElementById('osInterpret').onclick=osInterpret;
+document.getElementById('osApplyAll').onclick=osApplyAll;
+document.getElementById('osPrompt').addEventListener('keydown',e=>{ if(e.key==='Enter')osInterpret(); });
+document.querySelectorAll('.grpby').forEach(b=>b.onclick=()=>{ document.querySelectorAll('.grpby').forEach(x=>x.classList.remove('active')); b.classList.add('active'); GROUPBY=b.dataset.g; if(TREE)explore(); });
+
+document.getElementById('run').onclick=run;
+mountAgentHeader({id:'classify',icon:'📇',name:'Asset Classification',sub:'Linnaeus · close the detection loop'});
+/* explicit-run: nothing scans navi.db until ▶ Classify assets */
+</script>
+</body></html>

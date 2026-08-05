@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Exposure Score · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>
+  .k{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:11px 13px}
+  .kg{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-top:12px}
+  .k .kl{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+  .k .kv{font-family:var(--display);font-size:22px;font-weight:700;margin-top:2px}
+  .act{border:1px solid rgba(229,72,77,.45);border-radius:14px;padding:14px 16px;margin-top:14px;background:radial-gradient(120% 160% at 100% -30%,rgba(229,72,77,.13),transparent 60%),var(--panel)}
+  .act .top{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .act .big{font-family:var(--display);font-weight:700;font-size:28px;color:var(--crit);line-height:1}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden;margin-left:auto}
+  .seg button{background:transparent;border:0;color:var(--ink-2);font-family:var(--display);font-weight:600;font-size:12px;padding:6px 12px;cursor:pointer}
+  .seg button.on{background:var(--crit);color:#12131a}
+  .abtn{display:inline-flex;align-items:center;gap:6px;background:var(--panel-2,var(--panel));border:1px solid var(--line);color:var(--ink);font-family:var(--display);font-weight:600;font-size:12.5px;padding:8px 12px;border-radius:9px;cursor:pointer;text-decoration:none}
+  .abtn:hover{border-color:var(--accent)} .abtn.hot{background:linear-gradient(100deg,#c53b40,#e5484d);border-color:#e5484d;color:#fff}
+  .abtn b{font-family:var(--mono);font-weight:500;opacity:.85} .actbtns{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+  .red{border:1px solid var(--line);border-radius:14px;padding:15px 17px;margin-top:14px;background:radial-gradient(120% 160% at 0% -30%,rgba(67,185,138,.10),transparent 55%),var(--panel)}
+  .plays{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 14px}
+  .play{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:10px;padding:7px 11px;cursor:pointer;font-size:12.5px;color:var(--ink-2);user-select:none}
+  .play.on{border-color:var(--ok);color:var(--ink);background:rgba(67,185,138,.10)}
+  .play .bx{width:14px;height:14px;border-radius:4px;border:1px solid var(--line)} .play.on .bx{background:var(--ok);border-color:var(--ok)}
+  .play span{color:var(--ink-3);font-size:10.5px}
+  .ba{font-family:var(--display);font-weight:700;font-size:30px;line-height:1}
+  .delta{font-family:var(--display);font-weight:700;font-size:18px;color:var(--ok)}
+  .jrow{display:grid;grid-template-columns:1fr 90px 42px;gap:10px;align-items:center;font-size:12px;margin-top:6px}
+  .jbar{height:9px;border-radius:5px;background:var(--panel-2,var(--bg-2));overflow:hidden}.jbar>i{display:block;height:100%}
+  .jrow .jp{font-family:var(--mono);text-align:right;color:var(--ok)}
+  .fgrid{display:grid;grid-template-columns:1.35fr 1fr;gap:16px;margin-top:16px}@media(max-width:960px){.fgrid{grid-template-columns:1fr}}
+  .fac{display:grid;grid-template-columns:13px 1fr 30px;align-items:center;gap:9px;font-size:12px;margin-top:6px}
+  .fac .dot{width:11px;height:11px;border-radius:3px}.fac .nm b{color:var(--ink)}.fac .nm span{color:var(--ink-3);font-size:10.5px}
+  .fac .mx{font-family:var(--mono);font-size:10.5px;color:var(--ink-2);text-align:right}
+  .newpill{font-family:var(--mono);font-size:8.5px;background:rgba(109,112,230,.18);color:var(--accent);border:1px solid var(--accent);border-radius:999px;padding:1px 5px;margin-left:4px;vertical-align:1px}
+  .lb{display:flex;flex-direction:column;gap:8px}
+  .row{display:grid;grid-template-columns:22px 1fr;gap:10px;align-items:center;padding:9px 11px;border:1px solid var(--line);border-radius:11px;background:var(--bg-2);cursor:pointer}
+  .row:hover{border-color:var(--accent)} .row.sel{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent)} .row.act1{box-shadow:inset 3px 0 0 var(--crit)}
+  .rank{font-family:var(--mono);font-size:12px;color:var(--ink-3);text-align:center}
+  .rhost{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.rhost .hn{font-weight:600;font-size:14px}
+  .scv{font-family:var(--display);font-weight:700;font-size:19px;min-width:30px;text-align:right}
+  .gauge{height:7px;border-radius:5px;background:var(--panel-2,var(--bg-2));overflow:hidden;margin:6px 0 5px}.gauge>i{display:block;height:100%;border-radius:5px}
+  .chips{display:flex;gap:4px;flex-wrap:wrap}
+  .fchip{font-family:var(--mono);font-size:9.5px;border:1px solid var(--line);border-radius:999px;padding:1px 6px;color:var(--ink-2);white-space:nowrap}
+  .stack{display:flex;height:22px;border-radius:7px;overflow:hidden;border:1px solid var(--line);margin:6px 0 12px}.stack>i{height:100%}
+  .bdrow{display:grid;grid-template-columns:11px 1fr 34px;gap:9px;align-items:center;font-size:12px;margin-top:5px}.bdrow .dot{width:10px;height:10px;border-radius:3px}
+  .bdrow .lab b{color:var(--ink)}.bdrow .lab span{color:var(--ink-3);font-size:10.5px}.bdrow .pts{font-family:var(--mono);text-align:right;color:var(--ink-2)}.bdrow.zero{opacity:.32}
+  .big2{font-family:var(--display);font-weight:700;font-size:40px;line-height:1}
+  .worst{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-top:10px}
+  .wc{border:1px solid var(--line);border-radius:11px;padding:11px 12px;background:var(--bg-2)}
+  .wc .wh{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
+  .wc .wa{font-weight:600;font-size:14px;margin-top:3px} .wc.conv{box-shadow:inset 3px 0 0 var(--crit)}
+</style>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+  <section class="card" style="background:radial-gradient(120% 140% at 90% -20%,var(--amber-glow),transparent 60%),var(--panel)">
+    <div class="toolbar"><div><div class="acode">Nemesis Hound</div><h2 style="margin:0">🎯 Exposure Score</h2>
+      <p class="sub" style="margin:2px 0 0">The pack's convergence page — every Hound's signal fused into <b>one score per asset</b>. Surfaces the <b>worst from each Hound</b> and where they land on the <b>same</b> assets, ranks the estate worst-first, and turns a play into a <b>projected reduction justified by the signals it clears</b>. Scores climb as more Hounds run and tag.</p></div>
+      <button class="btn run sm" id="load" style="margin-left:auto">▶ Score the estate</button></div>
+    <div id="flash" class="flash"></div>
+    <div class="kg" id="kpis"></div>
+  </section>
+
+  <div class="act" id="actCard" style="display:none">
+    <div class="top"><span class="big" id="anN">—</span>
+      <div><h2 style="margin:0;font-size:17px">🚨 Act now</h2><div class="sub" style="margin:0" id="anSub"></div></div>
+      <div class="seg" id="thr"><button data-t="80" class="on">Critical ≥ 80</button><button data-t="60">High ≥ 60</button><button data-t="40">Top slice</button></div>
+    </div>
+    <div class="actbtns" id="actbtns"></div>
+  </div>
+
+  <div class="red" id="redCard" style="display:none">
+    <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap"><h3 style="margin:0;font-size:15px">📉 Recommended play → projected reduction</h3><span class="sub" style="margin:0" id="redSub"></span></div>
+    <div class="plays" id="plays"></div>
+    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+      <div><div class="sub" style="margin:0">estate exposure now</div><div class="ba" id="baBefore" style="color:var(--crit)">—</div></div>
+      <div style="font-size:20px;color:var(--ink-3)">→</div>
+      <div><div class="sub" style="margin:0">after this play</div><div class="ba" id="baAfter" style="color:var(--ok)">—</div></div>
+      <div><div class="sub" style="margin:0">reduction</div><div class="delta" id="baDelta">—</div></div>
+      <div><div class="sub" style="margin:0">leave CRITICAL</div><div class="delta" id="baLeave" style="color:var(--accent)">—</div></div>
+    </div>
+    <div class="sub" style="margin:12px 0 2px">Justified by — the signals each fix neutralises:</div>
+    <div id="justify"></div>
+  </div>
+
+  <div class="fgrid" id="fgrid" style="display:none">
+    <section class="card">
+      <div class="toolbar" style="margin:0 0 4px"><h2 style="margin:0;font-size:15px">Estate leaderboard — worst first</h2><span class="chip" id="lbCount" style="margin-left:auto"></span></div>
+      <p class="sub" style="margin:2px 0 8px">Click an asset for its factor breakdown. Rows over the act-now line carry a red edge.</p>
+      <div class="lb" id="lb"></div>
+    </section>
+    <div>
+      <section class="card" style="margin-bottom:16px">
+        <h2 style="margin:0;font-size:15px">How the score is built</h2>
+        <p class="sub" style="margin:2px 0 6px">Every factor is one Hound; they sum to 100, then a disposition discount applies and coverage sets confidence.</p>
+        <div id="factors"></div>
+        <div class="callbox mono" style="font-size:10.5px;margin-top:10px">score = Σ(factor pts) × disposition · confidence ← Chronos coverage</div>
+      </section>
+      <section class="card" id="bdCard">
+        <div style="display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap">
+          <div><div class="big2" id="bdScore">—</div><div class="sub" style="margin:2px 0 0">fused score <span id="bdBand" class="chip"></span></div></div>
+          <div style="flex:1;min-width:160px"><h2 id="bdHost" style="font-size:15px;margin:0"></h2><div class="chips" id="bdMeta" style="margin-top:5px"></div></div>
+        </div>
+        <div class="stack" id="bdStack"></div><div id="bdList"></div>
+        <div class="actbtns" id="bdActs" style="margin-top:12px"></div>
+      </section>
+    </div>
+  </div>
+
+  <section class="card" id="worstCard" style="display:none">
+    <h2 style="margin:0;font-size:15px">🐾 Worst from each Hound — and where they converge</h2>
+    <p class="sub" style="margin:2px 0 0" id="convNote"></p>
+    <div class="worst" id="worst"></div>
+  </section>
+  <footer>Nemesis · fused exposure score · read-only rollup over KEV/EPSS/VPR/ACR + every Hound's tags · Priority tagging gated</footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('fused_score');
+let DATA=null, ROWS=[], WRITES=false, THR=80, SEL=new Set(['patch','eol','crypto','segment','own']), CUR=0;
+const FCOLOR={expl:'var(--crit)',sev:'var(--high)',crit:'#e6c34a',path:'#e06a9c',ident:'#e06a9c',exp:'#6ea8e6',ai:'var(--accent)',eol:'#e0913a',cry:'#5d92d6',mit:'#6ea8e6',own:'#a78bfa'};
+const FNEW={path:1,ident:1,ai:1,eol:1,cry:1};
+const PLAYS=[
+ {id:'patch',  lab:'Patch KEV / critical', s:'clears exploitability, severity, ATT&CK', clears:['expl','sev','mit']},
+ {id:'eol',    lab:'Replace EOL software',  s:'clears EOL', clears:['eol']},
+ {id:'crypto', lab:'Renew certs / PQ-migrate', s:'clears weak crypto', clears:['cry']},
+ {id:'segment',lab:'Segment / close exposure', s:'clears internet + AI exposure', clears:['exp','ai']},
+ {id:'own',    lab:'Assign owners', s:'clears ownership gap', clears:['own']},
+];
+const dispMul=a=> a.disp==='Mitigated'?0.3:a.disp==='Accepted'?0.55:1;
+const band=s=> s>=80?['CRITICAL','var(--crit)']:s>=60?['HIGH','var(--high)']:s>=40?['ELEVATED','var(--med)']:['LOW','var(--low)'];
+function clearedFor(a){ const c=new Set(); PLAYS.forEach(p=>{ if(SEL.has(p.id)&&a.applies&&a.applies[p.id]) p.clears.forEach(x=>c.add(x)); }); return c; }
+function projScore(a){ const cl=clearedFor(a); let pts=0; for(const k in a.factors){ if(!cl.has(k)) pts+=a.factors[k]; } return Math.min(100,Math.round(pts*dispMul(a))); }
+
+function chips(a){const c=[];
+ if(a.kev)c.push('<span class="fchip" style="color:var(--crit);border-color:rgba(229,72,77,.5)">🔥 KEV</span>');
+ c.push(`<span class="fchip">⚡ EPSS ${Math.round(a.epss*100)}%</span><span class="fchip">▲ VPR ${(a.vpr||0).toFixed(1)}</span><span class="fchip" style="color:#e6c34a;border-color:rgba(230,195,74,.5)">${a.crown?'👑 crown':'ACR '+(a.acr==null?'—':a.acr)}</span>`);
+ if(a.path)c.push(`<span class="fchip" style="color:#e06a9c;border-color:rgba(224,106,156,.5)">🕸 path:${a.path}</span>`);
+ if(a.ident>=2)c.push('<span class="fchip" style="color:#e06a9c;border-color:rgba(224,106,156,.5)">🪪 cred-reuse</span>');else if(a.ident===1)c.push('<span class="fchip" style="color:#e06a9c;border-color:rgba(224,106,156,.5)">🪪 NHI</span>');
+ if(a.exposed)c.push('<span class="fchip" style="color:#6ea8e6;border-color:rgba(110,168,230,.5)">🌐 exposed</span>');
+ if(a.ai)c.push(`<span class="fchip" style="color:var(--accent);border-color:rgba(109,112,230,.5)">🧠 AI:${a.ai}</span>`);
+ if(a.eol)c.push('<span class="fchip" style="color:#e0913a;border-color:rgba(224,145,58,.5)">🔩 EOL</span>');
+ if(a.crypto)c.push(`<span class="fchip" style="color:#5d92d6;border-color:rgba(93,146,214,.5)">${a.crypto==='pq'?'⚛ PQ-weak':'🔐 cert'}</span>`);
+ if(a.mitre)c.push(`<span class="fchip" style="color:#6ea8e6;border-color:rgba(110,168,230,.5)">🎯 ${esc(a.mitre)}</span>`);
+ if(a.unowned)c.push('<span class="fchip" style="color:#a78bfa;border-color:rgba(167,139,250,.5)">📌 unowned</span>');
+ if(a.blind)c.push('<span class="fchip" style="color:var(--med);border-color:rgba(201,168,63,.5)">⚠ blind</span>');
+ if(a.disp)c.push(`<span class="fchip" style="color:var(--ok);border-color:rgba(67,185,138,.5)">✓ ${esc(a.disp)}</span>`);
+ return c.join('');}
+
+function actSet(){ let s=ROWS.filter(a=>a.score>=THR); if(!s.length) s=ROWS.slice(0,Math.min(10,ROWS.length)); return s; }
+
+function renderAll(){
+ const k=DATA.kpi, F=DATA.factors;
+ const tile=(l,v)=>`<div class="k"><div class="kl">${l}</div><div class="kv">${v}</div></div>`;
+ document.getElementById('kpis').innerHTML=tile('Assets',k.assets)+tile('Estate exposure',k.estate)+tile('Avg score',k.avg)+
+   tile('Critical ≥80',k.critical)+tile('High ≥60',k.high)+tile('KEV assets',k.kev)+tile('Crown+KEV',k.crown_kev)+tile('Blind',k.blind);
+ document.getElementById('factors').innerHTML=F.map(f=>`<div class="fac"><span class="dot" style="background:${FCOLOR[f.id]||'var(--accent)'}"></span><span class="nm"><b>${esc(f.label)}</b>${FNEW[f.id]?'<span class="newpill">+ added</span>':''} <span>· ${esc(f.hound)}</span></span><span class="mx">${f.max}</span></div>`).join('');
+ renderLB(); drawAct(); drawPlays(); drawRed(); drawWorst();
+ ['actCard','redCard','fgrid','worstCard'].forEach(id=>document.getElementById(id).style.display=id==='fgrid'?'grid':'block');
+ showBd(0);
+}
+function renderLB(){
+ document.getElementById('lbCount').textContent=ROWS.length+' assets';
+ document.getElementById('lb').innerHTML=ROWS.slice(0,120).map((a,i)=>{const b=band(a.score);
+  return `<div class="row ${a.score>=THR?'act1':''}" data-i="${i}"><div class="rank">${i+1}</div><div><div class="rhost"><span class="hn">${esc(a.host)}</span><span style="flex:1"></span><span class="fchip" style="color:${b[1]};border-color:${b[1]}">${b[0]}</span><span class="scv" style="color:${b[1]}">${a.score}</span></div><div class="gauge"><i style="width:${a.score}%;background:${b[1]}"></i></div><div class="chips">${chips(a)}</div></div></div>`;}).join('');
+ document.querySelectorAll('.row').forEach(r=>r.onclick=()=>showBd(+r.dataset.i));
+}
+function drawAct(){const S=actSet(),u=S.filter(a=>a.unowned).length,ck=S.filter(a=>a.crown&&a.kev).length,bl=S.filter(a=>a.blind).length,cap=ROWS.some(a=>a.score>=THR);
+ document.getElementById('anN').textContent=S.length;
+ document.getElementById('anSub').innerHTML=(cap?`assets ≥ ${THR}`:`no asset ≥ ${THR} yet — showing the top ${S.length}`)+` · <b style="color:#a78bfa">${u} unowned</b> · <b style="color:#e6c34a">${ck} crown+KEV</b>`+(bl?` · <b style="color:var(--med)">${bl} blind</b>`:'');
+ document.getElementById('actbtns').innerHTML=
+  `<button class="abtn hot" data-a="tag">🏷 Tag Priority : P1 <b>${S.length}</b></button>`+
+  `<a class="abtn" href="/agents/asset_ownership/page.html">📌 Assign owners <b>${u}</b></a>`+
+  `<a class="abtn" href="/agents/email/page.html">📧 Email owners <b>${S.length-u}</b></a>`+
+  `<a class="abtn" href="/agents/acr/page.html">⚖ Raise ACR <b>${ck}</b></a>`+
+  `<a class="abtn" href="/agents/contract/page.html">📜 Add to AI Contract</a>`;
+ const tb=document.querySelector('#actbtns [data-a="tag"]'); if(tb)tb.onclick=()=>tagPriority(S);
+}
+function drawPlays(){document.getElementById('plays').innerHTML=PLAYS.map(p=>`<div class="play ${SEL.has(p.id)?'on':''}" data-p="${p.id}"><span class="bx"></span><span><b style="color:var(--ink)">${p.lab}</b> <span>· ${p.s}</span></span></div>`).join('');
+ document.querySelectorAll('#plays .play').forEach(el=>el.onclick=()=>{const id=el.dataset.p;SEL.has(id)?SEL.delete(id):SEL.add(id);drawPlays();drawRed();});}
+function drawRed(){const S=actSet();
+ const before=ROWS.reduce((s,a)=>s+a.score,0);
+ const inSet=new Set(S.map(a=>a.uuid));
+ const after=ROWS.reduce((s,a)=>s+(inSet.has(a.uuid)?projScore(a):a.score),0);
+ const leave=S.filter(a=>a.score>=80&&projScore(a)<80).length;
+ document.getElementById('redSub').textContent='apply to the '+S.length+' act-now asset(s) — toggle fixes to see the trade';
+ document.getElementById('baBefore').textContent=before; document.getElementById('baAfter').textContent=after;
+ const d=before-after; document.getElementById('baDelta').textContent='−'+d+' ('+(before?Math.round(d/before*100):0)+'%)';
+ document.getElementById('baLeave').textContent=leave;
+ const jf={}; S.forEach(a=>{const cl=clearedFor(a); (DATA.factors||[]).forEach(f=>{ if(cl.has(f.id)){ const p=Math.round((a.factors[f.id]||0)*dispMul(a)); if(p){jf[f.id]=jf[f.id]||{pts:0,n:0,f};jf[f.id].pts+=p;jf[f.id].n++;} } }); });
+ const rows=Object.values(jf).sort((a,b)=>b.pts-a.pts), mx=Math.max(1,...rows.map(r=>r.pts));
+ document.getElementById('justify').innerHTML=rows.length?rows.map(r=>`<div class="jrow"><div style="font-size:12px"><b>${esc(r.f.label)}</b> <span style="color:var(--ink-3);font-size:10.5px">· ${esc(r.f.hound)} — cleared on ${r.n}</span></div><div class="jbar"><i style="width:${r.pts/mx*100}%;background:${FCOLOR[r.f.id]}"></i></div><div class="jp">−${r.pts}</div></div>`).join(''):'<div class="sub">Select a fix above to see the reduction it buys.</div>';
+}
+function showBd(i){const a=ROWS[i]; if(!a)return; CUR=i; const b=band(a.score);
+ document.querySelectorAll('.row').forEach(r=>r.classList.toggle('sel',+r.dataset.i===i));
+ document.getElementById('bdScore').textContent=a.score; document.getElementById('bdScore').style.color=b[1];
+ const bb=document.getElementById('bdBand'); bb.textContent=b[0]; bb.style.cssText=`background:${b[1]}22;color:${b[1]};border:1px solid ${b[1]}`;
+ document.getElementById('bdHost').textContent=a.host; document.getElementById('bdMeta').innerHTML=chips(a);
+ const F=DATA.factors, parts=F.map(f=>({f,p:a.factors[f.id]||0})), rs=parts.reduce((s,x)=>s+x.p,0)||1, dm=dispMul(a);
+ document.getElementById('bdStack').innerHTML=parts.filter(x=>x.p>0).map(x=>`<i style="width:${x.p/rs*100}%;background:${FCOLOR[x.f.id]}" title="${esc(x.f.label)}: +${x.p}"></i>`).join('');
+ document.getElementById('bdList').innerHTML=parts.map(x=>`<div class="bdrow ${x.p?'':'zero'}"><span class="dot" style="background:${FCOLOR[x.f.id]}"></span><span class="lab"><b>${esc(x.f.label)}</b> <span>· ${esc(x.f.hound)}</span></span><span class="pts">${x.p?'+'+x.p:'0'}</span></div>`).join('')+
+   (dm<1?`<div class="bdrow"><span class="dot" style="background:var(--ok)"></span><span class="lab"><b>${esc(a.disp)}</b> <span>· disposition discount</span></span><span class="pts">×${dm}</span></div>`:'')+
+   (a.blind?`<div class="bdrow"><span class="dot" style="background:var(--med)"></span><span class="lab"><b>Low coverage</b> <span>· Chronos — score may understate</span></span><span class="pts">±</span></div>`:'')+
+   `<div class="bdrow" style="border-top:1px solid var(--line);margin-top:4px;padding-top:6px"><span></span><span class="lab"><b>Fused score</b></span><span class="pts" style="color:${b[1]};font-weight:700">${a.score}</span></div>`;
+ document.getElementById('bdActs').innerHTML=`<button class="abtn hot" data-x="tag">🏷 Tag Priority</button><a class="abtn" href="/agents/asset_ownership/page.html">📌 ${a.unowned?'Assign owner':'Owned'}</a><a class="abtn" href="/agents/argos/page.html">🔦 Open in Argos</a>`;
+ const t=document.querySelector('#bdActs [data-x="tag"]'); if(t)t.onclick=()=>tagPriority([a]);
+}
+function drawWorst(){const w=DATA.worst||[], conv=DATA.convergence||[]; const hh={}; w.forEach(x=>hh[x.host]=(hh[x.host]||0)+1);
+ document.getElementById('convNote').innerHTML='The single worst finding from each Hound. '+(conv.length?('<b>'+conv.length+'</b> asset(s) top more than one Hound — that convergence is why they lead the board: '+conv.slice(0,5).map(c=>`<b>${esc(c.host)}</b> tops ${c.tops}`).join(' · ')):'each lands on a different asset (or the pack hasn\'t fully run yet).');
+ document.getElementById('worst').innerHTML=w.map(x=>`<div class="wc ${hh[x.host]>=2?'conv':''}"><div class="wh">${esc(x.hound)}</div><div class="wa">${esc(x.host)}</div><div class="sub" style="margin:3px 0 0">${esc(x.label)} · <b style="color:${FCOLOR[x.id]}">+${x.pts}</b> pts</div></div>`).join('')||'<p class="sub">Run more Hounds to populate this.</p>';
+}
+async function tagPriority(S){
+ const uuids=S.map(a=>a.uuid); if(!uuids.length)return;
+ if(!WRITES && !confirm('Writes are gated (NAVI_ALLOW_WRITES not set). The tag job will queue but be blocked. Continue?'))return;
+ if(!confirm('Tag Priority : P1 on '+uuids.length+' asset(s)? (gated navi write)'))return;
+ flash('flash','<span class="spin"></span> tagging '+uuids.length+' asset(s) Priority : P1…','run');
+ let o; try{o=await API.post('tag',{uuids,value:'P1',confirm:true});}catch(e){o={ok:false,error:e.message};}
+ if(!o.ok){flash('flash','✗ '+esc(o.error||'failed'),'crit');return;}
+ flash('flash','✓ queued Priority : P1 on '+(o.count||uuids.length)+' asset(s) — filter to it anywhere in the pack. Allow ~30 min propagation.','ok');
+}
+async function load(){
+ const b=document.getElementById('load'); b.disabled=true;
+ flash('flash','<span class="spin"></span> fusing every Hound\'s signal across the estate…','run');
+ let o; try{o=await API.post('overview');}catch(e){o={ok:false,error:e.message};}
+ b.disabled=false; const res=o.result||o;
+ if(!res||!res.ok){flash('flash','✗ '+esc((res&&res.error)||o.error||'failed'),'crit');return;}
+ DATA=res; ROWS=res.assets||[]; flashClear('flash');
+ // default threshold: if nothing hits 80, drop to the highest sensible band so the page is useful
+ if(!ROWS.some(a=>a.score>=80)){ THR=ROWS.some(a=>a.score>=60)?60:40; document.querySelectorAll('#thr button').forEach(x=>x.classList.toggle('on',+x.dataset.t===THR)); }
+ renderAll();
+}
+document.getElementById('load').onclick=load;
+document.querySelectorAll('#thr button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#thr button').forEach(x=>x.classList.remove('on'));b.classList.add('on');THR=+b.dataset.t;renderLB();drawAct();drawRed();showBd(CUR);});
+mountAgentHeader({id:'fused_score',icon:'🎯',name:'Exposure Score',sub:'Nemesis · one score from every Hound · act now'});
+jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});
+</script>
+</body></html>
