@@ -53,4 +53,19 @@ def tag(p):
             "write_gate_reason": navi_cli.write_gate_reason()}, 200
 
 
-ACTIONS = {"run": run, "detail": detail, "tag": tag}
+def audit_files(p):
+    """The AUDIT-FILE lens (aggregate): the audit-file leaderboard + the estate-wide
+    audit↔vuln correlation, side by side."""
+    from core import compliance as _c
+    return {"ok": True, "result": _c.audit_overview()}, 200
+
+
+def audit_file(p):
+    """One audit file, all its assets: adherence, checks rollup, assets rollup, and the
+    file-scoped audit↔vuln correlation."""
+    from core import compliance as _c
+    return {"ok": True, "result": _c.audit_detail(p.get("audit_file") or p.get("file") or "")}, 200
+
+
+ACTIONS = {"run": run, "detail": detail, "tag": tag,
+           "audit_files": audit_files, "audit_file": audit_file}

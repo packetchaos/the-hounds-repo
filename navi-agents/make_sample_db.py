@@ -594,7 +594,8 @@ def build():
 
     # ---- compliance / audit results — frameworks: HIPAA, PCI-DSS, 800-53 (NIST), CIS, ISO ----
     c.execute("CREATE TABLE compliance (asset_uuid TEXT, check_id TEXT, check_name TEXT, "
-              "status TEXT, reference TEXT, audit_file TEXT, solution TEXT, info TEXT);")
+              "status TEXT, reference TEXT, audit_file TEXT, solution TEXT, info TEXT, "
+              "see_also TEXT, actual_value TEXT, expected_value TEXT, check_info TEXT);")
     _comp_checks = [
         ("1.4.1", "Ensure bootloader password is set", "CIS_RHEL9.audit",
          [("CSCv7", "5.1"), ("800-53", "IA-5"), ("HIPAA", "164.312(a)(2)(i)")], 0.55),
@@ -619,6 +620,21 @@ def build():
         ("WN22-00-000090", "Antivirus must be installed and current", "DISA_STIG_Win2022.audit",
          [("CSCv7", "8.1"), ("800-53", "SI-3"), ("HIPAA", "164.308(a)(5)(ii)(B)")], 0.20),
     ]
+    # expected (compliant) value + the value seen when the control FAILS — makes the
+    # deep-dive's actual-vs-expected meaningful.
+    _comp_vals = {
+        "1.4.1": ("GRUB2 bootloader password is set (grub.pbkdf2.sha512)", "no bootloader password configured"),
+        "2.2.1": ("chronyd active and synchronized to an upstream source", "no time-sync service running"),
+        "3.4.2": ("firewalld default-deny; a rule covers every open port", "3 listening ports have no firewall rule"),
+        "5.2.10": ("PermitRootLogin no", "PermitRootLogin yes"),
+        "5.3.1": ("pam_pwquality: minlen=14 dcredit=-1 ucredit=-1 ocredit=-1", "no password complexity enforced"),
+        "6.2.1": ("no empty password fields in /etc/shadow", "1 account has an empty password field"),
+        "WN22-AC-000010": ("Account lockout duration = 15 minutes", "Account lockout duration = 0 (disabled)"),
+        "WN22-AU-000500": ("Audit Logon = Success and Failure", "Audit Logon = No Auditing"),
+        "WN22-SO-000030": ("BitLocker enabled on all fixed data drives", "BitLocker not enabled"),
+        "WN22-CC-000270": ("TLS 1.0 and TLS 1.1 disabled in the registry", "TLS 1.0 is enabled"),
+        "WN22-00-000090": ("Microsoft Defender AV enabled; signatures < 7 days old", "AV signatures are 34 days old"),
+    }
     import random as _rndmod
     _cr = _rndmod.Random(7)
     _casset = [r[0] for r in c.execute("SELECT uuid FROM assets WHERE hostname IS NOT NULL "
@@ -626,10 +642,16 @@ def build():
     for (cid, nm, af, refs, frate) in _comp_checks:
         refstr = "[" + ", ".join("{'framework': '%s', 'control': '%s'}" % (f, ct) for f, ct in refs) + "]"
         sol = "Remediate per " + af.replace(".audit", "") + " guidance."
+        exp, act_fail = _comp_vals.get(cid, ("compliant value per benchmark", "non-compliant value"))
+        info = "Verifies: " + nm + "."
+        see = ("https://www.cisecurity.org/cis-benchmarks" if af.startswith("CIS")
+               else "https://public.cyber.mil/stigs/")
         for u in _casset:
             rr = _cr.random()
             st = "FAILED" if rr < frate else ("WARNING" if rr < frate + 0.08 else "PASSED")
-            c.execute("INSERT INTO compliance VALUES (?,?,?,?,?,?,?,?)", (u, cid, nm, st, refstr, af, sol, ""))
+            act = exp if st == "PASSED" else (act_fail if st == "FAILED" else "partially configured — review output")
+            c.execute("INSERT INTO compliance VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                      (u, cid, nm, st, refstr, af, sol, info, see, act, exp, info))
 
     con.commit()
     con.close()
