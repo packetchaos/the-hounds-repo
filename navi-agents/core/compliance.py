@@ -324,23 +324,38 @@ def asset_detail(path=None, asset_uuid=None):
             return {"available": False, "reason": "no compliance assets"}
         asset_uuid = al[0]["asset_uuid"]
     idn = _identities(path, [asset_uuid]).get(asset_uuid, {})
-    rows = db.query(
-        "SELECT check_id, check_name, audit_file, status, reference, see_also, solution, "
-        " actual_value, expected_value, check_info, last_seen "
-        "FROM compliance WHERE asset_uuid=? "
-        "ORDER BY CASE WHEN upper(status) LIKE 'FAIL%' THEN 0 WHEN upper(status) LIKE 'WARN%' THEN 1 "
-        " WHEN upper(status) LIKE 'PASS%' THEN 2 ELSE 3 END, check_name", (asset_uuid,), path=path)
+    # Select only columns this compliance table actually has (schema varies by navi
+    # version / export) so a missing see_also / actual_value never crashes the query.
+    cc = _cols("compliance", path)
+
+    def _pick(*names):
+        for n in names:
+            if n in cc:
+                return n
+        return None
+
+    fmap = {"check_id": _pick("check_id"), "check_name": _pick("check_name"),
+            "audit_file": _pick("audit_file"), "status": _pick("status"),
+            "reference": _pick("reference"), "see_also": _pick("see_also"),
+            "solution": _pick("solution"), "actual": _pick("actual_value", "actual"),
+            "expected": _pick("expected_value", "expected"), "info": _pick("check_info", "info")}
+    sel = ", ".join("%s AS %s" % (v, k) for k, v in fmap.items() if v) or "check_id AS check_id"
+    scol = fmap["status"] or "status"
+    order = (" ORDER BY CASE WHEN upper(" + scol + ") LIKE 'FAIL%' THEN 0"
+             " WHEN upper(" + scol + ") LIKE 'WARN%' THEN 1"
+             " WHEN upper(" + scol + ") LIKE 'PASS%' THEN 2 ELSE 3 END")
+    rows = db.query("SELECT " + sel + " FROM compliance WHERE asset_uuid=?" + order, (asset_uuid,), path=path)
     checks, by_status = [], {s: 0 for s in STATUSES}
     for r in rows:
-        s = _norm_status(r["status"])
-        by_status[s] += 1
-        checks.append({"check_id": r["check_id"], "check_name": r.get("check_name") or "",
+        s = _norm_status(r.get("status"))
+        by_status[s] = by_status.get(s, 0) + 1
+        checks.append({"check_id": r.get("check_id"), "check_name": r.get("check_name") or "",
                        "audit_file": r.get("audit_file") or "", "status": s,
                        "frameworks": parse_reference(r.get("reference")),
                        "see_also": r.get("see_also") or "", "solution": (r.get("solution") or "").strip(),
-                       "actual": (r.get("actual_value") or "").strip(),
-                       "expected": (r.get("expected_value") or "").strip(),
-                       "info": (r.get("check_info") or "").strip()})
+                       "actual": (r.get("actual") or "").strip(),
+                       "expected": (r.get("expected") or "").strip(),
+                       "info": (r.get("info") or "").strip()})
     vulns = _asset_vulns(path, asset_uuid)
     sev = {s: 0 for s in _SEV_ORDER}
     for v in vulns:
@@ -493,3 +508,199 @@ def framework_view(framework, path=None):
             "controls": len(checks), "failing_controls": sum(1 for c in clist if c["failed"] > 0),
             "assets": len(per_asset), "top_failing": clist[:40], "assets_rows": assets[:300],
             "audit_files": sorted(audit.values(), key=lambda x: -x["failed"])}
+
+
+# --------------------------------------------------------------------------- #
+#  Sherlock — the AUDIT-FILE lens: the same estate through the audit file, not
+#  the asset. Aggregate leaderboard + estate-wide audit↔vuln correlation, and a
+#  per-file deep-dive (checks rollup, assets rollup, file-scoped correlation).
+# --------------------------------------------------------------------------- #
+_FAIL = "SUM(CASE WHEN upper(status) LIKE 'FAIL%' THEN 1 ELSE 0 END)"
+_PASS = "SUM(CASE WHEN upper(status) LIKE 'PASS%' THEN 1 ELSE 0 END)"
+_WARN = "SUM(CASE WHEN upper(status) LIKE 'WARN%' THEN 1 ELSE 0 END)"
+
+
+def _pp(passed, failed):
+    pf = (passed or 0) + (failed or 0)
+    return round(100.0 * (passed or 0) / pf, 1) if pf else None
+
+
+def _vulns_for_assets(path, uuids, cap=20000):
+    """Vulns for a set of assets (chunked IN to dodge SQLite's ~999 param limit)."""
+    if not uuids or not _table_exists("vulns", path):
+        return []
+    vc = _cols("vulns", path)
+    if "asset_uuid" not in vc:
+        return []
+    want = [c for c in ("asset_uuid", "plugin_id", "plugin_name", "plugin_family",
+                        "severity", "synopsis", "score", "cves") if c in vc]
+    out, uu = [], list(uuids)
+    for i in range(0, len(uu), 900):
+        chunk = uu[i:i + 900]
+        ph = ",".join("?" * len(chunk))
+        try:
+            rows = db.query("SELECT %s FROM vulns WHERE asset_uuid IN (%s) LIMIT %d"
+                            % (",".join(want), ph, cap), tuple(chunk), path=path)
+        except Exception:
+            rows = []
+        out.extend(dict(r) for r in rows)
+        if len(out) >= cap:
+            break
+    return out
+
+
+def _correlate_aggregate(path=None, audit_file=None):
+    """Audit↔vuln correlation rolled up across assets (estate-wide, or scoped to one
+    audit file). A topic surfaces where a FAILED/warning check and a matching vuln land
+    on the SAME asset — the asset is the relationship. Returns topics with distinct
+    checks, distinct vulns, and the count/sample of assets where they co-occur."""
+    where = "(upper(status) LIKE 'FAIL%' OR upper(status) LIKE 'WARN%')"
+    params = []
+    if audit_file:
+        where += " AND audit_file=?"
+        params.append(audit_file)
+    try:
+        checks = db.query("SELECT asset_uuid, check_name, status, solution FROM compliance WHERE "
+                          + where, tuple(params), path=path)
+    except Exception:
+        checks = []
+    check_assets = {c["asset_uuid"] for c in checks if c.get("asset_uuid")}
+    if not check_assets:
+        return []
+    vulns = _vulns_for_assets(path, check_assets)
+    vby = {}
+    for v in vulns:
+        vby.setdefault(v.get("asset_uuid"), []).append(v)
+    out = []
+    for label, icon, ckw, vkw in _TOPICS:
+        tchecks = [c for c in checks if _hit(c.get("check_name"), ckw) or _hit(c.get("solution"), ckw)]
+        if not tchecks:
+            continue
+        tassets = {c["asset_uuid"] for c in tchecks if c.get("asset_uuid")}
+        linked, tvulns = set(), {}
+        for au in tassets:
+            for v in vby.get(au, []):
+                if _hit(v.get("plugin_name"), vkw) or _hit(v.get("plugin_family"), vkw) or _hit(v.get("synopsis"), vkw):
+                    linked.add(au)
+                    pid = str(v.get("plugin_id") or v.get("plugin_name") or "")
+                    tvulns.setdefault(pid, v)
+        if not linked:
+            continue
+        dchecks = {}
+        for c in tchecks:
+            dchecks.setdefault(c.get("check_name") or "", c)
+        vlist = sorted(tvulns.values(), key=lambda v: _sev_rank(v.get("severity")))
+        idents = _identities(path, list(linked)[:12])
+        out.append({
+            "topic": label, "icon": icon,
+            "key": label.lower().replace(" / ", "-").replace(" ", "-").replace("/", ""),
+            "check_count": len(dchecks), "vuln_count": len(tvulns), "asset_count": len(linked),
+            "checks": [{"check_name": k, "status": v["status"]} for k, v in list(dchecks.items())[:10]],
+            "vulns": [{"plugin_id": v.get("plugin_id"), "plugin_name": v.get("plugin_name"),
+                       "severity": _norm_sev(v.get("severity")), "family": v.get("plugin_family")}
+                      for v in vlist[:15]],
+            "assets": [{"asset_uuid": u, "hostname": idents.get(u, {}).get("hostname") or "",
+                        "ip": idents.get(u, {}).get("ip") or ""} for u in list(linked)[:10]],
+        })
+    out.sort(key=lambda x: (-x["asset_count"], -x["vuln_count"], -x["check_count"]))
+    return out
+
+
+def audit_files_list(path=None):
+    """Worst-first list of audit files, for the lens picker + leaderboard."""
+    if not _table_exists("compliance", path):
+        return []
+    rows = db.query(
+        "SELECT audit_file, COUNT(DISTINCT check_id) AS checks, COUNT(DISTINCT asset_uuid) AS assets, "
+        " COUNT(*) AS results, %s AS failed, %s AS passed, %s AS warning "
+        "FROM compliance GROUP BY audit_file ORDER BY failed DESC, warning DESC" % (_FAIL, _PASS, _WARN),
+        path=path)
+    # per-file framework rollup from failing rows
+    fw = {}
+    for r in db.query("SELECT audit_file, reference FROM compliance WHERE upper(status) LIKE 'FAIL%'", path=path):
+        af = r.get("audit_file") or ""
+        for ref in parse_reference(r.get("reference")):
+            fw.setdefault(af, {}).setdefault(ref["framework"], 0)
+            fw[af][ref["framework"]] += 1
+    out = []
+    for r in rows:
+        af = r.get("audit_file") or ""
+        frs = sorted(fw.get(af, {}).items(), key=lambda x: -x[1])
+        out.append({"audit_file": af, "checks": int(r["checks"] or 0), "assets": int(r["assets"] or 0),
+                    "results": int(r["results"] or 0), "failed": int(r["failed"] or 0),
+                    "passed": int(r["passed"] or 0), "warning": int(r["warning"] or 0),
+                    "pass_pct": _pp(r["passed"], r["failed"]),
+                    "frameworks": [f for f, _ in frs[:6]]})
+    return out
+
+
+def audit_overview(path=None):
+    """The audit-file lens aggregate: leaderboard of files + estate-wide correlation."""
+    st = status(path)
+    if not st["ready"]:
+        return {"available": False, "reason": "no compliance data in navi.db — run navi config update compliance"}
+    files = audit_files_list(path)
+    corr = _correlate_aggregate(path, None)
+    return {"available": True, "files": files, "correlations": corr,
+            "totals": {"files": len(files), "assets": st.get("assets"), "checks": st.get("checks"),
+                       "topics": len(corr)}}
+
+
+def audit_detail(audit_file, path=None):
+    """One audit file, all its assets: adherence, checks rollup, assets rollup, and the
+    file-scoped audit↔vuln correlation."""
+    if not _table_exists("compliance", path):
+        return {"available": False, "reason": "no compliance data in navi.db"}
+    af = (audit_file or "").strip()
+    if not af:
+        fl = audit_files_list(path)
+        if not fl:
+            return {"available": False, "reason": "no audit files"}
+        af = fl[0]["audit_file"]
+    # aggregate status
+    srow = db.query("SELECT %s AS failed, %s AS passed, %s AS warning, COUNT(*) AS results, "
+                    "COUNT(DISTINCT check_id) AS checks, COUNT(DISTINCT asset_uuid) AS assets "
+                    "FROM compliance WHERE audit_file=?" % (_FAIL, _PASS, _WARN), (af,), path=path)
+    agg = dict(srow[0]) if srow else {}
+    # checks rollup (per check_id)
+    crows = db.query(
+        "SELECT check_id, MAX(check_name) AS check_name, MAX(reference) AS reference, MAX(solution) AS solution, "
+        " %s AS failed, %s AS passed, %s AS warning, COUNT(DISTINCT asset_uuid) AS assets "
+        "FROM compliance WHERE audit_file=? GROUP BY check_id ORDER BY failed DESC, warning DESC" % (_FAIL, _PASS, _WARN),
+        (af,), path=path)
+    checks = []
+    for r in crows:
+        checks.append({"check_id": r["check_id"], "check_name": r.get("check_name") or r["check_id"],
+                       "frameworks": parse_reference(r.get("reference")),
+                       "solution": (r.get("solution") or "").strip(),
+                       "passed": int(r["passed"] or 0), "failed": int(r["failed"] or 0),
+                       "warning": int(r["warning"] or 0), "assets": int(r["assets"] or 0),
+                       "pass_pct": _pp(r["passed"], r["failed"])})
+    # assets rollup (assets that ran this file)
+    arows = db.query(
+        "SELECT asset_uuid, %s AS failed, %s AS passed, %s AS warning, COUNT(*) AS total "
+        "FROM compliance WHERE audit_file=? GROUP BY asset_uuid ORDER BY failed DESC, warning DESC" % (_FAIL, _PASS, _WARN),
+        (af,), path=path)
+    idents = _identities(path, [r["asset_uuid"] for r in arows])
+    assets = []
+    for r in arows:
+        idn = idents.get(r["asset_uuid"], {})
+        assets.append({"asset_uuid": r["asset_uuid"], "hostname": idn.get("hostname") or "",
+                       "ip": idn.get("ip") or "", "passed": int(r["passed"] or 0),
+                       "failed": int(r["failed"] or 0), "warning": int(r["warning"] or 0),
+                       "total": int(r["total"] or 0), "pass_pct": _pp(r["passed"], r["failed"])})
+    # framework rollup for the file header
+    fw = {}
+    for r in db.query("SELECT reference FROM compliance WHERE audit_file=? AND upper(status) LIKE 'FAIL%'",
+                      (af,), path=path):
+        for ref in parse_reference(r.get("reference")):
+            fw[ref["framework"]] = fw.get(ref["framework"], 0) + 1
+    corr = _correlate_aggregate(path, af)
+    return {"available": True, "audit_file": af,
+            "failed": int(agg.get("failed") or 0), "passed": int(agg.get("passed") or 0),
+            "warning": int(agg.get("warning") or 0), "results": int(agg.get("results") or 0),
+            "checks_count": int(agg.get("checks") or 0), "assets_count": int(agg.get("assets") or 0),
+            "pass_pct": _pp(agg.get("passed"), agg.get("failed")),
+            "frameworks": sorted(({"framework": k, "failed": v} for k, v in fw.items()),
+                                 key=lambda x: -x["failed"])[:10],
+            "checks": checks[:400], "assets": assets[:300], "correlations": corr}
