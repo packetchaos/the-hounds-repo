@@ -150,6 +150,7 @@ function _harvestFindings(agentId, action, resp, reqBody){
 
 /* ---- Codenames + lore (the Hound Pack) — shown expandable in each agent header ---- */
 const CODENAMES = {
+  c2:{name:'Amarok',lore:'<b>Amarok</b>, the giant wolf of Inuit legend that hunts its quarry down alone in the night — here he is the pack\'s executor, carrying the operator\'s command to a single Linux host over SSH: run one order, ship it a file, or apply a patch drawn from the vulns table. He moves one host at a time, acts only when <b>armed</b> and confirmed, goes canary-first with stop-on-failure, and every push is written to the ledger.'},
   classify:{name:'Linnaeus Hound',lore:'Carl <b>Linnaeus</b>, the father of taxonomy who gave every living thing its name and rank \u2014 here he classifies every asset by what it <i>is</i> (Windows / Linux / macOS / IoT / OT / network / hypervisor), from the OS field with a plugin-output fallback, so the rest of the pack knows exactly what each host is.'},
   was:{name:'Xolotl',lore:'<b>Xolotl</b>, the Aztec dog-god who guides souls through the shadow-world — here he walks your web apps\' hidden surface, the dynamic (DAST) findings that live behind the login and inside the request/response, mapping OWASP-class exposure a network scan never sees.'},
   sla:{name:'Sk\u00f6ll',lore:'<b>Sk\u00f6ll</b>, the wolf that forever chases the sun across the sky — here he chases every finding against its clock, surfacing the SLA breaches: what is overdue, by how long, and for whom, so remediation deadlines can\'t quietly slip.'},
@@ -807,6 +808,7 @@ const _SIDE_GROUPS=[
     ['📧','Email · Gabriel','/agents/email/page.html'],
     ['🐦‍⬛','Alert Raven','/agents/alert/page.html'],
     ['🗑️','Tag Removal','/agents/tagremoval/page.html'],
+    ['🐺','Command & Control','/agents/c2/page.html'],
   ]],
   ['Views',[
     ['🎯','Exposure Score','/agents/fused_score/page.html'],
@@ -883,13 +885,13 @@ const AGENT_FLOW=['mitre','cisakev','eol','certificate',
                   'iot_squad','postquantum',
                   'ai','identity','software','customapp','attackpath','scan_eval',
                   'agentgroup','classify','exproute','asset_ownership','acr',
-                  'email','alert','tagremoval','contract'];
+                  'email','alert','tagremoval','c2','contract'];
 const AGENT_FLOW_LABEL={mitre:'MITRE ATT&CK',cisakev:'CISA KEV',eol:'EOL / Unsupported',certificate:'Certificates',
   iot_squad:'IoT Discovery',postquantum:'Post-Quantum',
   ai:'AI Inventory',identity:'Identity Inventory',software:'Software Analyzer',customapp:'Custom Apps',
   attackpath:'Attack Paths',scan_eval:'Scan Evaluations',agentgroup:'Agent Groups',classify:'Asset Classification',
   exproute:'Exposure Routes',asset_ownership:'Asset Ownership',acr:'ACR Calibration',
-  email:'Email & Reports',alert:'Alert Raven',tagremoval:'Tag Removal',contract:'AI Contract'};
+  email:'Email & Reports',alert:'Alert Raven',tagremoval:'Tag Removal',c2:'Command & Control',contract:'AI Contract'};
 function _flowCurrentId(){
   const m=(location.pathname||'').match(/\/agents\/([^\/]+)\//);
   return (m&&m[1])||window.__AGENT_ID||'';

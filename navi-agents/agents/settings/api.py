@@ -23,6 +23,10 @@ _ENV_FIELDS = [
      "help": "1 = Execute-tags / ACR writes actually run; 0 = gated (planned only)."},
     {"key": "NAVI_EMAIL", "label": "Allow email (Gabriel)", "bool": True,
      "help": "1 = Gabriel can send mail — a SEPARATE opt-in on top of writes. SMTP is set out-of-band via `navi config smtp`."},
+    {"key": "NAVI_REMOTE_CODE_EXECUTION", "label": "Allow remote execution (Amarok)", "bool": True,
+     "help": "1 = Amarok can run `navi action push` — remote code execution over SSH to a Linux host. "
+             "The pack's HIGHEST-risk capability, a SEPARATE opt-in stacked ON TOP of writes; keep 0 "
+             "unless actively remediating. SSH creds come from `navi config ssh` (see the SSH chip above)."},
     {"key": "NAVI_ALERT_EMAIL", "label": "Default alert email",
      "help": "Where Alert Raven sends alert digests when something fires. Per-alert overrides win over this default."},
     {"key": "NAVI_BIN", "label": "navi binary path",
@@ -87,6 +91,9 @@ def status(p):
             "writes_enabled": navi_cli.writes_enabled(),
             "email_enabled": navi_cli.email_enabled(),
             "email_gate_reason": navi_cli.email_gate_reason(),
+            "rce_enabled": navi_cli.rce_enabled(),
+            "rce_gate_reason": navi_cli.rce_gate_reason(),
+            "ssh": db.ssh_status(),
             "navi_available": navi_cli.navi_available(),
             "navi_path": (navi_cli._resolve_navi() or ""),
             "navi_cwd": (cli_jobs._run_cwd() or ""),

@@ -251,7 +251,11 @@ async function applyPlan(){
   const ap=document.getElementById('plApply'); if(ap){ap.disabled=true;ap.textContent='⏳ tagging…';}
   let o; try{ o=await API.post('apply',{owner,uuids:PLAN.uuids,layer,mode,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
   if(!o.ok){ flash('flash','✗ '+esc(o.error||'failed'),'crit'); if(ap){ap.disabled=false;ap.textContent='✓ Apply';} return; }
-  flash('flash','✓ tagged '+ (o.assets||PLAN.match_count) +' asset(s) — '+(layer==='asset'?('cascaded '+(o.cascaded||0)+' route/path owner tags'):'Business Owner applied')+'. Allow ~30 min propagation, then Reload.','ok');
+  if(layer==='asset' && o.queued){
+    flash('flash','✓ queued in the background (job #'+o.job_id+') — assigning '+(o.assets||PLAN.match_count)+' asset(s) across their routes &amp; paths. You can leave this page; track it in the Tagging log. Allow ~30 min propagation.','ok');
+  } else {
+    flash('flash','✓ tagged '+ (o.assets||PLAN.match_count) +' asset(s) — '+(layer==='asset'?('cascaded '+(o.cascaded||0)+' route/path owner tags'):'Business Owner applied')+'. Allow ~30 min propagation, then Reload.','ok');
+  }
   if(ap){ap.textContent='✓ queued';}
 }
 
