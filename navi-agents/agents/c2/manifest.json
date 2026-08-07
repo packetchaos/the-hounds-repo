@@ -1,0 +1,13 @@
+{
+  "id": "c2",
+  "name": "Command & Control",
+  "icon": "🐺",
+  "order": 27,
+  "category": "Operationalize",
+  "codename": "Amarok Hound",
+  "summary": "Amarok — the pack's remediation executor. Drives navi action push (remote code execution over SSH to ONE Linux host) to run a command, ship a file, or apply a patch derived from the vulns table. The single highest-risk capability in the pack: TRIPLE-gated (writes + NAVI_REMOTE_CODE_EXECUTION + per-host confirm), Linux-only, destructive-command denylist, armed campaigns that go canary-first with stop-on-failure and an abort switch, and Route→Tag→Push→Verify to prove the finding actually closed. Every push is written to the Tagging ledger (op=push).",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": ["run", "load", "status", "hosts", "precheck", "command", "upload", "push_file", "plan", "campaign", "abort", "verify", "log", "refresh"],
+  "gated": "rce"
+}

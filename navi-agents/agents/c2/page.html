@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Amarok · Command &amp; Control · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>
+  .gatebar{border:1px solid var(--line);border-left-width:4px;border-radius:9px;padding:11px 13px;margin:10px 0;font-size:13px}
+  .tabs2{display:flex;flex-wrap:wrap;gap:6px;margin:14px 0 6px}
+  .tabs2 button{border:1px solid var(--line);background:var(--bg-2);color:var(--ink);border-radius:8px;padding:7px 13px;font-size:13px;cursor:pointer}
+  .tabs2 button.on{background:var(--accent);border-color:var(--accent);color:#0b1220;font-weight:700}
+  .panel{display:none;margin-top:12px}
+  .panel.on{display:block}
+  label.lbl{display:block;font-size:12px;color:var(--mut);margin:12px 0 5px;text-transform:uppercase;letter-spacing:.05em}
+  .fld,select.fld,textarea.fld{width:100%;padding:9px 12px;border-radius:8px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink);font-size:14px;font-family:inherit;box-sizing:border-box}
+  textarea.fld{font-family:var(--mono);font-size:13px;min-height:64px;resize:vertical}
+  .row{display:flex;flex-wrap:wrap;gap:12px 16px;align-items:flex-end}
+  .row>div{flex:1 1 240px;min-width:180px}
+  .badge{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;border-radius:99px;padding:2px 9px;border:1px solid var(--line);margin-left:6px}
+  .crown{color:#f59e0b;border-color:rgba(245,158,11,.5)}
+  .warnbox{border:1px solid rgba(251,146,60,.45);background:rgba(251,146,60,.08);border-radius:9px;padding:9px 12px;font-size:13px;margin:8px 0}
+  .critbox{border:1px solid rgba(244,63,94,.5);background:rgba(244,63,94,.09);border-radius:9px;padding:9px 12px;font-size:13px;margin:8px 0}
+  .okbox{border:1px solid rgba(52,211,153,.45);background:rgba(52,211,153,.08);border-radius:9px;padding:9px 12px;font-size:13px;margin:8px 0}
+  .arm{border:1px solid var(--accent);border-radius:11px;padding:13px 15px;margin:12px 0;background:var(--panel)}
+  .arm pre{white-space:pre-wrap;font-family:var(--mono);font-size:12.5px;background:var(--bg-2);border:1px solid var(--line);border-radius:8px;padding:9px 11px;margin:8px 0;color:var(--ink)}
+  table.c2 th,table.c2 td{font-size:12.5px;padding:6px 9px;border-bottom:1px solid var(--line);text-align:left}
+  table.c2 th{color:var(--mut);text-transform:uppercase;letter-spacing:.04em;font-size:11px}
+  .hostpick{max-height:230px;overflow:auto;border:1px solid var(--line);border-radius:9px;padding:4px 2px;margin-top:6px}
+  .hostpick label{display:flex;gap:8px;align-items:center;padding:5px 9px;font-size:13px;cursor:pointer;text-transform:none;letter-spacing:0;color:var(--ink);margin:0}
+  .mut{color:var(--mut)}
+  .swch{display:inline-flex;align-items:center;gap:8px;font-size:13px}
+  .pill{display:inline-flex;align-items:center;gap:5px;font-size:12px;border-radius:99px;padding:2px 9px;border:1px solid var(--line);margin:2px 4px 2px 0}
+</style>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+
+  <section class="card">
+    <div class="toolbar"><div><h2 style="margin:0">🐺 Command &amp; Control</h2>
+      <p class="sub" style="margin:2px 0 0"><b>Amarok</b> — the pack's remediation executor. Runs a command, ships a file, or applies a vuln-derived patch to a <b>Linux</b> host via <span class="mono">navi action push</span> (remote code execution over SSH). The pack's highest-risk capability: <b>triple-gated</b> (writes + remote-exec opt-in + per-host confirm), Linux-only, canary-first, fully logged.</p></div>
+      <button class="btn ghost sm" id="refreshBtn" style="margin-left:auto" title="Sync assets+vulns so post-patch state lands">⟳ Sync navi.db</button></div>
+    <div id="gate" class="gatebar">checking capability…</div>
+
+    <div class="tabs2" id="tabs">
+      <button data-t="cmd" class="on">⌨️ Single command</button>
+      <button data-t="file">📦 File push</button>
+      <button data-t="patch">🩹 Patch a vuln</button>
+      <button data-t="camp">🎯 Campaign</button>
+      <button data-t="log">🧾 Ledger</button>
+    </div>
+    <div id="flash" class="flash" style="margin-top:8px"></div>
+
+    <!-- ===== single command ===== -->
+    <div class="panel on" id="p-cmd">
+      <div class="row">
+        <div><label class="lbl">Target host (Linux)</label><select id="cmdHost" class="fld"></select></div>
+        <div style="flex:2 1 360px"><label class="lbl">Command</label><textarea id="cmdText" class="fld" placeholder="sudo DEBIAN_FRONTEND=noninteractive apt-get install --only-upgrade -y openssl"></textarea></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:12px"><button class="btn ghost sm" id="cmdPre">🔍 Precheck</button><button class="btn run sm" id="cmdArm">▶ Arm &amp; run</button></div>
+      <div id="cmdMsg"></div>
+      <div id="cmdArmBox"></div>
+      <div id="cmdOut"></div>
+    </div>
+
+    <!-- ===== file push ===== -->
+    <div class="panel" id="p-file">
+      <div class="row">
+        <div><label class="lbl">File to ship</label><input id="fileIn" type="file" class="fld"></div>
+        <div><label class="lbl">Target host (Linux)</label><select id="fileHost" class="fld"></select></div>
+      </div>
+      <div id="fileState" class="sub" style="margin-top:8px"></div>
+      <div style="display:flex;gap:8px;margin-top:12px"><button class="btn ghost sm" id="fileUp">⬆ Upload to server</button><button class="btn run sm" id="fileArm">▶ Arm &amp; scp</button></div>
+      <p class="sub" style="margin-top:8px">scp lands the file on the host at navi's default location. To <b>run</b> it, switch to <b>Single command</b> and push e.g. <span class="mono">sudo bash &lt;remote-path&gt;</span> as its own confirmed step (the install-agent pattern).</p>
+      <div id="fileArmBox"></div>
+      <div id="fileOut"></div>
+    </div>
+
+    <!-- ===== patch a vuln ===== -->
+    <div class="panel" id="p-patch">
+      <div class="row">
+        <div style="flex:2 1 300px"><label class="lbl">Plugin ID · CVE · software keyword</label><input id="planSel" class="fld" placeholder="openssl   ·   CVE-2024-0001   ·   12345"></div>
+        <div style="flex:0 0 auto"><label class="lbl">&nbsp;</label><button class="btn run sm" id="planBtn">🩹 Find affected hosts</button></div>
+      </div>
+      <div id="planOut"></div>
+    </div>
+
+    <!-- ===== campaign ===== -->
+    <div class="panel" id="p-camp">
+      <div id="campEmpty" class="sub">Build a campaign from <b>Patch a vuln</b>, or select hosts here after loading them.</div>
+      <div id="campBody" style="display:none">
+        <label class="lbl">Command for every host</label>
+        <textarea id="campCmd" class="fld"></textarea>
+        <div id="campFileNote" class="sub" style="margin-top:6px;display:none"></div>
+        <label class="lbl" style="margin-top:12px">Target hosts (<span id="campCount">0</span>)</label>
+        <div id="campHosts" style="margin-top:4px"></div>
+        <div class="row" style="margin-top:12px">
+          <div style="flex:0 0 auto"><span class="swch"><input type="checkbox" id="optCanary" checked> Canary first (halt if host #1 fails)</span></div>
+          <div style="flex:0 0 auto"><span class="swch"><input type="checkbox" id="optStop" checked> Stop on failure</span></div>
+          <div style="flex:0 0 120px"><label class="lbl" style="margin:0 0 4px">Max hosts</label><input id="optMax" class="fld" type="number" value="200" min="1"></div>
+        </div>
+        <div class="arm" style="margin-top:14px">
+          <span class="swch"><input type="checkbox" id="armSwitch"> <b>ARM</b> this campaign</span>
+          <span class="sub" style="margin-left:10px">Nothing fires until armed. Then confirm to run.</span>
+          <div style="margin-top:10px;display:flex;gap:8px"><button class="btn run sm" id="campRun" disabled>🚀 Run campaign</button><button class="btn ghost sm" id="campVerify">✅ Verify (re-check vulns)</button></div>
+        </div>
+      </div>
+      <div id="campArmBox"></div>
+      <div id="campOut"></div>
+    </div>
+
+    <!-- ===== ledger ===== -->
+    <div class="panel" id="p-log">
+      <div class="toolbar" style="margin:4px 0 8px"><h2 style="margin:0;font-size:15px">🧾 Push ledger</h2><button class="btn ghost sm" id="logBtn" style="margin-left:auto">⟳ Refresh</button></div>
+      <p class="sub" style="margin:0 0 8px">Every push is written to the shared Tagging log (<span class="mono">op=push</span>) — who ran what, where, and the exit. Also visible on the Tagging log page.</p>
+      <div id="logOut"></div>
+    </div>
+  </section>
+  <footer>Amarok · command &amp; control · reads navi.db read-only · executes via navi action push (triple-gated: writes + NAVI_REMOTE_CODE_EXECUTION + confirm) · Linux/SSH only</footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('c2');
+let RCE=false, SSH=null, HOSTS=[], UPLOAD=null, PLAN=null;
+const CAMP={hosts:[], command:"", path:"", selector:""};
+const $=id=>document.getElementById(id);
+
+function sshLine(h){
+  if(!h) return '';
+  if(!h.configured) return '<div style="margin-top:6px;font-size:12.5px">🔑 <b>SSH not configured</b> — run <span class="mono">navi config ssh</span> before any push, or it can\'t authenticate.</div>';
+  if(h.plaintext_password) return '<div style="margin-top:6px;font-size:12.5px;color:#fbbf24">🔑 SSH configured — ⚠ a <b>plaintext SSH password</b> is stored in navi.db (<span class="mono">ssh</span> table). Prefer a key file and protect navi.db.</div>';
+  return '<div style="margin-top:6px;font-size:12.5px">🔑 SSH configured (key file).</div>';
+}
+function setGate(g){
+  RCE=!!(g&&g.rce_enabled); const el=$('gate');
+  if(RCE){ el.style.borderLeftColor='var(--ok)'; el.innerHTML='🟢 <b>Remote execution ARMED on the server</b> — writes + remote-exec opt-in are on. Every push still needs a per-host confirm. SSH creds come from <span class="mono">navi config ssh</span>.'; }
+  else { el.style.borderLeftColor='#f43f5e'; el.innerHTML='🔴 <b>Remote execution is DISABLED</b> — you can plan, precheck and pick hosts freely; nothing can run. To arm it: '+esc((g&&g.reason)||'set NAVI_ALLOW_WRITES=1 + NAVI_REMOTE_CODE_EXECUTION=1 and restart.'); }
+  el.innerHTML += sshLine(SSH);
+}
+function hostLabel(h){ return h.ip+(h.hostname?(' · '+h.hostname):'')+' · '+esc(h.os||h.os_class); }
+function hostOpt(h){ return '<option value="'+esc(h.ip)+'">'+esc(h.ip)+(h.hostname?(' — '+h.hostname):'')+(h.crown?'  ★ACR '+h.acr:'')+'</option>'; }
+
+async function loadStatus(){ let o; try{o=await API.post('status',{});}catch(e){o={};} SSH=(o&&o.ssh)||null; setGate(o||{}); }
+async function loadHosts(){
+  let o; try{ o=await API.post('hosts',{}); }catch(e){ o={ok:false}; }
+  if(!o||!o.ok){ return; }
+  setGate(o); HOSTS=o.linux||[];
+  const opts=HOSTS.map(hostOpt).join('')||'<option value="">— no Linux hosts in navi.db —</option>';
+  $('cmdHost').innerHTML=opts; $('fileHost').innerHTML=opts;
+  const ex=o.excluded_count?(' · '+o.excluded_count+' non-Linux excluded'):'';
+  if(HOSTS.length===0) flash('flash','No Linux hosts found in navi.db. push is Linux/SSH only'+ex,'warn');
+}
+
+/* ---- tabs ---- */
+$('tabs').querySelectorAll('button').forEach(b=>b.onclick=()=>{
+  $('tabs').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('on'));
+  $('p-'+b.dataset.t).classList.add('on');
+  if(b.dataset.t==='log') loadLog();
+});
+
+/* ---- generic arm/confirm box (spells out the LITERAL command) ---- */
+function armBox(boxId, host, literal, opts, onExec){
+  const dangers=(opts&&opts.dangers)||[], warns=(opts&&opts.warnings)||[], secret=opts&&opts.secret;
+  let h='<div class="arm"><b>⚠ Confirm remote execution</b> on <span class="mono">'+esc(host)+'</span>';
+  h+='<pre>'+esc(literal)+'</pre>';
+  warns.forEach(w=>h+='<div class="warnbox">⚠ '+esc(w)+'</div>');
+  if(secret) h+='<div class="warnbox">🔑 Looks like a secret is embedded — it will be written verbatim to the push ledger. Consider a file/agent-based secret instead.</div>';
+  if(dangers.length){ h+='<div class="critbox">☠ Destructive: '+dangers.map(esc).join('; ')+'<br><label class="swch" style="margin-top:7px"><input type="checkbox" id="'+boxId+'_force"> I understand — run it anyway</label></div>'; }
+  h+='<label class="swch" style="margin-top:9px"><input type="checkbox" id="'+boxId+'_ok"> I confirm this runs on '+esc(host)+'</label>';
+  h+='<div style="margin-top:10px;display:flex;gap:8px"><button class="btn run sm" id="'+boxId+'_go">Execute</button><button class="btn ghost sm" id="'+boxId+'_no">Cancel</button></div></div>';
+  $(boxId).innerHTML=h;
+  $(boxId+'_no').onclick=()=>{ $(boxId).innerHTML=''; };
+  $(boxId+'_go').onclick=()=>{
+    if(!$(boxId+'_ok').checked){ return; }
+    const force=$(boxId+'_force')?$(boxId+'_force').checked:false;
+    if(dangers.length && !force){ return; }
+    $(boxId).innerHTML=''; onExec(force);
+  };
+}
+
+/* ---- single command ---- */
+$('cmdPre').onclick=async()=>{
+  const target=$('cmdHost').value, command=$('cmdText').value.trim();
+  if(!command){ flash('cmdMsg','enter a command','warn'); return; }
+  let o; try{ o=await API.post('precheck',{target,command}); }catch(e){ o={ok:false}; }
+  let h='';
+  if(o.danger) h+='<div class="critbox">☠ Destructive: '+(o.dangers||[]).map(esc).join('; ')+' — will require an extra confirm.</div>';
+  (o.warnings||[]).forEach(w=>h+='<div class="warnbox">⚠ '+esc(w)+'</div>');
+  if(o.secret_risk) h+='<div class="warnbox">🔑 Possible secret in the command — it gets logged verbatim.</div>';
+  if(!h) h='<div class="okbox">✓ No denylist hits or warnings. Still your responsibility to review.</div>';
+  $('cmdMsg').innerHTML=h;
+};
+$('cmdArm').onclick=async()=>{
+  const target=$('cmdHost').value, command=$('cmdText').value.trim();
+  if(!target){ flash('cmdMsg','pick a host','warn'); return; }
+  if(!command){ flash('cmdMsg','enter a command','warn'); return; }
+  if(!RCE){ flash('cmdMsg','remote execution is disabled on the server — see the banner','crit'); return; }
+  let pc; try{ pc=await API.post('precheck',{target,command}); }catch(e){ pc={}; }
+  armBox('cmdArmBox', target, command, {dangers:pc.dangers||[],warnings:pc.warnings||[],secret:pc.secret_risk}, async(force)=>{
+    flash('flash','<span class="spin"></span> pushing to '+esc(target)+'…','run');
+    let o; try{ o=await API.post('command',{target,command,confirm:true,force}); }catch(e){ o={ok:false,error:e.message}; }
+    flashClear('flash'); setGate(o);
+    $('cmdOut').innerHTML=resultBox(o);
+  });
+};
+
+/* ---- file push ---- */
+$('fileIn').addEventListener('change',()=>{ UPLOAD=null; $('fileState').textContent=$('fileIn').files[0]?('selected: '+$('fileIn').files[0].name):''; });
+$('fileUp').onclick=async()=>{
+  const f=$('fileIn').files[0]; if(!f){ flash('flash','choose a file first','warn'); return; }
+  flash('flash','<span class="spin"></span> uploading…','run');
+  const b64=await new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(String(r.result).split(',')[1]||''); r.onerror=rej; r.readAsDataURL(f); });
+  let o; try{ o=await API.post('upload',{filename:f.name,content_b64:b64}); }catch(e){ o={ok:false,error:e.message}; }
+  flashClear('flash');
+  if(!o.ok){ $('fileState').innerHTML='<span style="color:#f43f5e">✗ '+esc(o.error||'upload failed')+'</span>'; return; }
+  UPLOAD=o; $('fileState').innerHTML='✓ on server: <span class="mono">'+esc(o.name)+'</span> ('+o.bytes+' bytes) — ready to scp';
+};
+$('fileArm').onclick=async()=>{
+  const target=$('fileHost').value;
+  if(!UPLOAD){ flash('flash','upload the file to the server first','warn'); return; }
+  if(!target){ flash('flash','pick a host','warn'); return; }
+  if(!RCE){ flash('flash','remote execution is disabled — see the banner','crit'); return; }
+  armBox('fileArmBox', target, 'scp  '+UPLOAD.name+'   →   '+target, {}, async()=>{
+    flash('flash','<span class="spin"></span> shipping '+esc(UPLOAD.name)+'…','run');
+    let o; try{ o=await API.post('push_file',{target,path:UPLOAD.path,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+    flashClear('flash'); setGate(o); $('fileOut').innerHTML=resultBox(o);
+  });
+};
+
+/* ---- patch a vuln ---- */
+$('planBtn').onclick=async()=>{
+  const selector=$('planSel').value.trim(); if(!selector){ flash('flash','enter a plugin id, CVE, or keyword','warn'); return; }
+  flash('flash','<span class="spin"></span> searching vulns…','run');
+  let o; try{ o=await API.post('plan',{selector}); }catch(e){ o={ok:false,error:e.message}; }
+  flashClear('flash');
+  if(!o.ok){ $('planOut').innerHTML='<div class="critbox">✗ '+esc(o.error||'failed')+'</div>'; return; }
+  PLAN=o;
+  const lh=o.linux_hosts||[];
+  let h='<div class="okbox">Matched <b>'+o.matched_assets+'</b> asset(s) · <b>'+lh.length+'</b> Linux host(s) patchable'+(o.excluded_count?(' · <b>'+o.excluded_count+'</b> non-Linux excluded'):'')+'</div>';
+  if(o.plugin_names&&o.plugin_names.length) h+='<p class="sub">'+o.plugin_names.map(esc).join(' · ')+'</p>';
+  if(o.solutions_available && (o.solutions||[]).length){
+    h+='<label class="lbl">Tenable\'s stated Solution (plugins table)</label>';
+    h+=o.solutions.map(s=>'<div class="okbox" style="margin:6px 0"><b class="mono">'+esc(s.plugin_id)+'</b> '+esc(s.plugin_name||'')+(s.fix_hint?(' <span class="badge">'+esc(s.fix_hint)+'</span>'):'')+'<div style="margin-top:5px;white-space:pre-wrap;font-size:13px">'+esc(s.solution)+'</div></div>').join('');
+  } else if(o.solutions_note){
+    h+='<div class="warnbox">ℹ '+esc(o.solutions_note)+'</div>';
+  }
+  h+='<label class="lbl">Remediation command — applies the Solution above (edit per host)</label>';
+  h+='<div class="row"><div style="flex:0 0 auto"><select id="tmplPick" class="fld">'+((o.templates||[]).map((t,i)=>'<option value="'+i+'">'+esc(t.os)+'</option>').join(''))+'</select></div>'+
+     '<div style="flex:2 1 320px"><input id="planCmd" class="fld" value="'+esc((o.templates&&o.templates[0]?o.templates[0].cmd:''))+'"></div></div>';
+  h+='<div class="warnbox" style="margin-top:8px">⚠ A CVE doesn\'t map 1:1 to a safe command. Confirm the package name per host.</div>';
+  if(lh.length){
+    h+='<div class="hostpick" id="planHosts">'+lh.map((x,i)=>'<label><input type="checkbox" class="ph" data-ip="'+esc(x.ip)+'" checked> <span class="mono">'+esc(x.ip)+'</span> '+esc(x.hostname||'')+(x.crown?' <span class="badge crown">★ ACR '+x.acr+'</span>':'')+'</label>').join('')+'</div>';
+    h+='<button class="btn run sm" id="toCamp" style="margin-top:12px">🎯 Build campaign from selected →</button>';
+  } else { h+='<div class="warnbox">No Linux hosts to patch for this selector.</div>'; }
+  $('planOut').innerHTML=h;
+  if($('tmplPick')) $('tmplPick').onchange=()=>{ $('planCmd').value=(o.templates[+$('tmplPick').value]||{}).cmd||''; };
+  if($('toCamp')) $('toCamp').onclick=()=>{
+    const ips=[...document.querySelectorAll('.ph:checked')].map(c=>c.dataset.ip);
+    if(!ips.length){ flash('flash','select at least one host','warn'); return; }
+    CAMP.hosts=ips; CAMP.command=$('planCmd').value.trim(); CAMP.path=""; CAMP.selector=o.selector;
+    openCampaign();
+  };
+};
+
+/* ---- campaign ---- */
+function openCampaign(){
+  $('tabs').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x.dataset.t==='camp'));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('on')); $('p-camp').classList.add('on');
+  $('campEmpty').style.display='none'; $('campBody').style.display='';
+  $('campCmd').value=CAMP.command; $('campCount').textContent=CAMP.hosts.length;
+  $('campHosts').innerHTML=CAMP.hosts.map(ip=>'<span class="pill">'+esc(ip)+'</span>').join('');
+  $('campFileNote').style.display=CAMP.path?'':'none';
+  if(CAMP.path){ $('campFileNote').innerHTML='File mode: shipping <span class="mono">'+esc(CAMP.path.split(/[\\/]/).pop())+'</span> to each host.'; $('campCmd').style.display='none'; }
+  else { $('campCmd').style.display=''; }
+  $('armSwitch').checked=false; $('campRun').disabled=true;
+}
+$('armSwitch').addEventListener('change',()=>{ $('campRun').disabled=!$('armSwitch').checked; });
+$('campRun').onclick=async()=>{
+  if(!$('armSwitch').checked) return;
+  const command=CAMP.path?'':$('campCmd').value.trim();
+  if(!RCE){ flash('flash','remote execution is disabled — see the banner','crit'); return; }
+  if(!CAMP.hosts.length){ flash('flash','no hosts','warn'); return; }
+  if(!CAMP.path && !command){ flash('flash','enter a command','warn'); return; }
+  const canary=$('optCanary').checked, stop=$('optStop').checked, max=parseInt($('optMax').value||'200',10);
+  const literal=(CAMP.path?('scp '+CAMP.path.split(/[\\/]/).pop()):command)+'\n\non '+CAMP.hosts.length+' host(s)'+(canary?'  · canary first':'')+(stop?'  · stop on failure':'');
+  let pc={dangers:[]}; if(command){ try{ pc=await API.post('precheck',{command}); }catch(e){} }
+  armBox('campArmBox', CAMP.hosts.length+' hosts', literal, {dangers:pc.dangers||[]}, async(force)=>{
+    flash('flash','<span class="spin"></span> arming campaign…','run');
+    const body={hosts:CAMP.hosts,armed:true,confirm:true,force,canary,stop_on_failure:stop,max_hosts:max};
+    if(CAMP.path) body.path=CAMP.path; else body.command=command;
+    let o; try{ o=await API.post('campaign',body); }catch(e){ o={ok:false,error:e.message}; }
+    flashClear('flash'); setGate(o);
+    if(o.blocked){ $('campOut').innerHTML='<div class="critbox">🔴 '+esc(o.reason||'remote execution disabled')+'</div>'; return; }
+    if(!o.ok){ $('campOut').innerHTML='<div class="critbox">✗ '+esc(o.error||'failed')+'</div>'; return; }
+    let h='<div class="okbox">🚀 '+esc(o.message||'campaign running')+'</div>';
+    h+='<button class="btn ghost sm" id="campAbort" data-cid="'+esc(o.campaign_id)+'">⛔ Abort campaign</button>';
+    $('campOut').innerHTML=h;
+    $('campAbort').onclick=async()=>{ let a; try{ a=await API.post('abort',{campaign_id:o.campaign_id}); }catch(e){ a={}; } flash('flash',esc((a&&a.message)||'abort requested'),'warn'); };
+  });
+};
+$('campVerify').onclick=async()=>{
+  if(!CAMP.selector){ flash('flash','verify works after a Patch-a-vuln plan (needs the selector)','warn'); return; }
+  flash('flash','<span class="spin"></span> re-checking vulns…','run');
+  let o; try{ o=await API.post('verify',{selector:CAMP.selector,hosts:CAMP.hosts}); }catch(e){ o={ok:false}; }
+  flashClear('flash');
+  const cls=o.clear?'okbox':'warnbox';
+  $('campOut').innerHTML='<div class="'+cls+'">'+(o.clear?'✓ clear — ':'⚠ ')+esc(o.still_open||0)+' still open across '+esc(o.checked_hosts||0)+' host(s). '+esc(o.note||'')+'</div>';
+};
+
+/* ---- ledger ---- */
+async function loadLog(){
+  let o; try{ o=await API.post('log',{limit:60}); }catch(e){ o={ok:false}; }
+  const e=(o&&o.entries)||[];
+  if(!e.length){ $('logOut').innerHTML='<p class="sub">No pushes yet.</p>'; return; }
+  $('logOut').innerHTML='<table class="c2"><thead><tr><th>#</th><th>host</th><th>kind</th><th>detail</th><th>status</th><th>result</th></tr></thead><tbody>'+
+    e.map(j=>'<tr><td class="mono">'+esc(j.id)+'</td><td class="mono">'+esc(j.value||'')+'</td><td>'+esc(j.selector||'')+'</td><td class="mut">'+esc((j.detail||'').slice(0,80))+'</td><td>'+badge(j)+'</td><td class="mut">'+esc((j.message||'').slice(0,80))+'</td></tr>').join('')+'</tbody></table>';
+}
+function badge(j){ const s=j.status; const c=s==='done'?'#34d399':(s==='error'?'#f43f5e':'#fbbf24'); return '<span class="badge" style="color:'+c+';border-color:'+c+'55">'+esc(s||'')+'</span>'; }
+function resultBox(o){
+  if(!o) return '';
+  if(o.blocked) return '<div class="critbox">🔴 '+esc(o.message||'blocked')+'</div>';
+  if(o.needs_force) return '<div class="critbox">☠ '+esc(o.error||'destructive — needs force')+'</div>';
+  if(o.ok) return '<div class="okbox">✓ '+esc(o.message||'pushed')+(o.returncode!=null?(' (exit '+o.returncode+')'):'')+'</div>';
+  return '<div class="critbox">✗ '+esc(o.error||o.message||'failed')+(o.stderr?('<pre style="white-space:pre-wrap;font-size:11.5px;margin-top:6px">'+esc(String(o.stderr).slice(-500))+'</pre>'):'')+'</div>';
+}
+$('logBtn').onclick=loadLog;
+$('refreshBtn').onclick=async()=>{ flash('flash','<span class="spin"></span> syncing assets+vulns…','run'); try{ await API.post('refresh',{}); }catch(e){} flash('flash','sync kicked off in the background','ok'); setTimeout(loadHosts,1200); };
+
+mountAgentHeader({id:'c2',icon:'🐺',name:'Command & Control',sub:'Amarok · the remediation executor'});
+loadStatus(); loadHosts();
+</script>
+</body></html>

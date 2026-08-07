@@ -784,3 +784,187 @@ def _acr_exec(category: str, value: str, score: float, mod: str = "set",
                 "(builds SQL indexes; turns tag ops from minutes into seconds), then retry."}
     except Exception as e:  # pragma: no cover
         return {"ok": False, "message": str(e), "cmd": pretty}
+
+
+# =========================================================================== #
+#  Remote code execution (Amarok / C2) — `navi action push`. TRIPLE-gated,
+#  mirroring navi-mcp's push gate and stacking ON TOP of the email pattern:
+#    1. writes must be allowed          (allow_writes())  — the master gate.
+#    2. RCE must be separately opted-in (NAVI_REMOTE_CODE_EXECUTION=1 / a file) —
+#       enabling writes alone does NOT enable push.
+#    3. the API caller passes confirm=True (enforced in the C2 agent), AFTER the
+#       exact target + command are spelled out to the operator.
+#  SSH creds are configured out-of-band (`navi config ssh`), never from here.
+#  push hits ONE Linux host — there is no --tag; a batch is a loop per IP.
+# =========================================================================== #
+_RCE_ENABLE_FILES = ("ALLOW_REMOTE_EXEC", ".allow_remote_exec", "allow_remote_exec")
+
+# `navi action push` CLI flags. Confirmed form:
+#   navi action push --target <ip> --command "<cmd>"     (run a command)
+#   navi action push --target <ip> --file <localpath>    (scp a file to the host)
+# Each flag is env-overridable so the wrapper is the ONE place the flags live if a
+# navi build ever differs.
+_PUSH_TARGET_FLAG = os.environ.get("NAVI_PUSH_TARGET_FLAG", "--target")
+_PUSH_CMD_FLAG = os.environ.get("NAVI_PUSH_CMD_FLAG", "--command")
+_PUSH_FILE_FLAG = os.environ.get("NAVI_PUSH_FILE_FLAG", "--file")
+
+
+def _rce_enable_file() -> str:
+    for fn in _RCE_ENABLE_FILES:
+        p = os.path.join(_REPO_ROOT, fn)
+        if os.path.exists(p):
+            return p
+    return ""
+
+
+def rce_enabled() -> bool:
+    """Remote code execution (push) is allowed only when writes are on AND RCE is
+    separately opted-in via NAVI_REMOTE_CODE_EXECUTION / NAVI_MCP_ALLOW_REMOTE_CODE_EXECUTION
+    (any truthy value) or an ALLOW_REMOTE_EXEC file in the repo root. Enabling writes alone
+    does NOT enable push — it is the single highest-risk capability in the pack."""
+    if not allow_writes():
+        return False
+    return (_truthy(os.environ.get("NAVI_REMOTE_CODE_EXECUTION"))
+            or _truthy(os.environ.get("NAVI_MCP_ALLOW_REMOTE_CODE_EXECUTION"))
+            or _truthy(os.environ.get("NAVI_RCE"))
+            or bool(_rce_enable_file()))
+
+
+def rce_gate_reason() -> str:
+    """Precise reason a push can't run right now — '' means it can."""
+    if not allow_writes():
+        return ("writes disabled on server — remote execution needs writes first: set "
+                "NAVI_ALLOW_WRITES=1 (or `touch ALLOW_WRITES`) and restart")
+    if not (_truthy(os.environ.get("NAVI_REMOTE_CODE_EXECUTION"))
+            or _truthy(os.environ.get("NAVI_MCP_ALLOW_REMOTE_CODE_EXECUTION"))
+            or _truthy(os.environ.get("NAVI_RCE")) or bool(_rce_enable_file())):
+        return ("remote execution is a SEPARATE opt-in on top of writes — set "
+                "NAVI_REMOTE_CODE_EXECUTION=1 (or create an empty file named ALLOW_REMOTE_EXEC "
+                "in the repo root) and restart. SSH must also be configured out-of-band with "
+                "`navi config ssh`.")
+    if not navi_available():
+        return ("remote execution is enabled, but the navi CLI was not found — set NAVI_BIN "
+                "to its full path")
+    return ""
+
+
+def push_status() -> dict:
+    """Everything the C2 page needs to render the RCE gate and how to open it."""
+    return {"rce_enabled": rce_enabled(), "allow_writes": allow_writes(),
+            "reason": rce_gate_reason(),
+            "NAVI_REMOTE_CODE_EXECUTION": os.environ.get("NAVI_REMOTE_CODE_EXECUTION"),
+            "enable_file": _rce_enable_file() or None,
+            "navi_resolved": _resolve_navi(), "NAVI_BIN": os.environ.get("NAVI_BIN"),
+            "ssh_hint": "SSH creds are set out-of-band with `navi config ssh` (interactive, "
+                        "one-time). push hits ONE Linux host over SSH — there is no --tag."}
+
+
+# Destructive-command denylist. A C2 shell with no denylist is a foot-gun; these
+# patterns do NOT block (an operator may truly need them) but flag a command so the
+# UI demands an extra, explicit confirmation. Matched case-insensitively.
+_DANGER = [
+    (r"\brm\s+(-[a-z]*\s+)*(-rf|-fr|-r\s+-f|-f\s+-r)\b", "recursive force delete (rm -rf)"),
+    (r":\s*\(\s*\)\s*\{.*\|.*&\s*\}\s*;", "fork bomb"),
+    (r"\bmkfs(\.\w+)?\b", "filesystem format (mkfs)"),
+    (r"\bdd\b.*\bof=/dev/", "raw disk write (dd of=/dev/...)"),
+    (r">\s*/dev/(sd|nvme|hd)\w", "raw block-device redirect"),
+    (r"\b(shutdown|reboot|halt|poweroff)\b", "host shutdown/reboot"),
+    (r"\binit\s+[06]\b", "runlevel change (init 0/6)"),
+    (r"\b(chmod|chown)\s+-R\b", "recursive permission/ownership change"),
+    (r"\bchmod\s+(-[a-z]*\s+)*777\b", "world-writable chmod 777"),
+    (r"\b(curl|wget)\b[^|]*\|\s*(sudo\s+)?(bash|sh|zsh)\b", "pipe-to-shell (curl|bash)"),
+    (r"\bmv\b.*\s+/dev/null\b", "move-to-/dev/null (data loss)"),
+    (r"\b(userdel|groupdel|deluser)\b", "account deletion"),
+    (r"\b(iptables|nft)\b.*\b(-F|flush)\b", "firewall flush"),
+    (r"\bkill(all)?\s+-9\b", "SIGKILL sweep"),
+    (r"/etc/(passwd|shadow|sudoers)\b", "touches a critical auth file"),
+]
+
+
+def scan_command(cmd: str) -> list:
+    """Return human-readable danger labels a command trips (empty list = clean).
+    Advisory only — the UI uses it to force an extra confirmation, never to block."""
+    c = cmd or ""
+    hits = []
+    for pat, label in _DANGER:
+        try:
+            if re.search(pat, c, re.I):
+                hits.append(label)
+        except re.error:
+            pass
+    return hits
+
+
+PUSH_TIMEOUT = int(os.environ.get("NAVI_PUSH_TIMEOUT", "300"))
+
+
+def _push_exec(target: str, command: str = "", file: str = "") -> dict:
+    """Run `navi action push` on ONE host over SSH. Triple-gated. Provide EXACTLY one of
+    command / file. Returns navi's exit code + stdout/stderr — a non-zero exit means the
+    change did NOT necessarily apply; the caller must re-verify, never assume."""
+    if not allow_writes():
+        return {"ok": False, "blocked": True,
+                "message": "writes disabled on server (set NAVI_ALLOW_WRITES=1)"}
+    if not rce_enabled():
+        return {"ok": False, "blocked": True,
+                "message": "remote execution disabled on server — set NAVI_REMOTE_CODE_EXECUTION=1 "
+                           "(a separate opt-in stacked on top of writes)"}
+    if not navi_available():
+        return {"ok": False, "blocked": True,
+                "message": f"navi binary '{NAVI_BIN}' not found on PATH"}
+    target = (target or "").strip()
+    if not target:
+        return {"ok": False, "message": "target host IP required"}
+    command = command or ""
+    file = file or ""
+    if bool(command) == bool(file):
+        return {"ok": False, "message": "provide EXACTLY one of command or file"}
+    if file and not os.path.exists(file):
+        return {"ok": False, "message": f"file not found on the server: {file}"}
+    cmd = [(_resolve_navi() or NAVI_BIN), "action", "push", _PUSH_TARGET_FLAG, target]
+    if command:
+        cmd += [_PUSH_CMD_FLAG, command]
+    else:
+        cmd += [_PUSH_FILE_FLAG, file]
+    pretty = " ".join(shlex.quote(c) for c in cmd)
+    try:
+        p = subprocess.run(cmd, capture_output=True, text=True, cwd=_navi_cwd(),
+                           timeout=PUSH_TIMEOUT)
+        ok = p.returncode == 0
+        summary = _navi_summary(p.stdout, p.stderr)
+        blob = ((p.stdout or "") + " " + (p.stderr or "")).lower()
+        if not ok and any(k in blob for k in ("ssh", "permission denied", "connection refused",
+                                              "no route to host", "timed out", "authentication")):
+            return {"ok": False, "returncode": p.returncode, "target": target, "cmd": pretty,
+                    "message": "SSH push failed — check the host is Linux + reachable and that "
+                               "`navi config ssh` credentials are set. navi said: "
+                               + (summary or "(no output)"),
+                    "stdout": (p.stdout or "")[-3000:], "stderr": (p.stderr or "")[-2000:]}
+        return {"ok": ok, "returncode": p.returncode, "target": target,
+                "message": summary or ("pushed" if ok else "navi exited %d" % p.returncode),
+                "navi_output": summary, "stdout": (p.stdout or "")[-4000:],
+                "stderr": (p.stderr or "")[-2000:], "cmd": pretty}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "timed_out": True, "target": target, "cmd": pretty,
+                "message": f"push timed out after {PUSH_TIMEOUT}s — the command may still be "
+                           "running on the host. Use non-interactive flags (e.g. -y, "
+                           "DEBIAN_FRONTEND=noninteractive) and re-verify before retrying."}
+    except Exception as e:  # pragma: no cover
+        return {"ok": False, "target": target, "message": str(e), "cmd": pretty}
+
+
+def push(target: str, command: str = "", file: str = "", agent: str = "c2",
+         detail: str = "", sync: bool = True) -> dict:
+    """Execute one push and record it in the Tagging log (op=push) as the accountability
+    ledger — who ran what, where, and the exit. Synchronous: a push is a discrete,
+    operator-confirmed action. Batch fan-out (loop per IP) is done by the C2 agent, which
+    calls this once per host so every host gets its own ledger line."""
+    res = _push_exec(target=target, command=command, file=file)
+    try:
+        from core import tagq
+        tagq.record({"agent": agent, "category": "C2 · push", "value": target,
+                     "selector": ("file" if file else "command"),
+                     "detail": (detail or command or ("scp " + file))[:200], "op": "push"}, res)
+    except Exception:
+        pass
+    return res

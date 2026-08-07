@@ -99,9 +99,14 @@ function chip(label, good, txt){ const c=good===true?'var(--ok)':good===false?'v
 function renderStat(){
   const s=STAT; if(!s)return;
   const w=s.writes_enabled, em=s.email_enabled, ai=s.llm&&s.llm.available;
+  const ssh=s.ssh||{};
+  const sshGood = ssh.configured ? (ssh.plaintext_password ? null : true) : false;
+  const sshTxt = ssh.configured ? (ssh.plaintext_password ? 'plaintext password ⚠' : (ssh.auth==='key'?'key file':(ssh.auth||'set'))) : 'not configured';
   document.getElementById('statChips').innerHTML=
     chip('Tag writes', w, w?'enabled':'gated')
     + chip('Email', em, em?'enabled':'gated')
+    + chip('Remote exec', s.rce_enabled, s.rce_enabled?'enabled':'gated')
+    + '<span class="chip" title="'+esc(ssh.message||'')+'" style="border-color:'+(sshGood===true?'var(--ok)':sshGood===false?'var(--crit)':'var(--cx-e7c66b)')+';color:'+(sshGood===true?'var(--ok)':sshGood===false?'var(--crit)':'var(--cx-e7c66b)')+'">SSH creds: '+esc(sshTxt)+'</span>'
     + chip('navi CLI', s.navi_available, s.navi_available?(s.navi_path||'found'):'not found')
     + chip('AI', ai, ai?('key detected · '+esc(s.llm.model)):'no key')
     + chip('Max tokens', null, String(s.llm?s.llm.max_tokens:'—'))

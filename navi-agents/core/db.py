@@ -206,3 +206,55 @@ def value_hint(tables, path=None, cap: int = 60) -> str:
         return ""
     return ("\nMatch these ACTUAL values EXACTLY (including case) — do not guess "
             "formats:\n" + "\n".join(lines) + "\n")
+
+
+def ssh_status(path: str | None = None) -> dict:
+    """SSH-credential readiness for ``navi action push``, read from navi's ``ssh`` table
+    (schema set by ``navi config ssh``: ``username, password, key_file``).
+
+    This is a READ of PRESENCE only — the secret values are NEVER returned. A stored
+    plaintext ``password`` is a hygiene flag: navi keeps it unencrypted in navi.db, so a
+    key file (``key_file``) is the preferred auth and navi.db should be protected. Used by
+    the Settings panel and the Command & Control (Amarok) gate banner so an operator knows
+    whether a push can even authenticate before arming remote execution.
+    """
+    try:
+        cols = {r["name"] for r in query('PRAGMA table_info("ssh")', path=path, budget=0)}
+    except Exception:
+        cols = set()
+    if not cols:
+        return {"table": False, "configured": False, "count": 0, "has_password": False,
+                "has_key": False, "plaintext_password": False, "auth": "none",
+                "message": "No `ssh` table in navi.db — run `navi config ssh` to set the SSH "
+                           "service-account credentials `navi action push` needs to authenticate."}
+    ucol = "username" if "username" in cols else None
+    pcol = "password" if "password" in cols else None
+    kcol = "key_file" if "key_file" in cols else None
+    sel = ", ".join(c for c in (ucol, pcol, kcol) if c) or "*"
+    try:
+        rows = query(f'SELECT {sel} FROM ssh', path=path, budget=0)
+    except Exception:
+        rows = []
+    count, has_pw, has_key = 0, False, False
+    for r in rows:
+        u = str(r.get(ucol) or "").strip() if ucol else ""
+        pw = str(r.get(pcol) or "").strip() if pcol else ""
+        kf = str(r.get(kcol) or "").strip() if kcol else ""
+        if u or pw or kf:
+            count += 1
+        if pw:
+            has_pw = True
+        if kf:
+            has_key = True
+    configured = count > 0
+    auth = ("key+password" if (has_key and has_pw) else "key" if has_key
+            else "password" if has_pw else "none")
+    if not configured:
+        msg = "`ssh` table present but empty — run `navi config ssh` before any push."
+    elif has_pw:
+        msg = (f"SSH configured ({count}) — a PLAINTEXT SSH password is stored in navi.db's `ssh` "
+               "table. Prefer key-file auth (`navi config ssh` with a key) and protect navi.db.")
+    else:
+        msg = f"SSH configured ({count}) via key file."
+    return {"table": True, "configured": configured, "count": count, "has_password": has_pw,
+            "has_key": has_key, "plaintext_password": has_pw, "auth": auth, "message": msg}
