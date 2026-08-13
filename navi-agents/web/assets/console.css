@@ -261,7 +261,7 @@ section.card,.agent,.acard,.itile{
 .dashtabs .dtab-io{background:transparent;border:1px solid var(--line);color:var(--mut);padding:6px 10px;border-radius:999px;font-size:12px;cursor:pointer;white-space:nowrap;font-family:inherit}
 .dashtabs .dtab-io:hover{border-color:var(--accent);color:var(--ink)}
 
-/* ===== Left-nav shell (fixed top bar + grouped left sidebar) — v1.29.32x ===== */
+/* ===== Left-nav shell (fixed top bar + grouped left sidebar) ===== */
 :root{--sbw:242px;--tbh:52px}
 body{padding-top:var(--tbh)}
 /* the shared header becomes a fixed, full-width top bar (brand · status chips) */

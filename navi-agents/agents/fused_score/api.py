@@ -10,8 +10,14 @@ def load(p):
 
 
 def overview(p):
-    """The fused-score rollup — per-asset score + factors, worst-from-each-Hound, convergence."""
-    return {"ok": True, "result": engine.overview()}, 200
+    """The fused-score rollup — per-asset score + factors, worst-from-each-Hound, convergence.
+    Accepts an optional ``weights`` map (factor id -> relative weight); the engine
+    re-normalises it to sum 100 so the score stays 0–100."""
+    w = p.get("weights")
+    if not isinstance(w, dict):
+        w = None
+    return {"ok": True, "result": engine.overview(
+        limit=int(p.get("limit") or 500), offset=int(p.get("offset") or 0), weights=w)}, 200
 
 
 def refresh(p):

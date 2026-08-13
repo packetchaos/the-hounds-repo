@@ -1,4 +1,4 @@
-"""Asset Ownership — Terminus Hound.
+"""Asset Ownership — Terminus.
 
 The asset-side complement to Atlas (Exposure Routes). Atlas maps ROUTES/PATHS to
 owners; Terminus rolls that up to the ASSET and adds two layers on top:

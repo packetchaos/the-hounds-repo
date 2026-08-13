@@ -8,5 +8,5 @@
   "needs_backend": true,
   "page": "page.html",
   "actions": ["load", "run", "interpret", "apply", "coverage", "refresh", "map", "path_detail"],
-  "codename": "Atlas Hound"
+  "codename": "Atlas"
 }

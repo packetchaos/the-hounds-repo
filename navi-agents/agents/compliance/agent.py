@@ -5,7 +5,7 @@ the estate against its audit benchmarks. Consolidated compliance over navi's
 `compliance` table — pass/fail/warning, the controls failing the most assets, a
 framework rollup (NIST/PCI/HIPAA/CIS/ISO), and per-asset scorecards — plus the ability
 to assign an Audit Owner to a control's failing assets. Read-only; core.compliance
-does the work. Its twin Sherlock handles the per-asset deep-dive + audit↔vuln links.
+does the work. Its twin Tiresias handles the per-asset deep-dive + audit↔vuln links.
 """
 from core import compliance as _c
 from core.agents.base import Agent

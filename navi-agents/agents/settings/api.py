@@ -61,9 +61,9 @@ _DB_TABLES = [
     {"name": "EPSS", "table": "epss", "update": "epss",
      "help": "EPSS exploit-probability scores. Built via navi config epss."},
     {"name": "Routes", "table": "vuln_route", "update": "routes",
-     "help": "Exposure routes (Atlas/Argus). Not part of a normal full sync. navi config update route"},
+     "help": "Exposure routes (Atlas/Cavall). Not part of a normal full sync. navi config update route"},
     {"name": "Paths", "table": "vuln_paths", "update": "paths",
-     "help": "Filesystem paths (Atlas/Argus). Not part of a normal full sync. navi config update paths"},
+     "help": "Filesystem paths (Atlas/Cavall). Not part of a normal full sync. navi config update paths"},
     {"name": "Web Apps", "table": "apps", "update": "was",
      "help": "Tenable WAS web-app configs (needs a WAS license). navi config update was"},
 ]

@@ -7,19 +7,19 @@ background to match the app.
 
 | File | Agent / codename |
 |---|---|
-| `certificate.png` | Certificate — Certania Hound |
+| `certificate.png` | Certificate — Certania |
 | `iot_squad.png` | IoT Discovery Squad — Cerberus Hound |
-| `acr.png` | ACR Calibration — Anubis Hound |
-| `customapp.png` | Custom App — Argus Hound |
+| `acr.png` | ACR Calibration — Anubis |
+| `customapp.png` | Custom App — Cavall Hound |
 | `mitre.png` | MITRE ATT&CK — Orthrus Hound |
-| `eol.png` | EOL / Unsupported — Charon Hound |
-| `dashboard.png` | Dashboard Builder — Daedalus Hound |
-| `ai.png` | AI Inventory — Pythia Hound |
-| `identity.png` | Identity Inventory — Janus Hound |
-| `scan_eval.png` | Scan Evaluations — Chronos Hound |
-| `insights.png` | Unknown Unknowns — Sphinx Hound |
-| `exproute.png` | Exposure Routes — Atlas Hound |
-| `software.png` | Software Analyzer — Mimir Hound |
+| `eol.png` | EOL / Unsupported — Charon |
+| `dashboard.png` | Dashboard Builder — Daedalus |
+| `ai.png` | AI Inventory — Pythia |
+| `identity.png` | Identity Inventory — Janus |
+| `scan_eval.png` | Scan Evaluations — Chronos |
+| `insights.png` | Unknown Unknowns — Sphinx |
+| `exproute.png` | Exposure Routes — Atlas |
+| `software.png` | Software Analyzer — Mimir |
 | `ex_assets.png` | Asset Explorer — Bloodhound |
 | `ex_vulns.png` | Vulnerability Explorer — Hellhound |
 | `ex_plugins.png` | Plugin Explorer — Foxhound |

@@ -1,4 +1,4 @@
-"""Fused Exposure Score — Nemesis Hound.
+"""Fused Exposure Score — Nemesis.
 
 The convergence layer over the whole pack: it doesn't find anything new, it fuses
 what every other Hound found into one exposure score per asset, ranks the estate,

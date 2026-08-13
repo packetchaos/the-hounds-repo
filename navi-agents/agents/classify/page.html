@@ -41,7 +41,8 @@
   #pieRow{display:flex;flex-direction:column;gap:18px;align-items:center}
   .piePanel{width:100%;text-align:center}
   .pieTitle{font-size:13px;font-weight:700;color:var(--ink-2);margin-bottom:4px}
-  .pieHost{min-height:340px;display:flex;align-items:center;justify-content:center}
+  .pieHost{min-height:340px;display:flex;flex-direction:column;align-items:center;justify-content:center}
+  .pieHost svg{width:100%;max-width:440px}
   /* OS Signals pies: stack the pie over its legend so both pies render at the SAME size
      (a wide side-by-side legend was shrinking the right pie) and the key sits below. */
   #osExplorer .pieHost{flex-direction:column;justify-content:flex-start}
@@ -57,7 +58,7 @@
   <header class="top" id="app-header"></header>
 
   <section class="card" style="background:var(--panel)">
-    <div class="toolbar"><div><div class="acode">Linnaeus Hound</div><h2 style="margin:0">📇 Asset Classification</h2>
+    <div class="toolbar"><div><div class="acode">Linnaeus</div><h2 style="margin:0">📇 Asset Classification</h2>
       <p class="sub" style="margin:2px 0 0">Every asset, classified by <b>what it is</b> — so nothing is unknown. Unknown assets are what stall ownership, so the <b>Unclassified</b> bucket is a reason-tagged worklist that should shrink over time. IoT and OT are separate. Rule: <i>you can't pull a software inventory off an IoT device</i>, so software enum ⇒ general-purpose host.</p></div>
       <span style="margin-left:auto;display:flex;gap:6px"><a class="btn ghost sm" href="/web/ownermap.html" title="Hand classified assets to Atlas for ownership">🗺 Ownership Map</a>
       <button class="btn run sm" id="run">▶ Classify assets</button></span></div>
@@ -150,7 +151,7 @@
 <script>
 const API=agentApi('classify');
 let DATA=null, CUR=null;
-const COL={"Windows":"var(--cx-6ea8ff)","Linux":"var(--cx-e7c66b)","macOS":"#9aa7b8","IoT":"var(--cx-a78bfa)","OT":"var(--cx-f43f5e)","Network":"var(--cx-3fb0c9)","Virtual Infrastructure":"var(--ok)","Cloud":"var(--cx-6ea8ff)","Unclassified":"var(--cx-f43f5e)"};
+const COL={"Windows":"var(--cx-6ea8ff)","Linux":"var(--cx-e7c66b)","macOS":"#9aa7b8","IoT":"var(--cx-a78bfa)","OT":"var(--cx-f43f5e)","Network":"var(--cx-3fb0c9)","Virtual Infrastructure":"var(--ok)","Cloud":"#38bdf8","Unclassified":"var(--cx-f43f5e)"};
 const col=c=>COL[c]||"#8a99ad";
 
 async function run(){
@@ -212,11 +213,15 @@ function drill(cls){
     UNSEL.clear();
     acts.innerHTML=`<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">`
       +`<span class="sub">Classify by hand:</span>`
-      +`<select id="ucFacet" class="fld" title="Tag category">${fopt('Device Type')}</select>`
-      +`<input id="ucVal" class="fld" placeholder="value — e.g. Printer, Windows 10, Firewall" style="min-width:210px">`
+      +`<select id="ucFacet" class="fld" title="Classification category">${fopt('Device Type')}<option value="__custom">＋ Custom category…</option></select>`
+      +`<input id="ucFacetCustom" class="fld" placeholder="your category — e.g. Kiosk, POS" style="display:none;min-width:150px">`
+      +`<input id="ucVal" class="fld" placeholder="value — e.g. Printer, Firewall, Payment terminal" style="min-width:210px">`
       +`<button class="btn sm" id="ucTag">🏷 Tag <span id="ucN">0</span> selected (gated)</button>`
       +`<button class="btn ghost sm" id="ucAll">Select all ${rows.length}</button>`
-      +`<span id="ucRes" class="sub"></span></div>`;
+      +`<span id="ucRes" class="sub"></span></div>`
+      +`<div class="sub" style="margin-top:5px;font-size:11px">Your own classification becomes a top-level class — it writes <span class="mono">Asset Inventory : &lt;category&gt;: &lt;value&gt;</span> and the taxonomy accounts for it.</div>`;
+    const _fsel=document.getElementById('ucFacet'), _fcus=document.getElementById('ucFacetCustom');
+    _fsel.onchange=()=>{ const cu=_fsel.value==='__custom'; _fcus.style.display=cu?'':'none'; if(cu)_fcus.focus(); };
     document.getElementById('ucTag').onclick=()=>tagUnclassified();
     document.getElementById('ucAll').onclick=()=>{ const pick=UNSEL.size<rows.length; UNSEL.clear();
       if(pick)rows.forEach(r=>r.uuid&&UNSEL.add(r.uuid)); syncUcSel();
@@ -242,9 +247,11 @@ function wireUcSel(){ document.querySelectorAll('#dtbl .ucsel').forEach(cb=>{ cb
   cb.onchange=()=>{ cb.checked?UNSEL.add(cb.dataset.u):UNSEL.delete(cb.dataset.u); _ucN(); }; }); _ucN(); }
 function syncUcSel(){ document.querySelectorAll('#dtbl .ucsel').forEach(cb=>cb.checked=UNSEL.has(cb.dataset.u)); _ucN(); }
 async function tagUnclassified(){
-  const facet=(document.getElementById('ucFacet')||{}).value||'Device Type';
+  let facet=(document.getElementById('ucFacet')||{}).value||'Device Type';
+  if(facet==='__custom'){ facet=((document.getElementById('ucFacetCustom')||{}).value||'').trim(); }
   const value=((document.getElementById('ucVal')||{}).value||'').trim();
   const res=document.getElementById('ucRes'); const uuids=[...UNSEL];
+  if(!facet){ if(res)res.innerHTML='<span style="color:var(--crit)">name your category first</span>'; return; }
   if(!value){ if(res)res.innerHTML='<span style="color:var(--crit)">enter a value first</span>'; return; }
   if(!uuids.length){ if(res)res.innerHTML='<span style="color:var(--crit)">tick some assets first</span>'; return; }
   const ok=await writeTag(facet,value,uuids,res,uuids.length);
@@ -318,13 +325,22 @@ function paintPie(host, nodes, opts){
   const center=(opts.centerTotal!=null)?opts.centerTotal:sum;   // pie A shows the FULL inventory total
   let a=-Math.PI/2, segs=[];
   nodes.forEach((n,i)=>{ const sp=2*Math.PI*Math.max(n.value,1e-6)/sum; segs.push({n,i,a0:a,a1:a+sp,hue:(opts.color?opts.color(n.name,i):PAL[i%PAL.length])}); a+=sp; });
-  const arc=(a0,a1)=>{ const lg=(a1-a0)>Math.PI?1:0; const p=(g,r)=>[C+Math.cos(g)*r,C+Math.sin(g)*r];
+  const p=(g,r)=>[C+Math.cos(g)*r,C+Math.sin(g)*r];
+  const arc=(a0,a1)=>{
+    // one slice covering the whole circle: an arc whose start == end collapses to a
+    // line, so draw a full donut ring (two 180° arcs each) with an even-odd hole.
+    if((a1-a0) >= 2*Math.PI - 1e-4){
+      const[ox0,oy0]=p(0,RO),[ox1,oy1]=p(Math.PI,RO),[ix0,iy0]=p(0,RI),[ix1,iy1]=p(Math.PI,RI);
+      return `M${ox0.toFixed(1)},${oy0.toFixed(1)} A${RO},${RO} 0 1 1 ${ox1.toFixed(1)},${oy1.toFixed(1)} A${RO},${RO} 0 1 1 ${ox0.toFixed(1)},${oy0.toFixed(1)} Z `
+           + `M${ix0.toFixed(1)},${iy0.toFixed(1)} A${RI},${RI} 0 1 1 ${ix1.toFixed(1)},${iy1.toFixed(1)} A${RI},${RI} 0 1 1 ${ix0.toFixed(1)},${iy0.toFixed(1)} Z`;
+    }
+    const lg=(a1-a0)>Math.PI?1:0;
     const [x0,y0]=p(a0,RO),[x1,y1]=p(a1,RO),[x2,y2]=p(a1,RI),[x3,y3]=p(a0,RI);
     return `M${x0.toFixed(1)},${y0.toFixed(1)} A${RO},${RO} 0 ${lg} 1 ${x1.toFixed(1)},${y1.toFixed(1)} L${x2.toFixed(1)},${y2.toFixed(1)} A${RI},${RI} 0 ${lg} 0 ${x3.toFixed(1)},${y3.toFixed(1)} Z`; };
   const fillOf=s=>(typeof s.hue==='string')?s.hue:`hsl(${s.hue} 68% 52%)`;
   const paths=segs.map(s=>{ const on=opts.activeName===s.n.name;
-    return `<path class="slice" d="${arc(s.a0,s.a1)}" fill="${fillOf(s)}" stroke="${on?'#fff':'#0b0d12'}" stroke-width="${on?2.6:1.2}" data-i="${s.i}"/>`; }).join('');
-  host.innerHTML=`<svg viewBox="0 0 200 200" style="width:100%;max-width:420px">${paths}`
+    return `<path class="slice" fill-rule="evenodd" d="${arc(s.a0,s.a1)}" fill="${fillOf(s)}" stroke="${on?'#fff':'#0b0d12'}" stroke-width="${on?2.6:1.2}" data-i="${s.i}"/>`; }).join('');
+  host.innerHTML=`<svg viewBox="0 0 200 200" style="width:100%">${paths}`
     +`<text x="100" y="98" text-anchor="middle" font-size="19" font-weight="800" fill="var(--ink)">${center.toLocaleString()}</text>`
     +`<text x="100" y="114" text-anchor="middle" font-size="8.5" fill="var(--mut)">${esc(opts.centerLabel||'assets')}</text></svg>`
     +`<div class="pieLegend">${segs.slice(0,10).map(s=>`<span><i style="background:${fillOf(s)}"></i>${esc(short(s.n.name,18))} · ${(s.n.value||0).toLocaleString()}</span>`).join('')}${segs.length>10?`<span class="sub">+${segs.length-10} more</span>`:''}</div>`;
@@ -454,7 +470,7 @@ function renderMem(){
   if(nx)nx.onclick=()=>{ MEMPAGE++; renderMem(); };
 }
 /* ===== OS Signals — detect → gated tag (mirrors the IoT squad) ===== */
-const FACETS=['OS','Class','Device Type','App','Cloud','IoT'];
+const FACETS=['OS','Class','Device Type','Network','Cloud','App','IoT'];
 const fopt=sel=>FACETS.map(f=>`<option${f===sel?' selected':''}>${f}</option>`).join('');
 function renderSignals(){ loadOsBreakdown(); renderOtherSignals(); }
 

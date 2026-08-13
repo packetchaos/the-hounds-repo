@@ -100,8 +100,9 @@ def build():
 
     # vulns: fabricate DISTINCT-asset rows per cert-issue plugin (+ a few non-cert rows)
     pad_uuids = [f"av-{i:04d}" for i in range(40)]
-    for uuid in pad_uuids:
-        c.execute("INSERT INTO assets VALUES (?,?,?)", (uuid, "scan-host", "10.1.1.1"))
+    for i, uuid in enumerate(pad_uuids):
+        # distinct host + IP per asset (these are 40 separate assets, not one host)
+        c.execute("INSERT INTO assets VALUES (?,?,?)", (uuid, f"scanhost-{i:02d}", f"10.1.1.{i + 10}"))
     for pid, name, count in MATRIX:
         for j in range(count):
             c.execute("INSERT INTO vulns VALUES (?,?,?,?,?)",
@@ -309,8 +310,8 @@ def build():
         _idrows.append((_idu[0], "17651", "Microsoft Windows SMB : Password Policy", "Password must meet complexity requirements: Disabled\nMaximum password age (days): 0"))
         # coverage gap: reachable hosts scanned WITHOUT credentials
         _blindu = [f"blind-{i:03d}" for i in range(7)]
-        for bu in _blindu:
-            c.execute("INSERT INTO assets (uuid, hostname, ip_address) VALUES (?,?,?)", (bu, "uncredentialed-host", "10.9.9.9"))
+        for i, bu in enumerate(_blindu):
+            c.execute("INSERT INTO assets (uuid, hostname, ip_address) VALUES (?,?,?)", (bu, f"uncred-host-{i:02d}", f"10.9.9.{i + 10}"))
             _idrows.append((bu, "110723", "Target Credential Status by Authentication Protocol - No Credentials Provided", "No credentials were provided."))
         # a default-credential + an AD attack-path finding for the correlated-signals line
         _idrows.append((_idu[2], "playbook-defcred", "Default Credentials for Web Console", "Default credentials accepted (admin/admin)."))

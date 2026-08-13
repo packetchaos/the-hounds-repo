@@ -29,7 +29,7 @@
   <header class="top" id="app-header"></header>
 
   <section class="card" style="background:radial-gradient(120% 140% at 90% -20%,var(--amber-glow),transparent 60%),var(--panel)">
-    <div class="toolbar"><div><div class="acode">Terminus Hound</div><h2 style="margin:0">📌 Asset Ownership</h2>
+    <div class="toolbar"><div><div class="acode">Terminus</div><h2 style="margin:0">📌 Asset Ownership</h2>
       <p class="sub" style="margin:2px 0 0">Ownership from the <b>asset's</b> point of view: <b>who owns each asset</b>, how much of it is claimed, <b>what isn't owned</b>, and <b>what you're blind to</b> — plus your <b>crown jewels</b> (ACR&nbsp;≥&nbsp;9) and what the Hounds already know about them. Three layers: <span class="mono">Business Owner</span> (leaders own groups/apps), <span class="mono">Owner</span> (Atlas — routes &amp; paths), and a single <span class="mono">Asset Owner</span> who owns an asset's <b>every</b> route &amp; path (or just the rest).</p></div>
       <button class="btn run sm" id="load" style="margin-left:auto">▶ Load ownership</button></div>
     <div id="flash" class="flash"></div>
@@ -60,8 +60,13 @@
   <section class="card" id="blindCard" style="display:none">
     <div class="toolbar" style="margin:0"><h2 style="margin:0;font-size:16px">🕳 Unclaimed &amp; blind spots — what am I blind to?</h2>
       <span class="chip" id="blindCount" style="margin-left:auto"></span></div>
-    <p class="sub" style="margin:3px 0 8px">Assets on the attack surface with <b>no owner</b> — crown jewels and high-ACR first. These are the gaps nobody has claimed.</p>
-    <div style="overflow-x:auto"><table id="blindTbl"><thead><tr><th>Host</th><th>IP</th><th>ACR</th><th>Routes/Paths</th><th>Hound signals</th></tr></thead><tbody></tbody></table></div>
+    <p class="sub" style="margin:3px 0 8px">Assets on the attack surface with <b>no owner</b> — crown jewels and high-ACR first. <b>Claim</b> one inline, or assign a single owner to <b>all shown</b> at once. Claiming writes an <span class="mono">Asset Owner</span> tag and cascades Owner tags across the asset's routes &amp; paths (gated).</p>
+    <div class="toolbar" style="margin:0 0 8px;gap:8px;flex-wrap:wrap">
+      <input id="claimAllOwner" placeholder="owner / team to claim all unclaimed…" style="padding:7px 9px;border-radius:7px;border:1px solid var(--accent);background:var(--bg-2);color:var(--ink);min-width:230px">
+      <button class="btn run sm" id="claimAllBtn">📌 Claim all shown</button>
+      <span class="sub" id="claimAllNote"></span>
+    </div>
+    <div style="overflow-x:auto"><table id="blindTbl"><thead><tr><th>Host</th><th>IP</th><th>ACR</th><th>Routes/Paths</th><th>Hound signals</th><th style="width:200px">Claim</th></tr></thead><tbody></tbody></table></div>
   </section>
 
   <!-- Per-asset ownership table -->
@@ -89,7 +94,9 @@
 <script>
 const API=agentApi('asset_ownership');
 let DATA=null, WRITES=false, PLAN=null;
-let ROWS=[], PAGE=0; const PS=100; let SCOPE='all', SORT='acr';
+let ROWS=[], PAGE=0; const PS=100; let SCOPE='all', SORT='acr', BLIND=[];
+// deep-link from Exposure Score / Argos: ?focus=<uuid>&host=<host> — auto-load, filter, highlight, focus the owner input
+const Q=new URLSearchParams(location.search), FOCUS={uuid:Q.get('focus')||'', host:Q.get('host')||''};
 
 function pct(n){ return (n==null?'—':n+'%'); }
 function ownerCell(r){
@@ -146,12 +153,20 @@ function renderCrown(cj,k){
 
 /* ---- Blind spots ---- */
 function renderBlind(b){
-  document.getElementById('blindCount').textContent=b.length+' unclaimed';
-  document.querySelector('#blindTbl tbody').innerHTML = b.length ? b.map(r=>
-    '<tr><td>'+(r.crown?'<span class="crown">👑 </span>':'')+esc(r.hostname||'—')+'</td><td class="mono">'+esc(r.ip||'')+'</td>'+
+  BLIND=b||[];
+  document.getElementById('blindCount').textContent=BLIND.length+' unclaimed';
+  document.getElementById('claimAllNote').textContent=BLIND.length?('assigns one owner to all '+BLIND.length+' shown'):'';
+  document.querySelector('#blindTbl tbody').innerHTML = BLIND.length ? BLIND.map(r=>
+    '<tr data-u="'+esc(r.uuid||'')+'"><td>'+(r.crown?'<span class="crown">👑 </span>':'')+esc(r.hostname||'—')+'</td><td class="mono">'+esc(r.ip||'')+'</td>'+
     '<td>'+(r.acr==null?'—':r.acr)+'</td><td class="mono">'+r.routes+' / '+r.paths+'</td>'+
-    '<td>'+(r.signal_count?Object.keys(r.signals).slice(0,5).map(k=>'<span class="sig">'+esc(k)+'</span>').join(''):'<span class="sub">no signal</span>')+'</td></tr>'
-  ).join('') : '<tr><td colspan="5" class="sub">No unclaimed crown-jewel / high-ACR assets — nice.</td></tr>';
+    '<td>'+(r.signal_count?Object.keys(r.signals).slice(0,5).map(k=>'<span class="sig">'+esc(k)+'</span>').join(''):'<span class="sub">no signal</span>')+'</td>'+
+    '<td><div class="assignrow" style="display:flex;gap:5px;align-items:center"><input class="clOwner" placeholder="owner" style="width:96px"><button class="btn sm clGo">Claim</button></div></td></tr>'
+  ).join('') : '<tr><td colspan="6" class="sub">No unclaimed crown-jewel / high-ACR assets — nice.</td></tr>';
+  document.querySelectorAll('#blindTbl tbody tr').forEach(tr=>{
+    const go=tr.querySelector('.clGo'), inp=tr.querySelector('.clOwner'); if(!go) return;
+    const fire=async()=>{ if(!inp.value.trim()){ inp.focus(); return; } const ok=await doAssign(tr.dataset.u, inp.value, 'complete', go); go.textContent=ok?'✓':'Claim'; };
+    go.onclick=fire; inp.addEventListener('keydown',e=>{ if(e.key==='Enter')fire(); });
+  });
 }
 
 /* ---- Per-asset table (paginated + inline single-owner assign) ---- */
@@ -206,17 +221,35 @@ function renderPager(total,pages){
   if(p)p.onclick=()=>{ if(PAGE>0){PAGE--;renderTable();} };
   if(n)n.onclick=()=>{ if(PAGE<pages-1){PAGE++;renderTable();} };
 }
-async function assignOne(tr){
-  const uuid=tr.dataset.u, owner=(tr.querySelector('.aoOwner').value||'').trim();
-  const mode=tr.querySelector('.aoMode button.on').dataset.m;
-  if(!owner){ tr.querySelector('.aoOwner').focus(); return; }
-  if(!WRITES && !confirm('Writes are gated on the server (NAVI_ALLOW_WRITES not set). The tag jobs will queue but be blocked. Continue?')) return;
-  if(!confirm('Assign “'+owner+'” as the '+(mode==='complete'?'COMPLETE owner of every route & path':'owner of the REMAINING unowned routes/paths')+' on this asset? This writes an Asset Owner tag and cascades Owner tags (gated).')) return;
-  const go=tr.querySelector('.aoGo'); go.disabled=true; go.textContent='…';
+async function doAssign(uuid, owner, mode, btn){
+  owner=(owner||'').trim(); if(!owner) return false;
+  if(!WRITES && !confirm('Writes are gated on the server (NAVI_ALLOW_WRITES not set). The tag jobs will queue but be blocked. Continue?')) return false;
+  if(!confirm('Assign “'+owner+'” as the '+(mode==='complete'?'COMPLETE owner of every route & path':'owner of the REMAINING unowned routes/paths')+' on this asset? This writes an Asset Owner tag and cascades Owner tags (gated).')) return false;
+  if(btn){ btn.disabled=true; }
   let o; try{ o=await API.post('assign',{uuid,owner,mode,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
-  go.disabled=false; go.textContent='Assign';
-  if(!o.ok){ flash('flash','✗ '+esc(o.error||'failed'),'crit'); return; }
+  if(btn){ btn.disabled=false; }
+  if(!o.ok){ flash('flash','✗ '+esc(o.error||'failed'),'crit'); return false; }
   flash('flash','✓ '+esc(owner)+' now owns this asset — closed '+(o.closed_routes||0)+' route(s) + '+(o.closed_paths||0)+' path(s). Allow ~30 min propagation, then Reload.','ok');
+  return true;
+}
+async function assignOne(tr){
+  const inp=tr.querySelector('.aoOwner'); if(!inp.value.trim()){ inp.focus(); return; }
+  const mode=tr.querySelector('.aoMode button.on').dataset.m, go=tr.querySelector('.aoGo');
+  go.textContent='…'; const ok=await doAssign(tr.dataset.u, inp.value, mode, go); go.textContent=ok?'✓':'Assign';
+}
+async function claimAllBlind(){
+  const owner=(document.getElementById('claimAllOwner').value||'').trim();
+  if(!owner){ document.getElementById('claimAllOwner').focus(); return; }
+  const uuids=BLIND.map(r=>r.uuid).filter(Boolean);
+  if(!uuids.length){ flash('flash','No unclaimed assets to claim.','warn'); return; }
+  if(!WRITES && !confirm('Writes are gated on the server (NAVI_ALLOW_WRITES not set). Jobs will queue but be blocked. Continue?')) return;
+  if(!confirm('Claim all '+uuids.length+' unclaimed asset(s) for “'+owner+'” as the COMPLETE owner (every route & path)? This is a gated navi write.')) return;
+  const btn=document.getElementById('claimAllBtn'); btn.disabled=true; btn.textContent='⏳ claiming…';
+  let o; try{ o=await API.post('apply',{owner,uuids,layer:'asset',mode:'complete',confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o.ok){ flash('flash','✗ '+esc(o.error||'failed'),'crit'); btn.disabled=false; btn.textContent='📌 Claim all shown'; return; }
+  if(o.queued){ flash('flash','✓ queued (job #'+o.job_id+') — claiming '+(o.assets||uuids.length)+' asset(s) for '+esc(owner)+' across their routes &amp; paths. Track it in the Tagging log; allow ~30 min propagation.','ok'); }
+  else { flash('flash','✓ claimed '+(o.assets||uuids.length)+' asset(s) for '+esc(owner)+' — cascaded '+(o.cascaded||0)+' owner tag(s). Allow ~30 min propagation, then Reload.','ok'); }
+  btn.textContent='✓ queued';
 }
 
 /* ---- NL assign ---- */
@@ -278,15 +311,37 @@ async function load(){
   document.getElementById('nlHints').innerHTML='You can filter by any tag on your assets — e.g. '+
     (keys.slice(0,6).map(k=>'<span class="sig">'+esc(k)+'</span>').join('')||'<span class="sub">(load some Hound tags first)</span>')+
     ' plus ACR, crown-jewel, and cloud.';
+  applyFocus();
+}
+function applyFocus(){
+  if(!(FOCUS.uuid||FOCUS.host)) return;
+  // show everything so the target isn't filtered out by scope, then narrow to the host
+  SCOPE='all'; document.querySelectorAll('#tblScope button').forEach(x=>x.classList.toggle('on',x.dataset.s==='all'));
+  if(FOCUS.host){ document.getElementById('tblFilter').value=FOCUS.host; }
+  PAGE=0; renderTable();
+  const rows=filteredRows();
+  let idx=FOCUS.uuid?rows.findIndex(r=>r.uuid===FOCUS.uuid):-1;
+  if(idx<0 && FOCUS.host) idx=rows.findIndex(r=>(r.hostname||'')===FOCUS.host||(r.ip||'')===FOCUS.host);
+  if(idx>=0){ PAGE=Math.floor(idx/PS); renderTable(); }
+  requestAnimationFrame(()=>{
+    const sel=FOCUS.uuid?('#assetTbl tbody tr[data-u="'+(window.CSS&&CSS.escape?CSS.escape(FOCUS.uuid):FOCUS.uuid)+'"]'):null;
+    const tr=(sel&&document.querySelector(sel))||document.querySelector('#assetTbl tbody tr');
+    if(tr){ tr.style.boxShadow='inset 3px 0 0 var(--accent)'; tr.style.background='rgba(109,112,230,.08)';
+      tr.scrollIntoView({behavior:'smooth',block:'center'}); const inp=tr.querySelector('.aoOwner'); if(inp) inp.focus(); }
+    flash('flash','🔦 Focused <b>'+esc(FOCUS.host||FOCUS.uuid)+'</b> from Exposure Score — assign a single owner on the highlighted row.','ok');
+  });
 }
 
 document.getElementById('load').onclick=load;
 document.getElementById('nlPreview').onclick=previewPlan;
+document.getElementById('claimAllBtn').onclick=claimAllBlind;
+document.getElementById('claimAllOwner').addEventListener('keydown',e=>{ if(e.key==='Enter')claimAllBlind(); });
 document.getElementById('nlPrompt').addEventListener('keydown',e=>{ if(e.key==='Enter')previewPlan(); });
 document.getElementById('tblFilter').addEventListener('input',()=>{ PAGE=0; renderTable(); });
 document.querySelectorAll('#tblScope button').forEach(b=>b.onclick=()=>{ document.querySelectorAll('#tblScope button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); SCOPE=b.dataset.s; PAGE=0; renderTable(); });
 document.querySelectorAll('#tblSort button').forEach(b=>b.onclick=()=>{ document.querySelectorAll('#tblSort button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); SORT=b.dataset.o; renderTable(); });
 mountAgentHeader({id:'asset_ownership',icon:'📌',name:'Asset Ownership',sub:'Terminus · who owns each asset · crown jewels · blind spots'});
 jget('/api/health').then(h=>{ WRITES=!!h.writes_enabled; const c=document.getElementById('nlLlm'); if(c)c.textContent=h.llm?'✨ AI available':'rule-based (set ANTHROPIC_API_KEY for full NL)'; }).catch(()=>{});
+if(FOCUS.uuid||FOCUS.host){ load(); }   // deep-linked from Exposure Score — auto-load + focus the asset
 </script>
 </body></html>

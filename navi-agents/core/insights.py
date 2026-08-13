@@ -136,15 +136,17 @@ def compute(db_path=None):
         if fr:
             x = fr[0]
             funnel = {"cves": int(x.get("cves") or 0), "findings": int(x.get("findings") or 0),
-                      "plugins": int(x.get("plugins") or 0), "routes": int(x.get("routes") or 0)}
-        cr = rows("WITH present AS (SELECT DISTINCT plugin_id FROM vulns) SELECT p.name nm,"
+                      "plugins": int(x.get("plugins") or 0), "routes": int(x.get("routes") or 0),
+                      "paths": int(sc("SELECT COUNT(*) FROM vuln_paths") or 0)}
+        cr = rows("WITH present AS (SELECT DISTINCT plugin_id FROM vulns) SELECT p.name nm, p.plugin_id pid,"
                   "(length(p.cves)-length(replace(p.cves,'CVE-','')))/4 n,"
                   "(SELECT COUNT(DISTINCT asset_uuid) FROM vulns v WHERE v.plugin_id=p.plugin_id) a "
                   "FROM plugins p JOIN present ON present.plugin_id=p.plugin_id "
                   "WHERE p.cves IS NOT NULL AND p.cves NOT IN ('','[]','None') ORDER BY n DESC LIMIT 1")
         if cr:
             x = cr[0]
-            champion = {"name": x.get("nm"), "cve_count": int(x.get("n") or 0), "assets": int(x.get("a") or 0)}
+            champion = {"name": x.get("nm"), "plugin_id": x.get("pid"),
+                        "cve_count": int(x.get("n") or 0), "assets": int(x.get("a") or 0)}
     pq_vuln = pq_safe = 0
     for r in rows("SELECT signature_algorithm a, COUNT(*) c FROM certs GROUP BY signature_algorithm"):
         a = str(r.get("a") or "").lower(); n = int(r.get("c") or 0)
@@ -188,25 +190,21 @@ def scent_board(db_path=None):
     fk = fo.get("kpi", {}) if fo.get("ok") else {}
     total = fk.get("assets") or _sc("SELECT COUNT(uuid) FROM assets", db_path)
 
-    def cnt(pred):
-        return sum(1 for r in rows if pred(r))
-
-    def _hound_silent(r):
-        # the pack found NOTHING on it — no KEV and no hound-derived factor fired
-        f = r.get("factors", {})
-        return (not r.get("kev")) and all(not f.get(k) for k in ("path", "ident", "ai", "eol", "cry", "mit"))
-
-    kev = cnt(lambda r: r.get("kev"))
-    crown = cnt(lambda r: r.get("crown"))
-    eol = cnt(lambda r: r.get("eol"))
-    crypto = cnt(lambda r: r.get("crypto"))
-    path = cnt(lambda r: r.get("path"))
-    ident = cnt(lambda r: r.get("ident"))
-    ai = cnt(lambda r: r.get("ai"))
-    exposed = cnt(lambda r: r.get("exposed"))
-    unowned = cnt(lambda r: r.get("unowned"))
-    blind = cnt(lambda r: r.get("blind"))
-    no_signal = cnt(_hound_silent)
+    # Whole-estate counts come from the fused-score KPI block (computed over ALL
+    # assets in SQL) — `rows` is only the worst-N slice, so never count off it.
+    kev = fk.get("kev", 0)
+    crown = fk.get("crown", 0)
+    eol = fk.get("eol", 0)
+    crypto = fk.get("crypto", 0)
+    path = fk.get("path", 0)
+    ident = fk.get("ident", 0)
+    ai = fk.get("ai", 0)
+    exposed = fk.get("exposed", 0)
+    unowned = fk.get("unowned", 0)
+    blind = fk.get("blind", 0)
+    no_signal = fk.get("no_signal", 0)
+    crown_unowned = fk.get("crown_unowned", 0)
+    ai_shadow = fk.get("ai_shadow", 0)
 
     def pct(a, b):
         return round(100.0 * a / b, 1) if b else 0.0
@@ -230,7 +228,7 @@ def scent_board(db_path=None):
         tile("kev", "CISA KEV", "Laelaps", "🔥", kev, "actively exploited", "crit" if kev else "ok",
              "/agents/cisakev/page.html"),
         tile("crown", "Crown jewels", "Anubis", "👑", crown,
-             f"{cnt(lambda r: r.get('crown') and r.get('unowned'))} unowned", "warn" if crown else "off",
+             f"{crown_unowned} unowned", "warn" if crown else "off",
              "/agents/acr/page.html"),
         tile("cert", "Certificates", "Certania", "🔐", c.get("certs_failing", 0),
              f"{c.get('certs_expired', 0)} already expired", "warn" if c.get("certs_failing") else "ok",
@@ -242,7 +240,7 @@ def scent_board(db_path=None):
              "warn" if ident else "off", "/agents/identity/page.html"),
         tile("path", "Attack paths", "Fenrir", "🕸", path, "foothold → crown jewel",
              "crit" if path else "off", "/agents/attackpath/page.html"),
-        tile("ai", "AI exposure", "Pythia", "🧠", ai, f"{cnt(lambda r: r.get('ai') == 'shadow')} shadow",
+        tile("ai", "AI exposure", "Pythia", "🧠", ai, f"{ai_shadow} shadow",
              "warn" if ai else "off", "/agents/ai/page.html"),
         tile("iot", "IoT / OT", "Cerberus", "🐾", c.get("iot_devices", 0), "unmanageable devices",
              "warn" if c.get("iot_devices") else "off", "/agents/iot_squad/page.html"),
@@ -276,10 +274,24 @@ def scent_board(db_path=None):
         from core import was as _was
         wo = _was.overview(db_path)
         if wo.get("available") and wo.get("apps"):
-            posture.append(tile("was", "Web apps (WAS)", "Xolotl", "🕸️", wo.get("findings", wo.get("apps", 0)),
+            posture.append(tile("was", "Web apps (WAS)", "Arachne", "🕸️", wo.get("findings", wo.get("apps", 0)),
                                  f"{wo.get('apps', 0)} apps", "warn", "/agents/was/page.html"))
         else:
-            posture.append(tile("was", "Web apps (WAS)", "Xolotl", "🕸️", "—", "no WAS data yet", "off", "/agents/was/page.html"))
+            posture.append(tile("was", "Web apps (WAS)", "Arachne", "🕸️", "—", "no WAS data yet", "off", "/agents/was/page.html"))
+    except Exception:
+        pass
+    # ---- Command & Control (Amarok) — remediation executed on hosts, from the tag ledger ----
+    try:
+        from core import tagq as _tq
+        _jobs = _tq.list_jobs()
+        pushes = sum(1 for j in _jobs if j.get("op") == "push")
+        done = sum(1 for j in _jobs if j.get("op") == "push" and j.get("status") == "done")
+        if pushes:
+            posture.append(tile("c2", "Remediation", "Amarok", "🐺", done,
+                                 f"{pushes} pushes · {done} verified on hosts", "warn", "/agents/c2/page.html"))
+        else:
+            posture.append(tile("c2", "Remediation", "Amarok", "🐺", "—",
+                                 "no pushes yet — arm Amarok to fix at the source", "off", "/agents/c2/page.html"))
     except Exception:
         pass
 
@@ -294,26 +306,65 @@ def scent_board(db_path=None):
         {"label": "Unclassified", "count": unclassified, "sub": "Linnaeus — type unknown", "sev": "warn"},
         {"label": "Unowned", "count": unowned, "sub": "Terminus — nobody accountable", "sev": "warn"},
         {"label": "No business tier", "count": no_tier, "sub": "criticality unrated", "sev": "warn"},
-        {"label": "Shadow AI", "count": cnt(lambda r: r.get("ai") == "shadow"), "sub": "Pythia — AI off the sanctioned list", "sev": "warn"},
+        {"label": "Shadow AI", "count": ai_shadow, "sub": "Pythia — AI off the sanctioned list", "sev": "warn"},
     ]
 
     # ---- convergence — the cross-Hound surprises no single agent sees ----
     def conv(text, n, sev):
         return {"text": text, "count": n, "sev": sev, "href": "/agents/fused_score/page.html"}
     convergence = [c for c in [
-        conv("crown jewels with no owner", cnt(lambda r: r.get("crown") and r.get("unowned")), "crit"),
-        conv("crown jewels the scan can't see (blind)", cnt(lambda r: r.get("crown") and r.get("blind")), "crit"),
-        conv("KEV-exploitable assets nobody owns", cnt(lambda r: r.get("kev") and r.get("unowned")), "crit"),
-        conv("KEV-exploitable AND internet-exposed", cnt(lambda r: r.get("kev") and r.get("exposed")), "crit"),
-        conv("EOL software on a crown jewel", cnt(lambda r: r.get("eol") and r.get("crown")), "warn"),
-        conv("attack-path targets nobody owns", cnt(lambda r: r.get("path") == "target" and r.get("unowned")), "warn"),
-        conv("credential-reuse hosts that are KEV-exploitable", cnt(lambda r: r.get("ident", 0) >= 2 and r.get("kev")), "crit"),
+        conv("crown jewels with no owner", crown_unowned, "crit"),
+        conv("crown jewels the scan can't see (blind)", fk.get("crown_blind", 0), "crit"),
+        conv("KEV-exploitable assets nobody owns", fk.get("kev_unowned", 0), "crit"),
+        conv("KEV-exploitable AND internet-exposed", fk.get("kev_exposed", 0), "crit"),
+        conv("EOL software on a crown jewel", fk.get("eol_crown", 0), "warn"),
+        conv("attack-path targets nobody owns", fk.get("path_unowned", 0), "warn"),
+        conv("credential-reuse hosts that are KEV-exploitable", fk.get("identreuse_kev", 0), "crit"),
     ] if c["count"] > 0]
     convergence.sort(key=lambda x: (-{"crit": 2, "warn": 1}.get(x["sev"], 0), -x["count"]))
+
+    # ---- POWER GRAPHS — chart-ready series so the board tells a story, not just counts ----
+    # 1) Exposure distribution: mutually exclusive score bands across the whole estate.
+    crit_b = fk.get("critical", 0)
+    high_b = max(0, fk.get("high", 0) - crit_b)          # 60–79 (kpi 'high' is cumulative ≥60)
+    bands = [
+        {"label": "Critical", "sub": "≥ 80", "count": crit_b, "sev": "crit"},
+        {"label": "High", "sub": "60–79", "count": high_b, "sev": "high"},
+        {"label": "Elevated", "sub": "40–59", "count": fk.get("elevated", 0), "sev": "med"},
+        {"label": "Low", "sub": "1–39", "count": fk.get("low", 0), "sev": "low"},
+        {"label": "Clean", "sub": "0", "count": fk.get("clean", 0), "sev": "ok"},
+    ]
+
+    # 2) Where the estate's risk comes from — each Hound's share of total fused exposure,
+    #    and how saturated that factor is on average (0–100). This is the differentiator:
+    #    competitors show a vuln count; the pack attributes fused risk to a detection domain.
+    ftot = fk.get("factor_totals", {}) or {}
+    fsum = sum(ftot.values()) or 1
+    risk_by_hound, radar = [], []
+    for f in fused_score.FACTORS:
+        tv = ftot.get(f["id"], 0)
+        sat = round(100.0 * tv / ((f["max"] or 1) * (total or 1)), 1)   # avg intensity of this factor
+        risk_by_hound.append({"id": f["id"], "label": f["label"], "hound": f["hound"],
+                              "total": tv, "pct": round(100.0 * tv / fsum, 1), "sat": sat})
+        radar.append({"axis": f["label"], "hound": f["hound"], "value": sat})
+    risk_by_hound_sorted = sorted(risk_by_hound, key=lambda x: -x["total"])
+
+    # 3) Coverage funnel — what the pack can actually SEE, stage by stage (drop-offs = blind spots).
+    funnel = [
+        {"label": "All assets", "count": total, "note": "the whole estate"},
+        {"label": "Seen by a Hound", "count": max(0, total - no_signal), "note": f"{no_signal} truly dark"},
+        {"label": "Credentialed", "count": max(0, total - blind), "note": f"{blind} blind / uncredentialed"},
+        {"label": "Classified", "count": max(0, total - unclassified), "note": f"{unclassified} unclassified"},
+        {"label": "Owned", "count": max(0, total - unowned), "note": f"{unowned} unowned"},
+        {"label": "Business-tiered", "count": max(0, total - no_tier), "note": f"{no_tier} untiered"},
+    ]
 
     return {"ok": True, "asset_total": total,
             "nemesis": {"critical": crit_assets, "high": fk.get("high", 0),
                         "estate": fk.get("estate", 0), "avg": fk.get("avg", 0),
                         "top": [{"host": r["host"], "score": r["score"]} for r in rows[:5]]},
+            "bands": bands, "risk_by_hound": risk_by_hound_sorted, "radar": radar, "funnel": funnel,
+            "reduction": (c.get("stories") or {}).get("funnel") or {},
+            "champion": (c.get("stories") or {}).get("champion"),
             "posture": posture, "blind": blind_spots, "convergence": convergence,
             "classic": c}

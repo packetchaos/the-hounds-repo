@@ -1,5 +1,5 @@
 """Compliance engine — the shared brain behind Minos (the Compliance Overview) and
-Sherlock (the Compliance Asset deep-dive).
+Tiresias (the Compliance Asset deep-dive).
 
 Read-only over navi.db (core.db). Works the `compliance` table (one row per audit
 check result per asset) and joins to `vulns` for the audit↔vuln correlation.
@@ -235,7 +235,7 @@ def assets_list(path=None):
 
 
 # --------------------------------------------------------------------------- #
-#  Dashboard 2 — Sherlock: per-asset deep-dive + audit↔vuln correlation
+#  Dashboard 2 — Tiresias: per-asset deep-dive + audit↔vuln correlation
 # --------------------------------------------------------------------------- #
 # Topic map for the inference: (label, icon, check-side keywords, vuln-side keywords).
 # A failed/warning check and a vuln on the SAME asset that both hit a topic are linked.
@@ -511,7 +511,7 @@ def framework_view(framework, path=None):
 
 
 # --------------------------------------------------------------------------- #
-#  Sherlock — the AUDIT-FILE lens: the same estate through the audit file, not
+#  Tiresias — the AUDIT-FILE lens: the same estate through the audit file, not
 #  the asset. Aggregate leaderboard + estate-wide audit↔vuln correlation, and a
 #  per-file deep-dive (checks rollup, assets rollup, file-scoped correlation).
 # --------------------------------------------------------------------------- #

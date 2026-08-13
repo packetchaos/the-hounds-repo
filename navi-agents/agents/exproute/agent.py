@@ -1,4 +1,4 @@
-"""Exposure Routes — owner-mapping agent (Atlas Hound).
+"""Exposure Routes — owner-mapping agent (Atlas).
 
 Pulls users & groups from navi (`navi explore info users|user_groups|agent_groups`,
 live Tenable API) and the application **routes** (`vuln_route`) and filesystem

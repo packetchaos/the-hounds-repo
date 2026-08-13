@@ -25,9 +25,19 @@ _OT_NAME = ("rockwell", "factorytalk", "rslinx", "siemens", " s7", "simatic", "m
             "tridium", "niagara", "codesys", "profinet", "opc ", "omron", "mitsubishi electric")
 _OT_HOST = ("plant", "scada", "-plc", "plc-", "hmi", "-rtu", "historian", "-ics", "-ot-", "ot-")
 _HYPER = ("esxi", "vsphere", "vcenter", "nutanix", "proxmox", "hyper-v", "xenserver", "ovirt")
-_NET = ("pfsense", "opnsense", "fortigate", "fortios", "pan-os", "palo alto", "sonicwall",
-        "mikrotik", "routeros", "cisco ios", "cisco asa", "junos", "juniper", "big-ip",
-        "f5 networks", "netscaler", "watchguard", "check point", "vyos", "arista eos")
+_NET = ("pfsense", "opnsense", "fortigate", "fortios", "fortinet", "pan-os", "palo alto",
+        "sonicwall", "mikrotik", "routeros", "cisco ios", "cisco asa", "cisco nx-os", "nexus",
+        "catalyst", "meraki", "junos", "juniper", "big-ip", "f5 networks", "netscaler", "citrix adc",
+        "watchguard", "check point", "gaia", "vyos", "arista eos", "aruba", "arubaos", "procurve",
+        "ruckus", "extreme networks", "extremexos", "brocade", "dell os10", "force10", "huawei",
+        "vrp", "h3c", "zyxel", "netgear", "ubiquiti", "unifi", "edgeos", "edgerouter", "sophos xg",
+        "sophos sfos", "barracuda", "adtran", "alcatel", "nokia sr", "allied telesis", "d-link", "tp-link")
+# hostname tokens that imply network gear (used as a secondary signal)
+_NET_HOST = ("-sw", "sw-", "-rtr", "rtr-", "-fw", "fw-", "-gw", "gw-", "router", "switch", "firewall")
+# cloud provenance columns navi syncs → provider. First populated column wins.
+_CLOUD_COLS = (("aws_id", "AWS"), ("aws_ec2_name", "AWS"), ("aws_ec2_region", "AWS"),
+               ("azure_vm_id", "Azure"), ("azure_resource_id", "Azure"), ("azure_subscription_id", "Azure"),
+               ("gcp_instance_id", "GCP"), ("gcp_project_id", "GCP"))
 _IOT_TYPES = [
     ("Camera", ("camera", "ipcam", "hikvision", "dahua", "axis communications", "vivotek", "reolink", "amcrest", "onvif", "nvr", "dvr")),
     ("NAS", ("synology", "diskstation", "qnap", "terastation", "truenas", "freenas", "netapp", "drobo", "readynas")),
@@ -192,13 +202,26 @@ def _read_tags(db_path=None):
     return out
 
 
+# Asset Inventory facets that are pure DESCRIPTORS, never a classification on their own.
+_DESCRIPTOR_FACETS = ("os", "operating system", "app", "application", "software", "version")
+
+
 def _tag_class(th):
-    """(cls, sub, method) from an asset's tags — None if it carries no classification tag."""
+    """(cls, sub, method) from an asset's tags — None if it carries no classification tag.
+
+    Precedence: the explicit Class facet, then the built-in facets (Cloud, Network, OT,
+    IoT, Device Type, OS), then ANY other customer-defined facet the operator invented
+    under the Asset Inventory scheme (its value becomes the class) — so the taxonomy
+    accounts for whatever classification the customer tags."""
     if not th:
         return None
     if th.get("class"):
         p = th["class"].split(" - ", 1)
         return (p[0].strip(), (p[1].strip() if len(p) > 1 else th.get("os") or th.get("device type") or ""), "tag: Class")
+    if th.get("cloud"):
+        return ("Cloud", th["cloud"], "tag: Cloud")
+    if th.get("network"):
+        return ("Network", th["network"], "tag: Network")
     if th.get("ot"):
         return ("OT", th["ot"], "tag: OT")
     if th.get("iot"):
@@ -210,6 +233,13 @@ def _tag_class(th):
     osv = th.get("os")
     if osv:
         return (_os_to_class(osv), osv, "tag: OS")
+    # customer-defined classification: any remaining non-descriptor facet → its value is the class
+    for facet in sorted(th):
+        if facet in _DESCRIPTOR_FACETS:
+            continue
+        val = (th.get(facet) or "").strip()
+        if val:
+            return (val, "", "tag: " + facet.title())
     return None
 
 
@@ -221,7 +251,7 @@ def classify(db_path=None):
     os_sel = ", operating_system" if "operating_system" in acols else ""
     acr_sel = ", acr" if "acr" in acols else ""
     aes_sel = ", aes" if "aes" in acols else ""
-    cloud_cols = [c for c in ("aws_id", "azure_vm_id", "gcp_instance_id") if c in acols]
+    cloud_cols = [c for c, _ in _CLOUD_COLS if c in acols]
     cloud_sel = "".join(", " + c for c in cloud_cols)
     assets = db.query(f"SELECT uuid, hostname, ip_address{os_sel}{acr_sel}{aes_sel}{cloud_sel} FROM assets;", path=db_path)
 
@@ -231,7 +261,7 @@ def classify(db_path=None):
     crit = _uuids("SELECT DISTINCT asset_uuid FROM vulns WHERE lower(severity)='critical'", db_path)
 
     def _cloud_of(a):
-        for c, prov in (("aws_id", "AWS"), ("azure_vm_id", "Azure"), ("gcp_instance_id", "GCP")):
+        for c, prov in _CLOUD_COLS:
             if a.get(c):
                 return prov
         return ""
@@ -239,14 +269,18 @@ def classify(db_path=None):
     out = []
     for a in assets:
         u = a.get("uuid")
+        prov = _cloud_of(a)
         tc = _tag_class(tags.get(u))
         if tc:
             cls, sub, method = tc; conf, reason = "tagged", ""
+        elif prov:
+            # cloud provenance from navi's metadata is authoritative ground truth
+            cls, sub, method, conf, reason = "Cloud", prov, "cloud metadata", "detected", ""
         else:
             cls, sub, method, conf, reason = "Unclassified", "", "", "n/a", "not tagged — classify from OS Signals"
         out.append({"uuid": u, "hostname": a.get("hostname") or "", "ip": a.get("ip_address") or "",
                     "cls": cls, "sub": sub, "method": method, "confidence": conf, "reason": reason,
-                    "cloud": _cloud_of(a), "os": (a.get("operating_system") or "").strip(),
+                    "cloud": prov, "os": (a.get("operating_system") or "").strip(),
                     "acr": a.get("acr"), "aes": a.get("aes"),
                     "owned": u in owned, "kev": u in kev, "critical": u in crit})
 
@@ -261,7 +295,7 @@ def classify(db_path=None):
         c["cloud"] += 1 if r["cloud"] else 0
         key = r["sub"] or r["reason"] or "—"
         c["subs"][key] = c["subs"].get(key, 0) + 1
-    order = ["Windows", "Linux", "macOS", "IoT", "OT", "Network", "Virtual Infrastructure", "Other", "Unclassified"]
+    order = ["Windows", "Linux", "macOS", "IoT", "OT", "Network", "Cloud", "Virtual Infrastructure", "Other", "Unclassified"]
     class_list = []
     for name in order + [k for k in classes if k not in order]:
         if name in classes:
@@ -273,7 +307,7 @@ def classify(db_path=None):
     unclassified = sum(1 for r in out if r["cls"] == "Unclassified")
     classified = total - unclassified
     stats = {"total": total, "servers": 0, "workstations": 0, "iot": 0, "ot": 0,
-             "network": 0, "virtual": 0, "unclassified": unclassified}
+             "network": 0, "cloud": 0, "virtual": 0, "unclassified": unclassified}
     for r in out:
         c = r["cls"]; sub = (r["sub"] or "").lower()
         if c == "IoT":
@@ -282,6 +316,8 @@ def classify(db_path=None):
             stats["ot"] += 1
         elif c == "Network":
             stats["network"] += 1; stats["servers"] += 1
+        elif c == "Cloud":
+            stats["cloud"] += 1; stats["servers"] += 1
         elif c == "Virtual Infrastructure":
             stats["virtual"] += 1; stats["servers"] += 1
         elif c == "Windows":
@@ -324,7 +360,7 @@ def _signal_class(a, S):
     sw = (u in S["sw_win"]) or (u in S["sw_nix"])
     if u in S["ot"] or any(k in host for k in _OT_HOST):
         return ("Device Type", "Engineering Workstation" if sw else "OT Device")
-    if u in S["net"]:
+    if u in S["net"] or any(k in host for k in _NET_HOST):
         return ("Class", "Network")
     if u in S["hyper"] or "esxi" in osl:
         return ("Class", "Virtual Infrastructure")

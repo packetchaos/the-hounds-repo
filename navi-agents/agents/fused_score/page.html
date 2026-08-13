@@ -17,6 +17,10 @@
   .abtn{display:inline-flex;align-items:center;gap:6px;background:var(--panel-2,var(--panel));border:1px solid var(--line);color:var(--ink);font-family:var(--display);font-weight:600;font-size:12.5px;padding:8px 12px;border-radius:9px;cursor:pointer;text-decoration:none}
   .abtn:hover{border-color:var(--accent)} .abtn.hot{background:linear-gradient(100deg,#c53b40,#e5484d);border-color:#e5484d;color:#fff}
   .abtn b{font-family:var(--mono);font-weight:500;opacity:.85} .actbtns{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+  .actassets{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+  .aa{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:9px;padding:5px 9px;font-size:12px;text-decoration:none;color:var(--ink);background:var(--bg-2)}
+  .aa:hover{border-color:var(--accent)} .aa .s{font-family:var(--mono);font-size:11px;font-weight:700}
+  .aa .rk{font-family:var(--mono);font-size:10px;color:var(--ink-3)}
   .red{border:1px solid var(--line);border-radius:14px;padding:15px 17px;margin-top:14px;background:radial-gradient(120% 160% at 0% -30%,rgba(67,185,138,.10),transparent 55%),var(--panel)}
   .plays{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 14px}
   .play{display:inline-flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:10px;padding:7px 11px;cursor:pointer;font-size:12.5px;color:var(--ink-2);user-select:none}
@@ -28,10 +32,22 @@
   .jrow{display:grid;grid-template-columns:1fr 90px 42px;gap:10px;align-items:center;font-size:12px;margin-top:6px}
   .jbar{height:9px;border-radius:5px;background:var(--panel-2,var(--bg-2));overflow:hidden}.jbar>i{display:block;height:100%}
   .jrow .jp{font-family:var(--mono);text-align:right;color:var(--ok)}
-  .fgrid{display:grid;grid-template-columns:1.35fr 1fr;gap:16px;margin-top:16px}@media(max-width:960px){.fgrid{grid-template-columns:1fr}}
-  .fac{display:grid;grid-template-columns:13px 1fr 30px;align-items:center;gap:9px;font-size:12px;margin-top:6px}
+  .fgrid{display:grid;grid-template-columns:1.35fr 1fr;gap:16px;margin-top:0}@media(max-width:960px){.fgrid{grid-template-columns:1fr}}
+  .fac{display:grid;grid-template-columns:13px 1fr 130px 32px;align-items:center;gap:9px;font-size:12px;margin-top:7px}
   .fac .dot{width:11px;height:11px;border-radius:3px}.fac .nm b{color:var(--ink)}.fac .nm span{color:var(--ink-3);font-size:10.5px}
   .fac .mx{font-family:var(--mono);font-size:10.5px;color:var(--ink-2);text-align:right}
+  .fac .wsl{width:100%;cursor:pointer;accent-color:var(--accent);height:4px}
+  .fac .wv{font-family:var(--mono);font-size:11.5px;color:var(--ink);text-align:right}
+  .fac.z{opacity:.5}.fac.z .wv{color:var(--ink-3)}
+  .subnav{position:sticky;top:0;z-index:6;display:flex;gap:6px;flex-wrap:wrap;padding:9px 0 8px;margin-top:6px;background:linear-gradient(var(--bg) 72%,transparent)}
+  .subnav a{font-family:var(--display);font-weight:600;font-size:12px;color:var(--ink-2);text-decoration:none;border:1px solid var(--line);border-radius:999px;padding:5px 12px}
+  .subnav a:hover{border-color:var(--accent);color:var(--ink)}
+  .subnav a.on{background:var(--accent);border-color:var(--accent);color:#12131a}
+  .subhead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:22px 0 10px;padding-bottom:7px;border-bottom:1px solid var(--line)}
+  .subhead .sn{font-family:var(--mono);font-size:12px;color:var(--accent);border:1px solid var(--accent);border-radius:6px;padding:1px 7px;flex:none}
+  .subhead h3{font-family:var(--display);font-weight:700;font-size:18px;margin:0}
+  .subhead .sh{color:var(--ink-3);font-size:12.5px;font-weight:400}
+  #sec-act,#sec-play,#sec-score,#sec-lb{scroll-margin-top:54px}
   .newpill{font-family:var(--mono);font-size:8.5px;background:rgba(109,112,230,.18);color:var(--accent);border:1px solid var(--accent);border-radius:999px;padding:1px 5px;margin-left:4px;vertical-align:1px}
   .lb{display:flex;flex-direction:column;gap:8px}
   .row{display:grid;grid-template-columns:22px 1fr;gap:10px;align-items:center;padding:9px 11px;border:1px solid var(--line);border-radius:11px;background:var(--bg-2);cursor:pointer}
@@ -55,23 +71,34 @@
 <div class="wrap">
   <header class="top" id="app-header"></header>
   <section class="card" style="background:radial-gradient(120% 140% at 90% -20%,var(--amber-glow),transparent 60%),var(--panel)">
-    <div class="toolbar"><div><div class="acode">Nemesis Hound</div><h2 style="margin:0">🎯 Exposure Score</h2>
+    <div class="toolbar"><div><div class="acode">Nemesis</div><h2 style="margin:0">🎯 Exposure Score</h2>
       <p class="sub" style="margin:2px 0 0">The pack's convergence page — every Hound's signal fused into <b>one score per asset</b>. Surfaces the <b>worst from each Hound</b> and where they land on the <b>same</b> assets, ranks the estate worst-first, and turns a play into a <b>projected reduction justified by the signals it clears</b>. Scores climb as more Hounds run and tag.</p></div>
       <button class="btn run sm" id="load" style="margin-left:auto">▶ Score the estate</button></div>
     <div id="flash" class="flash"></div>
     <div class="kg" id="kpis"></div>
   </section>
 
+  <nav class="subnav" id="subnav" style="display:none">
+    <a href="#" data-sec="sec-act">① Act now</a><a href="#" data-sec="sec-play">② Recommended play</a><a href="#" data-sec="sec-score">③ How it's scored</a><a href="#" data-sec="sec-lb">④ Estate leaderboard</a>
+  </nav>
+
+  <div id="sec-act">
+  <div class="subhead sect" style="display:none"><span class="sn">01</span><h3>Act now</h3><span class="sh">— the assets over the line today, and the one-click handoffs</span></div>
   <div class="act" id="actCard" style="display:none">
     <div class="top"><span class="big" id="anN">—</span>
-      <div><h2 style="margin:0;font-size:17px">🚨 Act now</h2><div class="sub" style="margin:0" id="anSub"></div></div>
+      <div class="sub" style="margin:0;flex:1;min-width:180px" id="anSub"></div>
       <div class="seg" id="thr"><button data-t="80" class="on">Critical ≥ 80</button><button data-t="60">High ≥ 60</button><button data-t="40">Top slice</button></div>
     </div>
     <div class="actbtns" id="actbtns"></div>
+    <div class="sub" style="margin:14px 0 4px" id="actAssetsLbl"></div>
+    <div class="actassets" id="actAssets"></div>
+  </div>
   </div>
 
+  <div id="sec-play">
+  <div class="subhead sect" style="display:none"><span class="sn">02</span><h3>Recommended play(s)</h3><span class="sh">— toggle fixes to see the projected estate reduction they buy</span></div>
   <div class="red" id="redCard" style="display:none">
-    <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap"><h3 style="margin:0;font-size:15px">📉 Recommended play → projected reduction</h3><span class="sub" style="margin:0" id="redSub"></span></div>
+    <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap"><h3 style="margin:0;font-size:15px">📉 Projected reduction</h3><span class="sub" style="margin:0" id="redSub"></span></div>
     <div class="plays" id="plays"></div>
     <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
       <div><div class="sub" style="margin:0">estate exposure now</div><div class="ba" id="baBefore" style="color:var(--crit)">—</div></div>
@@ -83,44 +110,55 @@
     <div class="sub" style="margin:12px 0 2px">Justified by — the signals each fix neutralises:</div>
     <div id="justify"></div>
   </div>
+  </div>
 
+  <div id="sec-score">
+  <div class="subhead sect" style="display:none"><span class="sn">03</span><h3>How the score is scored</h3><span class="sh">— fifteen Hound signals; drag the weights to your priorities</span></div>
+  <section class="card" id="scoreCard" style="display:none">
+    <div class="toolbar" style="margin:0 0 4px"><div><h2 style="margin:0;font-size:15px">Fifteen factors → one 0–100 score</h2>
+      <p class="sub" style="margin:2px 0 0">Each factor is one Hound. They sum to 100, then a disposition discount applies and Chronos coverage sets confidence. <b>Drag any weight</b> to re-rank the estate to what matters to you — weights re-normalise to 100 on apply.</p></div>
+      <span class="chip" id="wSum" style="margin-left:auto"></span></div>
+    <div id="factors"></div>
+    <div class="callbox mono" style="font-size:10.5px;margin-top:10px">score = Σ(factor pts) × disposition · confidence ← Chronos coverage</div>
+    <div class="toolbar" style="margin-top:12px;gap:8px;flex-wrap:wrap">
+      <button class="btn run sm" id="wApply" disabled>✓ Apply weights &amp; re-score</button>
+      <button class="btn ghost sm" id="wReset">↺ Reset to defaults</button>
+      <span class="sub" id="wNote" style="margin-left:auto"></span></div>
+  </section>
+  </div>
+
+  <div id="sec-lb">
+  <div class="subhead sect" style="display:none"><span class="sn">04</span><h3>Estate leaderboard</h3><span class="sh">— worst first; click any asset to break it down, tag it, or open it in Argos</span></div>
   <div class="fgrid" id="fgrid" style="display:none">
     <section class="card">
-      <div class="toolbar" style="margin:0 0 4px"><h2 style="margin:0;font-size:15px">Estate leaderboard — worst first</h2><span class="chip" id="lbCount" style="margin-left:auto"></span></div>
+      <div class="toolbar" style="margin:0 0 4px"><h2 style="margin:0;font-size:15px">Worst first</h2><span class="chip" id="lbCount" style="margin-left:auto"></span></div>
       <p class="sub" style="margin:2px 0 8px">Click an asset for its factor breakdown. Rows over the act-now line carry a red edge.</p>
       <div class="lb" id="lb"></div>
     </section>
-    <div>
-      <section class="card" style="margin-bottom:16px">
-        <h2 style="margin:0;font-size:15px">How the score is built</h2>
-        <p class="sub" style="margin:2px 0 6px">Every factor is one Hound; they sum to 100, then a disposition discount applies and coverage sets confidence.</p>
-        <div id="factors"></div>
-        <div class="callbox mono" style="font-size:10.5px;margin-top:10px">score = Σ(factor pts) × disposition · confidence ← Chronos coverage</div>
-      </section>
-      <section class="card" id="bdCard">
-        <div style="display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap">
-          <div><div class="big2" id="bdScore">—</div><div class="sub" style="margin:2px 0 0">fused score <span id="bdBand" class="chip"></span></div></div>
-          <div style="flex:1;min-width:160px"><h2 id="bdHost" style="font-size:15px;margin:0"></h2><div class="chips" id="bdMeta" style="margin-top:5px"></div></div>
-        </div>
-        <div class="stack" id="bdStack"></div><div id="bdList"></div>
-        <div class="actbtns" id="bdActs" style="margin-top:12px"></div>
-      </section>
-    </div>
+    <section class="card" id="bdCard">
+      <div style="display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap">
+        <div><div class="big2" id="bdScore">—</div><div class="sub" style="margin:2px 0 0">fused score <span id="bdBand" class="chip"></span></div></div>
+        <div style="flex:1;min-width:160px"><h2 id="bdHost" style="font-size:15px;margin:0"></h2><div class="chips" id="bdMeta" style="margin-top:5px"></div></div>
+      </div>
+      <div class="stack" id="bdStack"></div><div id="bdList"></div>
+      <div class="actbtns" id="bdActs" style="margin-top:12px"></div>
+    </section>
   </div>
 
-  <section class="card" id="worstCard" style="display:none">
+  <section class="card" id="worstCard" style="display:none;margin-top:16px">
     <h2 style="margin:0;font-size:15px">🐾 Worst from each Hound — and where they converge</h2>
     <p class="sub" style="margin:2px 0 0" id="convNote"></p>
     <div class="worst" id="worst"></div>
   </section>
+  </div>
   <footer>Nemesis · fused exposure score · read-only rollup over KEV/EPSS/VPR/ACR + every Hound's tags · Priority tagging gated</footer>
 </div>
 <script src="/static/console.js"></script>
 <script>
 const API=agentApi('fused_score');
-let DATA=null, ROWS=[], WRITES=false, THR=80, SEL=new Set(['patch','eol','crypto','segment','own']), CUR=0;
-const FCOLOR={expl:'var(--crit)',sev:'var(--high)',crit:'#e6c34a',path:'#e06a9c',ident:'#e06a9c',exp:'#6ea8e6',ai:'var(--accent)',eol:'#e0913a',cry:'#5d92d6',mit:'#6ea8e6',own:'#a78bfa'};
-const FNEW={path:1,ident:1,ai:1,eol:1,cry:1};
+let DATA=null, ROWS=[], WRITES=false, THR=80, SEL=new Set(['patch','eol','crypto','segment','own']), CUR=0, WEIGHTS={}, WDEF={}, CURSEC='sec-act';
+const FCOLOR={expl:'var(--crit)',aes:'#38bdf8',sev:'var(--high)',crit:'#e6c34a',path:'#e06a9c',ident:'#e06a9c',exp:'#6ea8e6',ai:'var(--accent)',eol:'#e0913a',cry:'#5d92d6',mit:'#6ea8e6',own:'#a78bfa'};
+const FNEW={aes:1,path:1,ident:1,ai:1,eol:1,cry:1};
 const PLAYS=[
  {id:'patch',  lab:'Patch KEV / critical', s:'clears exploitability, severity, ATT&CK', clears:['expl','sev','mit']},
  {id:'eol',    lab:'Replace EOL software',  s:'clears EOL', clears:['eol']},
@@ -136,6 +174,7 @@ function projScore(a){ const cl=clearedFor(a); let pts=0; for(const k in a.facto
 function chips(a){const c=[];
  if(a.kev)c.push('<span class="fchip" style="color:var(--crit);border-color:rgba(229,72,77,.5)">🔥 KEV</span>');
  c.push(`<span class="fchip">⚡ EPSS ${Math.round(a.epss*100)}%</span><span class="fchip">▲ VPR ${(a.vpr||0).toFixed(1)}</span><span class="fchip" style="color:#e6c34a;border-color:rgba(230,195,74,.5)">${a.crown?'👑 crown':'ACR '+(a.acr==null?'—':a.acr)}</span>`);
+ if(a.aes!=null&&a.aes>0)c.push(`<span class="fchip" style="color:#38bdf8;border-color:rgba(56,189,248,.5)">AES ${a.aes}</span>`);
  if(a.path)c.push(`<span class="fchip" style="color:#e06a9c;border-color:rgba(224,106,156,.5)">🕸 path:${a.path}</span>`);
  if(a.ident>=2)c.push('<span class="fchip" style="color:#e06a9c;border-color:rgba(224,106,156,.5)">🪪 cred-reuse</span>');else if(a.ident===1)c.push('<span class="fchip" style="color:#e06a9c;border-color:rgba(224,106,156,.5)">🪪 NHI</span>');
  if(a.exposed)c.push('<span class="fchip" style="color:#6ea8e6;border-color:rgba(110,168,230,.5)">🌐 exposed</span>');
@@ -151,17 +190,51 @@ function chips(a){const c=[];
 function actSet(){ let s=ROWS.filter(a=>a.score>=THR); if(!s.length) s=ROWS.slice(0,Math.min(10,ROWS.length)); return s; }
 
 function renderAll(){
- const k=DATA.kpi, F=DATA.factors;
+ const k=DATA.kpi;
  const tile=(l,v)=>`<div class="k"><div class="kl">${l}</div><div class="kv">${v}</div></div>`;
  document.getElementById('kpis').innerHTML=tile('Assets',k.assets)+tile('Estate exposure',k.estate)+tile('Avg score',k.avg)+
    tile('Critical ≥80',k.critical)+tile('High ≥60',k.high)+tile('KEV assets',k.kev)+tile('Crown+KEV',k.crown_kev)+tile('Blind',k.blind);
- document.getElementById('factors').innerHTML=F.map(f=>`<div class="fac"><span class="dot" style="background:${FCOLOR[f.id]||'var(--accent)'}"></span><span class="nm"><b>${esc(f.label)}</b>${FNEW[f.id]?'<span class="newpill">+ added</span>':''} <span>· ${esc(f.hound)}</span></span><span class="mx">${f.max}</span></div>`).join('');
+ initWeights(); renderFactors();
  renderLB(); drawAct(); drawPlays(); drawRed(); drawWorst();
- ['actCard','redCard','fgrid','worstCard'].forEach(id=>document.getElementById(id).style.display=id==='fgrid'?'grid':'block');
+ document.getElementById('subnav').style.display='flex';
+ document.querySelectorAll('.subhead.sect').forEach(el=>el.style.display='flex');
+ ['actCard','redCard','scoreCard','fgrid','worstCard'].forEach(id=>document.getElementById(id).style.display=id==='fgrid'?'grid':'block');
  showBd(0);
+ showSection(CURSEC);   // land on Act now (or keep the tab the user was on)
 }
+const SECTIONS=['sec-act','sec-play','sec-score','sec-lb'];
+function showSection(id){
+ if(!SECTIONS.includes(id)) id='sec-act'; CURSEC=id;
+ SECTIONS.forEach(s=>{const el=document.getElementById(s); if(el) el.style.display=(s===id?'block':'none');});
+ document.querySelectorAll('#subnav a').forEach(a=>a.classList.toggle('on',a.dataset.sec===id));
+ window.scrollTo({top:0,behavior:'smooth'});
+}
+/* ---- weight editor ---- */
+function initWeights(){
+ // seed defaults once from the engine's factor metadata; keep user edits across re-scores
+ if(!Object.keys(WDEF).length){ (DATA.factors||[]).forEach(f=>{ WDEF[f.id]=f.default; if(WEIGHTS[f.id]==null) WEIGHTS[f.id]=f.default; }); }
+}
+function renderFactors(){
+ const F=DATA.factors||[];
+ document.getElementById('factors').innerHTML=F.map(f=>{const w=WEIGHTS[f.id]!=null?WEIGHTS[f.id]:f.default;
+  return `<div class="fac ${w==0?'z':''}" data-f="${f.id}"><span class="dot" style="background:${FCOLOR[f.id]||'var(--accent)'}"></span>`+
+   `<span class="nm"><b>${esc(f.label)}</b>${FNEW[f.id]?'<span class="newpill">+ added</span>':''} <span>· ${esc(f.hound)}</span></span>`+
+   `<input type="range" class="wsl" min="0" max="25" step="1" value="${w}"><span class="wv">${w}</span></div>`;}).join('');
+ document.querySelectorAll('#factors .fac').forEach(row=>{const id=row.dataset.f, sl=row.querySelector('.wsl'), vv=row.querySelector('.wv');
+  sl.oninput=()=>{WEIGHTS[id]=+sl.value; vv.textContent=sl.value; row.classList.toggle('z',+sl.value===0); updateWSum(true);};});
+ updateWSum(DATA.weights_custom);
+}
+function updateWSum(dirty){
+ const sum=(DATA.factors||[]).reduce((s,f)=>s+(WEIGHTS[f.id]||0),0);
+ const changed=(DATA.factors||[]).some(f=>(WEIGHTS[f.id]||0)!==WDEF[f.id]);
+ document.getElementById('wSum').textContent='Σ weights '+sum+(sum!==100?' → re-normalised to 100':'');
+ const ap=document.getElementById('wApply'); ap.disabled=!(dirty||changed);
+ document.getElementById('wNote').innerHTML=changed?'<span style="color:var(--accent)">custom weighting — apply to re-rank the estate</span>':(DATA.weights_custom?'custom weighting active':'default weighting');
+}
+async function applyWeights(){ await load(WEIGHTS); }
+function resetWeights(){ (DATA.factors||[]).forEach(f=>WEIGHTS[f.id]=WDEF[f.id]); load(null); }
 function renderLB(){
- document.getElementById('lbCount').textContent=ROWS.length+' assets';
+ document.getElementById('lbCount').textContent=((DATA.total||ROWS.length).toLocaleString())+' assets'+(DATA.truncated?(' · worst '+ROWS.length+' shown'):'');
  document.getElementById('lb').innerHTML=ROWS.slice(0,120).map((a,i)=>{const b=band(a.score);
   return `<div class="row ${a.score>=THR?'act1':''}" data-i="${i}"><div class="rank">${i+1}</div><div><div class="rhost"><span class="hn">${esc(a.host)}</span><span style="flex:1"></span><span class="fchip" style="color:${b[1]};border-color:${b[1]}">${b[0]}</span><span class="scv" style="color:${b[1]}">${a.score}</span></div><div class="gauge"><i style="width:${a.score}%;background:${b[1]}"></i></div><div class="chips">${chips(a)}</div></div></div>`;}).join('');
  document.querySelectorAll('.row').forEach(r=>r.onclick=()=>showBd(+r.dataset.i));
@@ -176,6 +249,12 @@ function drawAct(){const S=actSet(),u=S.filter(a=>a.unowned).length,ck=S.filter(
   `<a class="abtn" href="/agents/acr/page.html">⚖ Raise ACR <b>${ck}</b></a>`+
   `<a class="abtn" href="/agents/contract/page.html">📜 Add to AI Contract</a>`;
  const tb=document.querySelector('#actbtns [data-a="tag"]'); if(tb)tb.onclick=()=>tagPriority(S);
+ // the actual assets over the line — click any to open it in Argos
+ const CAP=100, shown=S.slice(0,CAP);
+ document.getElementById('actAssetsLbl').innerHTML=S.length?('Assets over the line — <b>click any to open it in Argos</b>:'):'';
+ document.getElementById('actAssets').innerHTML=shown.map((a,i)=>{const c=band(a.score)[1];
+  return `<a class="aa" href="/agents/argos/page.html?target=${encodeURIComponent(a.uuid||'')}" title="Open ${esc(a.host)} in Argos"><span class="rk">${i+1}</span><span>${esc(a.host)}</span><span class="s" style="color:${c}">${a.score}</span></a>`;}).join('')+
+  (S.length>CAP?`<span class="sub" style="align-self:center">+${S.length-CAP} more</span>`:'');
 }
 function drawPlays(){document.getElementById('plays').innerHTML=PLAYS.map(p=>`<div class="play ${SEL.has(p.id)?'on':''}" data-p="${p.id}"><span class="bx"></span><span><b style="color:var(--ink)">${p.lab}</b> <span>· ${p.s}</span></span></div>`).join('');
  document.querySelectorAll('#plays .play').forEach(el=>el.onclick=()=>{const id=el.dataset.p;SEL.has(id)?SEL.delete(id):SEL.add(id);drawPlays();drawRed();});}
@@ -203,7 +282,8 @@ function showBd(i){const a=ROWS[i]; if(!a)return; CUR=i; const b=band(a.score);
    (dm<1?`<div class="bdrow"><span class="dot" style="background:var(--ok)"></span><span class="lab"><b>${esc(a.disp)}</b> <span>· disposition discount</span></span><span class="pts">×${dm}</span></div>`:'')+
    (a.blind?`<div class="bdrow"><span class="dot" style="background:var(--med)"></span><span class="lab"><b>Low coverage</b> <span>· Chronos — score may understate</span></span><span class="pts">±</span></div>`:'')+
    `<div class="bdrow" style="border-top:1px solid var(--line);margin-top:4px;padding-top:6px"><span></span><span class="lab"><b>Fused score</b></span><span class="pts" style="color:${b[1]};font-weight:700">${a.score}</span></div>`;
- document.getElementById('bdActs').innerHTML=`<button class="abtn hot" data-x="tag">🏷 Tag Priority</button><a class="abtn" href="/agents/asset_ownership/page.html">📌 ${a.unowned?'Assign owner':'Owned'}</a><a class="abtn" href="/agents/argos/page.html">🔦 Open in Argos</a>`;
+ const qu=encodeURIComponent(a.uuid||''), qh=encodeURIComponent(a.host||'');
+ document.getElementById('bdActs').innerHTML=`<button class="abtn hot" data-x="tag">🏷 Tag Priority</button><a class="abtn" href="/agents/asset_ownership/page.html?focus=${qu}&host=${qh}">📌 ${a.unowned?'Assign owner':'Owned — review'}</a><a class="abtn" href="/agents/argos/page.html?target=${qu}">🔦 Open in Argos</a>`;
  const t=document.querySelector('#bdActs [data-x="tag"]'); if(t)t.onclick=()=>tagPriority([a]);
 }
 function drawWorst(){const w=DATA.worst||[], conv=DATA.convergence||[]; const hh={}; w.forEach(x=>hh[x.host]=(hh[x.host]||0)+1);
@@ -219,18 +299,24 @@ async function tagPriority(S){
  if(!o.ok){flash('flash','✗ '+esc(o.error||'failed'),'crit');return;}
  flash('flash','✓ queued Priority : P1 on '+(o.count||uuids.length)+' asset(s) — filter to it anywhere in the pack. Allow ~30 min propagation.','ok');
 }
-async function load(){
- const b=document.getElementById('load'); b.disabled=true;
- flash('flash','<span class="spin"></span> fusing every Hound\'s signal across the estate…','run');
- let o; try{o=await API.post('overview');}catch(e){o={ok:false,error:e.message};}
+async function load(weights){
+ const b=document.getElementById('load'), ap=document.getElementById('wApply');
+ b.disabled=true; if(ap)ap.disabled=true;
+ const rescore=!!weights;
+ flash('flash','<span class="spin"></span> '+(rescore?'re-scoring the estate with your weighting…':'fusing every Hound\'s signal across the estate…'),'run');
+ let o; try{o=await API.post('overview', weights?{weights}:{});}catch(e){o={ok:false,error:e.message};}
  b.disabled=false; const res=o.result||o;
  if(!res||!res.ok){flash('flash','✗ '+esc((res&&res.error)||o.error||'failed'),'crit');return;}
  DATA=res; ROWS=res.assets||[]; flashClear('flash');
+ if(rescore){ flash('flash','✓ re-scored with your weighting — estate re-ranked.','ok'); setTimeout(()=>flashClear('flash'),2600); }
  // default threshold: if nothing hits 80, drop to the highest sensible band so the page is useful
  if(!ROWS.some(a=>a.score>=80)){ THR=ROWS.some(a=>a.score>=60)?60:40; document.querySelectorAll('#thr button').forEach(x=>x.classList.toggle('on',+x.dataset.t===THR)); }
  renderAll();
 }
-document.getElementById('load').onclick=load;
+document.getElementById('load').onclick=()=>load();
+document.getElementById('wApply').onclick=()=>applyWeights();
+document.getElementById('wReset').onclick=()=>resetWeights();
+document.querySelectorAll('#subnav a').forEach(a=>a.onclick=e=>{e.preventDefault();showSection(a.dataset.sec);});
 document.querySelectorAll('#thr button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#thr button').forEach(x=>x.classList.remove('on'));b.classList.add('on');THR=+b.dataset.t;renderLB();drawAct();drawRed();showBd(CUR);});
 mountAgentHeader({id:'fused_score',icon:'🎯',name:'Exposure Score',sub:'Nemesis · one score from every Hound · act now'});
 jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});

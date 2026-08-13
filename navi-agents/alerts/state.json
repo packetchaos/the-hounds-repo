@@ -1,13 +1,50 @@
 {
   "snap": {
-    "al19fa4150e9b5291": 40.0,
-    "al19fa54d5c57731d": 7.0
+    "al19fa4150e9b5291": 42.0,
+    "al19fa54d5c57731d": 163.0,
+    "al19fa54db22d2ca0": 116.0
   },
   "fired": {
     "al19fa4150e9b5291": false,
-    "al19fa54d5c57731d": false
+    "al19fa54d5c57731d": false,
+    "al19fa54db22d2ca0": false
   },
   "history": [
+    {
+      "ts": "2026-08-12T15:29:06Z",
+      "source": "contract",
+      "evaluated": 3,
+      "newly": [],
+      "still": 0,
+      "sent": false
+    },
+    {
+      "ts": "2026-08-12T11:01:03Z",
+      "source": "contract",
+      "evaluated": 3,
+      "newly": [],
+      "still": 0,
+      "sent": false
+    },
+    {
+      "ts": "2026-08-12T02:57:31Z",
+      "source": "contract",
+      "evaluated": 3,
+      "newly": [],
+      "still": 0,
+      "sent": false
+    },
+    {
+      "ts": "2026-08-11T22:57:04Z",
+      "source": "contract",
+      "evaluated": 3,
+      "newly": [
+        "End-of-life / unsupported software rising",
+        "Ownerless assets rising"
+      ],
+      "still": 0,
+      "sent": true
+    },
     {
       "ts": "2026-07-27T20:39:13Z",
       "source": "manual",
@@ -25,5 +62,5 @@
       "sent": false
     }
   ],
-  "last_run": "2026-07-27T20:39:13Z"
+  "last_run": "2026-08-12T15:29:06Z"
 }

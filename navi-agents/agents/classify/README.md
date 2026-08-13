@@ -1,4 +1,4 @@
-# Asset Classification · Linnaeus Hound 📇
+# Asset Classification · Linnaeus 📇
 
 Classifies **every** asset by what it *is* — so nothing is unknown, because unknown
 assets are what stall ownership (you can't assign an owner to a device you can't name).

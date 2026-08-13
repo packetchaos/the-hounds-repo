@@ -58,6 +58,48 @@ def _thr_case(sevcol, th):
     return "(CASE lower(%s) %s ELSE NULL END)" % (sevcol, whens)
 
 
+def _has_col(table, col, path=None):
+    try:
+        return any(r.get("name") == col for r in db.query('PRAGMA table_info("%s")' % table, path=path))
+    except Exception:
+        return False
+
+
+# disposition words an operator applies to a route/path (stored as an Owner tag
+# valued '<route|path name>: <disposition>'). Findings on a dispositioned route or
+# path are formally handled risk — they must NOT count against the SLA clock.
+DISPOSITIONS = ("Ignored", "Accepted", "Mitigated")
+
+
+def _disp_exclude(prefix="", path=None, negate=True):
+    """SQL fragment removing (or, with negate=False, KEEPING) findings that sit on a
+    route or path the operator has Ignored / Accepted / Mitigated. Empty string when
+    neither linkage table is present, or the finding table has no plugin_id to join on.
+
+    A path disposition matches ``vuln_paths.path`` (→ its plugin_id on that asset); a
+    route disposition matches ``vuln_route.app_name`` (→ every plugin in its
+    plugin_list). Both are scoped to the SAME asset the Owner tag sits on."""
+    au, pid = prefix + "asset_uuid", prefix + "plugin_id"
+    disp_vals = lambda expr: "(" + ", ".join("%s||': %s'" % (expr, d) for d in DISPOSITIONS) + ")"
+    frags = []
+    if _table_exists("vuln_paths", path):
+        frags.append(
+            "EXISTS (SELECT 1 FROM tags td JOIN vuln_paths vp "
+            "ON vp.asset_uuid=td.asset_uuid AND vp.plugin_id=%s "
+            "AND td.tag_value IN %s "
+            "WHERE td.tag_key='%s' AND td.asset_uuid=%s)" % (pid, disp_vals("vp.path"), OWNER_KEY, au))
+    if _table_exists("vuln_route", path):
+        frags.append(
+            "EXISTS (SELECT 1 FROM tags td JOIN vuln_route vr "
+            "ON vr.plugin_list LIKE '%%''' || %s || '''%%' "
+            "AND td.tag_value IN %s "
+            "WHERE td.tag_key='%s' AND td.asset_uuid=%s)" % (pid, disp_vals("vr.app_name"), OWNER_KEY, au))
+    if not frags:
+        return ""
+    inner = " OR ".join(frags)
+    return (" AND NOT (" + inner + ")") if negate else (" AND (" + inner + ")")
+
+
 def _scope(tag_key, tag_value, col="asset_uuid"):
     """WHERE-fragment (+ params) that scopes a base population to the assets carrying
     tag_key:tag_value. Empty when no specific value is chosen (the dashboard stays
@@ -172,8 +214,9 @@ def verdict(path=None, tag_key=None, tag_value=None):
     if not fx["ready"]:
         return {"available": False, "reason": "run `navi config sla calculate` first"}
     sc, scp = _scope(tag_key, tag_value)
+    disp = _disp_exclude("fixed.", path) if _has_col("fixed", "plugin_id", path) else ""
     base = ("FROM fixed WHERE pass_fail IS NOT NULL AND TRIM(pass_fail)<>'' "
-            "AND lower(severity) IN " + _SEV_IN + sc)
+            "AND lower(severity) IN " + _SEV_IN + sc + disp)
     by_sev = db.query(
         "SELECT lower(severity) AS sev, "
         " SUM(CASE WHEN lower(pass_fail) LIKE 'pass%' THEN 1 ELSE 0 END) AS met, "
@@ -197,26 +240,39 @@ def open_aging(path=None, tag_key=OWNER_KEY, top=12, tag_value=None):
     age = _age_days("first_found")
     thr = _thr_case("severity", th)
     sc, scp = _scope(tag_key, tag_value)
+    disp = _disp_exclude("vulns.", path)      # drop accepted/mitigated/ignored routes & paths
     by_sev = db.query(
         f"SELECT lower(severity) AS sev, COUNT(*) AS open_ct,"
         f" SUM(CASE WHEN {age} > {thr} THEN 1 ELSE 0 END) AS breached,"
         f" SUM(CASE WHEN {age} <= {thr} AND {age} > 0.8*{thr} THEN 1 ELSE 0 END) AS approaching,"
         f" ROUND(AVG({age}),1) AS avg_age_days,"
         f" ROUND(MAX({age}),1) AS oldest_days"
-        f" FROM vulns WHERE lower(state) IN ('open','reopened') AND lower(severity) IN {_SEV_IN}{sc}"
+        f" FROM vulns WHERE lower(state) IN ('open','reopened') AND lower(severity) IN {_SEV_IN}{sc}{disp}"
         f" GROUP BY lower(severity)", scp, path=path)
     open_ct = sum(int(r["open_ct"] or 0) for r in by_sev)
     breached = sum(int(r["breached"] or 0) for r in by_sev)
     approaching = sum(int(r["approaching"] or 0) for r in by_sev)
 
+    # how many open findings were removed because their route/path is dispositioned
+    excluded = 0
+    if disp:
+        try:
+            excluded = int(db.scalar(
+                f"SELECT COUNT(*) FROM vulns WHERE lower(state) IN ('open','reopened') "
+                f"AND lower(severity) IN {_SEV_IN}{sc}{_disp_exclude('vulns.', path, negate=False)}",
+                scp, path=path) or 0)
+        except Exception:
+            excluded = 0
+
     age_v = _age_days("v.first_found")
     thr_v = _thr_case("v.severity", th)
     sc_v, scp_v = _scope(tag_key, tag_value, col="v.asset_uuid")
+    disp_v = _disp_exclude("v.", path)
     by_owner = db.query(
         f"SELECT t.tag_value AS seg, COUNT(*) AS open_ct,"
         f" SUM(CASE WHEN {age_v} > {thr_v} THEN 1 ELSE 0 END) AS breached"
         f" FROM vulns v JOIN tags t ON t.asset_uuid = v.asset_uuid AND t.tag_key = ?"
-        f" WHERE lower(v.state) IN ('open','reopened') AND lower(v.severity) IN {_SEV_IN}{sc_v}"
+        f" WHERE lower(v.state) IN ('open','reopened') AND lower(v.severity) IN {_SEV_IN}{sc_v}{disp_v}"
         f" GROUP BY t.tag_value ORDER BY breached DESC, open_ct DESC LIMIT {int(top)}",
         (tag_key, *scp_v), path=path)
     for r in by_owner:
@@ -226,7 +282,7 @@ def open_aging(path=None, tag_key=OWNER_KEY, top=12, tag_value=None):
     within = open_ct - breached
     return {"available": True, "tag_key": tag_key, "tag_value": tag_value,
             "open": open_ct, "breached": breached, "approaching": approaching,
-            "within": within,
+            "within": within, "excluded": excluded,
             "within_pct": round(100.0 * within / open_ct, 1) if open_ct else None,
             "by_severity": [dict(r) for r in by_sev],
             "by_owner": [dict(r) for r in by_owner]}
@@ -241,8 +297,10 @@ def remediation(path=None, tag_key=OWNER_KEY, top=12, tag_value=None):
         return {"available": False, "reason": "build `fixed` + run `navi config sla calculate`"}
     dur = _dur_days("first_found", "last_fixed")
     sc, scp = _scope(tag_key, tag_value)
+    has_pid = _has_col("fixed", "plugin_id", path)
+    disp = _disp_exclude("fixed.", path) if has_pid else ""
     base = ("FROM fixed WHERE lower(state)='fixed' AND pass_fail IS NOT NULL "
-            "AND TRIM(pass_fail)<>'' AND lower(severity) IN " + _SEV_IN + sc)
+            "AND TRIM(pass_fail)<>'' AND lower(severity) IN " + _SEV_IN + sc + disp)
     by_sev = db.query(
         f"SELECT lower(severity) AS sev,"
         f" SUM(CASE WHEN lower(pass_fail) LIKE 'pass%' THEN 1 ELSE 0 END) AS met,"
@@ -255,6 +313,7 @@ def remediation(path=None, tag_key=OWNER_KEY, top=12, tag_value=None):
     total = met + missed
 
     sc_f, scp_f = _scope(tag_key, tag_value, col="f.asset_uuid")
+    disp_f = _disp_exclude("f.", path) if has_pid else ""
     by_owner = db.query(
         f"SELECT t.tag_value AS seg,"
         f" SUM(CASE WHEN lower(f.pass_fail) LIKE 'pass%' THEN 1 ELSE 0 END) AS met,"
@@ -262,7 +321,7 @@ def remediation(path=None, tag_key=OWNER_KEY, top=12, tag_value=None):
         f" COUNT(*) AS total"
         f" FROM fixed f JOIN tags t ON t.asset_uuid = f.asset_uuid AND t.tag_key = ?"
         f" WHERE lower(f.state)='fixed' AND f.pass_fail IS NOT NULL AND TRIM(f.pass_fail)<>''"
-        f" AND lower(f.severity) IN {_SEV_IN}{sc_f}"
+        f" AND lower(f.severity) IN {_SEV_IN}{sc_f}{disp_f}"
         f" GROUP BY t.tag_value ORDER BY missed DESC, total DESC LIMIT {int(top)}",
         (tag_key, *scp_f), path=path)
     for r in by_owner:

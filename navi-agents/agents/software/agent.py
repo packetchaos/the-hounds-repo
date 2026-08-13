@@ -1,4 +1,4 @@
-"""Software Analyzer agent (Mimir Hound).
+"""Software Analyzer agent (Mimir).
 
 Aggregates the `software` table into version sprawl, most-deployed software, and
 single-install rarities. Read-only analysis; tag writes are gated.

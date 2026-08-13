@@ -1,4 +1,4 @@
-# Software Analyzer (Mimir Hound)
+# Software Analyzer (Mimir)
 
 Turns the `software` table into an enterprise software-version picture.
 

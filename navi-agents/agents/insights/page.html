@@ -4,19 +4,56 @@
 <title>On the Scent · Navi Agents</title>
 <link rel="stylesheet" href="/static/console.css"/>
 <style>
-  .lead{display:flex;align-items:center;gap:14px;flex-wrap:wrap;border:1px solid rgba(229,72,77,.4);border-radius:14px;
-    padding:14px 16px;margin-top:14px;background:radial-gradient(120% 160% at 100% -30%,rgba(229,72,77,.13),transparent 60%),var(--panel)}
-  .lead .n{font-family:var(--display);font-weight:700;font-size:30px;line-height:1;color:var(--crit)}
+  .lead{display:flex;align-items:center;gap:16px;flex-wrap:wrap;border:1px solid rgba(229,72,77,.4);border-radius:14px;
+    padding:15px 17px;margin-top:14px;background:radial-gradient(120% 160% at 100% -30%,rgba(229,72,77,.13),transparent 60%),var(--panel)}
+  .lead .n{font-family:var(--display);font-weight:700;font-size:34px;line-height:1;color:var(--crit)}
   .lead .go{margin-left:auto;background:linear-gradient(100deg,#c53b40,#e5484d);color:#fff;border:0;border-radius:10px;
-    font-family:var(--display);font-weight:700;font-size:13.5px;padding:10px 16px;text-decoration:none;white-space:nowrap}
+    font-family:var(--display);font-weight:700;font-size:13.5px;padding:11px 17px;text-decoration:none;white-space:nowrap}
+  .lstat{display:flex;gap:18px;flex-wrap:wrap}
+  .lstat .v{font-family:var(--display);font-weight:700;font-size:20px}.lstat .l{font-size:10.5px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em}
+  .g2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}@media(max-width:840px){.g2{grid-template-columns:1fr}}
+  .gr{display:grid;grid-template-columns:1.15fr .85fr;gap:16px;margin-top:16px}@media(max-width:900px){.gr{grid-template-columns:1fr}}
+  h3.ct{margin:0;font-size:15px}
+  /* distribution stacked bar */
+  .dist{display:flex;height:34px;border-radius:9px;overflow:hidden;border:1px solid var(--line);margin:12px 0 10px}
+  .dist>i{height:100%;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:11px;color:#0d0f16;font-weight:700;min-width:0}
+  .distleg{display:flex;flex-wrap:wrap;gap:6px}
+  .lg{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;border:1px solid var(--line);border-radius:999px;padding:3px 9px}
+  .lg .sw{width:10px;height:10px;border-radius:3px}
+  .sev-crit{background:var(--crit)} .sev-high{background:var(--high)} .sev-med{background:var(--med)} .sev-low{background:var(--low)} .sev-ok{background:var(--ok)}
+  /* horizontal ranked bars */
+  .hb{display:flex;flex-direction:column;gap:7px;margin-top:10px}
+  .hbrow{display:grid;grid-template-columns:150px 1fr 92px;gap:10px;align-items:center;font-size:12px}
+  @media(max-width:560px){.hbrow{grid-template-columns:110px 1fr 76px}}
+  .hbrow .nm b{color:var(--ink)}.hbrow .nm span{display:block;font-family:var(--mono);font-size:9.5px;color:var(--ink-3)}
+  .hbtrack{height:16px;border-radius:6px;background:var(--panel-2,var(--bg-2));overflow:hidden}
+  .hbtrack>i{display:block;height:100%;border-radius:6px}
+  .hbrow .rt{font-family:var(--mono);text-align:right;color:var(--ink-2)}
+  .hbrow .rt b{color:var(--ink)}
+  /* coverage bars */
+  .cov{display:flex;flex-direction:column;gap:9px;margin-top:10px}
+  .covrow .cbh{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:12px}
+  .covrow .cbh b{color:var(--ink)} .covrow .cbh .n{font-family:var(--mono);color:var(--ink-2)}
+  .covtrack{height:13px;border-radius:5px;background:var(--panel-2,var(--bg-2));overflow:hidden;margin-top:4px}
+  .covtrack>i{display:block;height:100%;border-radius:5px;background:linear-gradient(90deg,#43b98a,#2f8f6b)}
+  .covrow .drop{color:var(--crit);font-size:10.5px}
+  /* radar */
+  .radarwrap{display:flex;flex-direction:column;align-items:center}
+  /* convergence */
+  .conv{display:flex;flex-direction:column;gap:8px;margin-top:10px}
+  .cv{display:grid;grid-template-columns:44px 1fr auto;align-items:center;gap:12px;border:1px solid var(--line);border-radius:11px;padding:9px 13px;background:var(--bg-2);text-decoration:none;color:inherit;transition:.12s}
+  .cv:hover{border-color:var(--accent)}
+  .cv .cn{font-family:var(--display);font-weight:700;font-size:22px;text-align:center}
+  .cv.crit{box-shadow:inset 3px 0 0 var(--crit)} .cv.crit .cn{color:var(--crit)}
+  .cv.warn{box-shadow:inset 3px 0 0 var(--high)} .cv.warn .cn{color:var(--high)}
+  .cv .cgo{font-family:var(--mono);font-size:10.5px;color:var(--accent);white-space:nowrap}
+  /* posture tiles */
   .board{display:grid;grid-template-columns:repeat(auto-fill,minmax(184px,1fr));gap:11px;margin-top:12px}
-  .dt{display:block;text-decoration:none;border:1px solid var(--line);border-left-width:3px;border-radius:11px;background:var(--bg-2);
-    padding:12px 13px;transition:.14s;color:inherit}
+  .dt{display:block;text-decoration:none;border:1px solid var(--line);border-left-width:3px;border-radius:11px;background:var(--bg-2);padding:12px 13px;transition:.14s;color:inherit}
   .dt:hover{border-color:var(--accent);transform:translateY(-1px)}
   .dt .dh{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--ink-2)}
   .dt .dv{font-family:var(--display);font-weight:700;font-size:26px;line-height:1.1;margin-top:5px}
-  .dt .ds{font-size:11px;color:var(--ink-3);margin-top:2px}
-  .dt .hn{font-family:var(--mono);font-size:9.5px;color:var(--ink-3);margin-top:6px;letter-spacing:.04em}
+  .dt .ds{font-size:11px;color:var(--ink-3);margin-top:2px}.dt .hn{font-family:var(--mono);font-size:9.5px;color:var(--ink-3);margin-top:6px;letter-spacing:.04em}
   .dt.crit{border-left-color:var(--crit)} .dt.crit .dv{color:var(--crit)}
   .dt.warn{border-left-color:var(--high)} .dt.warn .dv{color:var(--high)}
   .dt.ok{border-left-color:var(--ok)} .dt.ok .dv{color:var(--ok)}
@@ -24,16 +61,8 @@
   .blind{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-top:8px}
   .bt{border:1px solid var(--line);border-radius:11px;background:var(--bg-2);padding:11px 13px}
   .bt.crit{box-shadow:inset 3px 0 0 var(--crit)} .bt.warn{box-shadow:inset 3px 0 0 var(--high)}
-  .bt .bv{font-family:var(--display);font-weight:700;font-size:24px}
-  .bt.crit .bv{color:var(--crit)} .bt .bl{font-size:12px;color:var(--ink);font-weight:600;margin-top:2px}
-  .bt .bs{font-size:11px;color:var(--ink-3);margin-top:2px}
-  .conv{display:flex;flex-direction:column;gap:8px;margin-top:8px}
-  .cv{display:flex;align-items:center;gap:12px;border:1px solid var(--line);border-radius:11px;padding:10px 13px;background:var(--bg-2);text-decoration:none;color:inherit;transition:.12s}
-  .cv:hover{border-color:var(--accent)}
-  .cv .cn{font-family:var(--display);font-weight:700;font-size:22px;min-width:38px;text-align:center}
-  .cv.crit{box-shadow:inset 3px 0 0 var(--crit)} .cv.crit .cn{color:var(--crit)}
-  .cv.warn{box-shadow:inset 3px 0 0 var(--high)} .cv.warn .cn{color:var(--high)}
-  .cv .cgo{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--accent);white-space:nowrap}
+  .bt .bv{font-family:var(--display);font-weight:700;font-size:24px}.bt.crit .bv{color:var(--crit)}
+  .bt .bl{font-size:12px;color:var(--ink);font-weight:600;margin-top:2px}.bt .bs{font-size:11px;color:var(--ink-3);margin-top:2px}
   .mini{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin-top:8px}
   .mn{border:1px solid var(--line);border-radius:9px;background:var(--bg-2);padding:9px 11px;text-decoration:none;color:inherit}
   .mn .mv{font-family:var(--display);font-weight:700;font-size:18px}.mn .ml{font-size:10.5px;color:var(--ink-3)}
@@ -42,8 +71,8 @@
 <div class="wrap">
   <header class="top" id="app-header"></header>
   <section class="card" style="background:radial-gradient(120% 140% at 90% -20%,var(--amber-glow),transparent 60%),var(--panel)">
-    <div class="toolbar"><div><div class="acode">Sphinx Hound</div><h2 style="margin:0">🐝 On the Scent</h2>
-      <p class="sub" style="margin:2px 0 0">The estate brain. Where <b>every Hound's domain</b> stands at a glance, what you're <b>blind to</b> (the unknown-unknowns), the <b>cross-Hound surprises</b> no single agent sees — then hand off to <b>Nemesis</b> to act. Rolls up the same fusion Nemesis scores per asset, to the whole estate.</p></div>
+    <div class="toolbar"><div><div class="acode">Sphinx</div><h2 style="margin:0">🐝 On the Scent</h2>
+      <p class="sub" style="margin:2px 0 0">The estate brain — not a wall of numbers. See <b>how bad it is</b>, <b>where the risk comes from</b> (attributed to the Hound that found it), <b>what you're blind to</b>, and the <b>cross-Hound surprises</b> no single agent sees. Then hand off to <b>Nemesis</b> to act.</p></div>
       <button class="btn run sm" id="run" style="margin-left:auto">▶ Pick up the trail</button></div>
     <div id="flash" class="flash"></div>
   </section>
@@ -51,30 +80,64 @@
   <div class="lead" id="leadCard" style="display:none">
     <span class="n" id="leadN">—</span>
     <div><h3 style="margin:0;font-size:15px">assets scored CRITICAL by the pack</h3>
-      <div class="sub" id="leadSub" style="margin:0"></div></div>
+      <div class="lstat" style="margin-top:6px" id="leadStat"></div></div>
     <a class="go" href="/agents/fused_score/page.html">🎯 Act now in Nemesis →</a>
   </div>
 
+  <div class="g2" id="topRow" style="display:none">
+    <section class="card">
+      <h3 class="ct">📉 Exposure distribution — how bad is the estate?</h3>
+      <p class="sub" style="margin:2px 0 0">Every asset placed in a fused-score band. A fat red slice is a fire; a fat green slice is a healthy estate.</p>
+      <div class="dist" id="dist"></div>
+      <div class="distleg" id="distleg"></div>
+    </section>
+    <section class="card">
+      <h3 class="ct">👁 Coverage — what can the pack actually see?</h3>
+      <p class="sub" style="margin:2px 0 0">Each bar is a slice of the estate the pack has visibility into. The gaps are your risk-by-absence.</p>
+      <div class="cov" id="cov"></div>
+    </section>
+  </div>
+
+  <div class="gr" id="riskRow" style="display:none">
+    <section class="card">
+      <div class="toolbar" style="margin:0"><div><h3 class="ct">🎯 Where the estate's risk comes from</h3>
+        <p class="sub" style="margin:2px 0 0">Fused exposure attributed to the Hound that detects it — the % share of total estate risk, and how saturated that signal is (0–100).</p></div></div>
+      <div class="hb" id="risk"></div>
+    </section>
+    <section class="card">
+      <h3 class="ct">🕸 Pack detection radar</h3>
+      <p class="sub" style="margin:2px 0 6px">Every detection domain at once — a spike is a domain the pack is lighting up across the estate.</p>
+      <div class="radarwrap" id="radar"></div>
+    </section>
+  </div>
+
+  <section class="card" id="reductionCard" style="display:none">
+    <h3 class="ct">📉 The reduction — CVE → Plugin → App → Path</h3>
+    <p class="sub" style="margin:2px 0 0">Most teams track <b>CVEs</b> — the most duplicated unit of work. Multiple CVEs roll up into one <b>plugin</b> (a single detection &amp; fix), plugins into one <b>app / route</b> (the owner-actionable unit), and each app spreads across many <b>paths</b>. Climb the ladder and the backlog collapses: own a handful of apps instead of tens of thousands of CVEs.</p>
+    <div id="funnel" style="margin:8px 0 2px"></div>
+    <div id="champion" style="margin:8px 0"></div>
+  </section>
+
+  <section class="card" id="convCard" style="display:none">
+    <h3 class="ct">🔗 Cross-Hound surprises — the unknown-unknowns</h3>
+    <p class="sub" style="margin:2px 0 0">Where two signals land on the <b>same</b> asset and multiply the risk — the correlations no single Hound flags. Click into Nemesis.</p>
+    <div class="conv" id="conv"></div>
+  </section>
+
   <section class="card" id="postureCard" style="display:none">
-    <h2 style="margin:0;font-size:16px">📊 Estate posture — every Hound at a glance</h2>
+    <h3 class="ct">📊 Estate posture — every Hound at a glance</h3>
     <p class="sub" style="margin:2px 0 0">One tile per domain; click through to the Hound that owns it. Grey = that Hound hasn't run / no data yet.</p>
     <div class="board" id="board"></div>
   </section>
 
   <section class="card" id="blindCard" style="display:none">
-    <h2 style="margin:0;font-size:16px">🕳 Blind spots — what you can't see</h2>
+    <h3 class="ct">🕳 Blind spots — what you can't see</h3>
     <p class="sub" style="margin:2px 0 0">Risk by <b>absence</b>: the estate's dark matter. An asset the pack knows nothing about is scarier than one it does.</p>
     <div class="blind" id="blind"></div>
   </section>
 
-  <section class="card" id="convCard" style="display:none">
-    <h2 style="margin:0;font-size:16px">🔗 Cross-Hound surprises — the unknown-unknowns</h2>
-    <p class="sub" style="margin:2px 0 0">Correlations no single Hound flags — where two signals land on the same asset and multiply the risk. Click to see them in Nemesis.</p>
-    <div class="conv" id="conv"></div>
-  </section>
-
   <section class="card" id="moreCard" style="display:none">
-    <div class="toolbar" style="margin:0"><h2 style="margin:0;font-size:15px">📇 More numbers</h2>
+    <div class="toolbar" style="margin:0"><h3 class="ct">📇 More numbers</h3>
       <a class="btn ghost sm" href="/agents/email/page.html" style="margin-left:auto" title="Hand this board to Gabriel to email">📧 Email this board</a></div>
     <div class="mini" id="more"></div>
   </section>
@@ -83,27 +146,103 @@
 <script src="/static/console.js"></script>
 <script>
 const API=agentApi('insights');
+const SEVVAR={crit:'var(--crit)',high:'var(--high)',med:'var(--med)',low:'var(--low)',ok:'var(--ok)'};
+const AXSHORT={'Exploitability':'Exploit','Tenable AES':'AES','Severity (VPR)':'VPR','Business criticality':'Criticality','Attack path':'Path','Identity exposure':'Identity','Compliance failure':'Compliance','Web-app exposure':'WAS','EOL / unsupported':'EOL','Internet exposure':'Exposed','AI risk':'AI','Weak / expiring crypto':'Crypto','SLA breach (aging)':'SLA','Finding volume':'Volume','Ownership gap':'Ownership','ATT&CK technique':'ATT&CK'};
+const shortAxis=a=>AXSHORT[a]||String(a).split(/[ (/]/)[0];
+
+function renderDist(bands,total){
+  const t=bands.reduce((s,b)=>s+b.count,0)||1;
+  document.getElementById('dist').innerHTML=bands.filter(b=>b.count>0).map(b=>{
+    const w=b.count/t*100; return `<i style="width:${w}%;background:${SEVVAR[b.sev]}" title="${esc(b.label)}: ${b.count}">${w>7?b.count:''}</i>`;}).join('')||'<i style="width:100%;background:var(--line)"></i>';
+  document.getElementById('distleg').innerHTML=bands.map(b=>
+    `<span class="lg"><span class="sw sev-${b.sev}"></span><b>${esc(b.label)}</b> ${b.count} <span class="sub">(${b.sub})</span></span>`).join('');
+}
+function renderCov(funnel){
+  const total=(funnel[0]&&funnel[0].count)||1;
+  document.getElementById('cov').innerHTML=funnel.map((f,i)=>{
+    const pct=Math.round(f.count/total*100), drop=(i>0)?(total-f.count):0;
+    return `<div class="covrow"><div class="cbh"><b>${esc(f.label)}</b><span class="n">${f.count.toLocaleString()} · ${pct}%</span></div>`+
+      `<div class="covtrack"><i style="width:${pct}%"></i></div>`+
+      (i>0&&f.note?`<div class="drop">▹ ${esc(f.note)}</div>`:'')+`</div>`;}).join('');
+}
+function renderRisk(rows){
+  const max=Math.max(1,...rows.map(r=>r.total));
+  document.getElementById('risk').innerHTML=rows.map(r=>{
+    const w=r.total/max*100, satcol=r.sat>=60?'var(--crit)':r.sat>=30?'var(--high)':'var(--accent)';
+    return `<div class="hbrow"><div class="nm"><b>${esc(r.label)}</b><span>${esc(r.hound)}</span></div>`+
+      `<div class="hbtrack"><i style="width:${w}%;background:${satcol}"></i></div>`+
+      `<div class="rt"><b>${r.pct}%</b> · sat ${r.sat}</div></div>`;}).join('');
+}
+function radarSVG(axes){
+  const N=axes.length, cx=180, cy=175, R=118;
+  const ptAt=(i,r)=>{const a=-Math.PI/2+i*2*Math.PI/N;return [cx+Math.cos(a)*r, cy+Math.sin(a)*r];};
+  let rings='';[25,50,75,100].forEach(v=>{const pts=axes.map((_,i)=>ptAt(i,R*v/100).join(',')).join(' ');rings+=`<polygon points="${pts}" fill="none" stroke="var(--line)" stroke-width="1" opacity="${v===100?'.8':'.4'}"/>`;});
+  let spokes='',labels='';
+  axes.forEach((ax,i)=>{const [x,y]=ptAt(i,R);spokes+=`<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="var(--line)" stroke-width="1" opacity=".45"/>`;
+    const [lx,ly]=ptAt(i,R+15);const anc=Math.abs(lx-cx)<8?'middle':(lx>cx?'start':'end');
+    labels+=`<text x="${lx}" y="${ly+3}" font-size="8.5" fill="var(--ink-3)" text-anchor="${anc}">${esc(shortAxis(ax.axis))}</text>`;});
+  const val=ax=>Math.max(0,Math.min(100,ax.value));
+  const poly=axes.map((ax,i)=>ptAt(i,R*val(ax)/100).join(',')).join(' ');
+  const dots=axes.map((ax,i)=>{const [x,y]=ptAt(i,R*val(ax)/100);return `<circle cx="${x}" cy="${y}" r="2.1" fill="var(--accent)"/>`;}).join('');
+  return `<svg viewBox="0 0 360 350" width="100%" style="max-width:420px;display:block">${rings}${spokes}`+
+    `<polygon points="${poly}" fill="rgba(109,112,230,.22)" stroke="var(--accent)" stroke-width="1.6"/>${dots}${labels}</svg>`;
+}
+const _fmt=n=>Number(n||0).toLocaleString();
+const _pctDown=(v,base)=>base>0?Math.round((base-v)/base*1000)/10:0;
+function drawReduction(b){
+  const F=b.reduction||{}, card=document.getElementById('reductionCard');
+  const has=(F.cves||F.plugins); card.style.display=has?'block':'none'; if(!has) return;
+  const stages=[
+    {k:'CVE line-items',v:F.cves||0,c:'var(--cx-f43f5e)',note:'what most teams track — the most duplicated work'},
+    {k:'Findings (asset × plugin)',v:F.findings||0,c:'var(--cx-fb923c)',note:'the raw ticket backlog'},
+    {k:'Plugins — unique fixes',v:F.plugins||0,c:'var(--cx-e7c66b)',note:'one patch clears many CVEs'},
+    {k:'Apps / routes — own here',v:F.routes||0,c:'var(--ok)',note:'owner-actionable units'}];
+  const mx=Math.max(1,...stages.map(s=>s.v)), W=980,h=52,gap=12,padT=14,labelW=300,cx=(W-labelW)/2;
+  const sc=v=>70+Math.sqrt(v/mx)*((W-labelW)-80), H=padT+stages.length*(h+gap)+8;
+  let svg='<svg viewBox="0 0 '+W+' '+H+'" width="100%" style="min-width:560px;font-family:inherit;overflow:visible;display:block">';
+  stages.forEach((s,i)=>{
+    const y=padT+i*(h+gap), wTop=sc(s.v), wBot=sc(i<stages.length-1?stages[i+1].v:s.v);
+    const x1=cx-wTop/2,x2=cx+wTop/2,x3=cx+wBot/2,x4=cx-wBot/2;
+    svg+='<polygon points="'+x1+','+y+' '+x2+','+y+' '+x3+','+(y+h)+' '+x4+','+(y+h)+'" fill="'+s.c+'" fill-opacity="0.85" stroke="'+s.c+'" stroke-width="1"/>';
+    const fits=wTop>(s.k.length*5.6+16);
+    svg+='<text x="'+cx+'" y="'+(y+h/2+(fits?-2:6))+'" text-anchor="middle" font-size="16" font-weight="700" fill="#0d0f08">'+_fmt(s.v)+'</text>';
+    if(fits) svg+='<text x="'+cx+'" y="'+(y+h/2+14)+'" text-anchor="middle" font-size="10.5" fill="#0d0f08" fill-opacity="0.8">'+esc(s.k)+'</text>';
+    svg+='<text x="'+(W-labelW+8)+'" y="'+(y+h/2-2)+'" font-size="11.5" fill="var(--ink)">'+esc(s.k)+'</text>';
+    svg+='<text x="'+(W-labelW+8)+'" y="'+(y+h/2+13)+'" font-size="10.5" fill="var(--ink-3)">'+esc(s.note)+'</text>';
+    if(i>0){ const drop=_pctDown(s.v,stages[i-1].v); svg+='<text x="'+cx+'" y="'+(y-1)+'" text-anchor="middle" font-size="10" fill="var(--ink-3)">▼ '+drop+'% fewer</text>'; }
+  });
+  svg+='</svg>';
+  const top=stages[0].v,end=stages[stages.length-1].v,cut=_pctDown(end,top);
+  document.getElementById('funnel').innerHTML=svg+'<div style="text-align:center;margin-top:4px;font-size:13px"><b style="color:var(--accent)">'+_fmt(top)+' CVEs → '+_fmt(end)+' apps</b> — <b>'+cut+'% fewer things to track</b> if you own at the app level. Those '+_fmt(end)+' apps span <b>'+_fmt(F.paths||0)+' paths</b>.</div>';
+  const c=b.champion, el=document.getElementById('champion');
+  el.innerHTML=c?('<div class="callbox" style="border-left:3px solid var(--accent);background:rgba(214,248,76,.06)"><b>🏆 One fix, '+_fmt(c.cve_count)+' CVEs</b>'+
+    '<p class="sub" style="margin:4px 0 0">Patching <b>'+esc(c.name)+'</b> <span class="mono">(plugin '+esc(String(c.plugin_id||''))+')</span> clears <b>'+_fmt(c.cve_count)+' CVEs</b> in a single action — on just '+c.assets+' asset'+(c.assets===1?'':'s')+'. Not the riskiest finding, but the biggest <b>workload collapse per fix</b>.</p></div>'):'';
+}
 function renderBoard(b){
-  const nem=b.nemesis||{};
-  // Nemesis lead-in
+  const nem=b.nemesis||{}, total=b.asset_total||0;
   document.getElementById('leadN').textContent=nem.critical||0;
-  document.getElementById('leadSub').innerHTML='estate exposure <b>'+(nem.estate||0)+'</b> · avg score '+(nem.avg||0)+
-    (nem.top&&nem.top.length?' · worst: '+nem.top.slice(0,3).map(t=>esc(t.host)+' ('+t.score+')').join(', '):'');
-  document.getElementById('leadN').style.color=(nem.critical? 'var(--crit)':'var(--ok)');
-  // posture board
-  document.getElementById('board').innerHTML=(b.posture||[]).map(t=>
-    `<a class="dt ${t.status}" href="${t.href}"><div class="dh">${t.icon} ${esc(t.domain)}</div>`+
-    `<div class="dv">${esc(String(t.value))}</div><div class="ds">${esc(t.sub||'')}</div><div class="hn">${esc(t.hound||'')}</div></a>`).join('');
-  // blind spots
-  document.getElementById('blind').innerHTML=(b.blind||[]).map(x=>
-    `<div class="bt ${x.sev}"><div class="bv">${x.count}</div><div class="bl">${esc(x.label)}</div><div class="bs">${esc(x.sub||'')}</div></div>`).join('');
-  // convergence
+  document.getElementById('leadN').style.color=(nem.critical?'var(--crit)':'var(--ok)');
+  const worst=(nem.top||[]).slice(0,3).map(t=>esc(t.host)+' ('+t.score+')').join(', ');
+  document.getElementById('leadStat').innerHTML=
+    `<div><div class="v">${(nem.estate||0).toLocaleString()}</div><div class="l">estate exposure</div></div>`+
+    `<div><div class="v">${nem.avg||0}</div><div class="l">avg score</div></div>`+
+    `<div><div class="v">${nem.high||0}</div><div class="l">high ≥60</div></div>`+
+    `<div><div class="v">${total.toLocaleString()}</div><div class="l">assets</div></div>`+
+    (worst?`<div><div class="v" style="font-size:13px;font-weight:600">${worst}</div><div class="l">worst offenders</div></div>`:'');
+  renderDist(b.bands||[], total);
+  renderCov(b.funnel||[]);
+  renderRisk(b.risk_by_hound||[]);
+  drawReduction(b);
+  document.getElementById('radar').innerHTML=(b.radar&&b.radar.length)?radarSVG(b.radar):'<p class="sub">Run the pack to light up the radar.</p>';
   const conv=b.convergence||[];
   document.getElementById('conv').innerHTML=conv.length?conv.map(x=>
     `<a class="cv ${x.sev}" href="${x.href||'/agents/fused_score/page.html'}"><span class="cn">${x.count}</span><span>${esc(x.text)}</span><span class="cgo">→ Nemesis</span></a>`).join('')
-    :'<p class="sub">No cross-Hound surprises surfaced — run more Hounds (they light up as tags land).</p>';
-  document.getElementById('convCard').querySelector('.conv').style.display='';
-  // more numbers (classic single-signal rollup)
+    :'<p class="sub">No cross-Hound surprises surfaced yet — run more Hounds (they light up as tags land).</p>';
+  document.getElementById('board').innerHTML=(b.posture||[]).map(t=>
+    `<a class="dt ${t.status}" href="${t.href}"><div class="dh">${t.icon} ${esc(t.domain)}</div>`+
+    `<div class="dv">${esc(String(t.value))}</div><div class="ds">${esc(t.sub||'')}</div><div class="hn">${esc(t.hound||'')}</div></a>`).join('');
+  document.getElementById('blind').innerHTML=(b.blind||[]).map(x=>
+    `<div class="bt ${x.sev}"><div class="bv">${x.count}</div><div class="bl">${esc(x.label)}</div><div class="bs">${esc(x.sub||'')}</div></div>`).join('');
   const c=b.classic||{};
   const mn=(v,l,href)=>`<a class="mn" href="${href}"><div class="mv">${v==null?'—':v}</div><div class="ml">${l}</div></a>`;
   document.getElementById('more').innerHTML=
@@ -115,7 +254,8 @@ function renderBoard(b){
     mn(c.custom_apps,'exposure routes','/agents/exproute/page.html')+
     mn(c.cloud_assets,'cloud assets','/agents/classify/page.html')+
     mn(c.mitre_high_acr,'ATT&CK on high-ACR','/agents/mitre/page.html');
-  ['leadCard','postureCard','blindCard','convCard','moreCard'].forEach(id=>document.getElementById(id).style.display=id==='leadCard'?'flex':'block');
+  ['leadCard','topRow','riskRow','convCard','postureCard','blindCard','moreCard'].forEach(id=>{
+    const el=document.getElementById(id); el.style.display=(id==='leadCard')?'flex':(id==='topRow'||id==='riskRow')?'grid':'block';});
 }
 async function load(){
   const b=document.getElementById('run'); b.disabled=true;

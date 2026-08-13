@@ -1,4 +1,4 @@
-"""Fixed Explorer — Coonhound. Read-only navi.db search over the `fixed` table
+"""Fixed Explorer — Plott. Read-only navi.db search over the `fixed` table
 (remediation history + Pass/Fail SLA verdicts from `navi config sla calculate`).
 
 Filters: free text (plugin name / id / asset), severity, state, SLA outcome. Paginated
