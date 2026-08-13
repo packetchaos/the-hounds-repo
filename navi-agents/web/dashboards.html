@@ -34,6 +34,7 @@ const CARDS=[
   {t:'📊 Dashboard builder', n:'Daedalus', d:'Ask in plain English or pick a starter metric — the model writes the navi.db SQL, you see it, then it renders. Pin components to a board.', href:'/agents/dashboard/page.html'},
   {t:'🗂 Custom Dashboard', n:'Up to 5 boards', d:'Your pinned components as a standalone, refreshable board. Keep up to five named dashboards and switch between them with the tab strip.', href:'/web/customdash.html'},
   {t:'🗺 Ownership Map', n:'Who owns the risk', d:'Route exposure to owners — see which teams carry the most critical, KEV, and high-VPR findings, and act from there.', href:'/web/ownermap.html'},
+  {t:'🔐 Certificate Dashboard', n:'Certania', d:'A 12-month expiry timeline (click a month to see those certs), the same set grouped by asset / certificate / common name, and every certificate plugin with one-click tag-by-plugin.', href:'/web/certdash.html'},
 ];
 document.getElementById('sgrid').innerHTML=CARDS.map(c=>
   '<a class="scard" href="'+c.href+'"><div class="t">'+c.t+'</div><div class="n">'+c.n+'</div><div class="d">'+c.d+'</div></a>').join('');

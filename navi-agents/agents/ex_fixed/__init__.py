@@ -1,1 +1,1 @@
-# Coonhound — Fixed Explorer agent package
+# Plott — Fixed Explorer agent package

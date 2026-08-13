@@ -1,4 +1,4 @@
-"""Asset Ownership — the asset-perspective ownership engine (Terminus Hound).
+"""Asset Ownership — the asset-perspective ownership engine (Terminus).
 
 Atlas (exproute) answers "who owns each ROUTE / PATH?" — a route/path can carry
 many owners. Terminus flips it to the ASSET: for every asset, *who owns it, how

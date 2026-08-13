@@ -8,5 +8,5 @@
   "needs_backend": true,
   "page": "page.html",
   "actions": ["run", "tag"],
-  "codename": "Mimir Hound"
+  "codename": "Mimir"
 }

@@ -1,1 +1,1 @@
-# Xolotl — WAS (Web Application Scanning) dashboards agent package
+# Arachne — WAS (Web Application Scanning) dashboards agent package

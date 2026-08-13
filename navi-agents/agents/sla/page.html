@@ -95,7 +95,9 @@ function render(){
     +kpi(oa.available?fnum(oa.breached):'—','Open past SLA','present risk')
     +kpi(oa.available&&oa.within_pct!=null?oa.within_pct+'%':'—','Open within SLA','of '+fnum(oa.open)+' open')
     +kpi(rem.available&&rem.met_pct!=null?rem.met_pct+'%':'—','Fixed within SLA',rem.available?fnum(rem.total)+' closed':'needs Fixed table')
-    +'</div></section>';
+    +'</div>'
+    +(oa.available&&oa.excluded?('<p class="sub" style="margin:8px 0 0">✓ <b>'+fnum(oa.excluded)+'</b> finding'+(oa.excluded==1?'':'s')+' on <b>Ignored / Accepted / Mitigated</b> routes &amp; paths excluded from these SLA numbers — formally handled risk doesn\'t count against the clock.</p>'):'')
+    +'</section>';
 
   // ---- open aging ----
   if(oa.available){
@@ -118,7 +120,7 @@ function render(){
 
   // ---- remediation ----
   h+='<section class="card"><div class="toolbar" style="margin-bottom:8px"><h3 style="margin:0">✅ Remediation performance</h3>'
-    +'<a class="btn ghost sm" href="/agents/ex_fixed/page.html" style="margin-left:auto" title="Row-level remediation history + SLA verdicts">🩹 Explore fixed table (Coonhound) →</a></div>';
+    +'<a class="btn ghost sm" href="/agents/ex_fixed/page.html" style="margin-left:auto" title="Row-level remediation history + SLA verdicts">🩹 Explore fixed table (Plott) →</a></div>';
   if(!rem.available){
     h+='<p class="sub">No remediation verdicts yet. Build the <b>Fixed</b> table and run <b>Recalculate SLA</b> in <a href="/web/settings.html">Settings</a>, then refresh — Sköll will show, per severity and per owner, whether closed findings were fixed inside their SLA window.</p>';
   } else {

@@ -500,7 +500,7 @@ _AGENT_HOUND = {
     "cisakev": "Laelaps", "certificate": "Certania", "postquantum": "Heimdall",
     "attackpath": "Fenrir", "iot_squad": "Cerberus", "ai": "Pythia", "exproute": "Atlas",
     "software": "Mimir", "eol": "Charon", "acr": "Anubis", "scan_eval": "Chronos",
-    "agentgroup": "Sirius", "tagremoval": "Garmr", "mitre": "Orthrus", "customapp": "Argus",
+    "agentgroup": "Sirius", "tagremoval": "Garmr", "mitre": "Orthrus", "customapp": "Cavall",
     "identity": "Janus", "insights": "Sphinx",
 }
 

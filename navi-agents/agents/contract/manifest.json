@@ -8,5 +8,5 @@
   "needs_backend": true,
   "page": "page.html",
   "actions": ["get", "set", "build_from_log", "plan", "export", "run_now", "arm", "disarm", "save", "load", "list", "status", "loop_log", "scheduler"],
-  "codename": "Covenant Hound"
+  "codename": "Covenant"
 }

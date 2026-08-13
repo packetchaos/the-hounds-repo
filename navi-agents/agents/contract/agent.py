@@ -1,4 +1,4 @@
-"""AI Navi Contract agent (Covenant Hound).
+"""AI Navi Contract agent (Covenant).
 
 Orchestrates every tagging agent under one autonomous workflow. The contract
 captures the human's policy (per-agent logic, ACR rules, wait periods, schedule)

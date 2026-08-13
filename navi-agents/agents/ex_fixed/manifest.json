@@ -4,7 +4,7 @@
   "icon": "🩹",
   "order": 26,
   "category": "Explore",
-  "codename": "Coonhound",
+  "codename": "Plott",
   "summary": "Search the fixed table — remediation history + Pass/Fail SLA verdicts. Filter by severity, state, and SLA outcome. Read-only navi.db search.",
   "needs_backend": true,
   "page": "page.html",

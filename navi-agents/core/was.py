@@ -1,4 +1,4 @@
-"""WAS (Web Application Scanning) engine — the shared brain behind Xolotl (the two
+"""WAS (Web Application Scanning) engine — the shared brain behind Arachne (the two
 WAS dashboards) and Vizsla (the Apps explorer).
 
 Read-only over navi.db (core.db). Works the `apps` table (one row per completed WAS

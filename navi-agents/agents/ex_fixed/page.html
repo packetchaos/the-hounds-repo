@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Fixed Explorer · Coonhound · Navi Agents</title>
+<title>Fixed Explorer · Plott · Navi Agents</title>
 <link rel="stylesheet" href="/static/console.css"/>
 <style>.plink{color:var(--accent);text-decoration:none;font-weight:600}.plink:hover{text-decoration:underline}
 #tbl{table-layout:fixed;width:100%}#tbl th,#tbl td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -11,7 +11,7 @@
 <div class="wrap">
   <header class="top" id="app-header"></header>
   <section class="card">
-    <h2 style="margin:0">🩹 Fixed Explorer <span class="sub" style="font-weight:400">· Coonhound noses the remediation trail</span></h2>
+    <h2 style="margin:0">🩹 Fixed Explorer <span class="sub" style="font-weight:400">· Plott noses the remediation trail</span></h2>
     <p class="sub" style="margin:2px 0 8px">Search the <b>fixed</b> table — remediation history and the <b>Pass/Fail SLA verdict</b> from <span class="mono">navi config sla calculate</span>. Days-to-fix is computed from first-seen → fixed. Sorted worst-first. Click an asset for its Argos deep-dive.</p>
     <div class="kpi" id="kpi" style="margin-bottom:10px"></div>
     <div class="toolbar">
@@ -29,7 +29,7 @@
       <tbody><tr><td colspan="9" class="sub">Search to load…</td></tr></tbody></table>
     <div class="toolbar" id="pager"></div>
   </section>
-  <footer>Fixed Explorer · Coonhound · read-only navi.db · build the table in <a href="/web/settings.html">Settings ▸ SLA policy</a></footer>
+  <footer>Fixed Explorer · Plott · read-only navi.db · build the table in <a href="/web/settings.html">Settings ▸ SLA policy</a></footer>
 </div>
 <script src="/static/console.js"></script>
 <script>
@@ -75,7 +75,7 @@ document.getElementById('csv').onclick=()=>{ if(!LAST.length){alert('Nothing to 
 document.getElementById('go').onclick=()=>go(0);
 document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter')go(0);});
 ['sev','state','pf'].forEach(id=>document.getElementById(id).onchange=()=>go(0));
-mountAgentHeader({id:'ex_fixed',icon:'🩹',name:'Fixed Explorer',sub:'Coonhound · remediation history + SLA verdicts'});
+mountAgentHeader({id:'ex_fixed',icon:'🩹',name:'Fixed Explorer',sub:'Plott · remediation history + SLA verdicts'});
 go(0);
 </script>
 </body></html>

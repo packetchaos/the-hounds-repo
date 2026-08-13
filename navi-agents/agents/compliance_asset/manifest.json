@@ -4,8 +4,8 @@
   "icon": "🔍",
   "order": 18,
   "category": "Explore",
-  "codename": "Sherlock",
-  "summary": "Sherlock — the compliance detective, two lenses over the same data. By Asset: point it at one asset for every audit check it passed/failed/warned (actual vs expected, framework mappings) plus the inferred link between a failed control and the real vulns backing it, which you can tag. By Audit File: the same estate through the benchmark — an audit-file leaderboard, per-file adherence, the checks and assets each file covers, and the real vulns backing its failing controls, at aggregate and per file. Launched from Minos.",
+  "codename": "Tiresias",
+  "summary": "Tiresias — the compliance detective, two lenses over the same data. By Asset: point it at one asset for every audit check it passed/failed/warned (actual vs expected, framework mappings) plus the inferred link between a failed control and the real vulns backing it, which you can tag. By Audit File: the same estate through the benchmark — an audit-file leaderboard, per-file adherence, the checks and assets each file covers, and the real vulns backing its failing controls, at aggregate and per file. Launched from Minos.",
   "needs_backend": true,
   "page": "page.html",
   "actions": ["run", "detail", "tag", "audit_files", "audit_file"]

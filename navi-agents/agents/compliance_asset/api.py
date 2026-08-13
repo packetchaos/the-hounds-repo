@@ -1,4 +1,4 @@
-"""Sherlock — Compliance Asset deep-dive HTTP actions.
+"""Tiresias — Compliance Asset deep-dive HTTP actions.
 
 run    — readiness stub (the hub's generic Execute).
 detail — payload {asset_uuid} (falls back to the worst-failing asset) → its audit checks
@@ -12,8 +12,8 @@ AGENT = None
 def _agent():
     global AGENT
     if AGENT is None:
-        from .agent import SherlockAgent
-        AGENT = SherlockAgent()
+        from .agent import TiresiasAgent
+        AGENT = TiresiasAgent()
     return AGENT
 
 

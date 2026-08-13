@@ -104,7 +104,7 @@ function render(){
       return `<tr><td title="${esc(a.asset_uuid)}">${esc(nm)}${a.ip&&a.hostname?' <span class="sub">'+esc(a.ip)+'</span>':''}</td>`
         +`<td class="mono"${a.pass_pct!=null&&a.pass_pct<50?' style="color:var(--crit)"':''}>${a.pass_pct!=null?a.pass_pct+'%':'—'}</td>`
         +`<td class="mono">${a.passed}</td><td class="mono"${a.failed?' style="color:var(--crit);font-weight:700"':''}>${a.failed}</td><td class="mono">${a.warning}</td>`
-        +`<td><a class="applink" href="${dd}" title="Sherlock — per-asset checks + audit↔vuln links">🔍 open</a></td></tr>`; }).join('')
+        +`<td><a class="applink" href="${dd}" title="Tiresias — per-asset checks + audit↔vuln links">🔍 open</a></td></tr>`; }).join('')
     +'</tbody></table></div></section>';
   // tag-by-control
   h+=tagCardHTML();

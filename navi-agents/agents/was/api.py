@@ -1,4 +1,4 @@
-"""Xolotl — WAS HTTP actions.
+"""Arachne — WAS HTTP actions.
 
 overview — the consolidated dashboard (all apps): severity totals, OWASP Top-10 sums,
            tech inventory, scan coverage, risk-sorted per-app rows.
@@ -12,8 +12,8 @@ AGENT = None
 def _agent():
     global AGENT
     if AGENT is None:
-        from .agent import XolotlAgent
-        AGENT = XolotlAgent()
+        from .agent import ArachneAgent
+        AGENT = ArachneAgent()
     return AGENT
 
 

@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>WAS App Report · Xolotl · Navi Agents</title>
+<title>WAS App Report · Arachne · Navi Agents</title>
 <link rel="stylesheet" href="/static/console.css"/>
 <style>
 .barrow{display:grid;grid-template-columns:170px 1fr 70px;gap:12px;align-items:center;margin:6px 0}
@@ -44,7 +44,7 @@
 <div class="wrap">
   <header class="top" id="app-header"></header>
   <section class="card">
-    <div class="toolbar"><div><h2 style="margin:0">🔬 WAS App Report <span class="sub" style="font-weight:400">· Xolotl</span></h2>
+    <div class="toolbar"><div><h2 style="margin:0">🔬 WAS App Report <span class="sub" style="font-weight:400">· Arachne</span></h2>
       <p class="sub" style="margin:2px 0 0">One web app in full: severity, its OWASP profile, technology stack, scan metadata, and every finding.</p></div>
       <span style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <label class="sub" for="appsel" style="margin:0">App</label>
@@ -58,7 +58,7 @@
     <div id="flash" class="flash"></div>
   </section>
   <div id="body"></div>
-  <footer>WAS App Report · Xolotl · read-only navi.db · findings join apps.uuid = findings.scan_uuid</footer>
+  <footer>WAS App Report · Arachne · read-only navi.db · findings join apps.uuid = findings.scan_uuid</footer>
 </div>
 <div id="omodal" class="omodal" style="display:none">
   <div class="obox">
@@ -234,7 +234,7 @@ async function sendEmail(){
   if(!to){ res.innerHTML='<span style="color:var(--crit)">enter a recipient</span>'; return; }
   if(!REP||!REP.available){ res.innerHTML='<span style="color:var(--crit)">no data</span>'; return; }
   res.innerHTML='<span class="spin"></span> sending…';
-  let o; try{ o=await EMAIL.post('dashboard',{to,title:'WAS App Report — '+((REP.app||{}).name||''),subject:'[Tenable] WAS App Report (Xolotl)',components:emailComponents(),confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+  let o; try{ o=await EMAIL.post('dashboard',{to,title:'WAS App Report — '+((REP.app||{}).name||''),subject:'[Tenable] WAS App Report (Arachne)',components:emailComponents(),confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
   if(o&&o.ok) res.innerHTML='<span style="color:var(--ok)">✓ sent to '+esc(to)+'</span>';
   else if(o&&o.blocked) res.innerHTML='<span style="color:var(--cx-e7c66b)">email disabled — '+esc(o.reason||'set NAVI_ALLOW_WRITES=1 and NAVI_EMAIL=1')+'</span>';
   else res.innerHTML='<span style="color:var(--crit)">✗ '+esc((o&&(o.error||o.message))||'failed')+'</span>';
@@ -248,7 +248,7 @@ document.getElementById('omodal').addEventListener('click',e=>{ if(e.target.id==
 document.addEventListener('keydown',e=>{ if(e.key==='Escape')closeOutput(); });
 document.getElementById('ocopy').onclick=()=>{ const b=document.getElementById('ocopy'),t=b.textContent;
   try{ navigator.clipboard.writeText(window._orawText||''); b.textContent='✓ copied'; setTimeout(()=>b.textContent=t,1200);}catch(_){ b.textContent='copy failed'; setTimeout(()=>b.textContent=t,1200);} };
-mountAgentHeader({id:'was',icon:'🔬',name:'WAS App Report',sub:'Xolotl · per-app scan detail'});
+mountAgentHeader({id:'was',icon:'🔬',name:'WAS App Report',sub:'Arachne · per-app scan detail'});
 load(q('app'));
 </script>
 </body></html>

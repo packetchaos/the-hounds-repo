@@ -18,7 +18,7 @@
   <header class="top" id="app-header"></header>
 
   <section class="card" style="background:var(--panel)">
-    <div class="toolbar"><div><div class="acode" style="font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--amber);font-weight:700">Janus Hound</div><h2 style="margin:0">🆔 Identity inventory</h2>
+    <div class="toolbar"><div><div class="acode" style="font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--amber);font-weight:700">Janus</div><h2 style="margin:0">🆔 Identity inventory</h2>
       <p class="sub" style="margin:2px 0 0">Discovers identities by <b>content, not a memorized plugin list</b> — sweeps plugin <b>names</b> and raw <b>output</b>, then the high-value enumerators (passwd <span class="mono">95928</span>, SMB users <span class="mono">10860</span>, non-expiring <span class="mono">83303</span>, host SID <span class="mono">10859</span>, SNMP <span class="mono">41028</span>). Classifies <b>Human / Service-NHI / Machine</b> — built-ins are labelled by <b>external authority</b> (Microsoft well-known SIDs/RIDs, AD machine <span class="mono">$</span> accounts, the Linux <span class="mono">login.defs</span> UID convention), not just our guess lists — flags the risky ones (non-expiring, privileged, guest, default-secret), and headlines the <b>coverage gap</b> — hosts scanned without credentials. Tagged via navi <span class="mono">tag --query</span>; <b>gated writes.</b></p></div>
       <button class="btn run sm" id="run" style="margin-left:auto">▶ Run</button></div>
     <div id="flash" class="flash"></div>

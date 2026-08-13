@@ -60,29 +60,98 @@ navi.db**). navi.db is a point-in-time snapshot, so freshness matters.
 
 ---
 
+## Configuration
+
+All configuration is environment variables (put them in a `.env` in the repo root —
+`run.py` loads it; real shell env always wins). Nothing here is required to boot the
+demo; the defaults run the bundled sample read-only.
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `NAVI_DB_PATH` | bundled `sample_navi.db` | Path to navi's SQLite database — point this at your real `navi.db`. |
+| `NAVI_ALLOW_WRITES` | `0` | Master gate for **all** writes (tag / ACR / remove / email / push). Must be `1` **and** each action passes `confirm`. (Or drop an empty `ALLOW_WRITES` file in the repo root.) |
+| `NAVI_REMOTE_CODE_EXECUTION` | `0` | **Separate** opt-in required by Command & Control (Amarok) on top of writes — enables `navi action push` (SSH RCE) to a single Linux host. (Or an empty `ALLOW_REMOTE_EXEC` file.) The highest-risk gate in the pack. |
+| `NAVI_BIN` | `navi` on `PATH` | Full path to the navi CLI if it isn't on `PATH`. |
+| `ANTHROPIC_API_KEY` | — | Enables the model features: NL→SQL, NL audit authoring, ownership/OS/tagging plans, correlation narration. Agents degrade gracefully without it. |
+| `ANTHROPIC_MODEL` | app default | Override the Claude model (set one your key can access). |
+| `ANTHROPIC_MAX_TOKENS` | app default | Hard ceiling on output tokens for every agent call. |
+| `NAVI_TAG_WORKERS` | `4` | Parallel tag writes (1–32). Adjustable live from the Tagging log; persisted in the sidecar. |
+| `NAVI_TAG_GAP_MS` | `1500` | Pacing gap between tag writes (rate-limit safety). |
+| `NAVI_TAGLOG_DB` | `tag_jobs.db` (repo root) | Durable, shared **Tagging log** sidecar — survives restarts and is visible across processes. |
+| `NAVI_UUID_CAP` | `1999` | Tenable per-call asset-UUID cap; navi loops past it (the app prefers server-side selectors over the cap). |
+| `NAVI_ALERT_EMAIL` | — | Recipient for Alert Raven / the contract's per-cycle change email. |
+| `NAVI_EMAIL` / SMTP | — | Enables Gabriel email sends (`NAVI_EMAIL=1` + `navi config smtp` set out-of-band). |
+| `PORT` | `8000` (FastAPI) / `8001` (Flask) | Server port. |
+
+Writes are always double-gated (`NAVI_ALLOW_WRITES=1` **and** a per-action `confirm`);
+remote execution (Command & Control) is **triple-gated** — it additionally requires
+`NAVI_REMOTE_CODE_EXECUTION=1` and a per-host confirm. Read-only exploration is safe by
+default.
+
+---
+
 ## What's inside
+
+Naming: the **detection hounds are literal dogs/wolves** (Cerberus, Laelaps, Fenrir,
+Sköll, Garmr, Orthrus, Argos, Cavall, Amarok) and the **explorers are dog breeds**; the
+**higher-order agents are domain-matched figures** whose myth maps to the job (Charon
+ferries EOL to retirement, Anubis weighs criticality, Atlas bears the routes, Gabriel
+carries the mail, Daedalus builds, Terminus marks boundaries). Only actual canines keep
+the “Hound” suffix.
+
+**Signal & analysis**
 
 | Agent | Codename | What it does |
 |---|---|---|
-| **AI Navi Contract** | Covenant Hound | Orchestrator — capture a policy once; it plans, then tags / sets-ACR on a loop when armed |
-| **Certificate Agent** | Certania Hound | Tags 12-month certificate failures; cert-issue × asset heat maps |
-| **IoT Discovery Squad** | Cerberus Hound | Detect → expand → cross-reference → QA; tags IoT / embedded devices |
-| **ACR Calibration** | Anubis Hound | Adjust Asset Criticality Rating per tag (set / +N / −N), bulk or by NL rules |
-| **Custom App Tagging** | Argus Hound | Finds custom apps via routes / paths; tag from plain English |
 | **MITRE ATT&CK Tagging** | Orthrus Hound | Maps CVEs to ATT&CK techniques and tags the affected assets |
-| **EOL / Unsupported** | Charon Hound | Tags end-of-life / unsupported software by plugin lifecycle text |
-| **AI Inventory** | Pythia Hound | Finds assets running AI / ML software and tags them |
-| **Identity Inventory** | Janus Hound | Human + non-human identities; tags the hosting assets |
-| **Scan Evaluations** | Chronos Hound | Scan-time analysis + credential-failure coverage |
-| **Exposure Routes** | Atlas Hound | Maps routes / paths to owners (`Owner: <app>: <user>`), with coverage analytics |
-| **Software Analyzer** | Mimir Hound | Version sprawl, most-deployed, and rare single-install software |
-| **Tag Removal** | Garmr Hound | Lists every tag and removes the chosen ones; feeds the contract's removal phase |
-| **Agent Group Tagging** | Sirius Hound | Tags assets by Tenable agent group (NL list / widget / all) |
 | **CISA KEV Tagging** | Laelaps Hound | Tags Known-Exploited vulns off the CISA-KNOWN-EXPLOITED xref, all or by catalog date |
-| **Post-Quantum Cipher Analysis** | Heimdall Hound | Tags assets in Tenable's PQ-cipher plugins (277650 / 277652 / 277653) |
-| **Dashboard Builder** | Daedalus Hound | NL → read-only SQL → KPI / bar / line / pie; pin + promote to a Custom Dashboard |
-| **On the Scent (Insights)** | Sphinx Hound | Surfaces the unknown-unknowns as one exposure overview |
-| **Explorers** | Bloodhound / Hellhound / Foxhound / Wolfhound / Greyhound | Read-only drill-downs over assets, vulns, plugins, routes, paths |
+| **EOL / Unsupported** | Charon | Tags end-of-life / unsupported software by plugin lifecycle text |
+| **Certificate Agent** | Certania | Tags 12-month certificate failures; cert-issue × asset heat maps |
+| **IoT Discovery Squad** | Cerberus Hound | Detect → expand → cross-reference → QA; tags IoT / embedded / OT devices |
+| **Post-Quantum Cipher Analysis** | Heimdall | Tags assets in Tenable's PQ-cipher plugins (277650 / 277652 / 277653) |
+| **AI Inventory** | Pythia | Finds AI / ML software; labels EOL + ATT&CK exposure; tags |
+| **Identity Inventory** | Janus | Human + non-human identities; tags the hosting assets |
+| **Software Analyzer** | Mimir | Version sprawl, most-deployed, and a risk leaderboard (package × its vulns) |
+| **Custom App Tagging** | Cavall Hound | Finds custom / in-house apps via routes & paths; tag from plain English |
+| **WAS · Web Apps** | Arachne | Consolidated Tenable WAS — severity, OWASP profile, tech inventory, scan coverage; tag web apps |
+| **Attack Path Analysis** | Fenrir Hound | Surfaces attack paths and choke points across the estate |
+| **Scan Evaluations** | Chronos | Scan-time analysis + credential-failure coverage |
+| **Asset Classification** | Linnaeus | Classifies assets (class / subnet / OS) and tags by OS from plain English |
+| **Compliance** | Minos | Consolidated audit compliance — pass/fail/warn, top failing controls, framework rollup, per-asset scorecards; assign an Audit Owner |
+
+**Organize**
+
+| Agent | Codename | What it does |
+|---|---|---|
+| **Agent Group Tagging** | Sirius Hound | Tags assets by Tenable agent group (NL list / widget / all) |
+| **Exposure Routes** | Atlas | Maps routes / paths to owners (`Owner: <app>: <user>`), with coverage analytics |
+| **Asset Ownership** | Terminus | Multi-layer ownership (business owners; technology owners over routes & paths), % owned, unclaimed / blind, crown jewels |
+| **ACR Calibration** | Anubis | Adjust Asset Criticality Rating per tag (set / +N / −N), bulk or by NL rules |
+| **Custom Audit** | Draco | Author a Tenable `.audit` from plain English or a guided builder; upload & edit existing files; validate; auto-map framework refs |
+
+**Operationalize**
+
+| Agent | Codename | What it does |
+|---|---|---|
+| **SLA Adherence** | Sköll | Findings against their remediation clock — what's overdue, by how long, for whom |
+| **Email & Reports** | Gabriel | Emails a dashboard or report as an email-safe HTML digest (gated) |
+| **Alerting** | Alert Raven | Baseline + threshold alerts; crafts and emails the change |
+| **Tag Removal** | Garmr Hound | Lists every tag and removes the chosen ones; feeds the contract's removal phase |
+| **Command & Control** | Amarok Hound | Remediation executor — `navi action push` (SSH RCE) to **one** Linux host: run a command, ship a file, or apply a vuln-derived patch. Triple-gated (writes + RCE opt-in + per-host confirm), canary-first campaigns with stop-on-failure + abort, Route→Tag→Push→Verify |
+| **AI Navi Contract** | Covenant | Orchestrator — capture a policy once; it plans, then tags / sets-ACR on a loop when armed |
+
+**Views & deep-dives**
+
+| Agent | Codename | What it does |
+|---|---|---|
+| **Exposure Score** | Nemesis | Fuses every Hound's signal into one exposure score per asset; worst-from-each, convergence, projected reduction |
+| **On the Scent** | Sphinx | The estate brain — posture across every Hound, blind spots, and cross-Hound surprises |
+| **Dashboard Builder** | Daedalus | NL → read-only SQL → KPI / bar / line / pie; pin + promote to a Custom Dashboard |
+| **Compliance Deep-Dive** | Tiresias | One asset *or* one audit file in full — checks (actual vs expected), framework maps, and inferred audit↔vuln links |
+| **Asset Deep-Dive** | Argos Hound | Recognizes one asset across every table — the full dossier |
+| **Web App Recon** | Beagle | Per-web-app recon — sitemap, target, screenshot, plugin output |
+
+**Explorers** — read-only drill-downs over the estate: Bloodhound (assets) · Hellhound (vulns) · Foxhound (plugins) · Wolfhound (routes) · Greyhound (paths) · Vizsla (WAS apps) · Plott (fixed).
 
 ---
 

@@ -8,5 +8,5 @@
   "needs_backend": true,
   "page": "page.html",
   "actions": ["run", "tag", "tag_uuids", "cert", "transport", "roadmap", "roadmap_tag"],
-  "codename": "Heimdall Hound"
+  "codename": "Heimdall"
 }

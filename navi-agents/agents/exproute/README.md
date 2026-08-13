@@ -1,4 +1,4 @@
-# Exposure Routes — owner mapping (Atlas Hound)
+# Exposure Routes — owner mapping (Atlas)
 
 Map exposure **routes** (`vuln_route`) and filesystem **paths** (`vuln_paths`) to
 the people who own them, in plain English.

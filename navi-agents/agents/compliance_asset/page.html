@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Compliance Deep-Dive · Sherlock · Navi Agents</title>
+<title>Compliance Deep-Dive · Tiresias · Navi Agents</title>
 <link rel="stylesheet" href="/static/console.css"/>
 <style>
 .seclbl{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
@@ -43,7 +43,7 @@
 <div class="wrap">
   <header class="top" id="app-header"></header>
   <section class="card">
-    <div class="toolbar"><div><h2 style="margin:0">🔍 Compliance Deep-Dive <span class="sub" style="font-weight:400">· Sherlock investigates</span></h2>
+    <div class="toolbar"><div><h2 style="margin:0">🔍 Compliance Deep-Dive <span class="sub" style="font-weight:400">· Tiresias investigates</span></h2>
       <p class="sub" id="lensSub" style="margin:2px 0 0">One asset in full: every audit check it passed, failed or warned — and the inferred link between a failed control and the real findings backing it.</p></div>
       <a class="btn ghost sm" href="/agents/compliance/page.html" style="margin-left:auto" title="Back to the compliance overview">← Overview</a></div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:8px">
@@ -60,7 +60,7 @@
     <div id="flash" class="flash" style="margin-top:8px"></div>
   </section>
   <div id="body"></div>
-  <footer>Compliance Deep-Dive · Sherlock · read-only navi.db · audit↔vuln links inferred by topic on the same asset</footer>
+  <footer>Compliance Deep-Dive · Tiresias · read-only navi.db · audit↔vuln links inferred by topic on the same asset</footer>
 </div>
 <div id="omodal" class="omodal" style="display:none">
   <div class="obox">
@@ -294,7 +294,7 @@ function renderAuditDetail(d){
 document.querySelectorAll('#lensSeg .seg').forEach(s=>s.onclick=()=>setLens(s.getAttribute('data-lens')));
 document.getElementById('afsel').onchange=e=>{ AFILE=e.target.value; renderAudit(); };
 
-mountAgentHeader({id:'compliance_asset',icon:'🔍',name:'Compliance Deep-Dive',sub:'Sherlock · audit + vuln links · by asset or audit file'});
+mountAgentHeader({id:'compliance_asset',icon:'🔍',name:'Compliance Deep-Dive',sub:'Tiresias · audit + vuln links · by asset or audit file'});
 CURR=q('asset')||q('target'); setLens('asset');
 </script>
 </body></html>
