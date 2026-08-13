@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Certificate Dashboard · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;margin-top:14px}
+  .kpi{border:1px solid var(--line);border-radius:12px;background:var(--bg-2);padding:12px 13px;border-left-width:3px;border-left-color:var(--accent)}
+  .kpi .kv{font-family:var(--display);font-weight:700;font-size:26px;line-height:1.05}
+  .kpi .kl{font-size:11px;color:var(--ink-3);margin-top:3px}
+  .kpi.ok{border-left-color:var(--ok)}.kpi.ok .kv{color:var(--ok)}
+  .kpi.crit{border-left-color:var(--crit)}.kpi.crit .kv{color:var(--crit)}
+  .kpi.warn{border-left-color:var(--high)}.kpi.warn .kv{color:var(--high)}
+  /* 12-month timeline */
+  .tl{display:flex;gap:6px;align-items:flex-end;margin-top:6px;overflow-x:auto;padding-bottom:6px}
+  .bar{flex:1 0 52px;min-width:52px;display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer;user-select:none}
+  .bar .col{width:100%;border-radius:7px 7px 3px 3px;background:linear-gradient(180deg,#e0913a,#c8792a);position:relative;transition:.12s;min-height:3px}
+  .bar.exp .col{background:linear-gradient(180deg,#e5484d,#c53b40)}
+  .bar .col .cnt{position:absolute;top:-17px;left:0;right:0;text-align:center;font-family:var(--mono);font-size:11px;color:var(--ink)}
+  .bar .lab{font-size:10px;color:var(--ink-3);text-align:center;line-height:1.15;white-space:nowrap}
+  .bar:hover .col{filter:brightness(1.12)}
+  .bar.on .col{outline:2px solid var(--accent);outline-offset:1px}
+  .bar.on .lab{color:var(--ink);font-weight:600}
+  .bar.zero{opacity:.45;cursor:default}
+  .scopebar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:8px 0 0;font-size:12.5px}
+  .clr{border:1px solid var(--line);background:var(--bg-2);color:var(--ink-2);border-radius:999px;padding:3px 10px;font-size:11.5px;cursor:pointer}
+  .clr:hover{border-color:var(--accent);color:var(--ink)}
+  /* view tabs */
+  .vtabs{display:flex;gap:6px;flex-wrap:wrap;margin:2px 0 10px}
+  .vtab{border:1px solid var(--line);background:var(--bg-2);color:var(--ink-2);border-radius:10px;padding:7px 13px;font-size:12.5px;cursor:pointer;font-family:var(--display);font-weight:600}
+  .vtab:hover{border-color:var(--accent);color:var(--ink)}
+  .vtab.on{background:var(--accent);border-color:var(--accent);color:#12131a}
+  table.grid{width:100%;border-collapse:collapse;margin-top:4px;font-size:12.5px}
+  table.grid th,table.grid td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line);vertical-align:top}
+  table.grid th{color:var(--ink-3);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+  table.grid td.mono,.mono{font-family:var(--mono)}
+  .pill{font-family:var(--mono);font-size:10px;border:1px solid var(--line);border-radius:999px;padding:1px 7px;white-space:nowrap}
+  .pill.exp{color:var(--crit);border-color:rgba(229,72,77,.5)}
+  .pill.fail{color:var(--high);border-color:rgba(224,145,58,.5)}
+  .pill.weak{color:#5d92d6;border-color:rgba(93,146,214,.5)}
+  .grp{border:1px solid var(--line);border-radius:11px;background:var(--bg-2);margin-top:8px;overflow:hidden}
+  .grp>.gh{display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:pointer}
+  .grp>.gh:hover{background:var(--panel-2)}
+  .grp .gt{font-weight:600;font-size:13px}.grp .gs{color:var(--ink-3);font-size:11px}
+  .grp .gc{font-family:var(--mono);font-size:11px;color:var(--accent);margin-left:auto}
+  .grp .gb{display:none;padding:0 12px 10px}
+  .grp.open .gb{display:block}
+  .grp.open>.gh .caret{transform:rotate(90deg)}
+  .caret{transition:.12s;color:var(--ink-3)}
+  /* plugin tag view */
+  .ptbl th.sel,.ptbl td.sel{width:34px;text-align:center}
+  .taghint{font-size:11.5px;color:var(--ink-3);margin-top:4px}
+  a.alink{color:var(--accent);text-decoration:none;border-bottom:1px dashed rgba(109,112,230,.5)}
+  a.alink:hover{border-bottom-style:solid}
+  .ghlink{margin-left:8px;font-size:11px;color:var(--ink-3);text-decoration:none}.ghlink:hover{color:var(--accent)}
+</style>
+</head><body>
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+
+  <section class="card" style="background:radial-gradient(120% 140% at 90% -20%,var(--amber-glow),transparent 60%),var(--panel)">
+    <div class="toolbar"><div><div class="acode">Certania</div><h2 style="margin:0">🔐 Certificate Dashboard</h2>
+      <p class="sub" style="margin:2px 0 0">Every certificate the Hounds can see — a <b>12-month expiry timeline</b> (click a month to see those certs), the same set grouped <b>by asset, by certificate, and by common name</b>, and every <b>certificate plugin</b> with one-click <b>tag-by-plugin</b>. Reads navi.db read-only; tag writes are gated.</p></div>
+      <button class="btn run sm" id="load" style="margin-left:auto">▶ Load certificates</button></div>
+    <div id="flash" class="flash"></div>
+    <div class="kpis" id="kpis"></div>
+  </section>
+
+  <!-- 1 · 12-month timeline -->
+  <section class="card" id="tlCard" style="display:none">
+    <div class="toolbar" style="margin:0 0 2px"><h2 style="margin:0;font-size:15px">📅 Failing by month — next 12 months</h2>
+      <span class="chip" id="tlChip" style="margin-left:auto"></span></div>
+    <p class="sub" style="margin:2px 0 8px">Height = certificates expiring that month. The red bar is already-expired. Click any bar to scope the views below to it.</p>
+    <div class="tl" id="tl"></div>
+    <div class="scopebar" id="scopebar"></div>
+  </section>
+
+  <!-- 2 · three grouped views -->
+  <section class="card" id="viewCard" style="display:none">
+    <div class="toolbar" style="margin:0 0 6px"><div><h2 style="margin:0;font-size:15px">Certificates</h2>
+      <p class="sub" style="margin:2px 0 0" id="viewSub"></p></div>
+      <input id="filter" placeholder="filter host / IP / common name…" style="margin-left:auto;padding:6px 9px;border-radius:7px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink);min-width:220px"></div>
+    <div class="vtabs" id="vtabs">
+      <button class="vtab on" data-v="cert">Per certificate</button>
+      <button class="vtab" data-v="asset">By asset</button>
+      <button class="vtab" data-v="cn">By common name</button>
+    </div>
+    <div id="viewBody"></div>
+  </section>
+
+  <!-- 3 · cert plugins + tag by plugin -->
+  <section class="card" id="plugCard" style="display:none">
+    <div class="toolbar" style="margin:0 0 4px"><div><h2 style="margin:0;font-size:15px">🏷 Certificate plugins — tag by plugin</h2>
+      <p class="sub" style="margin:2px 0 0">Every certificate-related Nessus plugin and how many assets it fired on. Select plugins and tag their assets <span class="mono">Cert Issue : &lt;plugin name&gt;</span> so every Hound and dashboard can filter to them.</p></div>
+      <span class="chip" id="plugChip" style="margin-left:auto"></span></div>
+    <div class="toolbar" style="margin:8px 0;gap:8px">
+      <button class="btn ghost sm" id="pAll">Select all</button>
+      <button class="btn ghost sm" id="pNone">Clear</button>
+      <button class="btn run sm" id="pTag" disabled>🏷 Tag selected assets</button>
+      <span class="taghint" id="pHint"></span>
+    </div>
+    <div style="overflow-x:auto"><table class="grid ptbl" id="plugTbl"><thead><tr>
+      <th class="sel"><input type="checkbox" id="pMaster"></th><th>Plugin</th><th>Plugin ID</th><th>Affected assets</th>
+    </tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <footer>Certificate Dashboard · Certania · expiry timeline + by asset / certificate / common name + tag-by-plugin · reads navi.db read-only · tag writes gated by NAVI_ALLOW_WRITES</footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('certificate');
+let MODEL=null, WRITES=false, CERTS=[], SELMONTH=null, VIEW='cert';
+
+function esc2(s){return esc(String(s==null?'':s));}
+function argosHref(c){ return '/agents/argos/page.html?target='+encodeURIComponent(c.asset_uuid||c.ip_address||''); }
+function hostLink(c){ const label=c.hostname&&c.hostname!=='(none)'?c.hostname:(c.ip_address||'—');
+  return (c.asset_uuid||c.ip_address)?('<a class="alink" href="'+argosHref(c)+'" title="Open '+esc2(label)+' in Argos">'+esc2(label)+'</a>'):esc2(label); }
+function statusPill(c){ return c.status==='expired'
+  ? '<span class="pill exp">expired '+Math.abs(c.days_left)+'d ago</span>'
+  : '<span class="pill fail">'+c.days_left+'d left</span>'; }
+function weakPill(c){ const s=(c.signature_algorithm||'').toLowerCase(); const kl=parseInt(c.key_length||'0',10);
+  const weak=s.includes('sha1')||s.includes('md5')||(kl&&kl<2048);
+  return weak?'<span class="pill weak" title="'+esc2(c.signature_algorithm)+' · '+esc2(c.key_length)+'-bit">weak crypto</span>':''; }
+
+/* --- KPIs --- */
+function renderKpis(){
+  const r=MODEL, cns=new Set(CERTS.map(c=>c.common_name||'—')), plugAssets=(r.cert_issue_matrix||[]).reduce((s,p)=>s+(p.asset_count||0),0);
+  const tile=(l,v,cls)=>'<div class="kpi '+(cls||'')+'"><div class="kv">'+v+'</div><div class="kl">'+l+'</div></div>';
+  document.getElementById('kpis').innerHTML=
+    tile('Certificates',r.cert_rows||0)+
+    tile('Expired',r.expired_count||0,(r.expired_count?'crit':'ok'))+
+    tile('Failing ≤12mo',r.failing_count||0,(r.failing_count?'warn':'ok'))+
+    tile('Distinct common names',cns.size)+
+    tile('Cert plugins',(r.cert_issue_matrix||[]).length)+
+    tile('Plugin hits',plugAssets);
+}
+
+/* --- 12-month timeline --- */
+function renderTimeline(){
+  const buckets=MODEL.heatmap_months||[], expN=MODEL.expired_count||0;
+  const max=Math.max(1,expN,...buckets.map(b=>b.count));
+  const H=110;
+  let html='<div class="bar exp'+(expN?'':' zero')+(SELMONTH==='expired'?' on':'')+'" data-k="expired">'+
+    '<div class="col" style="height:'+Math.max(3,Math.round(expN/max*H))+'px"><span class="cnt">'+(expN||'')+'</span></div>'+
+    '<div class="lab">Expired</div></div>';
+  html+=buckets.map(b=>'<div class="bar'+(b.count?'':' zero')+(SELMONTH===b.key?' on':'')+'" data-k="'+esc2(b.key)+'">'+
+    '<div class="col" style="height:'+Math.max(3,Math.round(b.count/max*H))+'px"><span class="cnt">'+(b.count||'')+'</span></div>'+
+    '<div class="lab">'+esc2(b.label)+'</div></div>').join('');
+  document.getElementById('tl').innerHTML=html;
+  document.getElementById('tlChip').textContent=(expN)+' expired · '+(MODEL.failing_count||0)+' failing';
+  document.querySelectorAll('#tl .bar').forEach(el=>{ if(el.classList.contains('zero'))return;
+    el.onclick=()=>{ SELMONTH=(SELMONTH===el.dataset.k)?null:el.dataset.k; renderTimeline(); renderScope(); renderView(); }; });
+}
+function scopedCerts(){
+  if(!SELMONTH) return CERTS;
+  if(SELMONTH==='expired') return CERTS.filter(c=>c.status==='expired');
+  return CERTS.filter(c=>(c.expiry_iso||'').slice(0,7)===SELMONTH);
+}
+function scopeLabel(){
+  if(!SELMONTH) return 'all certificates';
+  if(SELMONTH==='expired') return 'already-expired certificates';
+  const b=(MODEL.heatmap_months||[]).find(x=>x.key===SELMONTH); return 'expiring in '+(b?b.label:SELMONTH);
+}
+function renderScope(){
+  const sb=document.getElementById('scopebar');
+  sb.innerHTML=SELMONTH?('<span>Showing <b>'+esc2(scopeLabel())+'</b> · '+scopedCerts().length+' cert(s)</span><button class="clr" id="clrScope">show all months ✕</button>'):'';
+  const c=document.getElementById('clrScope'); if(c) c.onclick=()=>{ SELMONTH=null; renderTimeline(); renderScope(); renderView(); };
+}
+
+/* --- three grouped views --- */
+function fRows(){
+  const f=(document.getElementById('filter').value||'').toLowerCase();
+  let rows=scopedCerts();
+  if(f) rows=rows.filter(c=>((c.hostname||'')+' '+(c.ip_address||'')+' '+(c.common_name||'')).toLowerCase().includes(f));
+  return rows;
+}
+function certRowsHtml(rows){
+  return '<div style="overflow-x:auto"><table class="grid"><thead><tr><th>Host</th><th>IP</th><th>Common name</th><th>Expiry</th><th>Status</th><th>Crypto</th></tr></thead><tbody>'+
+    (rows.length?rows.map(c=>'<tr><td>'+hostLink(c)+'</td><td class="mono">'+esc2(c.ip_address||'')+'</td>'+
+      '<td>'+esc2(c.common_name||'—')+'</td><td class="mono">'+esc2(c.not_valid_after||'')+'</td>'+
+      '<td>'+statusPill(c)+'</td><td>'+(weakPill(c)||'<span class="sub mono" style="font-size:10.5px">'+esc2(c.signature_algorithm||'')+(c.key_length?' · '+esc2(c.key_length)+'b':'')+'</span>')+'</td></tr>').join('')
+      :'<tr><td colspan="6" class="sub">No certificates in this scope.</td></tr>')+'</tbody></table></div>';
+}
+function groupHtml(groups){
+  // groups: [{key, sub, rows, href?}]
+  return groups.map((g,i)=>'<div class="grp" data-g="'+i+'"><div class="gh"><span class="caret">▶</span>'+
+    '<span><span class="gt">'+esc2(g.key)+'</span>'+(g.href?'<a class="ghlink" href="'+g.href+'" title="Open in Argos">🔦 Argos</a>':'')+' <span class="gs">· '+esc2(g.sub)+'</span></span>'+
+    '<span class="gc">'+g.rows.length+' cert'+(g.rows.length===1?'':'s')+'</span></div>'+
+    '<div class="gb">'+certRowsHtml(g.rows)+'</div></div>').join('')||'<p class="sub">No certificates in this scope.</p>';
+}
+function byAsset(rows){
+  const m={}; rows.forEach(c=>{const k=c.hostname&&c.hostname!=='(none)'?c.hostname:(c.ip_address||c.asset_uuid||'—'); (m[k]=m[k]||{key:k,ip:c.ip_address,rows:[]}).rows.push(c);});
+  return Object.values(m).sort((a,b)=>b.rows.length-a.rows.length).map(g=>({key:g.key,sub:(g.ip?g.ip+' · ':'')+earliest(g.rows),rows:g.rows,href:argosHref(g.rows[0])}));
+}
+function byCN(rows){
+  const m={}; rows.forEach(c=>{const k=c.common_name||'(no common name)'; (m[k]=m[k]||{key:k,rows:[]}).rows.push(c);});
+  return Object.values(m).sort((a,b)=>b.rows.length-a.rows.length).map(g=>({key:g.key,sub:new Set(g.rows.map(c=>c.hostname||c.ip_address)).size+' asset(s) · '+earliest(g.rows),rows:g.rows}));
+}
+function earliest(rows){ const d=rows.map(c=>c.expiry_iso).filter(Boolean).sort()[0]; return d?('earliest '+d):''; }
+function renderView(){
+  const rows=fRows(), body=document.getElementById('viewBody');
+  document.getElementById('viewSub').innerHTML='Expired + failing-within-12-months, '+esc2(scopeLabel())+' — <b>'+rows.length+'</b> certificate(s).';
+  if(VIEW==='cert') body.innerHTML=certRowsHtml(rows.slice().sort((a,b)=>(a.expiry_iso||'').localeCompare(b.expiry_iso||'')));
+  else body.innerHTML=groupHtml(VIEW==='asset'?byAsset(rows):byCN(rows));
+  document.querySelectorAll('#viewBody .grp').forEach(g=>g.querySelector('.gh').onclick=()=>g.classList.toggle('open'));
+}
+
+/* --- cert plugins + tag by plugin --- */
+function renderPlugins(){
+  const rows=MODEL.cert_issue_matrix||[];
+  document.getElementById('plugChip').textContent=rows.length+' plugin(s)';
+  document.querySelector('#plugTbl tbody').innerHTML=rows.length?rows.map((p,i)=>
+    '<tr><td class="sel"><input type="checkbox" class="pck" data-i="'+i+'"></td>'+
+    '<td>'+esc2(p.plugin_name||'—')+'</td><td class="mono">'+esc2(p.plugin_id||'')+'</td>'+
+    '<td class="mono">'+(p.asset_count||0)+'</td></tr>').join('')
+    :'<tr><td colspan="4" class="sub">No certificate plugins in navi.db. Run a scan with the SSL/TLS cert plugins, then Refresh.</td></tr>';
+  document.querySelectorAll('#plugTbl .pck').forEach(cb=>cb.onchange=updatePTag);
+  updatePTag();
+}
+function pickedPlugins(){ return [...document.querySelectorAll('#plugTbl .pck:checked')].map(cb=>MODEL.cert_issue_matrix[+cb.dataset.i]); }
+function updatePTag(){
+  const n=pickedPlugins().length, assets=pickedPlugins().reduce((s,p)=>s+(p.asset_count||0),0);
+  const b=document.getElementById('pTag'); b.disabled=!n;
+  b.textContent=n?('🏷 Tag '+n+' plugin'+(n===1?'':'s')+' → '+assets+' asset-hits'):'🏷 Tag selected assets';
+  document.getElementById('pHint').textContent=WRITES?'':'writes gated (NAVI_ALLOW_WRITES not set) — jobs queue but block';
+}
+async function tagPlugins(){
+  const picks=pickedPlugins().map(p=>({plugin_id:p.plugin_id,plugin_name:p.plugin_name}));
+  if(!picks.length) return;
+  if(!WRITES && !confirm('Writes are gated on the server (NAVI_ALLOW_WRITES not set). The tag jobs will queue but be blocked. Continue?')) return;
+  if(!confirm('Tag the assets of '+picks.length+' certificate plugin(s) as “Cert Issue : <plugin name>”? This is a gated navi write.')) return;
+  const b=document.getElementById('pTag'); b.disabled=true; b.textContent='⏳ tagging…';
+  let o; try{ o=await API.post('tags_issues',{issues:picks,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o.ok){ flash('flash','✗ '+esc2(o.error||'failed'),'crit'); b.disabled=false; updatePTag(); return; }
+  const ok=(o.results||[]).filter(x=>x.ok!==false).length;
+  flash('flash','✓ queued Cert Issue tags for '+ok+' plugin(s) — filter to “Cert Issue : …” anywhere in the pack. Allow ~30 min propagation.','ok');
+  b.textContent='✓ queued';
+}
+
+/* --- load --- */
+async function load(){
+  const b=document.getElementById('load'); b.disabled=true;
+  flash('flash','<span class="spin"></span> reading certs + certificate plugins from navi.db…','run');
+  let o; try{ o=await API.post('run'); }catch(e){ o={ok:false,error:e.message}; }
+  b.disabled=false; const res=o.result||o;
+  if(!res||!res.ok&&!res.twelve_month){ flash('flash','✗ '+esc2((res&&res.error)||o.error||'failed'),'crit'); return; }
+  MODEL=res.result||res; flashClear('flash');
+  CERTS=(MODEL.expired||[]).concat(MODEL.twelve_month||[]);
+  renderKpis(); renderTimeline(); renderScope(); renderView(); renderPlugins();
+  ['tlCard','viewCard','plugCard'].forEach(id=>document.getElementById(id).style.display='block');
+}
+
+document.getElementById('load').onclick=load;
+document.getElementById('filter').addEventListener('input',renderView);
+document.querySelectorAll('#vtabs .vtab').forEach(t=>t.onclick=()=>{ document.querySelectorAll('#vtabs .vtab').forEach(x=>x.classList.remove('on')); t.classList.add('on'); VIEW=t.dataset.v; renderView(); });
+document.getElementById('pAll').onclick=()=>{ document.querySelectorAll('#plugTbl .pck').forEach(c=>c.checked=true); updatePTag(); };
+document.getElementById('pNone').onclick=()=>{ document.querySelectorAll('#plugTbl .pck').forEach(c=>c.checked=false); document.getElementById('pMaster').checked=false; updatePTag(); };
+document.getElementById('pMaster').onchange=e=>{ document.querySelectorAll('#plugTbl .pck').forEach(c=>c.checked=e.target.checked); updatePTag(); };
+document.getElementById('pTag').onclick=tagPlugins;
+mountAgentHeader({id:'certificate',icon:'🔐',name:'Certificate Dashboard',sub:'Certania · expiry timeline · by asset / cert / CN · tag by plugin'});
+jget('/api/health').then(h=>{ WRITES=!!h.writes_enabled; updatePTag(); }).catch(()=>{});
+</script>
+</body></html>
