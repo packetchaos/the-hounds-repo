@@ -280,6 +280,7 @@ document.getElementById('promoteBase').onclick=async()=>{
 };
 
 mountAgentHeader({id:'iot_squad',icon:'📡',name:'IoT Discovery Squad',sub:'discover→carrier→cross-term→QA'});
+try{ hMailAuto(); }catch(e){}
 renderPipeline();
 flash('sqFlash','Ready — click <b>Run squad</b> to run the pipeline against navi.db. Toggle the term pack for a wider hunt.','run');
 (async()=>{ const h=handoffParams();

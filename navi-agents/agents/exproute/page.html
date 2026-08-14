@@ -384,6 +384,7 @@ document.getElementById('qaOwner').addEventListener('keydown',e=>{ if(e.key==='E
 document.getElementById('qaSkip').onclick=()=>{ document.getElementById('quickCard').style.display='none'; QA=[]; };
 
 mountAgentHeader({icon:'🧭',name:'Exposure Routes',sub:'owner mapping · navi + Tenable MCP'});
+try{ hMailAuto(); }catch(e){}
 /* explicit-run: nothing scans navi.db until ▶ Load — UNLESS we arrived from the map with
    gap(s) to assign, in which case load, then open the quick-assign for them. */
 (function(){

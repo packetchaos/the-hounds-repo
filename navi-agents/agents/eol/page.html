@@ -67,6 +67,7 @@ async function applyTags(){
 }
 document.getElementById('run').onclick=run;
 mountAgentHeader({icon:'⏏️',name:'EOL / Unsupported Tagging',sub:'navi tag-by-plugin-name · lifecycle risk'});
+try{ hMailAuto(); }catch(e){}
 /* no auto-run — user clicks ▶ Scan (protects a busy navi.db) */
 </script>
 </body></html>

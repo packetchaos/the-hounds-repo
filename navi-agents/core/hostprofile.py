@@ -270,4 +270,6 @@ def profile(asset_uuid, db_path=None):
             "last_scan_dur_min": latest["dur"] if latest else None,
             "last_auth_scan": last_auth["when"] if last_auth else "",
             "authenticated": bool(last_auth), "scan_count": len(scans),
-            "has_data": bool(cpu or ram or latest or nature)}
+            # docker counts as profile data too — a container host with no CPU/RAM
+            # plugin output still has a story to tell (93561).
+            "has_data": bool(cpu or ram or latest or nature or docker.get("available"))}

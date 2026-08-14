@@ -26,13 +26,8 @@
         <select class="fld" id="tagsel" style="min-width:120px"></select>
         <label class="sub" for="valsel" style="margin:0">Filter</label>
         <select class="fld" id="valsel" style="min-width:130px" title="Scope every number to one value, or All for the whole estate"></select>
-        <button class="btn run sm" id="refresh">↻ Refresh</button>
-        <button class="btn sm" id="emailBtn" title="Email this dashboard (gated)">📧 Email</button></span></div>
-    <div id="emailForm" style="display:none;margin-top:8px;gap:6px;align-items:center;flex-wrap:wrap">
-      <input id="emailTo" class="fld" style="min-width:240px;padding:8px 10px" placeholder="recipient email">
-      <button class="btn run sm" id="emailSend">▶ Send (gated)</button>
-      <button class="btn ghost sm" id="emailCancel">cancel</button>
-      <span id="emailRes" class="sub"></span></div>
+        <button class="btn run sm" id="refresh">▶ Run</button><span id="dashMail" style="display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap"></span></span></div>
+    <div id="cacheNote" class="sub" style="display:none;margin-top:6px"></div>
     <div id="flash" class="flash"></div>
   </section>
 
@@ -49,6 +44,16 @@ const fnum=n=>(n==null?'—':Number(n).toLocaleString());
 function bar(label,pct,color,right){ const w=Math.max(2,Math.min(100,Math.round(pct||0)));
   return `<div class="barrow"><div class="bl" title="${esc(label)}">${esc(label)}</div><div class="track"><div class="bar" style="width:${w}%;background:${color}"></div></div><div class="bv">${right||''}</div></div>`; }
 
+/* ---- cached results: the SLA crunch is slow, so the last GOOD result is kept in
+   localStorage and shown instantly on return — clearly labelled, with ▶ Run always
+   required for fresh numbers (same explicit-run model as the other hounds). ---- */
+function cacheSave(){ try{ localStorage.setItem('slaCache', JSON.stringify({dash:DASH, at:new Date().toISOString()})); }catch(e){} }
+function cacheLoad(){ try{ const c=JSON.parse(localStorage.getItem('slaCache')||'null'); if(c&&c.dash)return c; }catch(e){} return null; }
+function cacheNote(at){ const n=document.getElementById('cacheNote'); if(!n)return;
+  if(!at){ n.style.display='none'; n.innerHTML=''; return; }
+  n.style.display='block';
+  n.innerHTML='🕐 Showing <b>cached results</b> from '+esc(String(at).replace('T',' ').slice(0,16))+' — press <b>▶ Run</b> for fresh numbers (each run also records the daily trend snapshot).';
+}
 async function run(){
   const rb=document.getElementById('refresh'); rb.disabled=true;
   flash('flash','<span class="spin"></span> crunching SLA numbers from navi.db…','run');
@@ -56,7 +61,7 @@ async function run(){
   let o; try{ o=await API.post('run', payload); }catch(e){ o={ok:false,error:e.message}; }
   rb.disabled=false;
   if(!o||!o.ok){ flash('flash','✗ '+esc((o&&o.error)||'failed'),'crit'); return; }
-  flashClear('flash'); DASH=o.result||{}; TAGKEY=DASH.tag_key||TAGKEY; TAGVAL=DASH.tag_value||''; render();
+  flashClear('flash'); cacheNote(null); DASH=o.result||{}; TAGKEY=DASH.tag_key||TAGKEY; TAGVAL=DASH.tag_value||''; cacheSave(); render();
 }
 
 function tagOptions(){
@@ -102,7 +107,7 @@ function render(){
   // ---- open aging ----
   if(oa.available){
     const bysev={}; (oa.by_severity||[]).forEach(r=>bysev[r.sev]=r);
-    h+='<section class="card"><h3 style="margin:0 0 2px">🔥 Open findings vs the SLA clock</h3>'
+    h+='<section class="card"><div class="toolbar" id="oaHead" style="margin:0 0 2px"><h3 style="margin:0">🔥 Open findings vs the SLA clock</h3></div>'
       +'<p class="seclbl">breach rate by severity · age measured from first seen</p>';
     SEV.forEach(([k,lbl,c])=>{ const r=bysev[k]; if(!r)return;
       const oc=+r.open_ct||0, br=+r.breached||0, pct=oc?100*br/oc:0;
@@ -119,7 +124,7 @@ function render(){
   }
 
   // ---- remediation ----
-  h+='<section class="card"><div class="toolbar" style="margin-bottom:8px"><h3 style="margin:0">✅ Remediation performance</h3>'
+  h+='<section class="card"><div class="toolbar" id="remHead" style="margin-bottom:8px"><h3 style="margin:0">✅ Remediation performance</h3>'
     +'<a class="btn ghost sm" href="/agents/ex_fixed/page.html" style="margin-left:auto" title="Row-level remediation history + SLA verdicts">🩹 Explore fixed table (Plott) →</a></div>';
   if(!rem.available){
     h+='<p class="sub">No remediation verdicts yet. Build the <b>Fixed</b> table and run <b>Recalculate SLA</b> in <a href="/web/settings.html">Settings</a>, then refresh — Sköll will show, per severity and per owner, whether closed findings were fixed inside their SLA window.</p>';
@@ -140,6 +145,22 @@ function render(){
   h+='<section class="card"><p class="sub" style="margin:0">📈 Each refresh saves a dated snapshot of the <b>whole-estate</b> numbers (open breaches, adherence %, by severity) to the trend store — that history is what <b>Hati</b>, the trending agent, will chart over time. Filtered views aren\'t snapshotted.</p></section>';
   B.innerHTML=h;
   const cs=document.getElementById('clearScope'); if(cs)cs.onclick=()=>{ TAGVAL=''; run(); };
+  // per-widget 📧 (shared hMail — same UX as every hound)
+  const tk=DASH.tag_key||'owner';
+  hMail(document.getElementById('oaHead'), ()=>{
+    const o2=DASH.open_aging||{}; if(!o2.available)return null;
+    const rows=(o2.by_severity||[]).map(r=>({severity:r.sev,open:r.open_ct,'past SLA':r.breached,'avg age (d)':r.avg_age_days}))
+      .concat((o2.by_owner||[]).map(r=>({severity:tk+': '+r.seg,open:r.open_ct,'past SLA':r.breached,'avg age (d)':''})));
+    return {title:'Open findings vs the SLA clock'+(DASH.tag_value?(' — '+tk+': '+DASH.tag_value):''),
+      note:'breach rate by severity, then open breaches by '+tk+' · Sköll · point-in-time navi.db snapshot', rows:rows};
+  });
+  hMail(document.getElementById('remHead'), ()=>{
+    const r2=DASH.remediation||{}; if(!r2.available)return null;
+    const rows=(r2.by_severity||[]).map(r=>({segment:'severity: '+r.sev,fixed:r.total,'in SLA':r.met,'met %':(r.total?Math.round(100*(+r.met||0)/r.total):0)+'%','avg fix (d)':r.avg_fix_days!=null?r.avg_fix_days:''}))
+      .concat((r2.by_owner||[]).map(r=>({segment:tk+': '+r.seg,fixed:r.total,'in SLA':r.met,'met %':r.met_pct+'%','avg fix (d)':''})));
+    return {title:'Remediation performance'+(DASH.tag_value?(' — '+tk+': '+DASH.tag_value):''),
+      note:'fixed-within-SLA by severity and by '+tk+' · Sköll · point-in-time navi.db snapshot', rows:rows};
+  });
 }
 function kpi(v,l,sub){ return `<div class="k"><div class="v">${v}</div><div class="l">${esc(l)}${sub?' · '+esc(sub):''}</div></div>`; }
 
@@ -162,26 +183,24 @@ function emailComponents(){
   }
   return comps;
 }
-document.getElementById('emailBtn').onclick=()=>{ const f=document.getElementById('emailForm'); const show=f.style.display==='none'; f.style.display=show?'flex':'none'; if(show)document.getElementById('emailTo').focus(); };
-document.getElementById('emailCancel').onclick=()=>{ document.getElementById('emailForm').style.display='none'; document.getElementById('emailRes').innerHTML=''; };
-async function sendEmail(){
-  const to=(document.getElementById('emailTo').value||'').trim(), res=document.getElementById('emailRes');
-  if(!to){ res.innerHTML='<span style="color:var(--crit)">enter a recipient</span>'; return; }
-  if(!DASH||!(DASH.readiness||{}).sla_set){ res.innerHTML='<span style="color:var(--crit)">set SLA first</span>'; return; }
-  res.innerHTML='<span class="spin"></span> sending…';
+// whole-dashboard email via the shared helper (Gabriel `dashboard` action)
+hMail(document.getElementById('dashMail'), ()=>{
+  if(!DASH||!(DASH.readiness||{}).sla_set) return null;
   const scope=DASH.tag_value?(' — '+DASH.tag_key+': '+DASH.tag_value):'';
-  let o; try{ o=await EMAIL.post('dashboard',{to,title:'SLA Adherence — Sköll'+scope,subject:'[Tenable] SLA Adherence (Sköll)'+scope,components:emailComponents(),confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
-  if(o&&o.ok){ res.innerHTML='<span style="color:var(--ok)">✓ sent to '+esc(to)+'</span>'; }
-  else if(o&&o.blocked){ res.innerHTML='<span style="color:var(--cx-e7c66b)">email disabled — '+esc(o.reason||'set NAVI_ALLOW_WRITES=1 and NAVI_EMAIL=1')+'</span>'; }
-  else { res.innerHTML='<span style="color:var(--crit)">✗ '+esc((o&&(o.error||o.message))||'failed')+'</span>'; }
-}
-document.getElementById('emailSend').onclick=sendEmail;
-document.getElementById('emailTo').addEventListener('keydown',e=>{ if(e.key==='Enter')sendEmail(); });
+  return {title:'SLA Adherence — Sköll'+scope, subject:'[Tenable] SLA Adherence (Sköll)'+scope, components:emailComponents()};
+}, {mode:'dashboard'});
 
 document.getElementById('refresh').onclick=run;
 document.getElementById('tagsel').onchange=e=>{ TAGKEY=e.target.value; TAGVAL=''; run(); };
 document.getElementById('valsel').onchange=e=>{ TAGVAL=e.target.value; run(); };
 mountAgentHeader({id:'sla',icon:'⏱',name:'SLA Adherence',sub:'Sköll · remediation + open-aging vs the SLA clock'});
-run();
+/* NO auto-run — the SLA crunch is heavy and each run writes a trend snapshot, so it's
+   user-initiated like every other hound. A cached last result renders instantly. */
+(function(){
+  const c=cacheLoad();
+  if(c){ DASH=c.dash||{}; TAGKEY=DASH.tag_key||null; TAGVAL=DASH.tag_value||''; try{ render(); }catch(e){}
+    cacheNote(c.at); }
+  else document.getElementById('body').innerHTML='<section class="card"><div class="setupcard"><div class="big">⏱ Press ▶ Run</div><p class="sub">Sköll crunches remediation + open-vuln aging against your SLA windows — it can take a moment on a big navi.db, so it runs when you ask (your last result will be cached for instant return visits).</p></div></section>';
+})();
 </script>
 </body></html>

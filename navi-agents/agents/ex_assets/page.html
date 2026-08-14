@@ -39,6 +39,7 @@ async function go(off){ off=off||0;
 document.getElementById('go').onclick=()=>go(0);
 document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter')go(0);});
 mountAgentHeader({icon:'🔎',name:'Asset Explorer',sub:'navi.db search · 500/page'});
+try{ hMailAuto(); }catch(e){}
 wireNlBox('assets');
 </script>
 </body></html>

@@ -539,6 +539,65 @@ async function _sqlColChips(id, table){
     const ta=document.getElementById(id+'_sql'); if(ta) ta.value=ta.value.replace(/select\s+[\s\S]*?\s+from\s/i,'SELECT '+(chosen.length?chosen.join(', '):'*')+' FROM ');
   });
 }
+/* ===== Shared widget + dashboard email (Gabriel) — ONE UX for the whole pack =====
+   hMail(container, getPayload, opts)
+     container  — element the 📧 button is appended to (usually a card's .toolbar)
+     getPayload — mode 'data':      () => {title, note?, sql?, columns?, rows:[{...}]}
+                  mode 'dashboard': () => {title, subject?, components:[{title,note,viz,
+                                           columns,rows,label_col,value_col}]}
+                  Return null / empty rows|components → "no data yet" message.
+     opts       — {mode:'data'|'dashboard' (default 'data'), label}
+   Double-gated server-side (confirm + NAVI_ALLOW_WRITES=1 + NAVI_EMAIL=1); a blocked
+   send surfaces Gabriel's exact gate reason. Recipient remembered in localStorage. */
+function _hmailStyle(){ if(document.getElementById('hmailStyle'))return;
+  const st=document.createElement('style'); st.id='hmailStyle';
+  st.textContent='.hmrow{display:none;gap:6px;align-items:center;flex-wrap:wrap;margin-top:6px;flex-basis:100%}'
+   +'.hmrow input{padding:7px 9px;border-radius:8px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink);min-width:210px;font-size:12.5px}'
+   +'.hmrow .res{font-size:12px}';
+  document.head.appendChild(st); }
+function _hmailTo(v){ try{ if(v!==undefined)localStorage.setItem('naviMailTo',v); return localStorage.getItem('naviMailTo')||''; }catch(e){ return ''; } }
+function hMail(container, getPayload, opts){
+  opts=opts||{}; const mode=opts.mode==='dashboard'?'dashboard':'data';
+  if(!container)return null; _hmailStyle();
+  const EM=agentApi('email');
+  const btn=document.createElement('button'); btn.className='btn ghost sm hmbtn';
+  btn.textContent=opts.label||(mode==='dashboard'?'\ud83d\udce7 Email dashboard':'\ud83d\udce7');
+  btn.title=mode==='dashboard'?'Email the whole dashboard via Gabriel (gated)':"Email this widget's data via Gabriel (gated)";
+  const row=document.createElement('div'); row.className='hmrow';
+  row.innerHTML='<input type="email" placeholder="recipient@company.com"><button class="btn run sm">\u25b6 Send</button><button class="btn ghost sm">\u2715</button><span class="res sub"></span>';
+  container.appendChild(btn); container.appendChild(row);
+  const inp=row.querySelector('input'), send=row.querySelectorAll('button')[0], cancel=row.querySelectorAll('button')[1], res=row.querySelector('.res');
+  btn.onclick=()=>{ const show=row.style.display!=='flex'; row.style.display=show?'flex':'none'; if(show){ inp.value=inp.value||_hmailTo(); inp.focus(); } };
+  cancel.onclick=()=>{ row.style.display='none'; res.innerHTML=''; };
+  const go=async()=>{
+    const to=(inp.value||'').trim(); if(!to){ res.innerHTML='<span style="color:var(--crit)">enter a recipient</span>'; return; }
+    let payload=null; try{ payload=getPayload(); }catch(e){ payload=null; }
+    const empty=!payload||(mode==='data'?!(payload.rows&&payload.rows.length):!(payload.components&&payload.components.length));
+    if(empty){ res.innerHTML='<span style="color:var(--crit)">no data on this '+(mode==='dashboard'?'dashboard':'widget')+' yet \u2014 run the agent first</span>'; return; }
+    if(mode==='data'&&!payload.columns&&payload.rows[0]&&typeof payload.rows[0]==='object') payload.columns=Object.keys(payload.rows[0]);
+    _hmailTo(to);
+    send.disabled=true; res.innerHTML='<span class="spin"></span> sending\u2026';
+    let o; try{ o=await EM.post(mode, Object.assign({}, payload, {to:to, confirm:true})); }catch(e){ o={ok:false,error:e.message}; }
+    send.disabled=false;
+    if(o&&o.ok){ res.innerHTML='<span style="color:var(--ok)">\u2713 sent to '+esc(to)+(mode==='data'?(' \u2014 '+(o.mode==='attachment'?('CSV attached ('+esc(o.attached||'data.csv')+')'):((o.rows||payload.rows.length)+' row(s) inline'))):(' \u2014 '+(o.components||payload.components.length)+' component(s)'))+'</span>'; }
+    else if(o&&o.blocked){ res.innerHTML='<span style="color:var(--cx-e7c66b,#e7c66b)">email disabled \u2014 '+esc(o.reason||'set NAVI_ALLOW_WRITES=1 and NAVI_EMAIL=1')+'</span>'; }
+    else { res.innerHTML='<span style="color:var(--crit)">\u2717 '+esc((o&&(o.error||o.message))||'failed')+'</span>'; }
+  };
+  send.onclick=go; inp.addEventListener('keydown',e=>{ if(e.key==='Enter')go(); });
+  return btn;
+}
+/* Read a RENDERED table into {title, columns, rows} for hMail — fallback for widgets
+   without a data global. NOTE: captures only the rows currently in the DOM (one page of
+   a paginated table) — prefer the page's data array when it exists. */
+function hTableData(tblOrId, title){
+  const t=(tblOrId&&tblOrId.querySelectorAll)?tblOrId:document.getElementById(tblOrId); if(!t)return null;
+  const ths=[...t.querySelectorAll('thead th')].map((th,i)=>th.innerText.trim()||('col'+(i+1)));
+  const rows=[...t.querySelectorAll('tbody tr')]
+    .filter(tr=>tr.querySelectorAll('td').length>1)
+    .map(tr=>{ const o={}; [...tr.querySelectorAll('td')].forEach((td,i)=>{ o[ths[i]||('col'+(i+1))]=td.innerText.replace(/\s+/g,' ').trim(); }); return o; });
+  return rows.length?{title:title||tblId,columns:ths,rows:rows}:null;
+}
+
 /* Wire an explorer page's NL box. ids default to the page's local element ids. */
 function wireNlBox(table, ids){
   ids = ids || {};
@@ -553,6 +612,87 @@ function wireNlBox(table, ids){
     if(!o || !o.ok){ renderSqlResult(out, o); return; }
     renderSqlBox(out, o.sql, table); };
   btn.onclick = go; q.addEventListener('keydown', e=>{ if(e.key==='Enter') go(); });
+}
+
+/* ===== hMailAuto — uniform email for ANY agent page, zero per-page logic =====
+   Reads the LIVE DOM (so it never needs a page's data model):
+     • a "📧 Email dashboard" button on the header — collects every KPI row + every
+       data table on the page into Gabriel `dashboard` components.
+     • a per-widget 📧 on each table (next to its nearest heading) — sends just that
+       table via Gabriel `data`.
+   Re-scans on every click, so it reflects whatever the agent has rendered. Call once
+   at the end of a page's script: hMailAuto({title:'<Agent> — <Codename>'}).
+   opts.title    — email subject/title base (default: document.title)
+   opts.header   — element to mount the dashboard button in (default: auto-detect)
+   opts.tableSel — table selector to treat as widgets (default 'table')
+   opts.skip     — array of table ids to ignore (e.g. tiny nested tables) */
+function _hmAutoTitle(t){ return (t||document.title||'Dashboard').replace(/\s*·.*$/,'').trim()||'Dashboard'; }
+function _hmNearestHeading(tbl){
+  let n=tbl; for(let up=0; up<6 && n; up++){ n=n.parentElement; if(!n)break;
+    const h=n.querySelector(':scope > h2, :scope > h3, :scope > .toolbar h2, :scope > .toolbar h3, :scope > .sechead');
+    if(h) return h.innerText.replace(/\s+/g,' ').trim(); }
+  return '';
+}
+function _hmKpiComponents(){
+  const comps=[];
+  document.querySelectorAll('.kpi').forEach((k,idx)=>{
+    const tiles=[...k.querySelectorAll('.k')]; if(!tiles.length)return;
+    const row={};
+    tiles.forEach(t=>{ const v=t.querySelector('.v,.kv'), l=t.querySelector('.l,.kl');
+      if(v&&l){ const lab=l.innerText.replace(/\s+/g,' ').trim(); if(lab)row[lab]=v.innerText.replace(/\s+/g,' ').trim(); } });
+    if(Object.keys(row).length){ let title='Key metrics';
+      const card=k.closest('.card'); const h=card&&card.querySelector('h2,h3'); if(h)title=h.innerText.replace(/\s+/g,' ').trim();
+      comps.push({title:title,viz:'kpi',columns:Object.keys(row),rows:[row]}); }
+  });
+  return comps;
+}
+function _hmTableComponents(sel,skip){
+  const comps=[]; skip=skip||[];
+  document.querySelectorAll(sel||'table').forEach(t=>{
+    if(t.id&&skip.indexOf(t.id)>=0)return;
+    if(!t.querySelector('thead th'))return;                 // needs headers to be meaningful
+    const d=hTableData(t, _hmNearestHeading(t)||'Table');
+    if(d&&d.rows.length){ d.viz='table'; comps.push(d); }
+  });
+  return comps;
+}
+function hMailAuto(opts){
+  opts=opts||{}; _hmailStyle();
+  const base=_hmAutoTitle(opts.title);
+  // dashboard button on the header
+  let host=opts.header;
+  if(!host){ const hdr=document.querySelector('#app-header, header.top, header');
+    if(hdr){ host=hdr.querySelector('.toolbar')||hdr; } }
+  if(host && !opts.noDash && !host.querySelector('.hmbtn')){
+    hMail(host, ()=>{
+      const comps=_hmKpiComponents().concat(_hmTableComponents(opts.tableSel,opts.skip));
+      return comps.length?{title:base+' — dashboard',subject:'[Tenable] '+base,components:comps}:null;
+    }, {mode:'dashboard', label:'📧 Email dashboard'});
+  }
+  // per-widget buttons — attach to each table's nearest heading container
+  const attach=()=>{
+    document.querySelectorAll(opts.tableSel||'table').forEach(t=>{
+      if(t.id&&(opts.skip||[]).indexOf(t.id)>=0)return;
+      if(!t.querySelector('thead th'))return;
+      let head=null, n=t;
+      for(let up=0; up<6 && n; up++){ n=n.parentElement; if(!n)break;
+        const h=n.querySelector(':scope > .toolbar'); if(h){ head=h; break; }
+        const h2=n.querySelector(':scope > h2, :scope > h3, :scope > .sechead'); if(h2){ head=h2.parentElement; break; } }
+      if(!head||head.querySelector('.hmwbtn'))return;
+      const title=_hmNearestHeading(t)||base;
+      const btn=hMail(head, ()=>{ return hTableData(t, title); }, {mode:'data', label:'📧'});
+      if(btn) btn.classList.add('hmwbtn');
+    });
+  };
+  attach();
+  // tables are usually rendered AFTER an agent runs — observe the DOM and re-attach
+  // (debounced) so per-widget buttons appear on dynamically-injected tables too.
+  try{
+    let pend=0; const ob=new MutationObserver(()=>{ if(pend)return; pend=1;
+      setTimeout(()=>{ pend=0; try{ attach(); }catch(e){} }, 120); });
+    ob.observe(document.body, {childList:true, subtree:true});
+  }catch(e){}
+  return {rescan:attach};
 }
 
 /* ===== Shared top nav (same menu as the artifact) — auto-mounted on every page ===== */

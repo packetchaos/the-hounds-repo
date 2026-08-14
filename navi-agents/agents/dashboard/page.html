@@ -796,6 +796,7 @@ document.getElementById('go').onclick=go;
 document.getElementById('prompt').addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key==='Enter')go();});
 document.getElementById('toggleSql').onclick=()=>{const w=document.getElementById('sqlWrap');const sh=w.style.display==='none';w.style.display=sh?'block':'none';document.getElementById('toggleSql').textContent=sh?'Hide SQL':'View SQL';};
 mountAgentHeader({icon:'📊',name:'Dashboard Builder',sub:'read-only navi.db · prompt → KPI / bar / table'});
+try{ hMailAuto(); }catch(e){}
 /* deep-link prefill: insights tiles link here with ?q=<prompt> and auto-run */
 (function(){const q=new URLSearchParams(location.search).get('q');if(q){document.getElementById('prompt').value=q;go();}})();
 </script>

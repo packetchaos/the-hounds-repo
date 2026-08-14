@@ -307,5 +307,6 @@ document.getElementById('swNL').addEventListener('keydown',e=>{if(e.key==='Enter
 document.querySelectorAll('#swFb button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#swFb button').forEach(x=>x.classList.remove('on'));b.classList.add('on');swFilter=b.dataset.f;swOff=0;document.getElementById('swDrill').innerHTML='';renderSoftware();});
 document.getElementById('swQ').addEventListener('input',()=>{swOff=0;renderSoftware();});
 mountAgentHeader({icon:'📦',name:'Software Analyzer',sub:'Mimir · sprawl · lifecycle · crown jewels · risk'});
+try{ hMailAuto(); }catch(e){}   /* pack-wide widget + dashboard email (Gabriel) */
 </script>
 </body></html>

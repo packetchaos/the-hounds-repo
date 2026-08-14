@@ -103,6 +103,7 @@ document.getElementById('dAll').onclick=()=>{ DATES.forEach(d=>_dSel.add(d.kev_d
 document.getElementById('dNone').onclick=()=>{ _dSel.clear(); renderDates(); };
 document.getElementById('kevNl').onclick=kevNl;
 mountAgentHeader({icon:'🛡️',name:'CISA KEV Tagging',sub:'Laelaps · tag known-exploited vulns by xref / date'});
+try{ hMailAuto(); }catch(e){}
 jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});
 </script>
 </body></html>

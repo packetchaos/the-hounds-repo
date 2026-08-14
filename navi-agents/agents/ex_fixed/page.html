@@ -76,6 +76,7 @@ document.getElementById('go').onclick=()=>go(0);
 document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter')go(0);});
 ['sev','state','pf'].forEach(id=>document.getElementById(id).onchange=()=>go(0));
 mountAgentHeader({id:'ex_fixed',icon:'🩹',name:'Fixed Explorer',sub:'Plott · remediation history + SLA verdicts'});
+try{ hMailAuto(); }catch(e){}
 go(0);
 </script>
 </body></html>

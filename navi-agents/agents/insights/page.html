@@ -37,6 +37,16 @@
   .covtrack{height:13px;border-radius:5px;background:var(--panel-2,var(--bg-2));overflow:hidden;margin-top:4px}
   .covtrack>i{display:block;height:100%;border-radius:5px;background:linear-gradient(90deg,#43b98a,#2f8f6b)}
   .covrow .drop{color:var(--crit);font-size:10.5px}
+  /* 12-month certificate expiry timeline — each bar deep-links into certdash */
+  .certtl{display:flex;gap:6px;align-items:flex-end;margin-top:14px;overflow-x:auto;padding:18px 0 4px}
+  .certtl a.cb{flex:1 0 50px;min-width:50px;display:flex;flex-direction:column;align-items:center;gap:5px;text-decoration:none;color:inherit}
+  .certtl .col{display:block;width:100%;min-height:3px;border-radius:7px 7px 3px 3px;background:var(--high);position:relative;transition:.12s}
+  .certtl a.exp .col{background:var(--crit)}
+  .certtl .cnt{position:absolute;top:-17px;left:0;right:0;text-align:center;font-family:var(--mono);font-size:11px;color:var(--ink)}
+  .certtl .lab{font-size:10px;color:var(--ink-3);text-align:center;line-height:1.15;white-space:nowrap}
+  .certtl a.cb:hover .col{filter:brightness(1.14);outline:2px solid var(--accent);outline-offset:1px}
+  .certtl a.cb:hover .lab{color:var(--ink);font-weight:600}
+  .certtl a.zero{opacity:.4;pointer-events:none}
   /* radar */
   .radarwrap{display:flex;flex-direction:column;align-items:center}
   /* convergence */
@@ -91,6 +101,13 @@
       <div class="lstat" style="margin-top:6px" id="leadStat"></div></div>
     <a class="go" href="/agents/fused_score/page.html">🎯 Act now in Nemesis →</a>
   </div>
+
+  <section class="card" id="certCard" style="display:none;margin-top:16px">
+    <div class="toolbar" style="margin:0"><div><h3 class="ct">🔐 Certificates expiring — next 12 months</h3>
+      <p class="sub" style="margin:2px 0 0">Certania's expiry wall. Height = certificates failing that month; the red bar is <b>already expired</b>. <b>Click a month</b> to open the Certificate Dashboard scoped to exactly those certificates.</p></div>
+      <span class="chip" id="certChip" style="margin-left:auto;white-space:nowrap;margin-right:82px"></span></div>
+    <div class="certtl" id="certTl"></div>
+  </section>
 
   <section class="card" id="reductionCard" style="display:none;margin-top:16px">
     <h3 class="ct">📉 The reduction — CVE → Plugin → App → Path</h3>
@@ -226,6 +243,25 @@ function drawReduction(b){
   el.innerHTML=c?('<div class="callbox" style="border-left:3px solid var(--accent);background:rgba(214,248,76,.06)"><b>🏆 One fix, '+_fmt(c.cve_count)+' CVEs</b>'+
     '<p class="sub" style="margin:4px 0 0">Patching <b>'+esc(c.name)+'</b> <span class="mono">(plugin '+esc(String(c.plugin_id||''))+')</span> clears <b>'+_fmt(c.cve_count)+' CVEs</b> in a single action — on just '+c.assets+' asset'+(c.assets===1?'':'s')+'. Not the riskiest finding, but the biggest <b>workload collapse per fix</b>.</p></div>'):'';
 }
+/* 12-month certificate expiry wall — click a month → certdash scoped to it.
+   Series comes from scent_board().certs (same buckets Certania renders). */
+function renderCerts(b){
+  const C=b.certs||{}, months=C.months||[], expN=C.expired||0, card=document.getElementById('certCard');
+  const failing=(C.failing!=null)?C.failing:months.reduce((s,m)=>s+(m.count||0),0);
+  // no certs anywhere in navi.db → hide the card rather than draw an empty wall
+  const has=(expN||failing); card.style.display=has?'block':'none'; if(!has) return;
+  const H=104, max=Math.max(1,expN,...months.map(m=>m.count||0));
+  const bar=(key,label,n,cls)=>{
+    const h=Math.max(3,Math.round((n||0)/max*H));
+    return `<a class="cb ${cls||''} ${n?'':'zero'}" href="/web/certdash.html?month=${encodeURIComponent(key)}"`+
+      ` title="${n||0} certificate(s) — open the Certificate Dashboard scoped to ${esc(label)}">`+
+      `<span class="col" style="height:${h}px"><span class="cnt">${n||''}</span></span>`+
+      `<span class="lab">${esc(label)}</span></a>`;
+  };
+  document.getElementById('certTl').innerHTML=
+    bar('expired','Expired',expN,'exp')+months.map(m=>bar(m.key,m.label,m.count||0)).join('');
+  document.getElementById('certChip').textContent=expN+' expired · '+failing+' failing ≤12mo';
+}
 function renderBoard(b){
   const nem=b.nemesis||{}, total=b.asset_total||0;
   document.getElementById('leadN').textContent=nem.critical||0;
@@ -240,6 +276,7 @@ function renderBoard(b){
   renderDist(b.bands||[], total);
   renderCov(b.funnel||[]);
   renderRisk(b.risk_by_hound||[]);
+  renderCerts(b);
   drawReduction(b);
   document.getElementById('radar').innerHTML=(b.radar&&b.radar.length)?radarSVG(b.radar):'<p class="sub">Run the pack to light up the radar.</p>';
   const conv=b.convergence||[];
@@ -278,6 +315,9 @@ const _SECT={
             {metric:'high (score ≥60)',value:n.high||0},
             {metric:'assets',value:b.asset_total||0}]
       .concat((n.top||[]).slice(0,3).map(t=>({metric:'worst offender — '+t.host,value:t.score})));}},
+  certCard:{title:'Certificates expiring — next 12 months',rows:b=>{const C=b.certs||{};
+    return [{month:'Already expired',certificates:C.expired||0}]
+      .concat((C.months||[]).map(m=>({month:m.label,certificates:m.count||0})));}},
   reductionCard:{title:'The reduction — CVE → Plugin → App → Path',rows:b=>{const F=b.reduction||{},c=b.champion;
     const r=[{stage:'CVE line-items',count:F.cves||0},
              {stage:'Findings (asset × plugin)',count:F.findings||0},

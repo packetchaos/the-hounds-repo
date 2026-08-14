@@ -282,6 +282,7 @@ document.getElementById('pqrTag').onclick=function(){pqrTagCrown(this);};
 document.getElementById('pqrAcr').onclick=pqrAcr;
 
 mountAgentHeader({icon:'⚛️',name:'Post-Quantum Cipher Analysis',sub:'Heimdall · tag PQ-cipher plugins + migration roadmap'});
+try{ hMailAuto(); }catch(e){}
 jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});
 </script>
 </body></html>

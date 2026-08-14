@@ -218,6 +218,7 @@ document.getElementById('tagReused').onclick=()=>tagReused(document.getElementBy
 document.getElementById('nlGo').onclick=nlInterpret;
 mountAgentHeader({icon:'🆔',name:'Identity Inventory',sub:'Janus · NHI + human + machine identities'});
 mountColPick(); buildHead('Press ▶ Run to load…');
+try{ hMailAuto(); }catch(e){}   /* pack-wide widget + dashboard email (Gabriel) */
 jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});
 </script>
 </body></html>

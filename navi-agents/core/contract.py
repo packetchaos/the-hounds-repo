@@ -167,7 +167,12 @@ def save(name=None) -> dict:
 
 
 def load(name) -> dict:
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("no contract name given")
     path = os.path.join(CONTRACT_DIR, name.replace("/", "_") + ".json")
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"no saved contract named '{name}'")
     with open(path, encoding="utf-8") as f:
         return set_contract(json.load(f))
 

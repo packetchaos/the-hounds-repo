@@ -248,6 +248,7 @@ document.getElementById('prompt').oninput=()=>{document.getElementById('promptSt
 document.getElementById('approveAll').onclick=()=>{if(MODEL){MODEL.tag_actions.forEach(a=>{appr[a.value]='approved';});save();renderTbl();renderQueue();}};
 document.getElementById('reset').onclick=()=>{if(MODEL){MODEL.tag_actions.forEach(a=>{if(!isApplied(a.value))delete appr[a.value];});save();renderTbl();renderQueue();}};
 mountAgentHeader({id:'certificate',icon:'🔐',name:'Certificate Agent',sub:'reasons over failing certs · editable prompt'});
+try{ hMailAuto(); }catch(e){}
 // Fill the "Agent reasoning" panel immediately (cheap, no DB) so the editable
 // prompt + key status are visible the moment the page opens — the DB-heavy
 // discovery still waits for ▶ Run agent. Works with or without an API key.

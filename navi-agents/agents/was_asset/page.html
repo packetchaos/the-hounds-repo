@@ -194,6 +194,7 @@ document.getElementById('ocopy').onclick=()=>{ const b=document.getElementById('
   try{ navigator.clipboard.writeText(window._orawText||''); b.textContent='✓ copied'; setTimeout(()=>b.textContent=t,1200);}catch(_){ b.textContent='copy failed'; setTimeout(()=>b.textContent=t,1200);} };
 document.getElementById('appsel').onchange=e=>{ const u=e.target.value; try{history.replaceState(null,'','?app='+encodeURIComponent(u));}catch(_){} load(u); };
 mountAgentHeader({id:'was_asset',icon:'🐾',name:'Web App Recon',sub:'Beagle · per-app recon'});
+try{ hMailAuto(); }catch(e){}
 load(q('app')||q('asset')||q('target'));
 </script>
 </body></html>

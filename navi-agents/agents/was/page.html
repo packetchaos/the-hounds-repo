@@ -217,6 +217,7 @@ document.getElementById('emailSend').onclick=sendEmail;
 document.getElementById('emailTo').addEventListener('keydown',e=>{ if(e.key==='Enter')sendEmail(); });
 document.getElementById('refresh').onclick=run;
 mountAgentHeader({id:'was',icon:'🕸',name:'WAS Overview',sub:'Arachne · web-app scanning, consolidated'});
+try{ hMailAuto({noDash:true}); }catch(e){}
 run();
 </script>
 </body></html>

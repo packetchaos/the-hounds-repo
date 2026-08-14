@@ -79,6 +79,7 @@ async function snap(){ document.getElementById('snap').disabled=true; flash('fla
 }
 document.getElementById('snap').onclick=snap;
 mountAgentHeader({icon:'⚖',name:'MCP Compare',sub:'Tenable MCP vs navi MCP'});
+try{ hMailAuto(); }catch(e){}
 renderMatrix();
 </script>
 </body></html>
