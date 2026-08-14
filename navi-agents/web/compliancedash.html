@@ -145,7 +145,10 @@ const CKEY='navi-compliance-dashboards', CMAX=5;
 /* ---------- compliance-scoped dashboard store (own, up to 5) ---------- */
 function cNewId(){return 'c'+Date.now().toString(36)+Math.floor(Math.random()*1e4).toString(36);}
 function cLoad(){ try{const s=JSON.parse(localStorage.getItem(CKEY)); if(s&&s.list&&s.list.length) return s;}catch(e){}
-  const id=cNewId(); return {list:[{id,name:'Compliance 1',framework:'',items:[]}],active:id}; }
+  // first visit: PERSIST the default store — cNewId() is random, so returning an
+  // unsaved store gives every cLoad() a different id and the framework/board
+  // writes (cSetFramework etc.) can't find the active dashboard again.
+  const id=cNewId(); const s={list:[{id,name:'Compliance 1',framework:'',items:[]}],active:id}; try{cSave(s);}catch(e){} return s; }
 function cSave(s){ localStorage.setItem(CKEY,JSON.stringify(s)); }
 function cActive(){ const s=cLoad(); return s.list.find(d=>d.id===s.active)||s.list[0]; }
 function cSetActive(id){ const s=cLoad(); if(s.list.some(d=>d.id===id)){s.active=id;cSave(s);} }
@@ -154,9 +157,9 @@ function cAdd(){ const s=cLoad(); if(s.list.length>=CMAX) return null; const id=
 function cRename(id,name){ const s=cLoad(); const d=s.list.find(x=>x.id===id); if(d&&name&&name.trim()){d.name=name.trim();cSave(s);} }
 function cRemove(id){ const s=cLoad(); if(s.list.length<=1) return; s.list=s.list.filter(d=>d.id!==id);
   if(s.active===id) s.active=s.list[0].id; cSave(s); }
-function cSetFramework(fw){ const d=cActive(); const s=cLoad(); const t=s.list.find(x=>x.id===d.id); t.framework=fw; cSave(s); }
+function cSetFramework(fw){ const s=cLoad(); const t=s.list.find(x=>x.id===s.active)||s.list[0]; if(t){ t.framework=fw; cSave(s); } }
 function cItems(){ return cActive().items||[]; }
-function cSetItems(items){ const d=cActive(); const s=cLoad(); const t=s.list.find(x=>x.id===d.id); t.items=items||[]; cSave(s); }
+function cSetItems(items){ const s=cLoad(); const t=s.list.find(x=>x.id===s.active)||s.list[0]; if(t){ t.items=items||[]; cSave(s); } }
 
 /* ---------- tab strip ---------- */
 function mountCTabs(){
@@ -354,7 +357,21 @@ async function loadWrites(){ try{ const o=await CAPI.post('overview'); const r=o
   mountAgentHeader({icon:'⚖️',name:'Compliance Dashboard',sub:'Minos · framework adherence · up to 5 dashboards'});
   mountCTabs();
   await Promise.all([loadFrameworks(), loadWrites()]);
-  renderBoard();
+  // ?framework=<name> deep-link (e.g. from Minos' Framework exposure bars) — focus
+  // the active dashboard on that framework when it exists in this navi.db.
+  const _fwq=new URLSearchParams(location.search).get('framework')||'';
+  let _fwWarn='';
+  if(_fwq){
+    if(FRAMEWORKS.some(f=>f.framework===_fwq)){
+      cSetFramework(_fwq);
+      const sel=document.getElementById('fwSelect'); if(sel) sel.value=_fwq;
+      mountCTabs();
+    } else {
+      _fwWarn='⚠ no findings mapped to framework "'+esc(_fwq)+'" in navi.db — showing the saved board instead';
+    }
+  }
+  await renderBoard();
+  if(_fwWarn) flash('flash',_fwWarn,'warn');
 })();
 </script>
 </body></html>

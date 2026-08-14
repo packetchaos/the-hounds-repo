@@ -51,7 +51,23 @@ const API=agentApi('software');
 const sqlLit=s=>String(s==null?'':s).replace(/'/g,"''");
 async function naviQuery(sql){ const o=await API.post('run_sql',{sql}); if(!o||!o.ok) throw new Error((o&&(o.message||o.error))||'query failed'); return {rows:o.rows||[]}; }
 function _swUuids(s){ return (String(s||'').match(/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/g)||[]); }
-function parseNVR(s){ const parts=String(s||'').split('-'); let vi=-1; for(let i=1;i<parts.length;i++){ if(/^\d/.test(parts[i])){vi=i;break;} } if(vi<0)return {name:String(s||''),version:''}; return {name:parts.slice(0,vi).join('-'),version:parts[vi]}; }
+/* Mirrors core.software.parse_software: Windows-style "Name - 1.2.3  [version 1.2.3]"
+   (the [version …] marker wins; other [installed on …] annotations stripped; trailing
+   " - <ver>" duplicate dropped from the name) with RPM NVR as the fallback. */
+function parseNVR(s){
+  s=String(s||'').trim();
+  const m=s.match(/\[\s*version\s+([^\]]+?)\s*\]/i);
+  if(m){
+    const version=m[1].trim();
+    let name=s.replace(/\[\s*version\s+[^\]]*\]/ig,'').replace(/\[[^\]]*\]/g,'').trim();
+    if(version&&name.endsWith(version)) name=name.slice(0,-version.length).replace(/[\s\-]+$/,'');
+    return {name:name||s,version};
+  }
+  const parts=s.split('-'); let vi=-1;
+  for(let i=1;i<parts.length;i++){ if(/^\d/.test(parts[i])){vi=i;break;} }
+  if(vi<0)return {name:s,version:''};
+  return {name:parts.slice(0,vi).join('-'),version:parts[vi]};
+}
 function verCmp(a,b){ const pa=String(a).split(/[._\-]/),pb=String(b).split(/[._\-]/); for(let i=0;i<Math.max(pa.length,pb.length);i++){ const na=parseInt(pa[i],10),nb=parseInt(pb[i],10); const va=isNaN(na)?(pa[i]||''):na, vb=isNaN(nb)?(pb[i]||''):nb; if(va<vb)return -1; if(va>vb)return 1; } return 0; }
 function cpeParse(s){ var out=[], seen={};
   (String(s||'').match(/[a-z-]*cpe:\/[^'",\]]+/gi)||[]).forEach(function(entry){

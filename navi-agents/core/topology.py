@@ -48,12 +48,14 @@ def _software_by_asset(db_path, keep):
     out = {}
     try:
         for r in db.query("SELECT asset_uuid, software_string FROM software", path=db_path):
-            u = r.get("asset_uuid")
-            if u not in keep:
-                continue
-            nm, ver = _sw.parse_nvr(r.get("software_string") or "")
-            if nm:
-                out.setdefault(u, []).append((nm, ver or "—"))
+            nm, ver = None, None
+            for u in _sw.row_assets(r.get("asset_uuid")):   # single uuid OR stringified list
+                if u not in keep:
+                    continue
+                if nm is None:
+                    nm, ver = _sw.parse_software(r.get("software_string") or "")
+                if nm:
+                    out.setdefault(u, []).append((nm, ver or "—"))
     except Exception:
         pass
     return out

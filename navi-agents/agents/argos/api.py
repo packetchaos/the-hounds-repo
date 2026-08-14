@@ -240,17 +240,33 @@ def _software_for(uuid):
         from core import software as _sw
     except Exception:
         _sw = None
-    rows = db.query("SELECT DISTINCT software_string FROM software WHERE asset_uuid=?;", (uuid,))
+    # software.asset_uuid is a single uuid on some navi datasets and a STRINGIFIED
+    # LIST of uuids on others ("['ec88…', 'd423…']") — match both shapes.
+    rows = db.query("SELECT DISTINCT software_string FROM software "
+                    "WHERE asset_uuid=? OR asset_uuid LIKE ?;", (uuid, f"%{uuid}%"))
     out = []
     for r in rows:
         s = r.get("software_string") or ""
         if _sw:
-            name, ver = _sw.parse_nvr(s)
+            name, ver = _sw.parse_software(s)
         else:
             name, ver = s, ""
         if name:
             out.append({"name": name, "version": ver, "raw": s})
-    return out
+    src = "table"
+    if not out and _sw:
+        # the software table doesn't cover every host — fall back to parsing the
+        # enumeration plugins' stored output (22869 / 20811 / 83991) directly.
+        try:
+            for s in _sw.enum_plugin_strings(uuid):
+                name, ver = _sw.parse_software(s)
+                if name:
+                    out.append({"name": name, "version": ver, "raw": s})
+        except Exception:
+            pass
+        if out:
+            src = "plugins"
+    return out, src
 
 
 def _certs_for(uuid):
@@ -312,7 +328,7 @@ def lookup(p):
     uuid = row.get("uuid")
     vulns = _vulns_for(uuid)
     tags_raw = _tags_for(uuid)
-    software = _software_for(uuid)
+    software, software_source = _software_for(uuid)
     certs = _certs_for(uuid)
 
     # severity breakdown
@@ -356,7 +372,9 @@ def lookup(p):
         si = _SEV_ORDER.index(sn) if sn in _SEV_ORDER else 99
         vpr = float(v.get("vpr")) if str(v.get("vpr") or "").replace(".", "", 1).isdigit() else 0
         return (si, -vpr)
-    top_vulns = sorted(vulns, key=_vk)[:25]
+    # ALL findings, worst-first (soft 5000 cap for payload sanity) — the page
+    # paginates + severity-filters client-side so nobody has to leave for Tenable.
+    top_vulns = sorted(vulns, key=_vk)[:5000]
 
     return {"ok": True, "found": True, "target": target, "resolved_by": how,
             "asset": {"uuid": uuid, "hostname": row.get("hostname"),
@@ -379,6 +397,7 @@ def lookup(p):
                            "family": v.get("plugin_family"),
                            "cves": _CVE_RE.findall(str(v.get("cves") or ""))} for v in top_vulns],
             "software": software[:200],
+            "software_source": software_source,
             "certs": certs,
             "host": _host_profile(uuid),
             # so the widgets can tell "no data for this asset" apart from "table not

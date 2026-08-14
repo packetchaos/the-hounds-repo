@@ -18,6 +18,19 @@
   .pillwrap .chip,.pillwrap .badge{margin:0}
   #aiwhyov{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999;display:flex;align-items:flex-start;justify-content:center;padding:40px 16px;overflow:auto}
   .egbox,.atbox{border:1px solid var(--line);border-radius:10px;padding:10px;margin-bottom:8px}
+  /* prominent section heads + jump bar (presentation only) */
+  .sechead{margin:0;font-size:16px;font-weight:800;display:inline-flex;align-items:center;gap:8px}
+  .secband{border-left:4px solid var(--accent);scroll-margin-top:70px}
+  .secband.crit{border-left-color:var(--crit)}
+  .jumpchip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:999px;padding:5px 12px;font-size:12px;color:var(--ink-2);text-decoration:none;background:var(--bg-2)}
+  .jumpchip:hover{border-color:var(--accent);color:var(--ink)}
+  .jumpchip b{font-family:var(--mono);font-size:11px}
+  .segbar{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;flex-wrap:wrap}
+  .segbar .seg{background:var(--panel);border:0;border-right:1px solid var(--line);padding:5px 10px;font-size:11.5px;color:var(--ink-2);cursor:pointer;font-family:inherit;display:inline-flex;gap:5px;align-items:center}
+  .segbar .seg:last-child{border-right:0}
+  .segbar .seg.on{background:var(--accent);color:#fff}.segbar .seg.on b{color:#fff}
+  .segbar .seg b{font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+  .segbar .seg:hover:not(.on){background:var(--panel-2)}
   pre.snip{white-space:pre-wrap;word-break:break-word;margin:4px 0 0;font-size:12px;color:var(--ink);max-height:150px;overflow:auto;background:var(--bg-2);padding:6px 8px;border-radius:6px}
 </style>
 </head><body>
@@ -31,9 +44,11 @@
     <div class="kpi" id="kpi"></div>
   </section>
   <section class="card" id="resultCard" style="display:none">
-    <div class="toolbar" style="margin:0"><h2 style="margin:0;font-size:15px">AI assets <span class="chip" id="aiCount"></span></h2>
+    <div class="toolbar" style="margin:0"><h2 class="sechead" id="aiAssetsHead" style="font-size:15px">📋 AI assets <span class="chip" id="aiCount"></span></h2>
       <button class="btn run sm" id="tagAll" style="margin-left:auto" disabled>▶ Tag all → AI : Present (gated)</button></div>
+    <div id="aiJump" class="toolbar" style="flex-wrap:wrap;gap:6px;margin-top:8px"></div>
     <div id="roleTags" class="toolbar" style="flex-wrap:wrap;gap:6px;margin-top:8px"></div>
+    <div class="toolbar" style="margin-top:8px;flex-wrap:wrap;gap:6px"><span class="sub">Filter by AI role:</span><div class="segbar" id="aiRoleSeg"></div></div>
     <div style="margin-top:8px"><table id="aiTbl" style="table-layout:fixed;width:100%"><colgroup><col style="width:170px"><col style="width:120px"><col style="width:120px"><col><col style="width:74px"><col style="width:118px"></colgroup><thead><tr><th>Host</th><th>IP</th><th>Role</th><th>AI software / exposed</th><th>Platform</th><th></th></tr></thead><tbody><tr><td colspan="6" class="sub">Press ▶ Run…</td></tr></tbody></table></div>
     <div id="egressOut" style="margin-top:14px"></div>
     <div id="atlasOut" style="margin-top:14px"></div>
@@ -105,15 +120,37 @@ function render(){
   const eb=document.getElementById('tagExp'); if(eb)eb.onclick=()=>aiTag('AI Exposed','Endpoint',exA.map(x=>x.asset_uuid),'attack surface',eb);
   const kb=document.getElementById('tagKev'); if(kb)kb.onclick=()=>aiTag('AI Priority','KEV-exposed',kevA.map(x=>x.asset_uuid),'highest urgency',kb);
   rt.querySelectorAll('button[data-role]').forEach(b=>b.onclick=()=>{const r=b.dataset.role; aiTag('AI Role',r,a.filter(x=>x.role===r).map(x=>x.asset_uuid),null,b);});
-  hPageReset('aiTbl'); hPaginate('aiTbl', a, x=>'<tr>'+
+  // jump bar — anchors to the three sections so egress + ATLAS aren't lost below the fold
+  const egN=a.filter(x=>x.egress&&x.egress.length).length;
+  const atlasIds={}; a.forEach(x=>(x.atlas||[]).forEach(t=>{atlasIds[t.id]=1;}));
+  const atN=Object.keys(atlasIds).length;
+  document.getElementById('aiJump').innerHTML='<span class="sub">Jump to:</span>'
+    +'<a class="jumpchip" href="#aiAssetsHead">📋 AI assets <b>'+a.length+'</b></a>'
+    +'<a class="jumpchip" href="#egressOut" '+(DATA.shadowCount?'style="border-color:var(--crit)"':'')+'>🛰️ Data-egress governance <b>'+egN+'</b>'+(DATA.shadowCount?' <b style="color:var(--crit)">'+DATA.shadowCount+' shadow</b>':'')+'</a>'
+    +'<a class="jumpchip" href="#atlasOut">🗺️ MITRE ATLAS <b>'+atN+' technique'+(atN===1?'':'s')+'</b></a>';
+  // AI-role filter (presentation only — filters which rows the table shows)
+  window.__aiRoleF=window.__aiRoleF||'all';
+  if(window.__aiRoleF!=='all'&&!br[window.__aiRoleF])window.__aiRoleF='all';
+  const seg=document.getElementById('aiRoleSeg');
+  seg.innerHTML='<button class="seg" data-rf="all">All <b>'+a.length+'</b></button>'
+    +roles.map(r=>'<button class="seg" data-rf="'+esc(r)+'">'+esc(r)+' <b>'+br[r]+'</b></button>').join('');
+  const renderTable=()=>{
+    const f=window.__aiRoleF||'all';
+    const rows=(f==='all')?a:a.filter(x=>x.role===f);
+    document.getElementById('aiCount').textContent=(f==='all')?a.length:(rows.length+' of '+a.length);
+    seg.querySelectorAll('.seg').forEach(s=>s.classList.toggle('on',s.getAttribute('data-rf')===f));
+    hPaginate('aiTbl', rows, x=>'<tr>'+
     '<td title="'+esc(x.host||'')+'"><b>'+plink(x.asset_uuid,x.host)+'</b></td><td class="mono">'+esc(x.ip||'')+'</td>'+
     '<td><span class="tagval" style="color:'+(ROLE_COLOR[x.role]||'var(--accent)')+'">'+esc(x.role)+'</span>'+((x.risk&&x.risk.kev)?' <span class="badge" style="color:#f43f5e;border-color:rgba(244,63,94,.5)" title="also carries a CISA-KEV finding">🔥 KEV</span>':'')+((x.risk&&x.risk.crit&&!(x.risk&&x.risk.kev))?' <span class="badge" style="color:#fb923c;border-color:rgba(251,146,60,.5)">⛔ crit</span>':'')+((x.risk&&x.risk.eol)?' <span class="badge" style="color:#e0913a;border-color:rgba(224,145,58,.5)" title="runs end-of-life / unsupported software (Charon)">🔩 EOL</span>':'')+((x.risk&&x.risk.mitre)?' <span class="badge" style="color:#6ea8e6;border-color:rgba(110,168,230,.5)" title="MITRE ATT&CK techniques: '+esc((x.mitre_techniques||[]).slice(0,8).join(", "))+'">🎯 ATT&amp;CK</span>':'')+'</td>'+
     '<td><div class="pillwrap">'+((x.exposed&&x.exposed.length)?(x.exposed.map(e=>'<span class="badge" style="color:#f43f5e;border-color:rgba(244,63,94,.5)" title="network-detected AI endpoint">⚠ '+esc(e.name)+':'+esc(e.port)+(e.auth==='unauth'?' unauth':'')+'</span>').join('')):'')+(x.frameworks.length?(x.frameworks.slice(0,6).map(fw=>'<span class="chip">'+esc(fw)+'</span>').join('')+(x.frameworks.length>6?'<span class="chip sub" title="'+esc(x.frameworks.slice(6).join(', '))+'">+'+(x.frameworks.length-6)+' more</span>':'')):((x.exposed&&x.exposed.length)?'':'<span class="sub">—</span>'))+'</div></td>'+
     '<td>'+(platLink(x.url,'Open ↗')||'<span class="sub">—</span>')+'</td>'+
     '<td style="white-space:nowrap"><button class="btn ghost sm" data-why="'+esc(String(x.asset_uuid))+'" title="show the evidence behind this detection">🔍 Why</button> <button class="btn sm" data-tag="'+esc(String(x.asset_uuid))+'">Tag</button></td></tr>',
-    {cols:6, empty:'<tr><td colspan="6" class="sub">No AI/ML found (checked the AI plugin family + software + cpes + plugin output + endpoints).</td></tr>',
+    {cols:6, empty:'<tr><td colspan="6" class="sub">'+((window.__aiRoleF&&window.__aiRoleF!=='all')?'No AI assets with this role.':'No AI/ML found (checked the AI plugin family + software + cpes + plugin output + endpoints).')+'</td></tr>',
      wire:tb=>{ tb.querySelectorAll('button[data-why]').forEach(b=>b.onclick=()=>{const x=a.find(o=>String(o.asset_uuid)===b.dataset.why); if(x)why(x);});
        tb.querySelectorAll('button[data-tag]').forEach(b=>b.onclick=()=>{const x=a.find(o=>String(o.asset_uuid)===b.dataset.tag); if(x)aiTag('AI Role',x.role,[x.asset_uuid],null,b);}); }});
+  };
+  seg.querySelectorAll('.seg').forEach(s=>s.onclick=()=>{ window.__aiRoleF=s.getAttribute('data-rf'); hPageReset('aiTbl'); renderTable(); });
+  hPageReset('aiTbl'); renderTable();
   renderEgress(); renderAtlas();
 }
 
@@ -144,14 +181,14 @@ function renderEgress(){
   const out=document.getElementById('egressOut'); if(!out||!DATA)return;
   const allow=allowLoad()||DATA.allow||[];
   const assets=DATA.assets.filter(x=>x.egress&&x.egress.length);
-  if(!assets.length){ out.innerHTML='<div class="card" style="background:var(--panel-2)"><b>🛰️ AI data-egress</b> <span class="sub">— no outbound AI clients or destination hosts found for the detected AI assets.</span></div>'; return; }
+  if(!assets.length){ out.innerHTML='<div class="card secband" style="background:var(--panel-2)"><h2 class="sechead">🛰️ AI Data-Egress Governance</h2> <p class="sub" style="margin:4px 0 0">No outbound AI clients or destination hosts found for the detected AI assets.</p></div>'; return; }
   const byDest={};
   assets.forEach(x=>x.egress.forEach(e=>{const k=e.cat+'|'+e.dest; const d=byDest[k]||(byDest[k]={cat:e.cat,dest:e.dest,via:{},assets:new Set(),snip:e.snip}); d.assets.add(x.asset_uuid); d.via[e.via]=1; d.sanctioned=sanctioned(e.dest,allow); if(e.snip&&!d.snip)d.snip=e.snip;}));
   const dests=Object.keys(byDest).map(k=>byDest[k]).sort((a,b)=>(a.sanctioned-b.sanctioned)||(b.assets.size-a.assets.size));
   const shadowUuids=new Set(); assets.forEach(x=>{if(x.egress.some(e=>!sanctioned(e.dest,allow)))shadowUuids.add(x.asset_uuid);});
   const byCat={}; dests.forEach(d=>(byCat[d.cat]=byCat[d.cat]||[]).push(d));
   const allowChips=allow.map((v,i)=>'<span class="chip" style="gap:4px">'+esc(v)+' <span data-alrm="'+i+'" style="cursor:pointer;color:var(--crit)">✕</span></span>').join(' ');
-  out.innerHTML='<div class="card" style="background:var(--panel-2)"><div class="toolbar" style="margin:0 0 6px;flex-wrap:wrap"><b>🛰️ AI data-egress governance</b>'
+  out.innerHTML='<div class="card secband'+(dests.some(d=>!d.sanctioned)?' crit':'')+'" style="background:var(--panel-2)"><div class="toolbar" style="margin:0 0 6px;flex-wrap:wrap"><h2 class="sechead">🛰️ AI Data-Egress Governance</h2>'
     +'<span class="chip">'+assets.length+' can egress</span><span class="chip">'+dests.length+' destination(s)</span>'
     +(dests.some(d=>!d.sanctioned)?'<span class="chip" style="color:var(--crit);border-color:var(--crit)">'+dests.filter(d=>!d.sanctioned).length+' shadow</span>':'<span class="chip" style="color:var(--ok)">all sanctioned</span>')
     +'<span style="flex:1"></span>'+(shadowUuids.size?'<button class="btn run sm" id="egShadow" style="border-color:var(--crit)">⚠ Tag '+shadowUuids.size+' shadow → AI Egress : Shadow</button>':'')+'</div>'
@@ -178,7 +215,7 @@ function renderAtlas(){
   const byTac={}; ids.forEach(id=>{const t=byTech[id].tactic||'Other'; (byTac[t]=byTac[t]||[]).push(byTech[id]);});
   const order=DATA.atlas_tactic_order||ATLAS_ORDER;
   const tacs=order.filter(t=>byTac[t]).concat(Object.keys(byTac).filter(t=>order.indexOf(t)<0));
-  out.innerHTML='<div class="card" style="background:var(--panel-2)"><div class="toolbar" style="margin:0 0 6px;flex-wrap:wrap"><b>🗺️ MITRE ATLAS threat mapping</b><span class="chip">'+ids.length+' technique(s)</span><span class="chip">'+tacs.length+' tactic(s)</span></div>'
+  out.innerHTML='<div class="card secband" style="background:var(--panel-2)"><div class="toolbar" style="margin:0 0 6px;flex-wrap:wrap"><h2 class="sechead">🗺️ MITRE ATLAS Threat Mapping</h2><span class="chip">'+ids.length+' technique(s)</span><span class="chip">'+tacs.length+' tactic(s)</span></div>'
     +'<p class="sub" style="margin:0 0 8px">AI-specific adversary techniques (<a href="https://atlas.mitre.org" target="_blank" style="color:var(--accent)">MITRE ATLAS</a>) implied by each asset\'s role, exposure, and egress — capability-based, not observed. Tagging is gated.</p>'
     +tacs.map(tac=>'<div class="atbox"><div class="toolbar" style="margin:0 0 6px"><b>'+esc(tac)+'</b></div>'
       +byTac[tac].sort((a,b)=>b.assets.size-a.assets.size).map(d=>'<div class="toolbar" style="margin:0 0 4px;flex-wrap:wrap;gap:6px"><a href="'+ATLAS_URL(d.id)+'" target="_blank" class="tagval mono" style="color:var(--accent)">'+esc(d.id)+'</a><span>'+esc(d.name)+'</span><span class="chip">'+d.assets.size+' asset(s)</span><span class="sub" title="'+esc(Object.keys(d.whys).join(' · '))+'" style="cursor:help">why?</span><span style="flex:1"></span><button class="btn sm" data-atl="'+esc(d.id)+'">🏷 Tag</button></div>').join('')

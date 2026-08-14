@@ -20,6 +20,9 @@
 .tagrow:first-child{border-top:0}.tagrow .tl{min-width:200px;flex:1}.tagrow .tl b{font-size:13px}
 .gatebar{background:var(--panel-2);border:1px solid var(--line);border-left:3px solid var(--cx-e7c66b);border-radius:8px;padding:9px 12px;font-size:12.5px;color:var(--ink-2);margin:2px 0 12px}
 .tres{font-size:12px;flex-basis:100%}
+.fwrow{border-radius:8px}
+.fwrow:hover{background:var(--panel-2)}
+.fwrow:hover .bl{color:var(--accent);text-decoration:underline}
 </style>
 </head><body>
 <div class="wrap">
@@ -86,14 +89,19 @@ function render(){
         +`<td class="mono" style="color:var(--crit);font-weight:700">${c.failed}</td><td class="mono">${c.passed}</td><td class="mono">${c.warning}</td></tr>`).join('')
       +'</tbody></table></div>':'<p class="sub">No failing controls.</p>')+'</section>';
   const fw=OV.frameworks||[]; const fmax=Math.max(1,...fw.map(f=>f.failed||0));
-  h+='<section class="card" style="margin:0"><h3 style="margin:0 0 2px">Framework exposure</h3><p class="seclbl">failed control-instances mapped to each framework</p>'
-    +(fw.length?fw.slice(0,12).map(f=>bar(f.framework,f.failed,fmax,'var(--accent)',fnum(f.failed))).join(''):'<p class="sub">No framework references.</p>')+'</section>';
+  h+='<section class="card" style="margin:0"><h3 style="margin:0 0 2px">Framework exposure</h3><p class="seclbl">failed control-instances mapped to each framework — click one for its dashboard</p>'
+    +(fw.length?fw.slice(0,12).map(f=>
+      `<a class="fwrow" href="/web/compliancedash.html?framework=${encodeURIComponent(f.framework)}" title="Open the Compliance Dashboard focused on ${esc(f.framework)}" style="display:block;text-decoration:none;color:inherit">${bar(f.framework,f.failed,fmax,'var(--accent)',fnum(f.failed))}</a>`).join('')
+     :'<p class="sub">No framework references.</p>')+'</section>';
   h+='</div>';
   // audit files
   const af=OV.audit_files||[];
-  if(af.length){ h+='<section class="card" style="margin-top:16px"><h3 style="margin:0 0 2px">Audit benchmarks</h3><p class="seclbl">the .audit policies run</p>'
+  if(af.length){ h+='<section class="card" style="margin-top:16px"><h3 style="margin:0 0 2px">Audit benchmarks</h3><p class="seclbl">the .audit policies run — click one for its deep-dive</p>'
     +'<div style="overflow-x:auto"><table class="nocsv"><thead><tr><th>Benchmark</th><th>Controls</th><th>Assets</th><th>Failed</th><th>Passed</th></tr></thead><tbody>'
-    +af.map(a=>`<tr><td title="${esc(a.audit_file)}">${esc(a.audit_file)}</td><td class="mono">${a.checks}</td><td class="mono">${a.assets}</td><td class="mono" style="color:var(--crit)">${a.failed}</td><td class="mono">${a.passed}</td></tr>`).join('')
+    +af.map(a=>{ const bm=a.audit_file
+        ?`<a class="applink" href="/agents/compliance_asset/page.html?audit=${encodeURIComponent(a.audit_file)}" title="Tiresias — this benchmark's adherence, checks, assets and audit↔vuln links">${esc(a.audit_file)}</a>`
+        :'<span class="sub">(none)</span>';
+      return `<tr><td title="${esc(a.audit_file)}">${bm}</td><td class="mono">${a.checks}</td><td class="mono">${a.assets}</td><td class="mono" style="color:var(--crit)">${a.failed}</td><td class="mono">${a.passed}</td></tr>`; }).join('')
     +'</tbody></table></div></section>'; }
   // assets by compliance
   const rows=OV.assets_rows||[];
