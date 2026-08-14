@@ -237,6 +237,24 @@ async function tagPlugins(){
   b.textContent='✓ queued';
 }
 
+/* --- deep link: /web/certdash.html?month=YYYY-MM (or ?month=expired) ---
+   Sphinx's "On the Scent" cert graph links straight into one month: auto-load,
+   scope every view below to it, and scroll the timeline into view. --- */
+function wantedMonth(){
+  const q=new URLSearchParams(location.search);
+  const m=(q.get('month')||q.get('m')||'').trim();
+  if(!m) return null;
+  return (m.toLowerCase()==='expired')?'expired':(/^\d{4}-\d{2}$/.test(m)?m:null);
+}
+function applyMonthParam(){
+  const m=wantedMonth(); if(!m||!MODEL) return;
+  SELMONTH=m; renderTimeline(); renderScope(); renderView();
+  const card=document.getElementById('tlCard');
+  if(card) card.scrollIntoView({behavior:'smooth',block:'start'});
+  if(!scopedCerts().length)
+    flash('flash','Handoff: no certificates in scope for '+esc2(scopeLabel())+'. Clear the scope to see every month.','warn');
+}
+
 /* --- load --- */
 async function load(){
   const b=document.getElementById('load'); b.disabled=true;
@@ -248,6 +266,7 @@ async function load(){
   CERTS=(MODEL.expired||[]).concat(MODEL.twelve_month||[]);
   renderKpis(); renderTimeline(); renderScope(); renderView(); renderPlugins();
   ['tlCard','viewCard','plugCard'].forEach(id=>document.getElementById(id).style.display='block');
+  applyMonthParam();
 }
 
 document.getElementById('load').onclick=load;
@@ -259,5 +278,6 @@ document.getElementById('pMaster').onchange=e=>{ document.querySelectorAll('#plu
 document.getElementById('pTag').onclick=tagPlugins;
 mountAgentHeader({id:'certificate',icon:'🔐',name:'Certificate Dashboard',sub:'Certania · expiry timeline · by asset / cert / CN · tag by plugin'});
 jget('/api/health').then(h=>{ WRITES=!!h.writes_enabled; updatePTag(); }).catch(()=>{});
+if(wantedMonth()) load();   // arrived from a month deep-link → load without a click
 </script>
 </body></html>

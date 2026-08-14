@@ -296,6 +296,7 @@ document.querySelectorAll('#lensSeg .seg').forEach(s=>s.onclick=()=>setLens(s.ge
 document.getElementById('afsel').onchange=e=>{ AFILE=e.target.value; renderAudit(); };
 
 mountAgentHeader({id:'compliance_asset',icon:'🔍',name:'Compliance Deep-Dive',sub:'Tiresias · audit + vuln links · by asset or audit file'});
+try{ hMailAuto(); }catch(e){}   /* pack-wide widget + dashboard email (Gabriel) */
 CURR=q('asset')||q('target');
 const _afq=q('audit')||q('file');
 if(_afq){ AFILE=_afq; setLens('audit'); } else { setLens('asset'); }

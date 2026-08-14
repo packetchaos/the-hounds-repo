@@ -172,6 +172,7 @@ document.getElementById('acrInterpret').onclick=interpretAI;document.getElementB
 document.getElementById('acrExpandAll').onclick=()=>{ if(!ACR)return; (ACR.tags||[]).forEach(t=>ACR_OPEN[t.category]=true); renderAcr(); };
 document.getElementById('acrCollapseAll').onclick=()=>{ ACR_OPEN={}; renderAcr(); };
 mountAgentHeader({icon:'🎯',name:'ACR Calibration Agent',sub:'set / +N / −N per tag · NL bulk'});
+try{ hMailAuto(); }catch(e){}
 /* explicit-run: nothing loads until ▶ (protects a large navi.db) */
 </script>
 </body></html>

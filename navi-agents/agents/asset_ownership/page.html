@@ -341,6 +341,7 @@ document.getElementById('tblFilter').addEventListener('input',()=>{ PAGE=0; rend
 document.querySelectorAll('#tblScope button').forEach(b=>b.onclick=()=>{ document.querySelectorAll('#tblScope button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); SCOPE=b.dataset.s; PAGE=0; renderTable(); });
 document.querySelectorAll('#tblSort button').forEach(b=>b.onclick=()=>{ document.querySelectorAll('#tblSort button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); SORT=b.dataset.o; renderTable(); });
 mountAgentHeader({id:'asset_ownership',icon:'📌',name:'Asset Ownership',sub:'Terminus · who owns each asset · crown jewels · blind spots'});
+try{ hMailAuto(); }catch(e){}
 jget('/api/health').then(h=>{ WRITES=!!h.writes_enabled; const c=document.getElementById('nlLlm'); if(c)c.textContent=h.llm?'✨ AI available':'rule-based (set ANTHROPIC_API_KEY for full NL)'; }).catch(()=>{});
 if(FOCUS.uuid||FOCUS.host){ load(); }   // deep-linked from Exposure Score — auto-load + focus the asset
 </script>

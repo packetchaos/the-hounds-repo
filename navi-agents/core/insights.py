@@ -32,13 +32,38 @@ def compute(db_path=None):
         end = today.replace(year=today.year + 1, day=28)
     certs = 0            # failing = valid today, expires within the next 12 months
     certs_expired = 0    # already failed = expiry date is in the past
+    # 13 forward month buckets (current month first) — the SAME shape Certania's
+    # dashboard renders as `heatmap_months`, so Sphinx's graph and certdash agree.
+    cert_months = []
+    _y, _m = today.year, today.month
+    for _ in range(13):
+        cert_months.append({"key": f"{_y:04d}-{_m:02d}",
+                            "label": datetime.date(_y, _m, 1).strftime("%b %Y"), "count": 0})
+        _m += 1
+        if _m > 12:
+            _m, _y = 1, _y + 1
+    _bmap = {b["key"]: b for b in cert_months}
     try:
-        for r in db.query("SELECT not_valid_after FROM certs", path=db_path):
+        try:
+            crows = list(db.query("SELECT asset_uuid, not_valid_after FROM certs", path=db_path))
+        except Exception:                    # older navi.db with no asset_uuid on certs
+            crows = list(db.query("SELECT not_valid_after FROM certs", path=db_path))
+        seen = set()
+        for i, r in enumerate(crows):
             d = _date(r.get("not_valid_after"))
             if not d:
                 continue
+            # Certania counts one cert per (asset, expiry date) — dedupe identically,
+            # or this board's numbers drift from the certificate dashboard's.
+            key = (r.get("asset_uuid", i), d.isoformat())
+            if key in seen:
+                continue
+            seen.add(key)
             if today <= d <= end:
                 certs += 1
+                b = _bmap.get(d.isoformat()[:7])
+                if b:
+                    b["count"] += 1
             elif d < today:
                 certs_expired += 1
     except Exception:
@@ -159,6 +184,7 @@ def compute(db_path=None):
                "funnel": funnel, "champion": champion, "pq": {"vuln": pq_vuln, "safe": pq_safe}}
 
     return {"certs_failing": certs, "certs_expired": certs_expired,
+            "cert_months": cert_months,
             "shadow_assets": shadow, "iot_devices": iot,
             "identities": ident, "mitre_high_acr": mitre_high, "custom_apps": custom,
             "docker_hosts": docker, "web_apps": web, "cloud_assets": cloud,
@@ -302,16 +328,42 @@ def scent_board(db_path=None):
         pass
 
     # ---- blind spots — the dark matter Sphinx is named for (risk by ABSENCE) ----
-    unclassified = _sc("SELECT COUNT(uuid) FROM assets WHERE uuid NOT IN "
-                       "(SELECT DISTINCT asset_uuid FROM tags WHERE tag_key='Class')", db_path)
-    no_tier = _sc("SELECT COUNT(uuid) FROM assets WHERE uuid NOT IN "
-                  "(SELECT DISTINCT asset_uuid FROM tags WHERE tag_key='Business Tier')", db_path)
+    # Classification MUST come from Linnaeus' own engine, not a re-implemented SQL
+    # rule. The old query counted `tags.tag_key='Class'`, a key nothing ever writes
+    # (Linnaeus tags Asset Inventory / 'Class: <x>', accepts 5 other categories, and
+    # treats cloud metadata as ground truth) — so this tile was pinned at 100%
+    # unclassified while the Linnaeus page reported 0. One definition, one number.
+    unclassified = None
+    try:
+        from core import classify as _classify
+        _cl = _classify.classify(db_path)
+        if _cl.get("ok"):
+            unclassified = int(_cl.get("unclassified") or 0)
+            total = total or _cl.get("total") or 0
+    except Exception:
+        unclassified = None
+    if unclassified is None:                      # engine unavailable — best-effort SQL
+        unclassified = _sc(
+            "SELECT COUNT(a.uuid) FROM assets a WHERE NOT EXISTS ("
+            "SELECT 1 FROM tags t WHERE t.asset_uuid=a.uuid AND TRIM(COALESCE(t.tag_value,''))<>'' "
+            "AND lower(t.tag_key) IN ('asset inventory','os','operating system','iot','device type','class'))",
+            db_path)
+    # Business criticality in the pack is ACR (Anubis) — plus any tier tag if one
+    # exists. 'Business Tier' alone is not a key navi ever writes.
+    no_tier = _sc(
+        "SELECT COUNT(a.uuid) FROM assets a WHERE (TRIM(COALESCE(a.acr,''))='' OR CAST(a.acr AS REAL)<=0) "
+        "AND NOT EXISTS (SELECT 1 FROM tags t WHERE t.asset_uuid=a.uuid "
+        "AND TRIM(COALESCE(t.tag_value,''))<>'' AND ("
+        "lower(t.tag_key) IN ('business tier','tier','criticality') OR "
+        "(lower(t.tag_key)='asset inventory' AND ("
+        "lower(t.tag_value) LIKE 'tier:%' OR lower(t.tag_value) LIKE 'business tier:%' "
+        "OR lower(t.tag_value) LIKE 'criticality:%'))))", db_path)
     blind_spots = [
         {"label": "No Hound signal", "count": no_signal, "sub": "the pack found nothing — truly dark", "sev": "crit"},
         {"label": "Uncredentialed / blind", "count": blind, "sub": "Chronos — scan can't see inside", "sev": "crit"},
         {"label": "Unclassified", "count": unclassified, "sub": "Linnaeus — type unknown", "sev": "warn"},
         {"label": "Unowned", "count": unowned, "sub": "Terminus — nobody accountable", "sev": "warn"},
-        {"label": "No business tier", "count": no_tier, "sub": "criticality unrated", "sev": "warn"},
+        {"label": "No business tier", "count": no_tier, "sub": "Anubis — criticality unrated (no ACR / tier tag)", "sev": "warn"},
         {"label": "Shadow AI", "count": ai_shadow, "sub": "Pythia — AI off the sanctioned list", "sev": "warn"},
     ]
 
@@ -370,6 +422,11 @@ def scent_board(db_path=None):
                         "estate": fk.get("estate", 0), "avg": fk.get("avg", 0),
                         "top": [{"host": r["host"], "score": r["score"]} for r in rows[:5]]},
             "bands": bands, "risk_by_hound": risk_by_hound_sorted, "radar": radar, "funnel": funnel,
+            # 12-month certificate expiry series — each bucket deep-links into
+            # Certania's dashboard scoped to that month (web/certdash.html?month=…).
+            "certs": {"months": c.get("cert_months") or [],
+                      "failing": c.get("certs_failing", 0),
+                      "expired": c.get("certs_expired", 0)},
             "reduction": (c.get("stories") or {}).get("funnel") or {},
             "champion": (c.get("stories") or {}).get("champion"),
             "posture": posture, "blind": blind_spots, "convergence": convergence,

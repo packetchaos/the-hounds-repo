@@ -319,6 +319,7 @@ document.getElementById('wReset').onclick=()=>resetWeights();
 document.querySelectorAll('#subnav a').forEach(a=>a.onclick=e=>{e.preventDefault();showSection(a.dataset.sec);});
 document.querySelectorAll('#thr button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#thr button').forEach(x=>x.classList.remove('on'));b.classList.add('on');THR=+b.dataset.t;renderLB();drawAct();drawRed();showBd(CUR);});
 mountAgentHeader({id:'fused_score',icon:'🎯',name:'Exposure Score',sub:'Nemesis · one score from every Hound · act now'});
+try{ hMailAuto(); }catch(e){}
 jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});
 </script>
 </body></html>

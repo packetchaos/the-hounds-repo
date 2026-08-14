@@ -208,6 +208,7 @@ document.getElementById('contractBtn').onclick=toContract;
 document.getElementById('cmpBtn').onclick=compare;
 document.getElementById('updBtn').onclick=updateAssets;
 mountAgentHeader({id:'tagremoval',icon:'🗑️',name:'Tag Removal',sub:'Garmr · list tags → remove chosen → feed the contract'});
+try{ hMailAuto(); }catch(e){}
 jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});
 compare();   // force the compare on load
 </script>

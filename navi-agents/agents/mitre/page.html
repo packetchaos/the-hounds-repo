@@ -118,6 +118,7 @@ document.getElementById('apply').onclick=async()=>{
   scroll();
 };
 mountAgentHeader({icon:'🎯',name:'MITRE ATT&CK Tagging',sub:'navi tag-by-CVE · live ATT&CK mapping'});
+try{ hMailAuto(); }catch(e){}
 requestApprove();   // human approves the external download before anything is fetched
 </script>
 </body></html>

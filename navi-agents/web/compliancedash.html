@@ -36,6 +36,8 @@
   /* failing controls */
   .ctl{border:1px solid var(--line);border-radius:11px;background:var(--bg-2);padding:10px 12px;margin-bottom:8px;cursor:pointer;transition:.12s}
   .ctl:hover{border-color:var(--accent)}
+  .ctl.on{border-color:var(--accent);box-shadow:inset 3px 0 0 var(--accent);background:var(--panel)}
+  .ctl.on .cn{color:var(--accent)}
   .ctl .cbar-l{display:flex;justify-content:space-between;gap:12px;align-items:baseline}
   .ctl .cn{font-weight:600;font-size:13px;color:var(--ink)}
   .ctl .cc{font-family:var(--mono);font-size:10px;color:var(--accent);white-space:nowrap}
@@ -72,7 +74,9 @@
   .hbar .ht i{position:absolute;left:0;top:0;bottom:0;background:var(--accent);border-radius:5px}
   .hbar .hv{width:52px;text-align:right;font-family:var(--mono);font-size:11px;color:var(--ink)}
   /* control drill panel */
-  #drill{display:none;margin-top:10px;border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:12px 14px}
+  #drill{display:none;margin-top:10px;border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:12px 14px;scroll-margin:20px}
+  #drill.focusing{animation:drillIn .9s ease-out}
+  @keyframes drillIn{0%{border-color:var(--accent);box-shadow:0 0 0 3px rgba(109,112,230,.28)}100%{border-color:var(--line);box-shadow:none}}
   .assignrow{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px}
   .assignrow input{background:var(--bg-2);color:var(--ink);border:1px solid var(--line);border-radius:9px;padding:8px 10px;font-size:12.5px;min-width:190px}
   .gate{font-size:11px;color:var(--ink-3);border:1px solid var(--line);border-radius:20px;padding:3px 9px}
@@ -283,7 +287,16 @@ function openDrill(checkId,name){
     `<span style="margin-left:auto;color:var(--ink-3);cursor:pointer" id="drClose">✕ close</span></div>`+
     `<p class="sub" style="margin:6px 0 0">Assign an <b>Audit Owner</b> to every asset that <b>fails</b> this control — tagged in navi on the same asset UUIDs (${gated?'writes enabled':'<span class="gate">write-gated</span>'}).</p>`+
     `<div class="assignrow"><input id="ownerIn" placeholder="owner name (e.g. GRC — Jordan)"><button class="btn run sm" id="assignBtn">▶ Assign Audit Owner${gated?'':' (gated)'}</button><span class="sub" id="assignRes"></span></div>`;
-  document.getElementById('drClose').onclick=()=>d.style.display='none';
+  // Refocus the page on the data that just changed: mark the clicked control,
+  // scroll the drill panel into view, flash it, and put the cursor in the field.
+  document.querySelectorAll('#topFail .ctl').forEach(x=>x.classList.toggle('on', x.dataset.check===checkId));
+  d.classList.remove('focusing'); void d.offsetWidth; d.classList.add('focusing');
+  requestAnimationFrame(()=>{
+    d.scrollIntoView({behavior:'smooth',block:'nearest'});   // minimal scroll — keeps the control list in context
+    const inp=document.getElementById('ownerIn'); if(inp) try{ inp.focus({preventScroll:true}); }catch(e){ inp.focus(); }
+  });
+  document.getElementById('drClose').onclick=()=>{ d.style.display='none'; d.classList.remove('focusing');
+    document.querySelectorAll('#topFail .ctl.on').forEach(x=>x.classList.remove('on')); };
   document.getElementById('assignBtn').onclick=async()=>{
     const owner=document.getElementById('ownerIn').value.trim();
     const res=document.getElementById('assignRes');

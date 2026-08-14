@@ -104,5 +104,6 @@ document.getElementById('csv').onclick=exportCsv;
 document.getElementById('tagEntry').onclick=function(){tagBulk('tag_entry','exploitable / weak-auth entry point(s)',this);};
 document.getElementById('tagTarget').onclick=function(){tagBulk('tag_target','reachable crown-jewel target(s)',this);};
 mountAgentHeader({icon:'🕸️',name:'Attack Path Analysis',sub:'Fenrir · foothold → lateral → crown jewel'});
+try{ hMailAuto(); }catch(e){}
 </script>
 </body></html>

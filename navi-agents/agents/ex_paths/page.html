@@ -53,6 +53,7 @@ async function tagPath(r){
 document.getElementById('go').onclick=()=>go(0);
 document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter')go(0);});
 mountAgentHeader({icon:'🔎',name:'Path Explorer',sub:'navi.db search · 500/page · tag by path'});
+try{ hMailAuto(); }catch(e){}
 wireNlBox('vuln_paths');
 </script>
 </body></html>

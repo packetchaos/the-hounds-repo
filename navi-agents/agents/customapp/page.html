@@ -181,6 +181,7 @@ async function ignImportCsv(file){
  if(ex)ex.onclick=ignExportCsv;
  if(im)im.onchange=e=>{const f=e.target.files&&e.target.files[0];ignImportCsv(f);e.target.value='';};}
 mountAgentHeader({icon:'🧩',name:'Custom App Name Agent',sub:'routes/paths discovery · NL tagging'});
+try{ hMailAuto(); }catch(e){}
 (async()=>{                       // explicit-run: nothing scans navi.db until ▶ Run discovery
   const h=handoffParams();
   if(h.focus){

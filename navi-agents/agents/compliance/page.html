@@ -152,6 +152,7 @@ async function applyTag(btn){
 }
 document.getElementById('refresh').onclick=run;
 mountAgentHeader({id:'compliance',icon:'⚖️',name:'Compliance',sub:'Minos · audit benchmarks, judged'});
+try{ hMailAuto(); }catch(e){}   /* pack-wide widget + dashboard email (Gabriel) */
 run();
 </script>
 </body></html>

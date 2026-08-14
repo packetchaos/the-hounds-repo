@@ -79,10 +79,26 @@ let DRAFT=null;
 
 async function load(){
   await mountAgentHeader({icon:'🚨',name:'Alerting',sub:'Alert Raven'});
+try{ hMailAuto(); }catch(e){}
   const m=await API.post('metrics').catch(()=>null); renderMetrics(m||{});
   const l=await API.post('list').catch(()=>({alerts:[]})); renderAlerts((l&&l.alerts)||[]);
   const s=await API.post('suggest').catch(()=>({suggestions:[]})); renderSuggest((s&&s.suggestions)||[]);
   const h=await API.post('history',{limit:12}).catch(()=>({history:[]})); renderHistory((h&&h.history)||[]);
+}
+function renderHistory(list){
+  const box=document.getElementById('history'); if(!box)return;
+  list=list||[];
+  if(!list.length){ box.innerHTML='<p class="sub">No runs yet.</p>'; return; }
+  const when=h=>String(h.when||h.ts||h.time||h.at||'').replace('T',' ').slice(0,16);
+  const nm=h=>esc(h.name||h.alert||h.category||h.value||'alert');
+  box.innerHTML='<div style="overflow-x:auto"><table class="nocsv"><thead><tr><th>When</th><th>Alert</th><th>Result</th><th>Matched</th></tr></thead><tbody>'
+    +list.map(h=>{ const fired=(h.fired!=null?h.fired:(h.status||''));
+      const firedTxt=(fired===true||String(fired).toLowerCase()==='fired'||String(fired).toLowerCase()==='firing')
+        ?'<span class="chip" style="color:var(--cx-f43f5e);border-color:rgba(244,63,94,.5)">fired</span>'
+        :(fired===false?'<span class="sub">quiet</span>':esc(String(fired||'—')));
+      const cnt=(h.count!=null?h.count:(h.matched!=null?h.matched:(h.rows!=null?h.rows:'')));
+      return '<tr><td class="mono sub">'+esc(when(h))+'</td><td>'+nm(h)+'</td><td>'+firedTxt+'</td><td class="mono">'+esc(String(cnt))+'</td></tr>'; }).join('')
+    +'</tbody></table></div>';
 }
 function renderMetrics(m){
   const bs=m.by_severity||{};

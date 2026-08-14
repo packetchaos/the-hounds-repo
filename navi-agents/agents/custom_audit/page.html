@@ -138,6 +138,7 @@ function setPlatformSelect(pid, wrapper){
 
 /* ---------- init ---------- */
 async function init(){
+  try{ hMailAuto(); }catch(e){}
   let o; try{ o=await API.post('platforms'); }catch(e){ o={ok:false,error:e.message}; }
   const res=(o.result||o);
   if(!res||!res.platforms){ flash('flash','✗ could not load the audit catalog: '+esc((o&&o.error)||'unknown'),'crit'); return; }

@@ -54,6 +54,7 @@ async function tagRoute(r){
 document.getElementById('go').onclick=()=>go(0);
 document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter')go(0);});
 mountAgentHeader({icon:'🔎',name:'Route Explorer',sub:'navi.db search · 500/page · tag by route'});
+try{ hMailAuto(); }catch(e){}
 wireNlBox('vuln_route');
 </script>
 </body></html>

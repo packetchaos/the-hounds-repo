@@ -117,6 +117,7 @@ document.getElementById('pickTag').onclick=function(){tagNames(picked(),'flash',
 document.getElementById('nlTag').onclick=nlTag;
 document.getElementById('tagAll').onclick=tagAll;
 mountAgentHeader({icon:'🛰️',name:'Agent Group Tagging',sub:'Sirius · tag assets by Tenable agent group'});
+try{ hMailAuto(); }catch(e){}
 jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});
 </script>
 </body></html>

@@ -13,21 +13,28 @@
   .sevbar .lab{width:74px;font-size:12.5px;color:var(--mut)} .sevbar .track{flex:1;height:12px;border-radius:99px;background:var(--panel-2);overflow:hidden}
   .sevbar .fill{height:100%;border-radius:99px} .sevbar .n{width:34px;text-align:right;font-family:var(--mono);font-size:12.5px}
   .tagcard{border:1px solid var(--line);border-left-width:4px;border-radius:10px;padding:10px 12px;margin:0 0 9px;background:var(--panel)}
-  .tghead{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-left:4px solid var(--line);border-radius:10px;padding:9px 12px;margin:0 0 8px;background:var(--bg-2);cursor:pointer;user-select:none}
-  .tghead:hover{border-color:var(--accent)}
-  .tghead b{font-size:13.5px}
-  .tghead .tgcaret{color:var(--ink-3);font-size:11px;width:12px;display:inline-block;transition:transform .12s}
-  .tghead.open .tgcaret{transform:rotate(90deg)}
-  .tgitems{display:none;padding-left:10px}
-  .tghead.open+.tgitems{display:block}
-  .segbar{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;flex-wrap:wrap}
-  .segbar .seg{background:var(--panel);border:0;border-right:1px solid var(--line);padding:5px 10px;font-size:11.5px;color:var(--ink-2);cursor:pointer;font-family:inherit;display:inline-flex;gap:5px;align-items:center;text-transform:capitalize}
-  .segbar .seg:last-child{border-right:0}
-  .segbar .seg.on{background:var(--accent);color:#fff}.segbar .seg.on b{color:#fff}
-  .segbar .seg b{font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
-  .segbar .seg:hover:not(.on){background:var(--panel-2)}
   .tagcard .th{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
   .tagcard .tv{font-weight:700;font-size:14px} .tagcard .why{color:var(--ink-2);font-size:13px;margin:5px 0 0;line-height:1.45}
+  /* "What the pack knows" — one collapsible group per tag category */
+  .tgrp{border:1px solid var(--line);border-left-width:4px;border-radius:10px;background:var(--bg-2);margin:0 0 8px;overflow:hidden}
+  .tgh{display:flex;align-items:center;gap:8px;padding:9px 11px;cursor:pointer;user-select:none;flex-wrap:wrap}
+  .tgh:hover{background:var(--panel)} .tgh:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+  .tgrp .caret{color:var(--mut);font-size:10px;transition:.12s;display:inline-block}
+  .tgrp.open .caret{transform:rotate(90deg)}
+  .tgrp .dot{width:9px;height:9px;border-radius:99px;flex:none}
+  .tgrp .tgn{font-weight:700;font-size:13.5px}
+  .tgrp .tgc{margin-left:auto;font-family:var(--mono);font-size:11.5px;color:var(--ink-2);border:1px solid var(--line);border-radius:99px;padding:1px 9px;background:var(--panel)}
+  .tgrp .tgb{display:none;padding:2px 10px 4px}
+  .tgrp.open .tgb{display:block}
+  .tgrp .tgb .tagcard{background:var(--bg-2)}
+  /* 🐳 Docker containers (plugin 93561), inside Host profile & scan health */
+  .dsec{margin-top:12px;padding-top:10px;border-top:1px solid var(--line)}
+  .dhead{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:13.5px;font-weight:700;margin-bottom:6px}
+  .dcon{border:1px solid var(--line);border-left:3px solid var(--cx-3fb0c9,var(--accent));border-radius:9px;background:var(--bg-2);padding:8px 10px;margin:0 0 7px}
+  .dcon .dn{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+  /* shared "top 5 · show all · open the Hound" footer row */
+  .moreRow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:9px;padding-top:8px;border-top:1px dashed var(--line)}
+  .moreRow .morebtn{font-size:11.5px;padding:3px 10px}
   .houndchip{font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;padding:2px 8px;border-radius:99px;border:1px solid var(--line);color:var(--amber);white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
   .houndchip img{width:15px;height:15px;border-radius:4px;object-fit:cover}
   .cvechip{display:inline-block;font-family:var(--mono);font-size:11.5px;background:var(--panel-2);border:1px solid var(--line);border-radius:6px;padding:2px 7px;margin:0 5px 5px 0}
@@ -95,7 +102,12 @@
         <section class="card" id="tagCard">
           <div class="toolbar" style="margin:0"><h2 style="margin:0;font-size:15px">🐾 What the pack knows</h2>
             <span class="chip" id="tagCount" style="margin-left:auto"></span></div>
-          <p class="sub" style="margin:4px 0 10px">Every tag on this asset, deciphered — what it means and which Hound raised it. Ranked by how much it matters.</p>
+          <p class="sub" style="margin:4px 0 8px">Every tag on this asset, deciphered — what it means and which Hound raised it. <b>Grouped by tag category</b>, worst band first; click a category to open it.</p>
+          <div class="toolbar" id="tagCtrls" style="margin:0 0 9px;gap:6px;flex-wrap:wrap;display:none">
+            <button class="btn ghost sm" id="tagExpand" title="Open every category">⊞ Expand all</button>
+            <button class="btn ghost sm" id="tagCollapse" title="Collapse to one line per category">⊟ Collapse all</button>
+            <input id="tagFilter" placeholder="filter tags…" style="margin-left:auto;flex:1;min-width:120px;padding:6px 9px;border-radius:7px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink);font-size:12px">
+          </div>
           <div id="tagBody"></div>
         </section>
 
@@ -105,13 +117,11 @@
         </section>
 
         <section class="card" id="vulnCard" style="margin-top:16px">
-          <div class="toolbar" style="margin:0"><h2 style="margin:0;font-size:15px">🔒 Findings</h2><span class="chip" id="vulnCount" style="margin-left:auto"></span></div>
-          <p class="sub" style="margin:4px 0 0">Every finding on this asset, worst-first — filter by severity, page through all of it here instead of jumping to Tenable.</p>
-          <div class="segbar" id="vulnSeg" style="margin-top:8px"></div>
-          <div style="margin-top:2px"><table id="vulnTbl"><colgroup><col style="width:62px"><col style="width:74px"><col><col style="width:50px"><col style="width:120px"></colgroup><thead><tr><th>Sev</th><th>Plugin</th><th>Name</th><th>VPR</th><th>Family</th></tr></thead><tbody></tbody></table></div>
+          <div class="toolbar" style="margin:0"><h2 style="margin:0;font-size:15px">🔒 Top findings</h2><span class="chip" id="vulnCount" style="margin-left:auto"></span></div>
+          <div style="margin-top:8px"><table id="vulnTbl"><colgroup><col style="width:62px"><col style="width:74px"><col><col style="width:50px"><col style="width:120px"></colgroup><thead><tr><th>Sev</th><th>Plugin</th><th>Name</th><th>VPR</th><th>Family</th></tr></thead><tbody></tbody></table></div>
         </section>
 
-        <section class="card" id="webCard" style="margin-top:16px;display:none">
+        <section class="card" id="webCard" style="margin-top:16px">
           <div class="toolbar" style="margin:0"><h2 style="margin:0;font-size:15px">🌐 Captured web pages</h2><span class="chip" id="webCount" style="margin-left:auto"></span></div>
           <p class="sub" style="margin:4px 0 0">Plugin <span class="mono">24260</span> (and other web plugins) captured the HTTP response — including the page HTML — when it scanned this host. <b>Render now</b> shows it back in a locked sandbox: no scripts run and no external requests are made.</p>
           <div id="webBody" style="margin-top:8px"></div>
@@ -142,6 +152,88 @@ const SEV_COLOR={critical:'var(--cx-f43f5e)',high:'var(--cx-fb923c)',medium:'var
 const BAND_COLOR={critical:'var(--cx-f43f5e)',high:'var(--cx-fb923c)',medium:'var(--cx-fbbf24)',low:'var(--cx-6ea8ff)',info:'#8a99ad',good:'var(--ok)',clear:'var(--ok)'};
 function crestFor(agent){ return agent?`<img src="/static/crests/${agent}.png?v=5" onerror="this.style.display='none'">`:''; }
 
+/* ---- What the pack knows: tags grouped by CATEGORY, collapse / expand ----
+   One asset can carry 100+ tags in a single category (CVE / KEV tagging), which
+   buried every other signal. Each category is now one collapsible row showing its
+   worst band, its count and the Hound that raised it; small groups open by default,
+   big ones start collapsed. TOPEN holds the per-category open state. */
+const BAND_RANK={critical:0,high:1,medium:2,low:3,info:4,good:5};
+const TAG_AUTO_OPEN=6;          // groups this size or smaller start expanded
+let TAGS=[], TOPEN={}, TFILTER='';
+function tagGroups(){
+  const f=TFILTER.trim().toLowerCase(), m={};
+  TAGS.forEach(t=>{
+    if(f && !((t.category||'')+' '+(t.value||'')+' '+(t.why||'')+' '+(t.hound||'')).toLowerCase().includes(f)) return;
+    const k=(t.category||'').trim()||'(uncategorized)';
+    const g=m[k]||(m[k]={key:k,rows:[],hounds:[],band:'good'});
+    g.rows.push(t);
+    if((BAND_RANK[t.band]!=null?BAND_RANK[t.band]:4)<(BAND_RANK[g.band]!=null?BAND_RANK[g.band]:9)) g.band=t.band||'info';
+    if(t.hound && !g.hounds.some(h=>h.hound===t.hound)) g.hounds.push({hound:t.hound,agent:t.agent});
+  });
+  return Object.values(m).sort((a,b)=>
+    (BAND_RANK[a.band]??9)-(BAND_RANK[b.band]??9) || b.rows.length-a.rows.length || a.key.localeCompare(b.key));
+}
+function tagCardHtml(t){
+  const c=BAND_COLOR[t.band]||'#8a99ad';
+  const hound=t.hound?`<span class="houndchip" title="raised by ${esc(t.hound)}">${crestFor(t.agent)}${esc(t.hound)}</span>`:'';
+  const open=t.agent?`<a class="chip" href="/agents/${esc(t.agent)}/page.html" style="text-decoration:none;font-size:11px">open →</a>`:'';
+  return `<div class="tagcard" style="border-left-color:${c}">
+    <div class="th"><span class="tv">${esc(t.category||'')} : ${esc(t.value||'')}</span>${hound}<span style="margin-left:auto">${open}</span></div>
+    <p class="why">${esc(t.why||'')}</p></div>`;
+}
+function renderTags(){
+  const groups=tagGroups(), body=document.getElementById('tagBody');
+  const cats=new Set(TAGS.map(t=>(t.category||'').trim()||'(uncategorized)'));
+  document.getElementById('tagCount').textContent=
+    TAGS.length+' tag'+(TAGS.length==1?'':'s')+' · '+cats.size+' categor'+(cats.size==1?'y':'ies');
+  const ctrls=document.getElementById('tagCtrls');
+  if(ctrls) ctrls.style.display=TAGS.length?'flex':'none';
+  if(!TAGS.length){ body.innerHTML='<p class="sub">No tags on this asset yet — none of the pack has flagged it.</p>'; return; }
+  if(!groups.length){ body.innerHTML='<p class="sub">No tag matches “'+esc(TFILTER)+'”.</p>'; return; }
+  body.innerHTML='<div style="max-height:460px;overflow:auto;padding-right:4px">'+groups.map(g=>{
+    const c=BAND_COLOR[g.band]||'#8a99ad';
+    // filtering implies intent — show the hits; otherwise only small groups auto-open
+    const open=TFILTER?true:(TOPEN[g.key]!==undefined?TOPEN[g.key]:g.rows.length<=TAG_AUTO_OPEN);
+    const hounds=g.hounds.slice(0,2).map(h=>`<span class="houndchip" title="raised by ${esc(h.hound)}">${crestFor(h.agent)}${esc(h.hound)}</span>`).join('')
+      +(g.hounds.length>2?`<span class="sub" style="font-size:10.5px">+${g.hounds.length-2}</span>`:'');
+    return `<div class="tgrp${open?' open':''}" data-k="${esc(g.key)}" style="border-left-color:${c}">
+      <div class="tgh" role="button" tabindex="0" aria-expanded="${open}" title="${open?'Collapse':'Expand'} ${esc(g.key)}">
+        <span class="caret">▶</span><span class="dot" style="background:${c}"></span>
+        <span class="tgn">${esc(g.key)}</span>${hounds}
+        <span class="tgc">${g.rows.length}</span></div>
+      <div class="tgb">${g.rows.map(tagCardHtml).join('')}</div></div>`;
+  }).join('')+'</div>';
+  body.querySelectorAll('.tgrp').forEach(el=>{
+    const h=el.querySelector('.tgh'), k=el.dataset.k;
+    const toggle=()=>{ const now=!el.classList.contains('open');
+      el.classList.toggle('open',now); TOPEN[k]=now; h.setAttribute('aria-expanded',now); };
+    h.onclick=toggle;
+    h.onkeydown=e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); toggle(); } };
+  });
+}
+function setAllTags(open){ tagGroups().forEach(g=>TOPEN[g.key]=open); renderTags(); }
+
+/* ---- Shared "top 5 + show all + open the Hound that owns it" list ----
+   Argos is a HIGH-LEVEL dossier: every long list shows its 5 most interesting rows,
+   the true total on the card's chip, an inline show-all toggle, and a link to the
+   Hound that owns the estate-wide view. Used by Software (Mimir), Certificates
+   (Certania), Identities (Janus) and Captured web pages. */
+const TOP_N=5;
+const MORE={};                                   // body id → "showing all"
+function capList(id, rows, rowHtml, opts){
+  const o=opts||{}, body=document.getElementById(id); if(!body) return;
+  const all=!!MORE[id], shown=all?rows:rows.slice(0,TOP_N);
+  const more=rows.length>TOP_N
+    ? `<button class="btn ghost sm morebtn" data-more="${id}">${all?'▴ show top '+TOP_N:'▾ show all '+rows.length}</button>`
+    : `<span class="sub" style="font-size:11.5px">${rows.length} of ${rows.length}</span>`;
+  const link=o.href?`<a class="lnk" style="font-size:12px" href="${o.href}">${o.linkText||'open →'}</a>`:'';
+  body.innerHTML=(o.open||'')+shown.map(rowHtml).join('')+(o.close||'')+
+    `<div class="moreRow">${more}${link?`<span style="margin-left:auto">${link}</span>`:''}</div>`;
+  const b=body.querySelector('[data-more]');
+  if(b) b.onclick=()=>{ MORE[id]=!MORE[id]; capList(id, rows, rowHtml, opts); };
+  if(o.after) o.after(body, shown, all);
+}
+
 function ring(score,band){
   const c=BAND_COLOR[band]||'#8a99ad', r=52, C=2*Math.PI*r, off=C*(1-Math.max(0,Math.min(100,score))/100);
   return `<svg width="130" height="130" viewBox="0 0 130 130">
@@ -161,8 +253,35 @@ function sevBars(sev){
 }
 function idRow(k,v){ return v?`<div class="idrow"><span class="k">${esc(k)}</span><span class="v">${v}</span></div>`:''; }
 
+/* ---- 🐳 Docker containers — plugin 93561 output, under Host profile & scan health.
+   core.hostprofile.docker_containers() parses the real 93561 shape into
+   {available, version, containers:[{name,image,tag,id,ports[]}]}. Section is absent
+   when the plugin never fired here; when it fired with nothing running we say so. */
+function dockerHtml(dk){
+  if(!dk||!dk.available) return '';
+  const n=(dk.containers||[]).length;
+  return `<div class="dsec"><div class="dhead">🐳 Docker Containers`+
+    `<span class="chip" style="font-size:11px">${n} running</span>`+
+    `<span class="sub" style="margin-left:auto;font-size:11px">${dk.version?('Docker '+esc(dk.version)+' · '):''}plugin <span class="mono">93561</span></span></div>`+
+    (n?`<div id="dockBody"></div>`
+      :`<p class="sub" style="margin:6px 0 0">Docker is running on this host, but no containers were detected at scan time.</p>`)+
+    `</div>`;
+}
+function wireDocker(dk){
+  const cs=(dk&&dk.containers)||[]; if(!cs.length||!document.getElementById('dockBody')) return;
+  capList('dockBody', cs, c=>{
+    const ports=(c.ports||[]).slice(0,4).map(p=>`<span class="swchip" style="font-size:11px">${esc(p)}</span>`).join('')
+      +((c.ports||[]).length>4?`<span class="sub" style="font-size:10.5px"> +${c.ports.length-4} more</span>`:'');
+    return `<div class="dcon"><div class="dn"><b>${esc(c.name||'(unnamed)')}</b>`+
+      `${c.id?`<span class="mono sub" style="font-size:10.5px">${esc(c.id)}</span>`:''}</div>`+
+      `<div class="sub mono" style="font-size:11.5px">${esc(c.image||'(no image)')}${c.tag?':'+esc(c.tag):''}</div>`+
+      (ports?`<div style="margin-top:4px">${ports}</div>`:'')+`</div>`;
+  }, {});
+}
+
 function render(d){
   CUR=d;
+  Object.keys(MORE).forEach(k=>MORE[k]=false);   // every list starts at top 5 on a new asset
   const a=d.asset||{}, R=d.risk||{};
   // identity
   const url=a.url?`<a href="${esc(a.url)}" target="_blank" class="chip" style="text-decoration:none">Tenable ↗</a>`:'';
@@ -173,43 +292,25 @@ function render(d){
     (R.aes!=null?idRow('AES', esc(R.aes)):'')+
     idRow('UUID', '<span class="mono" style="font-size:11px">'+esc(a.uuid||'—')+'</span>')+
     (url?`<div style="margin-top:8px">${url}</div>`:'');
-  // host profile & scan health
+  // host profile & scan health (+ device nature pills + the Docker 93561 widget)
   const H=d.host||{}, hc=document.getElementById('hostCard'), hb=document.getElementById('hostBody');
-  if(hb){ if(!H.has_data){ if(hc)hc.style.display='none'; }
-    else { if(hc)hc.style.display='';
+  if(hb){
+    if(hc) hc.style.display='';                 // card always visible — empty state instead of hiding
+    if(!H.has_data){
+      hb.innerHTML='<p class="sub">No host profile on this asset yet — the plugins that carry CPU / RAM, scan records and Docker detection (24270 · 19506 · 93561) haven\'t landed here. Run a credentialed scan and re-run Argos.</p>';
+    } else {
       const auth=H.authenticated?(esc(H.last_auth_scan||'—')+' <span style="color:var(--ok)">✓</span>'):'<span style="color:var(--crit)">never</span>';
       const dur=(H.last_scan_dur_min!=null)?(H.last_scan_dur_min+' min'+(H.last_scan_name?(' <span class="sub">· '+esc(H.last_scan_name)+'</span>'):'')):'—';
-      // device nature — VM / virtualization host / docker host / cloud / physical (hover = the evidence)
-      const NICO={vm:'🖥',vhost:'🗄',docker:'🐳',cloud:'☁️',physical:'🔩'};
-      const nat=(H.nature||[]).map(n=>`<span class="pill" title="${esc(n.via||'')}" style="margin:0 5px 4px 0;padding:2px 9px;cursor:help">${NICO[n.key]||'❓'} ${esc(n.label)}</span>`).join('');
-      // Docker Containers — running containers parsed from plugin 93561 output
-      const DK=H.docker||{}; let dkHtml='';
-      if(DK.available){
-        const cs=DK.containers||[];
-        dkHtml='<div style="margin-top:10px;border-top:1px solid var(--line);padding-top:8px">'
-          +'<div style="display:flex;align-items:center;gap:8px"><b style="font-size:13px">🐳 Docker Containers</b>'
-          +'<span class="chip">'+cs.length+'</span>'
-          +(DK.version?'<span class="sub mono" style="font-size:10.5px">docker '+esc(DK.version)+'</span>':'')+'</div>';
-        if(cs.length){
-          dkHtml+=cs.map(c=>{
-            const img=(c.image||'')+(c.tag&&c.tag!=='latest'?(':'+c.tag):'');
-            const ports=(c.ports||[]).length?('<div class="sub mono" style="font-size:10.5px;margin-top:1px">'+esc((c.ports||[]).slice(0,4).join(' · '))+((c.ports||[]).length>4?' · +'+((c.ports||[]).length-4)+' more':'')+'</div>'):'';
-            return '<div style="padding:6px 0;border-bottom:1px solid var(--line)">'
-              +'<b class="mono" style="font-size:12px">'+esc(c.name||img||'(container)')+'</b>'
-              +(img?' <span class="sub mono" style="font-size:11px" title="'+esc(c.image||'')+'">'+esc(img)+'</span>':'')
-              +(c.id?' <span class="sub mono" style="font-size:10px">'+esc(c.id)+'</span>':'')
-              +ports+'</div>';
-          }).join('');
-        } else {
-          dkHtml+='<p class="sub" style="margin:4px 0 0">Docker service detected (plugin <span class="mono">93561</span>) — no containers were running when scanned.</p>';
-        }
-        dkHtml+='</div>';
-      }
-      hb.innerHTML=(nat?idRow('Device','<span style="display:inline-flex;flex-wrap:wrap;align-items:center">'+nat+'</span>'):'')
-        +idRow('CPU',esc(H.cpu||''))+idRow('RAM',esc(H.ram||''))+(H.arch?idRow('Arch',esc(H.arch)):'')
+      const NAT_ICON={vm:'🖥',vhost:'🗄',docker:'🐳',cloud:'☁️',physical:'🔩'};
+      const nat=(H.nature||[]).map(n=>`<span class="pill" style="padding:2px 9px;font-size:11.5px" title="${esc(n.via||'')}">${NAT_ICON[n.key]||'•'} ${esc(n.label||n.key)}</span>`).join(' ');
+      hb.innerHTML=idRow('CPU',esc(H.cpu||''))+idRow('RAM',esc(H.ram||''))+(H.arch?idRow('Arch',esc(H.arch)):'')
+        +(nat?idRow('Device','<span style="display:inline-flex;gap:5px;flex-wrap:wrap;justify-content:flex-end">'+nat+'</span>'):'')
         +idRow('Last auth scan',auth)+idRow('Last duration',dur)
         +(H.scan_count>1?('<div class="sub" style="margin-top:6px">'+H.scan_count+' scan records on file</div>'):'')
-        +dkHtml; } }
+        +dockerHtml(H.docker||{});
+      wireDocker(H.docker||{});
+    }
+  }
   // risk
   document.getElementById('ring').innerHTML=ring(R.score||0, R.band||'clear');
   document.getElementById('riskMeta').innerHTML=
@@ -220,83 +321,42 @@ function render(d){
     `<span class="pill">${R.cve_count||0} CVEs</span></div>`+
     `<p class="sub" style="margin:8px 0 0">Score blends severity mix, KEV / exploitable findings, and the pack's tag intelligence into one 0–100 read.</p>`;
   document.getElementById('sevBars').innerHTML=sevBars(R.severity||{});
-  // tags
-  const tags=d.tags||[]; document.getElementById('tagCount').textContent=tags.length+' tag'+(tags.length==1?'':'s');
-  // grouped by CATEGORY, collapsed by default — the header row shows the high-level
-  // tag + a per-category total; click to expand into the deciphered tag cards.
-  const tagCard=t=>{
-    const c=BAND_COLOR[t.band]||'#8a99ad';
-    const hound=t.hound?`<span class="houndchip" title="raised by ${esc(t.hound)}">${crestFor(t.agent)}${esc(t.hound)}</span>`:'';
-    const open=t.agent?`<a class="chip" href="/agents/${esc(t.agent)}/page.html" style="text-decoration:none;font-size:11px">open →</a>`:'';
-    return `<div class="tagcard" style="border-left-color:${c}">
-      <div class="th"><span class="tv">${esc(t.category||'')} : ${esc(t.value||'')}</span>${hound}<span style="margin-left:auto">${open}</span></div>
-      <p class="why">${esc(t.why||'')}</p></div>`;
-  };
-  if(tags.length){
-    const groups=[], gi={};
-    tags.forEach(t=>{ const k=t.category||'(uncategorized)';
-      if(!(k in gi)){ gi[k]=groups.length; groups.push({cat:k,items:[]}); }
-      groups[gi[k]].items.push(t); });
-    document.getElementById('tagBody').innerHTML='<div style="max-height:460px;overflow:auto;padding-right:4px">'
-      +groups.map((g,i)=>{ const c=BAND_COLOR[g.items[0].band]||'#8a99ad';
-        return `<div class="tghead" data-g="${i}" style="border-left-color:${c}" title="${g.items.length} tag${g.items.length===1?'':'s'} in ${esc(g.cat)}">`
-          +`<span class="tgcaret">▶</span><b>${esc(g.cat)}</b>`
-          +`<span class="chip" style="margin-left:auto">${g.items.length}</span></div>`
-          +`<div class="tgitems">${g.items.map(tagCard).join('')}</div>`; }).join('')+'</div>';
-    document.querySelectorAll('#tagBody .tghead').forEach(h=>h.onclick=()=>h.classList.toggle('open'));
-  } else {
-    document.getElementById('tagBody').innerHTML='<p class="sub">No tags on this asset yet — none of the pack has flagged it.</p>';
-  }
+  // tags — grouped by tag CATEGORY and collapsible, so an asset carrying 100 CVE
+  // tags still reads as a high-level "here's what the pack knows" summary.
+  TAGS=d.tags||[]; TOPEN={}; renderTags();
   // cves
   const cves=d.top_cves||[]; document.getElementById('cveCount').textContent=(d.risk&&d.risk.cve_count||0)+' total';
   document.getElementById('cveBody').innerHTML= cves.length? cves.map(c=>`<span class="cvechip">${esc(c)}</span>`).join('')+((d.risk.cve_count>cves.length)?`<span class="sub"> +${d.risk.cve_count-cves.length} more</span>`:'') : '<p class="sub">No CVEs recorded for this asset.</p>';
-  // vulns — ALL findings, severity filter + 50/page pagination
-  const vs=d.top_vulns||[];
-  const vRow=v=>{
+  // vulns
+  const vs=d.top_vulns||[]; document.getElementById('vulnCount').textContent=(d.counts&&d.counts.vulns||0)+' findings';
+  hPageReset('vulnTbl'); hPaginate('vulnTbl', vs, v=>{
     const c=SEV_COLOR[v.severity]||'#8a99ad';
     const pid=v.plugin_id!=null?String(v.plugin_id):'';
     return `<tr><td><span class="pill" style="padding:1px 8px;color:${c};border-color:${c}66">${esc(v.severity||'—')}</span></td>
       <td class="mono">${pid?`<a class="mono" style="cursor:pointer;text-decoration:underline;color:var(--accent)" onclick="pluginOut('${esc(pid)}','${esc(v.plugin_name||'')}')" title="View this plugin's stored output on this asset (from navi.db — HTML output is rendered)">${esc(pid)}</a>`:'—'}</td>
       <td title="${esc(v.plugin_name||'')}">${pid?`<a style="cursor:pointer;color:var(--ink)" onclick="pluginOut('${esc(pid)}','${esc(v.plugin_name||'')}')">${esc(v.plugin_name||'—')}</a>`:esc(v.plugin_name||'—')}</td><td class="mono">${v.vpr!=null&&v.vpr!==''?esc(v.vpr):'—'}</td>
       <td class="sub">${esc(v.family||'—')}</td></tr>`;
-  };
-  const vCounts={all:vs.length};
-  ['critical','high','medium','low','info'].forEach(k=>vCounts[k]=vs.filter(v=>v.severity===k).length);
-  window.__vulnSev='all';
-  const vRender=()=>{
-    const f=window.__vulnSev||'all';
-    const rows=(f==='all')?vs:vs.filter(v=>v.severity===f);
-    document.getElementById('vulnCount').textContent=(f==='all')?(rows.length+' findings'):(rows.length+' '+f+' of '+vs.length);
-    document.querySelectorAll('#vulnSeg .seg').forEach(s=>s.classList.toggle('on',s.getAttribute('data-sv')===f));
-    hPaginate('vulnTbl', rows, vRow, {cols:5, empty:'<tr><td colspan="5" class="sub">No findings'+(f==='all'?'':' at this severity')+'.</td></tr>'});
-  };
-  document.getElementById('vulnSeg').innerHTML=['all','critical','high','medium','low','info'].map(k=>
-    `<button class="seg" data-sv="${k}">${k==='all'?'All':k} <b>${vCounts[k]||0}</b></button>`).join('');
-  document.querySelectorAll('#vulnSeg .seg').forEach(s=>s.onclick=()=>{ window.__vulnSev=s.getAttribute('data-sv'); hPageReset('vulnTbl'); vRender(); });
-  hPageReset('vulnTbl'); vRender();
+  }, {cols:5, empty:'<tr><td colspan="5" class="sub">No findings.</td></tr>'});
   const tbl=d.tables||{};
   // when a table isn't in navi.db yet, name the exact command that builds it
   const needTable=(kind,cmd)=>`<div class="callbox" style="border-left:3px solid var(--warn,var(--cx-e7c66b))"><b style="color:var(--warn,var(--cx-e7c66b))">The <span class="mono">${kind}</span> table isn't in navi.db yet.</b><p class="sub" style="margin:4px 0 0">Build it, then re-run Argos:</p><div class="mono" style="margin-top:4px;padding:6px 9px;background:var(--panel2);border:1px solid var(--line);border-radius:7px">${cmd}</div></div>`;
-  // software — top 5 + total in the chip; expand in place, Mimir link for the estate view
+  // software — top 5 + show-all + Mimir (estate-wide software view)
   const sw=d.software||[]; document.getElementById('swCount').textContent=sw.length+' installed';
-  const swChip=s=>`<span class="swchip"><b>${esc(s.name)}</b>${s.version?`<span class="ver">${esc(s.version)}</span>`:''}</span>`;
-  const swRender=all=>{
-    const shown=all?sw:sw.slice(0,5);
-    document.getElementById('swBody').innerHTML=shown.map(swChip).join('')
-      +((!all&&sw.length>5)?` <a class="lnk" id="swMore" style="cursor:pointer;font-size:12px">show all ${sw.length} ▾</a>`:'')
-      +((all&&sw.length>5)?` <a class="lnk" id="swMore" style="cursor:pointer;font-size:12px">show top 5 ▴</a>`:'')
-      +((d.software_source==='plugins')?`<p class="sub" style="margin:8px 0 0">⚙ Read from this host's <b>enumeration plugin output</b> (22869 / 20811) — the navi <span class="mono">software</span> table has no rows for this asset. Run <span class="mono">navi software generate</span> to build the table.</p>`:'')
-      +`<p class="sub" style="margin:8px 0 0"><a class="lnk" href="/agents/software/page.html">Open Mimir →</a> for the estate-wide inventory — version sprawl, who else runs each product, and tag-by-software.</p>`;
-    const m=document.getElementById('swMore'); if(m)m.onclick=()=>swRender(!all);
-  };
-  if(sw.length) swRender(false);
-  else document.getElementById('swBody').innerHTML=(tbl.software===false ? needTable('software','navi config software') : '<p class="sub">No software inventory for this asset.</p>');
-  // certs
-  const cs=d.certs||[]; document.getElementById('certCount').textContent=cs.length;
-  document.getElementById('certBody').innerHTML= cs.length? cs.map(c=>{
+  if(sw.length) capList('swBody', sw,
+    s=>`<span class="swchip"><b>${esc(s.name)}</b>${s.version?`<span class="ver">${esc(s.version)}</span>`:''}</span>`,
+    {href:'/agents/software/page.html', linkText:'📦 Open Mimir →'});
+  else document.getElementById('swBody').innerHTML=
+    (tbl.software===false ? needTable('software','navi config software') : '<p class="sub">No software inventory for this asset.</p>');
+  // certs — top 5 (soonest expiry first) + show-all + Certania, focused on this host
+  const cs=(d.certs||[]).slice().sort((a,b)=>String(a.expiry_iso||a.not_valid_after||'~').localeCompare(String(b.expiry_iso||b.not_valid_after||'~')));
+  document.getElementById('certCount').textContent=cs.length+' on this asset';
+  const certFocus=a.hostname||a.ip_address||'';
+  if(cs.length) capList('certBody', cs, c=>{
     const weak=c.weak?` <span class="pill" style="padding:1px 7px;color:var(--cx-fb923c);border-color:rgba(251,146,60,.5)">weak</span>`:'';
     return `<div style="padding:6px 0;border-bottom:1px solid var(--line)"><b>${esc(c.common_name||'(no CN)')}</b>${weak}<br><span class="sub mono" style="font-size:11.5px">exp ${esc(c.expiry_iso||c.not_valid_after||'?')} · ${esc(c.signature_algorithm||'')} ${c.key_length?('· '+esc(c.key_length)+'-bit'):''}</span></div>`;
-  }).join('') : (tbl.certs===false ? needTable('certs','navi config certificates') : '<p class="sub">No certificates on this asset.</p>');
+  }, {href:'/agents/certificate/page.html'+(certFocus?'?focus='+encodeURIComponent(certFocus):''), linkText:'🔐 Open Certania →'});
+  else document.getElementById('certBody').innerHTML=
+    (tbl.certs===false ? needTable('certs','navi config certificates') : '<p class="sub">No certificates on this asset.</p>');
   // ownership (pie from Owner tags)
   const own=d.ownership||[];
   document.getElementById('ownCount').textContent=own.length?(own.length+' owner'+(own.length>1?'s':'')):'unowned';
@@ -305,17 +365,14 @@ function render(d){
   // identities on this host
   const idn=d.identities||[]; const KC2={human:'var(--cx-8b8fe6)',service:'var(--cx-3fb0c9)',nhi:'var(--cx-a78bfa)',machine:'#9aa7b8',system:'#8a99ad'};
   document.getElementById('idnCount').textContent=idn.length+' account'+(idn.length===1?'':'s');
-  const idnRow=x=>`<tr><td class="mono"><b>${esc(x.user)}</b>${x.authority?'<div class="sub" style="font-size:10px" title="'+esc(x.authority)+'">📖 '+esc(x.authority.length>40?x.authority.slice(0,38)+'…':x.authority)+'</div>':''}</td><td><span class="pill" style="padding:1px 8px;color:${KC2[x.klass]||'#8a99ad'};border-color:${(KC2[x.klass]||'#8a99ad')}66">${esc(x.klass)}</span></td><td class="sub mono" style="font-size:10.5px">${esc((x.plugins||[]).join(', '))}</td></tr>`;
-  const idnRender=all=>{
-    const shown=all?idn:idn.slice(0,5);   // ordered machine → NHI → service → human, so the top 5 are the most interesting
-    document.getElementById('idnBody').innerHTML='<div style="overflow:auto"><table style="width:100%"><thead><tr><th>Account</th><th>Class</th><th>Source</th></tr></thead><tbody>'
-      +shown.map(idnRow).join('')+'</tbody></table></div>'
-      +((idn.length>5)?`<a class="lnk" id="idnMore" style="cursor:pointer;font-size:12px">${all?'show top 5 ▴':`show all ${idn.length} ▾`}</a>`:'')
-      +'<p class="sub" style="margin:8px 0 0">Read straight from this host\'s stored plugin output — no tagging needed. <a class="lnk" href="/agents/identity/page.html">Open Janus →</a> to sweep the whole estate and <b>tag</b> the identity risks.</p>';
-    const m=document.getElementById('idnMore'); if(m)m.onclick=()=>idnRender(!all);
-  };
-  if(idn.length) idnRender(false);
-  else document.getElementById('idnBody').innerHTML='<p class="sub">No accounts enumerated on this host — the local-user plugins (10860 / 10785 / 10914 / 10915 / 95928) returned no output, which usually means an <b>uncredentialed scan</b>. This widget needs no tagging; <a class="lnk" href="/agents/identity/page.html">Janus</a> covers the estate-wide sweep + tagging.</p>';
+  // top 5 (rows already ordered machine → NHI → service → human, so the top 5 are the
+  // interesting ones) + show-all + Janus for the estate-wide sweep and tagging
+  if(idn.length) capList('idnBody', idn,
+    x=>`<tr><td class="mono"><b>${esc(x.user)}</b>${x.authority?'<div class="sub" style="font-size:10px" title="'+esc(x.authority)+'">📖 '+esc(x.authority.length>40?x.authority.slice(0,38)+'…':x.authority)+'</div>':''}</td><td><span class="pill" style="padding:1px 8px;color:${KC2[x.klass]||'#8a99ad'};border-color:${(KC2[x.klass]||'#8a99ad')}66">${esc(x.klass)}</span></td><td class="sub mono" style="font-size:10.5px">${esc((x.plugins||[]).join(', '))}</td></tr>`,
+    {open:'<div style="overflow:auto"><table style="width:100%"><thead><tr><th>Account</th><th>Class</th><th>Source</th></tr></thead><tbody>',
+     close:'</tbody></table></div>', href:'/agents/identity/page.html', linkText:'🪪 Open Janus →'});
+  else document.getElementById('idnBody').innerHTML=
+    '<p class="sub">No accounts enumerated here — this host may be uncredentialed. Run <a class="lnk" href="/agents/identity/page.html">Janus</a> for the full sweep.</p>';
   // taxonomy coverage strip
   const cov=d.coverage||{};
   const cchip=(ok,label)=>`<span class="pill" style="margin:0 6px 6px 0;padding:2px 9px;color:${ok?'var(--ok)':'var(--cx-f43f5e)'};border-color:${ok?'rgba(52,211,153,.4)':'rgba(244,63,94,.4)'}">${ok?'✓':'✗'} ${label}</span>`;
@@ -351,33 +408,36 @@ async function lookup(){
    plugins), in a locked sandbox: no scripts, no external requests. Moved here from the
    old asset-detail page. ===== */
 let WEBPAGES=[];
+function webPageHtml(p){
+  const i=WEBPAGES.indexOf(p);
+  const site=p.url?(' · <a href="'+esc(p.url)+'" target="_blank" rel="noopener" class="mono" style="color:var(--accent)">open in Tenable ↗</a>'):'';
+  const where=p.where?(' · '+esc(p.where)):'';
+  return '<div class="callbox" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center">'
+    +'<span><b>Web page</b> <span class="sub">· plugin <span class="mono">'+esc(p.plugin_id)+'</span> · '+esc(p.plugin_name||'')+where+site+' · '+p.html.length.toLocaleString()+' bytes</span></span>'
+    +'<span style="display:flex;gap:6px"><button class="btn run sm webrender" data-i="'+i+'">▶ Render now</button>'
+    +'<button class="btn ghost sm websrc" data-i="'+i+'">&lt;/&gt; Source</button>'
+    +'<button class="btn ghost sm webclose" data-i="'+i+'" style="display:none">Close</button></span></div>'
+    +'<div class="webmount" id="webmount-'+i+'" style="margin-top:8px"></div></div>';
+}
 async function loadWebPages(target){
+  // Widget-visibility rule: this card stays VISIBLE with an explanatory empty state —
+  // hiding it read as "the HTML viewer was removed".
   const card=document.getElementById('webCard'), body=document.getElementById('webBody'), cnt=document.getElementById('webCount');
-  WEBPAGES=[]; if(card) card.style.display='';   // card is ALWAYS visible — an empty state beats silently vanishing
-  if(cnt) cnt.textContent='';
-  if(body) body.innerHTML='<p class="sub"><span class="spin"></span> checking stored plugin output for captured pages…</p>';
-  let o; try{ o=await API.post('webpages',{target}); }catch(e){ o=null; }
-  if(!o||!o.ok||!o.found||!(o.pages||[]).length){
-    if(cnt) cnt.textContent='0';
-    if(body) body.innerHTML='<p class="sub">No captured web pages on this asset — plugin <span class="mono">24260</span> records the HTTP response (including the page HTML) only for hosts serving web content, and none is stored for this one. Assets that do have pages show a <b>▶ Render now</b> sandbox here.</p>';
-    return;
-  }
+  WEBPAGES=[]; MORE['webBody']=false; if(card) card.style.display='';
+  if(cnt) cnt.textContent='reading…';
+  body.innerHTML='<p class="sub"><span class="spin"></span> looking for captured HTTP responses on this asset…</p>';
+  const none=msg=>{ if(cnt) cnt.textContent='0 pages'; body.innerHTML='<p class="sub">'+msg+'</p>'; };
+  let o; try{ o=await API.post('webpages',{target}); }catch(e){ return none('Could not read captured pages ('+esc(e.message||'error')+').'); }
+  if(!o||!o.ok) return none('Could not read captured pages'+(o&&o.error?' — '+esc(o.error):'')+'.');
+  if(!o.found||!(o.pages||[]).length)
+    return none('No captured web pages on this asset — plugin <span class="mono">24260</span> (and the other web plugins) stored no HTTP response here. Scan it with the web plugins enabled and re-run Argos.');
   WEBPAGES=o.pages;
-  if(cnt) cnt.textContent='('+WEBPAGES.length+')';
-  card.style.display='';
-  body.innerHTML=WEBPAGES.map((p,i)=>{
-    const site=p.url?(' · <a href="'+esc(p.url)+'" target="_blank" rel="noopener" class="mono" style="color:var(--accent)">open in Tenable ↗</a>'):'';
-    const where=p.where?(' · '+esc(p.where)):'';
-    return '<div class="callbox" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center">'
-      +'<span><b>Web page</b> <span class="sub">· plugin <span class="mono">'+esc(p.plugin_id)+'</span> · '+esc(p.plugin_name||'')+where+site+' · '+p.html.length.toLocaleString()+' bytes</span></span>'
-      +'<span style="display:flex;gap:6px"><button class="btn run sm webrender" data-i="'+i+'">▶ Render now</button>'
-      +'<button class="btn ghost sm websrc" data-i="'+i+'">&lt;/&gt; Source</button>'
-      +'<button class="btn ghost sm webclose" data-i="'+i+'" style="display:none">Close</button></span></div>'
-      +'<div class="webmount" id="webmount-'+i+'" style="margin-top:8px"></div></div>';
-  }).join('');
-  body.querySelectorAll('.webrender').forEach(b=>b.onclick=()=>webOpen(+b.dataset.i));
-  body.querySelectorAll('.websrc').forEach(b=>b.onclick=()=>webSource(+b.dataset.i));
-  body.querySelectorAll('.webclose').forEach(b=>b.onclick=()=>webClose(+b.dataset.i));
+  if(cnt) cnt.textContent=WEBPAGES.length+' page'+(WEBPAGES.length===1?'':'s');
+  capList('webBody', WEBPAGES, webPageHtml, {after:body=>{
+    body.querySelectorAll('.webrender').forEach(b=>b.onclick=()=>webOpen(+b.dataset.i));
+    body.querySelectorAll('.websrc').forEach(b=>b.onclick=()=>webSource(+b.dataset.i));
+    body.querySelectorAll('.webclose').forEach(b=>b.onclick=()=>webClose(+b.dataset.i));
+  }});
 }
 function _webToggleClose(i,on){ const c=document.querySelector('.webclose[data-i="'+i+'"]'); if(c)c.style.display=on?'':'none'; }
 function webOpen(i){
@@ -456,7 +516,11 @@ function renderPluginOutput(o){
 document.getElementById('goBtn').onclick=lookup;
 document.getElementById('target').addEventListener('keydown',e=>{ if(e.key==='Enter') lookup(); });
 document.querySelectorAll('.live').forEach(b=>b.onclick=()=>runLive(b.dataset.view,b));
+document.getElementById('tagExpand').onclick=()=>setAllTags(true);
+document.getElementById('tagCollapse').onclick=()=>setAllTags(false);
+document.getElementById('tagFilter').addEventListener('input',e=>{ TFILTER=e.target.value||''; renderTags(); });
 mountAgentHeader({id:'argos',icon:'🔦',name:'Asset Deep-Dive',sub:'Argos · one asset, the whole story'});
+try{ hMailAuto(); }catch(e){}
 // deep-link: ?target=<uuid|ip> auto-runs
 (function(){ const q=new URLSearchParams(location.search).get('target'); if(q){ document.getElementById('target').value=q; lookup(); } })();
 </script>

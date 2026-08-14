@@ -68,6 +68,7 @@ document.getElementById('go').onclick=()=>go(0);
 document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter')go(0);});
 ['sev','recency'].forEach(id=>document.getElementById(id).onchange=()=>go(0));
 mountAgentHeader({id:'ex_apps',icon:'🌐',name:'WAS Apps Explorer',sub:'Vizsla · search the web-app inventory'});
+try{ hMailAuto(); }catch(e){}
 go(0);
 </script>
 </body></html>

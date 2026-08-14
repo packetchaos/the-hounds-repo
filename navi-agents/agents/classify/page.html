@@ -652,6 +652,7 @@ document.querySelectorAll('.grpby').forEach(b=>b.onclick=()=>{ document.querySel
 
 document.getElementById('run').onclick=run;
 mountAgentHeader({id:'classify',icon:'📇',name:'Asset Classification',sub:'Linnaeus · close the detection loop'});
+try{ hMailAuto(); }catch(e){}
 /* explicit-run: nothing scans navi.db until ▶ Classify assets */
 </script>
 </body></html>

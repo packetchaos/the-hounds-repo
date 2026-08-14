@@ -326,6 +326,7 @@ $('logBtn').onclick=loadLog;
 $('refreshBtn').onclick=async()=>{ flash('flash','<span class="spin"></span> syncing assets+vulns…','run'); try{ await API.post('refresh',{}); }catch(e){} flash('flash','sync kicked off in the background','ok'); setTimeout(loadHosts,1200); };
 
 mountAgentHeader({id:'c2',icon:'🐺',name:'Command & Control',sub:'Amarok · the remediation executor'});
+try{ hMailAuto(); }catch(e){}
 loadStatus(); loadHosts();
 </script>
 </body></html>

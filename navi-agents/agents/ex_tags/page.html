@@ -86,6 +86,7 @@ document.getElementById('ago').onclick=()=>goAssets(0);
 document.getElementById('aq').addEventListener('keydown',e=>{if(e.key==='Enter')goAssets(0);});
 document.getElementById('aclose').onclick=()=>{document.getElementById('acard').style.display='none'; CUR=null;};
 mountAgentHeader({id:'ex_tags',icon:'🏷️',name:'Tag Explorer',sub:'navi.db search · 500/page'});
+try{ hMailAuto(); }catch(e){}
 wireNlBox('tags');
 const _sp=new URLSearchParams(location.search);
 go(0);

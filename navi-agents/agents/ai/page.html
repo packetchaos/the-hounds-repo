@@ -226,6 +226,7 @@ function renderAtlas(){
 document.getElementById('run').onclick=run;
 document.getElementById('tagAll').onclick=function(){ if(!DATA||!DATA.assets.length)return; aiTag('AI','Present',DATA.assets.map(x=>x.asset_uuid),null,this); };
 mountAgentHeader({id:'ai',icon:'🧠',name:'AI Inventory',sub:'Pythia · content-first AI/ML discovery'});
+try{ hMailAuto(); }catch(e){}   /* pack-wide widget + dashboard email (Gabriel) */
 /* no auto-run — user clicks ▶ Run (protects a busy navi.db) */
 </script>
 </body></html>
