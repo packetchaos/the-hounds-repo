@@ -8,10 +8,13 @@
      Tag / ↗ action column stays on-screen instead of forcing horizontal scroll.
      table-layout:fixed is set inline on the <table> so it actually wins. */
   #tbl th,#tbl td{vertical-align:top;overflow:hidden;text-overflow:ellipsis}
-  #tbl td:nth-child(1),#tbl td:nth-child(4),#tbl td:nth-child(6){white-space:nowrap}
-  #tbl td:nth-child(3){white-space:normal}
+  #tbl td.c-nw{white-space:nowrap}
+  #tbl td.c-wrap{white-space:normal}
   #tbl .flagwrap{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
   #tbl .flagwrap .chip{margin:0;white-space:nowrap}
+  /* the Tag action column stays pinned on-screen even when the table scrolls */
+  #tbl td:last-child,#tbl th:last-child{position:sticky;right:0;background:var(--panel);box-shadow:-8px 0 10px -8px rgba(0,0,0,.45)}
+  #colPick .atagchip{font-size:11px}
 </style>
 </head><body>
 <div class="wrap">
@@ -50,15 +53,47 @@
         <button class="atagchip" data-if="machine">🖥 Machine</button>
         <button class="atagchip" data-if="reused">🔁 Reused</button>
         <button class="atagchip" data-if="flagged">⚠ Risk-flagged</button></span></div>
-    <p class="sub" style="margin:4px 0 8px">Each identity maps to the asset(s) it was enumerated on. <b>Tag</b> labels those assets; ↗ opens the asset in Tenable One.</p>
-    <div style="overflow-x:auto"><table id="tbl" style="table-layout:fixed;width:100%"><colgroup><col style="width:180px"><col style="width:104px"><col><col style="width:120px"><col style="width:54px"><col style="width:108px"><col style="width:84px"><col style="width:74px"></colgroup><thead><tr><th>Identity</th><th>Class</th><th>Flags</th><th>Hosts</th><th>Assets</th><th>Plugins</th><th>Platform</th><th></th></tr></thead>
-      <tbody><tr><td colspan="8" class="sub">Press ▶ Run to load…</td></tr></tbody></table></div>
+    <p class="sub" style="margin:4px 0 8px">Each identity maps to the asset(s) it was enumerated on. <b>Tag</b> labels those assets (pinned to the right, always visible); ↗ opens the asset in Tenable One.</p>
+    <div class="toolbar" id="colPick" style="margin:0 0 8px;gap:5px;flex-wrap:wrap"></div>
+    <div style="overflow-x:auto"><table id="tbl" style="table-layout:fixed;width:100%"></table></div>
   </section>
   <footer>Janus · Identity inventory · reads navi.db read-only · gated <span class="mono">navi enrich tag --query</span></footer>
 </div>
 <script src="/static/console.js"></script>
 <script>
 const API=agentApi('identity'); let IDENT=null, WRITES=false, IDENT_FILTER='all';
+/* ---- column model: tighter widths + hide/show (persisted). 'always' columns can't hide;
+   the Tag action column is sticky-right so tagging never scrolls out of view. ---- */
+const COLS=[
+  {k:'identity',label:'Identity',w:150,always:true},
+  {k:'class',   label:'Class',   w:92},
+  {k:'flags',   label:'Flags'},
+  {k:'hosts',   label:'Hosts',   w:100},
+  {k:'assets',  label:'Assets',  w:46},
+  {k:'plugins', label:'Plugins', w:86},
+  {k:'plat',    label:'↗',       w:52},
+  {k:'act',     label:'',        w:58, always:true}];
+function colHidden(){ try{const v=JSON.parse(localStorage.getItem('janusCols')); if(Array.isArray(v))return new Set(v);}catch(e){} return new Set(['plugins']); }
+function colSaveHidden(s){ try{localStorage.setItem('janusCols',JSON.stringify([...s]));}catch(e){} }
+function visCols(){ const h=colHidden(); return COLS.filter(c=>c.always||!h.has(c.k)); }
+function buildHead(msg){
+  const vc=visCols();
+  document.getElementById('tbl').innerHTML='<colgroup>'+vc.map(c=>'<col'+(c.w?' style="width:'+c.w+'px"':'')+'>').join('')+'</colgroup>'
+    +'<thead><tr>'+vc.map(c=>'<th>'+c.label+'</th>').join('')+'</tr></thead>'
+    +'<tbody>'+(msg?('<tr><td colspan="'+vc.length+'" class="sub">'+msg+'</td></tr>'):'')+'</tbody>';
+}
+function mountColPick(){
+  const el=document.getElementById('colPick'); if(!el)return; const h=colHidden();
+  el.innerHTML='<span class="sub">Columns:</span>'+COLS.filter(c=>!c.always).map(c=>
+    '<button class="atagchip'+(h.has(c.k)?'':' on')+'" data-col="'+c.k+'">'+(c.label||c.k)+'</button>').join('')
+    +'<span class="sub" style="font-size:11px">· Tag stays pinned right</span>';
+  el.querySelectorAll('button[data-col]').forEach(b=>b.onclick=()=>{
+    const s=colHidden(); const k=b.dataset.col;
+    if(s.has(k))s.delete(k); else s.add(k);
+    colSaveHidden(s); mountColPick();
+    if(IDENT){ hPageReset('tbl'); render(); } else buildHead('Press ▶ Run to load…');
+  });
+}
 const idCat=k=>k==='nhi'?'NHI':k==='machine'?'Machine ID':'Identity';
 const KC={human:'var(--cx-8b8fe6)',service:'var(--cx-3fb0c9)',nhi:'var(--cx-3fb0c9)',machine:'var(--cx-a97fd6)'};
 const plat=u=>u?`<a href="${esc(u)}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none">Open ↗</a>`:'<span class="sub">—</span>';
@@ -66,10 +101,10 @@ const plat=u=>u?`<a href="${esc(u)}" target="_blank" rel="noopener" style="color
 async function run(){
   const b=document.getElementById('run'); b.disabled=true;
   flash('flash','<span class="spin"></span> sweeping plugin names + output for identities…','run');
-  document.querySelector('#tbl tbody').innerHTML='<tr><td colspan="8" class="sub"><span class="spin"></span> querying…</td></tr>';
+  buildHead('<span class="spin"></span> querying…');
   let o; try{ o=await API.post('run'); }catch(e){ o={ok:false,error:e.message}; }
   b.disabled=false;
-  if(!o||!o.ok||!o.result){ flash('flash','✗ '+esc((o&&(o.error||o.message))||'failed'),'crit'); document.querySelector('#tbl tbody').innerHTML='<tr><td colspan="8" class="sub">Run failed — see message above.</td></tr>'; return; }
+  if(!o||!o.ok||!o.result){ flash('flash','✗ '+esc((o&&(o.error||o.message))||'failed'),'crit'); buildHead('Run failed — see message above.'); return; }
   IDENT=o.result; window.__LLM=!!o.llm_available; flashClear('flash'); hPageReset('tbl'); render();
 }
 function render(){
@@ -105,18 +140,22 @@ function render(){
   // paginated — 484 identities is a long screen, so slice to 50/page with a Prev/Next bar.
   // Keep each identity's ORIGINAL index (i) so the Tag button still resolves across pages.
   const rows=a.map((x,i)=>({x,i})).filter(o=>_im(o.x));
-  const rowHtml=o=>{ const x=o.x, i=o.i; return '<tr>'+
-    '<td class="mono" title="'+esc(x.user)+'"><b>'+esc(x.user)+'</b></td>'+
-    '<td><span class="tagval" style="color:'+(KC[x.klass]||'var(--accent)')+'"'+(x.authority?' title="'+esc(x.authority)+'"':'')+'>'+esc(x.klass)+'</span>'+
-       (x.authority?'<div class="sub" style="font-size:10px;margin-top:2px" title="'+esc(x.authority)+'">📖 '+esc(x.authority.length>44?x.authority.slice(0,42)+'…':x.authority)+'</div>':'')+'</td>'+
-    '<td><div class="flagwrap">'+((x.flags&&x.flags.length)?x.flags.map(fl=>{const benign=fl==='scan credential';const lbl=(benign&&x.scan_credential)?('scan credential ×'+x.scan_credential.hosts+((x.scan_credential.via||[]).length?' ('+x.scan_credential.via.join('/')+')':'')):fl;return '<span class="chip"'+(benign?' title="Nessus scan account (plugin 19506) — high host-count is scanning, not reuse"':'')+' style="'+(benign?'color:var(--ok);border-color:rgba(52,211,153,.4)':'color:var(--cx-ffb4c6);border-color:rgba(255,80,120,.4)')+'">'+esc(lbl)+'</span>';}).join(''):'<span class="sub">—</span>')+'</div></td>'+
-    '<td class="sub" title="'+esc((x.hosts||[]).join(', '))+'">'+esc((x.hosts||[]).slice(0,4).join(', '))+((x.hosts||[]).length>4?' +'+(x.hosts.length-4):'')+'</td>'+
-    '<td>'+((x.asset_uuids||[]).length)+'</td>'+
-    '<td class="mono sub" style="font-size:11px" title="'+esc((x.plugins||[]).join(', '))+'">'+esc((x.plugins||[]).join(', '))+'</td>'+
-    '<td>'+plat(x.url)+'</td>'+
-    '<td><button class="btn sm" data-ii="'+i+'">Tag</button></td></tr>'; };
-  const emptyMsg=a.length?'<tr><td colspan="8" class="sub">No identities of this type in the current view — clear the filter.</td></tr>':'<tr><td colspan="8" class="sub">No identities enumerated — are these hosts credentialed?</td></tr>';
-  hPaginate('tbl', rows, rowHtml, {cols:8, empty:emptyMsg, wire:tb=>{ tb.querySelectorAll('button[data-ii]').forEach(b=>b.onclick=()=>{const x=a[+b.dataset.ii];tagOne(idCat(x.klass),x.user,x.asset_uuids,b);}); }});
+  buildHead('');
+  const vc=visCols();
+  const rowHtml=o=>{ const x=o.x, i=o.i;
+    const CELL={
+      identity:'<td class="mono c-nw" title="'+esc(x.user)+'"><b>'+esc(x.user)+'</b></td>',
+      'class':'<td><span class="tagval" style="color:'+(KC[x.klass]||'var(--accent)')+'"'+(x.authority?' title="'+esc(x.authority)+'"':'')+'>'+esc(x.klass)+'</span>'+
+       (x.authority?'<div class="sub" style="font-size:10px;margin-top:2px" title="'+esc(x.authority)+'">📖 '+esc(x.authority.length>44?x.authority.slice(0,42)+'…':x.authority)+'</div>':'')+'</td>',
+      flags:'<td class="c-wrap"><div class="flagwrap">'+((x.flags&&x.flags.length)?x.flags.map(fl=>{const benign=fl==='scan credential';const lbl=(benign&&x.scan_credential)?('scan credential ×'+x.scan_credential.hosts+((x.scan_credential.via||[]).length?' ('+x.scan_credential.via.join('/')+')':'')):fl;return '<span class="chip"'+(benign?' title="Nessus scan account (plugin 19506) — high host-count is scanning, not reuse"':'')+' style="'+(benign?'color:var(--ok);border-color:rgba(52,211,153,.4)':'color:var(--cx-ffb4c6);border-color:rgba(255,80,120,.4)')+'">'+esc(lbl)+'</span>';}).join(''):'<span class="sub">—</span>')+'</div></td>',
+      hosts:'<td class="sub c-nw" title="'+esc((x.hosts||[]).join(', '))+'">'+esc((x.hosts||[]).slice(0,4).join(', '))+((x.hosts||[]).length>4?' +'+(x.hosts.length-4):'')+'</td>',
+      assets:'<td>'+((x.asset_uuids||[]).length)+'</td>',
+      plugins:'<td class="mono sub c-nw" style="font-size:11px" title="'+esc((x.plugins||[]).join(', '))+'">'+esc((x.plugins||[]).join(', '))+'</td>',
+      plat:'<td>'+plat(x.url)+'</td>',
+      act:'<td><button class="btn sm" data-ii="'+i+'">Tag</button></td>'};
+    return '<tr>'+vc.map(c=>CELL[c.k]).join('')+'</tr>'; };
+  const emptyMsg=a.length?'<tr><td colspan="'+vc.length+'" class="sub">No identities of this type in the current view — clear the filter.</td></tr>':'<tr><td colspan="'+vc.length+'" class="sub">No identities enumerated — are these hosts credentialed?</td></tr>';
+  hPaginate('tbl', rows, rowHtml, {cols:vc.length, empty:emptyMsg, wire:tb=>{ tb.querySelectorAll('button[data-ii]').forEach(b=>b.onclick=()=>{const x=a[+b.dataset.ii];tagOne(idCat(x.klass),x.user,x.asset_uuids,b);}); }});
   document.querySelectorAll('#idFilter button[data-if]').forEach(b=>b.onclick=()=>{ IDENT_FILTER=b.dataset.if; document.querySelectorAll('#idFilter button').forEach(x=>x.classList.toggle('on',x===b)); hPageReset('tbl'); render(); });
 }
 function showRes(o,label){ const r=document.getElementById('tagRes');
@@ -178,6 +217,7 @@ async function tagReused(btn){ if(!IDENT)return; if(btn&&btn.disabled)return;
 document.getElementById('tagReused').onclick=()=>tagReused(document.getElementById('tagReused'));
 document.getElementById('nlGo').onclick=nlInterpret;
 mountAgentHeader({icon:'🆔',name:'Identity Inventory',sub:'Janus · NHI + human + machine identities'});
+mountColPick(); buildHead('Press ▶ Run to load…');
 jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});
 </script>
 </body></html>

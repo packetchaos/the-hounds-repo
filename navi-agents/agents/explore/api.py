@@ -18,7 +18,7 @@ import re
 from core import db, llm, navi_cli
 
 # tables the NL→SQL explorer boxes are allowed to query
-_NL_TABLES = {"assets", "vulns", "vuln_route", "vuln_paths"}
+_NL_TABLES = {"assets", "vulns", "vuln_route", "vuln_paths", "tags"}
 _SQL_BANNED = re.compile(
     r"\b(insert|update|delete|drop|alter|create|attach|detach|pragma|replace|"
     r"vacuum|reindex|truncate|grant|revoke|load_extension|readfile|writefile)\b", re.I)

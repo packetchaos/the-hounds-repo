@@ -1,4 +1,4 @@
-"""navi.db search — powers the UI explorers (Assets, Vulns, Plugins, Routes, Paths).
+"""navi.db search — powers the UI explorers (Assets, Vulns, Plugins, Routes, Paths, Tags).
 
 All read-only (core.db). Paginated 500/page (DB-side LIMIT/OFFSET): each call fetches
 PAGE+1 rows to know if there's a next page. Column-resilient: adapts to whichever
@@ -91,6 +91,59 @@ def plugins(q="", offset=0):
         f"SELECT plugin_id, MAX(plugin_name) AS name, {fam} AS family, "
         f"COUNT(DISTINCT asset_uuid) AS assets FROM vulns {where} "
         f"GROUP BY plugin_id ORDER BY assets DESC LIMIT {PAGE+1} OFFSET {int(offset)};", tuple(params))
+    return _page(rows, int(offset))
+
+
+def tags(q="", offset=0):
+    """Grouped tag list — one row per tag (tag_key : tag_value) with a DISTINCT
+    asset count, so you can see how big each tag is before drilling in."""
+    cols = _cols("tags")
+    if not cols:
+        return _page([], int(offset))
+    has = lambda c: c in cols
+    dt = "tag_added_date" if has("tag_added_date") else None
+    sel = ["tag_key", "tag_value",
+           ("MAX(tag_uuid)" if has("tag_uuid") else "''") + " AS tag_uuid",
+           "COUNT(DISTINCT asset_uuid) AS assets",
+           (f"MIN({dt})" if dt else "''") + " AS first_added",
+           (f"MAX({dt})" if dt else "''") + " AS last_added"]
+    where, params = "", []
+    if q:
+        tc = ["tag_key", "tag_value"] + (["tag_uuid"] if has("tag_uuid") else [])
+        where = "WHERE " + " OR ".join(f"{c} LIKE ?" for c in tc)
+        params = [f"%{q}%"] * len(tc)
+    rows = db.query(f"SELECT {', '.join(sel)} FROM tags {where} "
+                    f"GROUP BY tag_key, tag_value ORDER BY assets DESC, tag_key, tag_value "
+                    f"LIMIT {PAGE+1} OFFSET {int(offset)};", tuple(params))
+    return _page(rows, int(offset))
+
+
+def tag_assets(key, value, q="", offset=0):
+    """The assets carrying ONE tag — tags ⋈ assets, so each row shows the full
+    asset (hostname, IP, OS, ACR/AES, platform url), not just a UUID. Falls back
+    to the tags table's own asset_ip when the asset row isn't in navi.db."""
+    tcols, acols = _cols("tags"), _cols("assets")
+    th, ah = (lambda c: c in tcols), (lambda c: c in acols)
+    ip = ("COALESCE(a.ip_address, t.asset_ip, '')" if th("asset_ip")
+          else "COALESCE(a.ip_address, '')")
+    sel = ["t.asset_uuid AS uuid",
+           "COALESCE(a.hostname, '') AS hostname",
+           ip + " AS ip_address",
+           ("a.operating_system" if ah("operating_system") else "''") + " AS operating_system",
+           ("a.acr" if ah("acr") else "''") + " AS acr",
+           ("a.aes" if ah("aes") else "''") + " AS aes",
+           ("a.url" if ah("url") else "''") + " AS url",
+           ("MAX(t.tag_added_date)" if th("tag_added_date") else "''") + " AS tag_added"]
+    where, params = ["t.tag_key = ?", "t.tag_value = ?"], [key, value]
+    if q:
+        tc = ["a.hostname", "t.asset_uuid", ip] \
+            + (["a.operating_system"] if ah("operating_system") else [])
+        where.append("(" + " OR ".join(f"{c} LIKE ?" for c in tc) + ")")
+        params += [f"%{q}%"] * len(tc)
+    rows = db.query(
+        f"SELECT {', '.join(sel)} FROM tags t LEFT JOIN assets a ON a.uuid = t.asset_uuid "
+        f"WHERE {' AND '.join(where)} GROUP BY t.asset_uuid "
+        f"ORDER BY hostname, ip_address LIMIT {PAGE+1} OFFSET {int(offset)};", tuple(params))
     return _page(rows, int(offset))
 
 

@@ -252,10 +252,16 @@ def scent_board(db_path=None):
     try:
         from core import compliance as _comp
         co = _comp.overview(db_path)
-        if co.get("available") and co.get("assets_total"):
-            fails = co.get("assets_failing", co.get("failing", 0))
+        # compliance.overview() returns assets / assets_rows / pass_pct — NOT the
+        # assets_total / assets_failing keys this tile once guessed at (that mismatch
+        # made the tile read "no audit data yet" even with a populated table).
+        if co.get("available") and (co.get("assets_total") or co.get("assets")):
+            fails = co.get("assets_failing", co.get("failing"))
+            if fails is None:   # assets with ≥1 FAILED check, from the per-asset scorecards
+                fails = sum(1 for a in (co.get("assets_rows") or [])
+                            if (a.get("failed") or 0) > 0)
             posture.append(tile("compliance", "Compliance", "Minos", "⚖️",
-                                 f"{co.get('pass_pct', co.get('compliant_pct', 0))}%",
+                                 f"{co.get('pass_pct', co.get('compliant_pct', 0)) or 0}%",
                                  f"{fails} failing", "crit" if fails else "ok", "/agents/compliance/page.html"))
         else:
             posture.append(tile("compliance", "Compliance", "Minos", "⚖️", "—", "no audit data yet", "off", "/agents/compliance/page.html"))

@@ -66,6 +66,14 @@
   .mini{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin-top:8px}
   .mn{border:1px solid var(--line);border-radius:9px;background:var(--bg-2);padding:9px 11px;text-decoration:none;color:inherit}
   .mn .mv{font-family:var(--display);font-weight:700;font-size:18px}.mn .ml{font-size:10.5px;color:var(--ink-3)}
+  /* per-widget email (Gabriel `data` action — same as the Custom Dashboard widgets) */
+  section.card,.lead{position:relative}
+  .embtn{position:absolute;top:11px;right:13px;background:transparent;border:1px solid var(--line);color:var(--ink-3);
+    border-radius:8px;padding:4px 9px;font-size:11px;cursor:pointer;z-index:2}
+  .embtn:hover{border-color:var(--accent);color:var(--ink)}
+  .emrow{display:none;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;border-top:1px dashed var(--line);padding-top:9px;flex-basis:100%}
+  .emrow input{background:var(--bg-2);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:12px;min-width:210px;flex:1}
+  .emrow .res{font-size:11.5px;flex-basis:100%}
 </style>
 </head><body>
 <div class="wrap">
@@ -84,34 +92,7 @@
     <a class="go" href="/agents/fused_score/page.html">🎯 Act now in Nemesis →</a>
   </div>
 
-  <div class="g2" id="topRow" style="display:none">
-    <section class="card">
-      <h3 class="ct">📉 Exposure distribution — how bad is the estate?</h3>
-      <p class="sub" style="margin:2px 0 0">Every asset placed in a fused-score band. A fat red slice is a fire; a fat green slice is a healthy estate.</p>
-      <div class="dist" id="dist"></div>
-      <div class="distleg" id="distleg"></div>
-    </section>
-    <section class="card">
-      <h3 class="ct">👁 Coverage — what can the pack actually see?</h3>
-      <p class="sub" style="margin:2px 0 0">Each bar is a slice of the estate the pack has visibility into. The gaps are your risk-by-absence.</p>
-      <div class="cov" id="cov"></div>
-    </section>
-  </div>
-
-  <div class="gr" id="riskRow" style="display:none">
-    <section class="card">
-      <div class="toolbar" style="margin:0"><div><h3 class="ct">🎯 Where the estate's risk comes from</h3>
-        <p class="sub" style="margin:2px 0 0">Fused exposure attributed to the Hound that detects it — the % share of total estate risk, and how saturated that signal is (0–100).</p></div></div>
-      <div class="hb" id="risk"></div>
-    </section>
-    <section class="card">
-      <h3 class="ct">🕸 Pack detection radar</h3>
-      <p class="sub" style="margin:2px 0 6px">Every detection domain at once — a spike is a domain the pack is lighting up across the estate.</p>
-      <div class="radarwrap" id="radar"></div>
-    </section>
-  </div>
-
-  <section class="card" id="reductionCard" style="display:none">
+  <section class="card" id="reductionCard" style="display:none;margin-top:16px">
     <h3 class="ct">📉 The reduction — CVE → Plugin → App → Path</h3>
     <p class="sub" style="margin:2px 0 0">Most teams track <b>CVEs</b> — the most duplicated unit of work. Multiple CVEs roll up into one <b>plugin</b> (a single detection &amp; fix), plugins into one <b>app / route</b> (the owner-actionable unit), and each app spreads across many <b>paths</b>. Climb the ladder and the backlog collapses: own a handful of apps instead of tens of thousands of CVEs.</p>
     <div id="funnel" style="margin:8px 0 2px"></div>
@@ -123,6 +104,33 @@
     <p class="sub" style="margin:2px 0 0">Where two signals land on the <b>same</b> asset and multiply the risk — the correlations no single Hound flags. Click into Nemesis.</p>
     <div class="conv" id="conv"></div>
   </section>
+
+  <div class="g2" id="topRow" style="display:none">
+    <section class="card" id="distCard">
+      <h3 class="ct">📉 Exposure distribution — how bad is the estate?</h3>
+      <p class="sub" style="margin:2px 0 0">Every asset placed in a fused-score band. A fat red slice is a fire; a fat green slice is a healthy estate.</p>
+      <div class="dist" id="dist"></div>
+      <div class="distleg" id="distleg"></div>
+    </section>
+    <section class="card" id="covCard">
+      <h3 class="ct">👁 Coverage — what can the pack actually see?</h3>
+      <p class="sub" style="margin:2px 0 0">Each bar is a slice of the estate the pack has visibility into. The gaps are your risk-by-absence.</p>
+      <div class="cov" id="cov"></div>
+    </section>
+  </div>
+
+  <div class="gr" id="riskRow" style="display:none">
+    <section class="card" id="riskCard">
+      <div class="toolbar" style="margin:0"><div><h3 class="ct">🎯 Where the estate's risk comes from</h3>
+        <p class="sub" style="margin:2px 0 0">Fused exposure attributed to the Hound that detects it — the % share of total estate risk, and how saturated that signal is (0–100).</p></div></div>
+      <div class="hb" id="risk"></div>
+    </section>
+    <section class="card" id="radarCard">
+      <h3 class="ct">🕸 Pack detection radar</h3>
+      <p class="sub" style="margin:2px 0 6px">Every detection domain at once — a spike is a domain the pack is lighting up across the estate.</p>
+      <div class="radarwrap" id="radar"></div>
+    </section>
+  </div>
 
   <section class="card" id="postureCard" style="display:none">
     <h3 class="ct">📊 Estate posture — every Hound at a glance</h3>
@@ -256,6 +264,69 @@ function renderBoard(b){
     mn(c.mitre_high_acr,'ATT&CK on high-ACR','/agents/mitre/page.html');
   ['leadCard','topRow','riskRow','convCard','postureCard','blindCard','moreCard'].forEach(id=>{
     const el=document.getElementById(id); el.style.display=(id==='leadCard')?'flex':(id==='topRow'||id==='riskRow')?'grid':'block';});
+  LASTB=b; mountMail();
+}
+/* ---- per-widget email — sends THIS card's data via Gabriel's `data` action
+   (same payload as the Custom Dashboard widgets: {to,title,note,columns,rows,confirm}) ---- */
+const EMAIL=agentApi('email');
+let LASTB=null;
+const _SECT={
+  leadCard:{title:'Act now — Nemesis lead',rows:b=>{const n=b.nemesis||{};
+    return [{metric:'assets scored CRITICAL',value:n.critical||0},
+            {metric:'estate exposure',value:n.estate||0},
+            {metric:'average score',value:n.avg||0},
+            {metric:'high (score ≥60)',value:n.high||0},
+            {metric:'assets',value:b.asset_total||0}]
+      .concat((n.top||[]).slice(0,3).map(t=>({metric:'worst offender — '+t.host,value:t.score})));}},
+  reductionCard:{title:'The reduction — CVE → Plugin → App → Path',rows:b=>{const F=b.reduction||{},c=b.champion;
+    const r=[{stage:'CVE line-items',count:F.cves||0},
+             {stage:'Findings (asset × plugin)',count:F.findings||0},
+             {stage:'Plugins — unique fixes',count:F.plugins||0},
+             {stage:'Apps / routes — own here',count:F.routes||0},
+             {stage:'Paths',count:F.paths||0}];
+    if(c) r.push({stage:'🏆 champion fix — '+c.name+' (plugin '+(c.plugin_id||'')+')',count:c.cve_count||0});
+    return r;}},
+  convCard:{title:'Cross-Hound surprises',rows:b=>(b.convergence||[]).map(x=>({assets:x.count,surprise:x.text,severity:x.sev||''}))},
+  distCard:{title:'Exposure distribution',rows:b=>(b.bands||[]).map(x=>({band:x.label,assets:x.count,range:x.sub||''}))},
+  covCard:{title:'Coverage — what the pack can see',rows:b=>(b.funnel||[]).map(f=>({coverage:f.label,assets:f.count,note:f.note||''}))},
+  riskCard:{title:'Where the risk comes from',rows:b=>(b.risk_by_hound||[]).map(r=>({signal:r.label,hound:r.hound,share_pct:r.pct,saturation:r.sat}))},
+  radarCard:{title:'Pack detection radar',rows:b=>(b.radar||[]).map(a=>({domain:a.axis,intensity:a.value}))},
+  postureCard:{title:'Estate posture',rows:b=>(b.posture||[]).map(t=>({domain:t.domain,hound:t.hound||'',value:String(t.value),detail:t.sub||'',status:t.status}))},
+  blindCard:{title:'Blind spots',rows:b=>(b.blind||[]).map(x=>({blind_spot:x.label,count:x.count,detail:x.sub||'',severity:x.sev||''}))},
+  moreCard:{title:'More numbers',rows:b=>{const c=b.classic||{};
+    return [['certs failing 12mo',c.certs_failing],['certs expired',c.certs_expired],['IoT devices',c.iot_devices],
+            ['identities',c.identities],['no software inventory',c.shadow_assets],['exposure routes',c.custom_apps],
+            ['cloud assets',c.cloud_assets],['ATT&CK on high-ACR',c.mitre_high_acr]]
+      .map(([m,v])=>({metric:m,value:v==null?'—':v}));}},
+};
+function mountMail(){
+  Object.keys(_SECT).forEach(id=>{
+    const card=document.getElementById(id); if(!card||card.querySelector('.embtn')) return;
+    const btn=document.createElement('button'); btn.className='embtn'; btn.title='Email this widget\'s data (Gabriel)'; btn.textContent='📧 Email';
+    const row=document.createElement('div'); row.className='emrow';
+    row.innerHTML='<input type="email" placeholder="recipient@company.com"><button class="btn run sm">▶ Send</button>'+
+      '<button class="btn ghost sm">✕</button><span class="res"></span>';
+    card.appendChild(btn); card.appendChild(row);
+    const [inp,send,cancel]=[row.querySelector('input'),row.querySelectorAll('button')[0],row.querySelectorAll('button')[1]];
+    btn.onclick=()=>{ const show=row.style.display!=='flex'; row.style.display=show?'flex':'none'; if(show)inp.focus(); };
+    cancel.onclick=()=>{ row.style.display='none'; row.querySelector('.res').innerHTML=''; };
+    const go=async()=>{
+      const to=(inp.value||'').trim(), res=row.querySelector('.res');
+      if(!to){ res.innerHTML='<span style="color:var(--crit)">enter a recipient</span>'; return; }
+      const rows=(LASTB?_SECT[id].rows(LASTB):[])||[];
+      if(!rows.length){ res.innerHTML='<span style="color:var(--crit)">no data on this widget yet</span>'; return; }
+      send.disabled=true; res.innerHTML='<span class="spin"></span> sending…';
+      const payload={to,title:'On the Scent — '+_SECT[id].title,note:'Sphinx estate rollup · point-in-time navi.db snapshot',
+                     columns:Object.keys(rows[0]),rows,confirm:true};
+      let o; try{ o=await EMAIL.post('data',payload); }catch(e){ o={ok:false,error:e.message}; }
+      send.disabled=false;
+      if(o&&o.ok){ const how=o.mode==='attachment'?('CSV attached ('+esc(o.attached||'data.csv')+')'):'inline table';
+        res.innerHTML='<span style="color:var(--ok)">✓ sent '+rows.length+' row(s) to '+esc(to)+' — '+how+'</span>'; }
+      else if(o&&o.blocked){ res.innerHTML='<span style="color:var(--cx-e7c66b)">email disabled — '+esc(o.reason||'set NAVI_ALLOW_WRITES=1 and NAVI_EMAIL=1')+'</span>'; }
+      else { res.innerHTML='<span style="color:var(--crit)">✗ '+esc((o&&(o.error||o.message))||'failed')+'</span>'; }
+    };
+    send.onclick=go; inp.addEventListener('keydown',e=>{ if(e.key==='Enter')go(); });
+  });
 }
 async function load(){
   const b=document.getElementById('run'); b.disabled=true;

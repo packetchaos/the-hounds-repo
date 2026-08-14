@@ -1,0 +1,15 @@
+{
+  "id": "ex_tags",
+  "name": "Tag Explorer",
+  "icon": "🏷️",
+  "order": 27,
+  "category": "Explore",
+  "codename": "Basset",
+  "summary": "Search navi.db tags by category or value — asset counts per tag, plus a drill-down joined to the assets table showing exactly which assets carry each tag. Read-only navi.db search.",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": [
+    "search",
+    "assets"
+  ]
+}

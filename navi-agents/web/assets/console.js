@@ -182,6 +182,7 @@ const CODENAMES = {
  ex_plugins:{name:'Foxhound',lore:'The <b>Foxhound</b> — bred to flush quarry from cover. The plugin explorer flushes out every distinct plugin.'},
  ex_routes:{name:'Wolfhound',lore:'The <b>Wolfhound</b> — large enough to run down a wolf. The route explorer runs down application routes.'},
  ex_paths:{name:'Greyhound',lore:'The <b>Greyhound</b> — fastest of the hounds. The path explorer sprints through filesystem paths.'},
+ ex_tags:{name:'Basset',lore:'The <b>Basset</b> — nose held low, bred to read every scent mark on the trail. The tag explorer reads the marks the pack leaves — every tag category and value, and exactly which assets carry them.'},
  argos:{name:'Argos Hound',lore:'<b>Argos</b>, Odysseus’s faithful hound — the only one who knew his master’s true identity after twenty years. Give it one UUID or IP and it recognizes that asset across every table, telling its whole story.'},
  was_asset:{name:'Beagle',lore:'The <b>Beagle</b> — a scent hound that works a trail to map exactly where its quarry has been. Argos for web apps: point it at one app and it follows navi’s WAS info plugins to lay out the terrain — sitemap, scan telemetry, target facts, the screenshot, external URLs, cookies and methods — every plugin clickable to its raw stored output.'},
  compliance:{name:'Minos',lore:'<b>Minos</b>, the mythic judge who weighs each case and renders a verdict — here he weighs the estate against its audit benchmarks. Pass, fail, warning; the controls failing the most assets; how failures map to NIST, PCI, HIPAA, CIS and ISO — and a way to assign an Audit Owner to a control’s failing assets.'},
@@ -261,7 +262,7 @@ const DEEP_DIVE = {
 };
 /* search / explorer agents have no origin article — no deep dive for them.
    postquantum + attackpath were built on THIS project (not from the navi origin), so no origin story. */
-const _DD_SKIP = new Set(['ex_assets','ex_vulns','ex_plugins','ex_routes','ex_paths','postquantum','attackpath',
+const _DD_SKIP = new Set(['ex_assets','ex_vulns','ex_plugins','ex_routes','ex_paths','ex_tags','postquantum','attackpath',
   'advsearch','advanced','explore','dash','dashboard','mcpcmp','customdash','tags','tagdetail','taglog','tags-log','asset','vuln']);  /* search / explorer / generic tools — no hound origin story */
 function deepDive(id){ if(_DD_SKIP.has(id)) return null; return (typeof DEEP_DIVE!=='undefined') && (DEEP_DIVE[id] || DEEP_DIVE._fallback) || null; }
 function deepDiveChips(id){
@@ -394,6 +395,9 @@ const AGENT_INTRO = {
  ex_paths:{does:"The path explorer — search vulnerable filesystem / URL paths.",caps:[
    "Search paths by substring and see the assets + plugins behind them.",
    "Source data for custom-app discovery and ownership mapping."]},
+ ex_tags:{does:"The tag explorer — browse every tag in navi.db and see exactly which assets carry it.",caps:[
+   "Search tags by category or value, with a DISTINCT asset count per tag.",
+   "Drill into any tag for its assets — joined to the assets table (host, IP, OS, ACR/AES, platform link, Argos deep-dive)."]},
  argos:{does:"Give it one asset — a UUID or an IP — and it tells the whole story on a single dashboard: risk band, the pack's tags deciphered, top CVEs, software and certs.",caps:[
    "Looks an asset up by <span class='mono'>UUID</span> or <span class='mono'>IP</span> (navi explore uuid takes either) and resolves it across every navi.db table.",
    "<b>Deciphers the pack's tags</b> — each tag shows what it means and which Hound raised it (Laelaps → CISA KEV, Certania → cert failure, Charon → EOL, Heimdall → post-quantum…).",
@@ -436,7 +440,7 @@ function _introStyle(){
 /* Search / explorer agents are plain tools — no hound codename, crest, or origin story.
    They're too simple for the "agent" persona, so the whole codename block is skipped
    and only the plain page header (mountAgentHeader) shows. */
-const _NO_CODENAME=new Set(['ex_assets','ex_vulns','ex_plugins','ex_routes','ex_paths','explore','advanced','advsearch']);
+const _NO_CODENAME=new Set(['ex_assets','ex_vulns','ex_plugins','ex_routes','ex_paths','ex_tags','explore','advanced','advsearch']);
 function _mountCodename(host){
   const id = window.__AGENT_ID||''; const cn = CODENAMES[id]; if(!cn) return;
   if(_NO_CODENAME.has(id)){ const ex=document.getElementById('agent-codename'); if(ex)ex.remove(); return; }
@@ -615,6 +619,7 @@ const SEARCH_PAGES = [
   ['🔎 Assets',  '/agents/ex_assets/page.html'],
   ['🔎 Vulns',   '/agents/ex_vulns/page.html'],
   ['🔎 Plugins', '/agents/ex_plugins/page.html'],
+  ['🔎 Tags',    '/agents/ex_tags/page.html'],
   ['🔎 Routes',  '/agents/ex_routes/page.html'],
   ['🔎 Paths',   '/agents/ex_paths/page.html'],
   ['🔎 Apps',    '/agents/ex_apps/page.html'],

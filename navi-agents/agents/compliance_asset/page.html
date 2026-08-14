@@ -217,6 +217,7 @@ function afOptions(){
   sel.value=AFILE;
 }
 async function renderAudit(){
+  try{ history.replaceState(null,'', AFILE?('?audit='+encodeURIComponent(AFILE)):location.pathname); }catch(_){}
   if(!AUD||!AUD.available){ document.getElementById('body').innerHTML='<section class="card"><p class="sub">No compliance data. Populate with <span class="mono">navi config update compliance</span>.</p></section>'; return; }
   if(!AFILE){ renderAuditAggregate(); return; }
   flash('flash','<span class="spin"></span> opening '+esc(AFILE)+'…','run');
@@ -295,6 +296,8 @@ document.querySelectorAll('#lensSeg .seg').forEach(s=>s.onclick=()=>setLens(s.ge
 document.getElementById('afsel').onchange=e=>{ AFILE=e.target.value; renderAudit(); };
 
 mountAgentHeader({id:'compliance_asset',icon:'🔍',name:'Compliance Deep-Dive',sub:'Tiresias · audit + vuln links · by asset or audit file'});
-CURR=q('asset')||q('target'); setLens('asset');
+CURR=q('asset')||q('target');
+const _afq=q('audit')||q('file');
+if(_afq){ AFILE=_afq; setLens('audit'); } else { setLens('asset'); }
 </script>
 </body></html>

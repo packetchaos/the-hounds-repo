@@ -575,7 +575,10 @@ def host_identities(uuid, db_path=None):
             if "[" in line and "system accounts" in low:
                 section = "system"; last = None; continue
             m = _HI_USER.match(line)
-            if not m and pid in ("10860", "10785"):
+            # dash-list plugins: 10860/10785 (SMB enum) AND 10914/10915 (Windows
+            # local users: never-changed-password / never-logged-in) — all emit
+            # "  - <account>" lines, no User:/Username: prefix.
+            if not m and pid in ("10860", "10785", "10914", "10915"):
                 m = _HI_DASH.match(line)
             if m:
                 u = m.group(1)
