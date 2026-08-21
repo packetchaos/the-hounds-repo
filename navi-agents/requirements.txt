@@ -1,5 +1,10 @@
-# Core has no third-party deps (uses stdlib sqlite3 + subprocess).
+# Core has no third-party deps (uses stdlib sqlite3 + subprocess + urllib).
 # Install only the server framework you intend to run.
+#
+# Reasoning layer (optional — see BYO_MODEL.md): Anthropic, any OpenAI-compatible
+# endpoint, and local Ollama all run on the stdlib. AWS Bedrock is the ONE provider
+# that needs a package, for AWS credential resolution + SigV4 signing:
+#   boto3>=1.34        # only when NAVI_LLM_PROVIDER=bedrock
 
 # FastAPI server
 fastapi>=0.110

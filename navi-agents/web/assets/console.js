@@ -1012,14 +1012,22 @@ function mountTopNav(){
 if(document.readyState !== 'loading') mountTopNav();
 else document.addEventListener('DOMContentLoaded', mountTopNav);
 
-/* Claude API-key indicator. The AI features (ask-which-agent, NL→SQL, contract
-   policy, cert reasoning) call Claude, which needs ANTHROPIC_API_KEY on the server.
-   Green when a key is present; amber warning when it's missing so the operator knows
-   why the ✨ features are greyed out. h.llm comes from /api/health. */
+/* Reasoning-provider indicator — BRING YOUR OWN MODEL. The AI features
+   (ask-which-agent, NL→SQL, contract policy, cert reasoning) run on whichever
+   provider is configured: Claude, an OpenAI-compatible endpoint, a local Ollama,
+   or Bedrock. Green with the provider + model when reachable; amber with the
+   actionable reason when not. h.llm / h.llm_provider / h.llm_model / h.llm_why
+   come from /api/health. */
+const _LLM_LABEL={anthropic:'✦ Claude', openai:'✦ OpenAI-compatible',
+                  ollama:'✦ Local · Ollama', bedrock:'✦ AWS Bedrock'};
 function claudeChip(h){
-  const ok = !!(h && h.llm);
-  if(ok) return `<span class="chip" title="Claude API key detected — AI features enabled" style="background:var(--ok-bg);border-color:var(--ok);color:var(--ok)">✦ Claude AI</span>`;
-  return `<span class="chip" title="No ANTHROPIC_API_KEY on the server — AI features (ask-which-agent, NL→SQL, contract policy, cert reasoning) are disabled. Set ANTHROPIC_API_KEY and restart." style="background:rgba(251,191,36,.14);border-color:rgba(251,191,36,.45);color:var(--warn,#fbbf24)">⚠ Claude: no API key</span>`;
+  const ok=!!(h&&h.llm), prov=(h&&h.llm_provider)||'', model=(h&&h.llm_model)||'';
+  if(ok){
+    const label=(_LLM_LABEL[prov]||'✦ AI')+(model?(' · '+model):'');
+    return `<span class="chip" title="Reasoning runs on ${esc(prov||'a configured provider')}${model?(' — model '+esc(model)):''}. AI features enabled." style="background:var(--ok-bg);border-color:var(--ok);color:var(--ok)">${esc(label)}</span>`;
+  }
+  const why=(h&&h.llm_why)||'No model configured. Pick a provider on the Settings page — Claude, any OpenAI-compatible endpoint, a local Ollama, or Bedrock.';
+  return `<span class="chip" title="${esc(why)} The AI features (ask-which-agent, NL→SQL, contract policy, cert reasoning) are disabled; every detection, score and dashboard still works." style="background:rgba(251,191,36,.14);border-color:rgba(251,191,36,.45);color:var(--warn,#fbbf24)">⚠ AI: no model</span>`;
 }
 
 /* Mount the shared header (logo, title, live health chips). */

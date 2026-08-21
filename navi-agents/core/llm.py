@@ -1,11 +1,29 @@
-"""Natural-language → ACR changes via the Anthropic API (standalone backend).
+"""The pack's reasoning layer — BRING YOUR OWN MODEL.
 
-Turns an operator's plain-English instruction into a validated list of ACR
-changes against the live tag list. The model only *proposes*; the UI previews
-and the human approves before any gated write.
+Every agent's "propose" step (cert triage, ACR planning, ownership mapping,
+NL→SQL, contract policy…) funnels through ONE function here: `_messages()`.
+The model only *proposes*; the UI previews and the human approves before any
+gated write — so a smaller / local model is noisier, never more dangerous.
 
-Config: set ANTHROPIC_API_KEY (and optionally ANTHROPIC_MODEL). With no key the
-caller falls back to the deterministic rule parser, so the app still works.
+Four providers, selected with NAVI_LLM_PROVIDER:
+  anthropic  (default)  ANTHROPIC_API_KEY               api.anthropic.com
+  openai                OPENAI_API_KEY / NAVI_LLM_API_KEY + NAVI_LLM_BASE_URL
+                        → OpenAI, OpenRouter, vLLM, Together, Groq, LM Studio,
+                          Azure-style deployments — anything /chat/completions
+  ollama                NAVI_LLM_BASE_URL (default http://127.0.0.1:11434)
+                        → fully local, no key, no data leaves the machine
+  bedrock               AWS creds + AWS_REGION, via the model-agnostic Converse
+                        API (needs boto3 — the only optional dependency)
+
+Common env:
+  NAVI_LLM_PROVIDER   anthropic | openai | ollama | bedrock  (blank = auto-detect)
+  NAVI_LLM_MODEL      model id for the chosen provider
+  NAVI_LLM_BASE_URL   endpoint override (OpenAI-compatible / Ollama / self-hosted)
+  NAVI_LLM_API_KEY    generic key (per-provider keys still work)
+  NAVI_LLM_MAX_TOKENS output ceiling (ANTHROPIC_MAX_TOKENS still honoured)
+
+With nothing configured, `available()` is False and every caller falls back to
+its deterministic path, so the whole pack still runs — see BYO_MODEL.md.
 """
 import json
 import os
@@ -14,8 +32,85 @@ import ssl
 import urllib.error
 import urllib.request
 
-API_URL = "https://api.anthropic.com/v1/messages"
-DEFAULT_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+# --------------------------------------------------------------------------- #
+#  Provider selection                                                          #
+# --------------------------------------------------------------------------- #
+PROVIDERS = ("anthropic", "openai", "ollama", "bedrock")
+
+_MODEL_DEFAULTS = {
+    "anthropic": "claude-haiku-4-5-20251001",
+    "openai": "gpt-4o-mini",
+    "ollama": "llama3.1",
+    "bedrock": "anthropic.claude-3-5-haiku-20241022-v1:0",
+}
+_BASE_DEFAULTS = {
+    "anthropic": "https://api.anthropic.com",
+    "openai": "https://api.openai.com/v1",
+    "ollama": "http://127.0.0.1:11434",
+    "bedrock": "",                       # region-derived, see _bedrock_url()
+}
+
+
+def _detect_provider() -> str:
+    """Explicit NAVI_LLM_PROVIDER wins; otherwise infer from whichever key/endpoint
+    is present. Falls back to 'anthropic' so existing installs behave identically."""
+    p = (os.environ.get("NAVI_LLM_PROVIDER") or "").strip().lower()
+    if p:
+        return p                          # validated at call time, with a clear error
+    if os.environ.get("ANTHROPIC_API_KEY"):
+        return "anthropic"
+    if os.environ.get("OPENAI_API_KEY"):
+        return "openai"
+    if os.environ.get("OLLAMA_HOST"):
+        return "ollama"
+    if os.environ.get("NAVI_LLM_BASE_URL"):
+        return "openai"                   # a bare endpoint = OpenAI-compatible
+    return "anthropic"
+
+
+PROVIDER = _detect_provider()
+
+
+def _model_default(provider=None) -> str:
+    return _MODEL_DEFAULTS.get(provider or PROVIDER, _MODEL_DEFAULTS["anthropic"])
+
+
+# NAVI_LLM_MODEL wins everywhere; ANTHROPIC_MODEL still works (back-compat).
+DEFAULT_MODEL = (os.environ.get("NAVI_LLM_MODEL") or os.environ.get("ANTHROPIC_MODEL")
+                 or _model_default())
+
+
+def base_url(provider=None) -> str:
+    """Endpoint for the active provider, without a trailing slash."""
+    p = provider or PROVIDER
+    v = (os.environ.get("NAVI_LLM_BASE_URL") or "").strip()
+    if not v and p == "openai":
+        v = (os.environ.get("OPENAI_BASE_URL") or "").strip()
+    if not v and p == "ollama":
+        v = (os.environ.get("OLLAMA_HOST") or "").strip()
+        if v and not v.startswith(("http://", "https://")):
+            v = "http://" + v
+    return (v or _BASE_DEFAULTS.get(p, "")).rstrip("/")
+
+
+def api_key(provider=None) -> str:
+    """The provider-specific key wins over the generic one, so a leftover
+    NAVI_LLM_API_KEY from another provider can't shadow a real ANTHROPIC_API_KEY /
+    OPENAI_API_KEY after you switch."""
+    p = provider or PROVIDER
+    generic = (os.environ.get("NAVI_LLM_API_KEY") or "").strip()
+    if p == "anthropic":
+        return (os.environ.get("ANTHROPIC_API_KEY") or "").strip() or generic
+    if p == "openai":
+        return (os.environ.get("OPENAI_API_KEY") or "").strip() or generic
+    return generic                        # ollama needs none; bedrock uses AWS creds
+
+
+def _aws_region() -> str:
+    return (os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "").strip()
+
+
+API_URL = base_url("anthropic") + "/v1/messages"      # kept for back-compat
 
 
 def _int_env(name: str, default: int) -> int:
@@ -32,7 +127,7 @@ def _int_env(name: str, default: int) -> int:
 # the input count but never exceed this; it is also enforced centrally in
 # _messages(), so lowering it forces EVERY agent down. Configurable for older models
 # with a smaller output cap, or to allow larger estates. Default 8000 suits haiku-4.5.
-MAX_TOKENS_CAP = _int_env("ANTHROPIC_MAX_TOKENS", 8000)
+MAX_TOKENS_CAP = _int_env("NAVI_LLM_MAX_TOKENS", _int_env("ANTHROPIC_MAX_TOKENS", 8000))
 
 
 def _scaled_budget(n_items: int, per_item: int = 90, base: int = 400) -> int:
@@ -76,10 +171,50 @@ SYSTEM = (
 
 
 def available() -> bool:
-    return bool(os.environ.get("ANTHROPIC_API_KEY"))
+    """Is a model reachable with the current configuration? Never raises — the whole
+    pack treats False as 'use the deterministic path'."""
+    if PROVIDER == "ollama":
+        return bool(base_url())                       # local endpoint, no key
+    if PROVIDER == "bedrock":
+        return bool(_aws_region()) and bool(
+            os.environ.get("AWS_ACCESS_KEY_ID") or os.environ.get("AWS_PROFILE")
+            or os.environ.get("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI")
+            or os.environ.get("AWS_ROLE_ARN"))
+    if PROVIDER in ("anthropic", "openai"):
+        return bool(api_key())
+    return False                                      # unknown provider → disabled
 
 
-# ---- API token usage (in-memory tally since server start; surfaced on the Settings page) ----
+def config() -> dict:
+    """What the reasoning layer is pointed at — for the Settings page, /api/health
+    and check_llm.py. Never includes the key itself."""
+    return {"provider": PROVIDER, "model": DEFAULT_MODEL, "base_url": base_url(),
+            "available": available(), "max_tokens": MAX_TOKENS_CAP,
+            "region": (_aws_region() if PROVIDER == "bedrock" else ""),
+            "key_set": bool(api_key()), "providers": list(PROVIDERS)}
+
+
+def why_unavailable() -> str:
+    """One actionable sentence for the operator when available() is False."""
+    if PROVIDER not in PROVIDERS:
+        return (f"NAVI_LLM_PROVIDER='{PROVIDER}' is not recognised — use one of: "
+                + ", ".join(PROVIDERS) + ".")
+    if PROVIDER == "anthropic":
+        return ("No ANTHROPIC_API_KEY. Create one at platform.claude.com/settings/keys "
+                "(starts sk-ant-), or switch NAVI_LLM_PROVIDER to ollama for a local model.")
+    if PROVIDER == "openai":
+        return ("No API key for the OpenAI-compatible endpoint. Set OPENAI_API_KEY or "
+                "NAVI_LLM_API_KEY (and NAVI_LLM_BASE_URL if you're not using api.openai.com).")
+    if PROVIDER == "ollama":
+        return ("No endpoint for Ollama. Set NAVI_LLM_BASE_URL (default "
+                "http://127.0.0.1:11434) and make sure `ollama serve` is running.")
+    if PROVIDER == "bedrock":
+        return ("Bedrock needs AWS_REGION plus credentials (AWS_ACCESS_KEY_ID/"
+                "AWS_SECRET_ACCESS_KEY, AWS_PROFILE, or an instance/task role).")
+    return "No model configured."
+
+
+# ---- token usage (in-memory tally since server start; surfaced on the Settings page) ----
 USAGE = {"calls": 0, "input_tokens": 0, "output_tokens": 0, "last": None}
 
 
@@ -87,7 +222,21 @@ def usage() -> dict:
     u = dict(USAGE)
     u["total_tokens"] = u["input_tokens"] + u["output_tokens"]
     u["model"] = DEFAULT_MODEL
+    u["provider"] = PROVIDER
     return u
+
+
+def _tally(inp, out):
+    """Normalise every provider's token accounting into one tally."""
+    try:
+        inp, out = int(inp or 0), int(out or 0)
+        USAGE["calls"] += 1
+        USAGE["input_tokens"] += inp
+        USAGE["output_tokens"] += out
+        USAGE["last"] = {"model": DEFAULT_MODEL, "provider": PROVIDER,
+                         "input": inp, "output": out}
+    except Exception:
+        pass
 
 
 def reset_usage():
@@ -95,11 +244,25 @@ def reset_usage():
 
 
 def set_model(m):
-    """Change the model live (ANTHROPIC_MODEL is otherwise bound at import)."""
+    """Change the model live (NAVI_LLM_MODEL is otherwise bound at import)."""
     global DEFAULT_MODEL
     if m:
         DEFAULT_MODEL = str(m).strip()
     return DEFAULT_MODEL
+
+
+def set_provider(p):
+    """Switch provider live from the Settings page. When the model still looks like
+    the previous provider's default, move it to the new provider's default too —
+    otherwise 'ollama' would inherit a claude-* model id and fail confusingly."""
+    global PROVIDER, DEFAULT_MODEL, API_URL
+    p = (str(p or "").strip().lower() or _detect_provider())
+    was_default = DEFAULT_MODEL in _MODEL_DEFAULTS.values()
+    PROVIDER = p
+    if was_default and not (os.environ.get("NAVI_LLM_MODEL") or "").strip():
+        DEFAULT_MODEL = _model_default(p)
+    API_URL = base_url("anthropic") + "/v1/messages"
+    return PROVIDER
 
 
 def set_max_tokens(n):
@@ -126,67 +289,177 @@ def _extract_json(text: str) -> dict:
     return json.loads(text)
 
 
-def _messages(system: str, user: str, max_tokens: int = 1000, timeout: int = 40) -> str:
-    """Low-level single-turn call; returns the model's text. Raises on failure."""
-    key = os.environ.get("ANTHROPIC_API_KEY")
-    if not key:
-        raise RuntimeError("no ANTHROPIC_API_KEY")
-    # Every agent respects the configured ceiling — a caller can never request more
-    # than MAX_TOKENS_CAP (ANTHROPIC_MAX_TOKENS), so one env var governs them all.
-    max_tokens = max(1, min(max_tokens, MAX_TOKENS_CAP))
-    body = {"model": DEFAULT_MODEL, "max_tokens": max_tokens, "system": system,
-            "messages": [{"role": "user", "content": user}]}
-    req = urllib.request.Request(
-        API_URL, data=json.dumps(body).encode(),
-        headers={"x-api-key": key, "anthropic-version": "2023-06-01",
-                 "content-type": "application/json"})
+def _post_json(url: str, body: dict, headers: dict, timeout: int, label: str) -> dict:
+    """One HTTP POST + JSON parse, with the error mapping every provider shares.
+    Keeps the actionable-message behaviour the pack has always had."""
+    req = urllib.request.Request(url, data=json.dumps(body).encode(),
+                                 headers={"content-type": "application/json", **headers})
+    ctx = _SSL_CTX if url.lower().startswith("https") else None
     try:
-        with urllib.request.urlopen(req, timeout=timeout, context=_SSL_CTX) as r:
-            resp = json.loads(r.read().decode())
-        try:   # tally token usage for the Settings page
-            _u = resp.get("usage") or {}
-            USAGE["calls"] += 1
-            USAGE["input_tokens"] += int(_u.get("input_tokens") or 0)
-            USAGE["output_tokens"] += int(_u.get("output_tokens") or 0)
-            USAGE["last"] = {"model": DEFAULT_MODEL, "input": int(_u.get("input_tokens") or 0),
-                             "output": int(_u.get("output_tokens") or 0)}
-        except Exception:
-            pass
+        with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:
+            return json.loads(r.read().decode())
     except urllib.error.HTTPError as e:
-        # Surface the REAL reason from Anthropic's JSON body, not just "Bad Request".
-        body = ""
+        raw = ""
         try:
-            body = e.read().decode("utf-8", "replace")
+            raw = e.read().decode("utf-8", "replace")
         except Exception:
             pass
-        msg = body
-        try:
-            msg = (json.loads(body).get("error") or {}).get("message") or body
+        msg = raw
+        try:                                   # {"error":{"message":…}} or {"error":"…"}
+            j = json.loads(raw)
+            err = j.get("error") if isinstance(j, dict) else None
+            msg = (err.get("message") if isinstance(err, dict) else err) or j.get("message") or raw
         except Exception:
             pass
-        hint = ""
-        low = (msg or "").lower()
-        if e.code == 400 and "credit balance" in low:
-            hint = ("  → Your Anthropic account has no usable credit. Add a payment "
-                    "method / buy credits at console.anthropic.com → Billing.")
-        elif e.code == 400 and ("model" in low and ("not found" in low or "invalid" in low)):
-            hint = (f"  → The model '{DEFAULT_MODEL}' isn't available to this key. "
-                    "Set ANTHROPIC_MODEL to one you have access to "
-                    "(e.g. claude-3-5-haiku-latest).")
-        elif e.code in (401, 403):
-            hint = ("  → The key was rejected. Use a real API key that starts with "
-                    "'sk-ant-' from console.anthropic.com → API Keys (not a Claude.ai "
-                    "login or OAuth token).")
-        raise RuntimeError(f"Anthropic API HTTP {e.code}: {msg or e.reason}{hint}") from e
+        raise RuntimeError(f"{label} HTTP {e.code}: {msg or e.reason}"
+                           f"{_http_hint(e.code, msg)}") from e
     except urllib.error.URLError as e:
-        if "CERTIFICATE_VERIFY_FAILED" in str(e):
+        s = str(e)
+        if "CERTIFICATE_VERIFY_FAILED" in s:
             raise RuntimeError(
-                "SSL certificate verification failed reaching api.anthropic.com. "
+                f"SSL certificate verification failed reaching {url}. "
                 "Fix: run  pip install --upgrade certifi  (the app picks it up "
                 "automatically), or on macOS run the 'Install Certificates.command' "
                 "that ships with your python.org Python.") from e
+        if PROVIDER == "ollama" and ("refused" in s.lower() or "timed out" in s.lower()):
+            raise RuntimeError(
+                f"Can't reach Ollama at {base_url()} ({e.reason}). Start it with "
+                "`ollama serve`, pull the model (`ollama pull " + DEFAULT_MODEL + "`), "
+                "or point NAVI_LLM_BASE_URL somewhere else.") from e
         raise
-    return "".join(b.get("text", "") for b in resp.get("content", []))
+
+
+def _http_hint(code: int, msg: str) -> str:
+    """Provider-specific 'here's how to fix it' text appended to HTTP errors."""
+    low = (msg or "").lower()
+    if PROVIDER == "anthropic":
+        if code == 400 and "credit balance" in low:
+            return ("  → Your Anthropic account has no usable credit. Add a payment "
+                    "method / buy credits at platform.claude.com → Billing.")
+        if code == 400 and "model" in low and ("not found" in low or "invalid" in low):
+            return (f"  → The model '{DEFAULT_MODEL}' isn't available to this key. Set "
+                    "NAVI_LLM_MODEL to one you have access to (e.g. claude-3-5-haiku-latest).")
+        if code in (401, 403):
+            return ("  → The key was rejected. Use a real API key that starts with "
+                    "'sk-ant-' from platform.claude.com → API keys (not a Claude.ai "
+                    "login or OAuth token).")
+    if PROVIDER == "openai":
+        if code in (401, 403):
+            return ("  → Key rejected by " + base_url() + ". Check OPENAI_API_KEY / "
+                    "NAVI_LLM_API_KEY, and that the key belongs to THAT endpoint.")
+        if code == 404:
+            return (f"  → Not found at {base_url()}/chat/completions. Check "
+                    "NAVI_LLM_BASE_URL includes the version path (e.g. .../v1) and that "
+                    f"the model '{DEFAULT_MODEL}' exists there.")
+        if code == 429:
+            return "  → Rate-limited or out of quota on this endpoint."
+    if PROVIDER == "ollama" and code == 404:
+        return (f"  → Ollama doesn't have '{DEFAULT_MODEL}'. Run: ollama pull {DEFAULT_MODEL}")
+    return ""
+
+
+def _call_anthropic(system, user, max_tokens, timeout):
+    resp = _post_json(base_url() + "/v1/messages",
+                      {"model": DEFAULT_MODEL, "max_tokens": max_tokens, "system": system,
+                       "messages": [{"role": "user", "content": user}]},
+                      {"x-api-key": api_key(), "anthropic-version": "2023-06-01"},
+                      timeout, "Anthropic API")
+    u = resp.get("usage") or {}
+    text = "".join(b.get("text", "") for b in resp.get("content", []))
+    return text, u.get("input_tokens"), u.get("output_tokens")
+
+
+def _call_openai(system, user, max_tokens, timeout):
+    """OpenAI /chat/completions — also OpenRouter, vLLM, Together, Groq, LM Studio,
+    llama.cpp server, and Azure-style deployments (point NAVI_LLM_BASE_URL at them)."""
+    key = api_key()
+    body = {"model": DEFAULT_MODEL, "max_tokens": max_tokens, "temperature": 0,
+            "messages": [{"role": "system", "content": system},
+                         {"role": "user", "content": user}]}
+    if (os.environ.get("NAVI_LLM_JSON_MODE") or "").strip() in ("1", "true", "yes"):
+        body["response_format"] = {"type": "json_object"}    # opt-in: many servers 400 on it
+    resp = _post_json(base_url() + "/chat/completions", body,
+                      ({"authorization": "Bearer " + key} if key else {}),
+                      timeout, "OpenAI-compatible API")
+    ch = (resp.get("choices") or [{}])[0]
+    text = ((ch.get("message") or {}).get("content")) or ch.get("text") or ""
+    u = resp.get("usage") or {}
+    return text, u.get("prompt_tokens"), u.get("completion_tokens")
+
+
+def _call_ollama(system, user, max_tokens, timeout):
+    """Native Ollama /api/chat — local, keyless. num_predict is Ollama's max_tokens."""
+    resp = _post_json(base_url() + "/api/chat",
+                      {"model": DEFAULT_MODEL, "stream": False,
+                       "options": {"num_predict": max_tokens, "temperature": 0},
+                       "messages": [{"role": "system", "content": system},
+                                    {"role": "user", "content": user}]},
+                      {}, timeout, "Ollama")
+    text = ((resp.get("message") or {}).get("content")) or resp.get("response") or ""
+    return text, resp.get("prompt_eval_count"), resp.get("eval_count")
+
+
+def _call_bedrock(system, user, max_tokens, timeout):
+    """AWS Bedrock via the model-agnostic Converse API — one shape for Claude, Llama,
+    Mistral, Nova, Titan. Uses boto3 so AWS credential resolution (env, profile, SSO,
+    instance/task role) and SigV4 signing stay AWS's problem, not ours."""
+    try:
+        import boto3                                        # optional dependency
+    except ImportError as e:
+        raise RuntimeError(
+            "Bedrock needs boto3 (the pack's only optional dependency). "
+            "Install it with:  pip install boto3   — then set AWS_REGION and your "
+            "AWS credentials. Every other provider is pure stdlib.") from e
+    region = _aws_region()
+    if not region:
+        raise RuntimeError("Bedrock needs AWS_REGION (or AWS_DEFAULT_REGION) set.")
+    kw = {"region_name": region}
+    if base_url():                                          # VPC endpoint / gateway
+        kw["endpoint_url"] = base_url()
+    client = boto3.client("bedrock-runtime", **kw)
+    try:
+        resp = client.converse(
+            modelId=DEFAULT_MODEL,
+            system=[{"text": system}],
+            messages=[{"role": "user", "content": [{"text": user}]}],
+            inferenceConfig={"maxTokens": max_tokens, "temperature": 0})
+    except Exception as e:
+        name = type(e).__name__
+        hint = ""
+        if "AccessDenied" in name or "AccessDenied" in str(e):
+            hint = ("  → The IAM principal needs bedrock:InvokeModel, and the model must be "
+                    "enabled in this region (Bedrock console → Model access).")
+        elif "ValidationException" in name:
+            hint = (f"  → Check the model id '{DEFAULT_MODEL}' is valid in {region} "
+                    "(some models require an inference-profile id, e.g. us.anthropic.…).")
+        elif "ResourceNotFound" in name:
+            hint = f"  → Model '{DEFAULT_MODEL}' not found in {region}."
+        raise RuntimeError(f"Bedrock {name}: {e}{hint}") from e
+    blocks = (((resp.get("output") or {}).get("message") or {}).get("content") or [])
+    text = "".join(b.get("text", "") for b in blocks)
+    u = resp.get("usage") or {}
+    return text, u.get("inputTokens"), u.get("outputTokens")
+
+
+_CALLS = {"anthropic": _call_anthropic, "openai": _call_openai,
+          "ollama": _call_ollama, "bedrock": _call_bedrock}
+
+
+def _messages(system: str, user: str, max_tokens: int = 1000, timeout: int = 40) -> str:
+    """Low-level single-turn call against the CONFIGURED provider; returns the model's
+    text. Raises on failure — callers catch and fall back to their deterministic path."""
+    if not available():
+        raise RuntimeError(why_unavailable())
+    fn = _CALLS.get(PROVIDER)
+    if not fn:
+        raise RuntimeError(f"unknown NAVI_LLM_PROVIDER '{PROVIDER}' — use one of: "
+                           + ", ".join(PROVIDERS))
+    # Every agent respects the configured ceiling — a caller can never request more
+    # than MAX_TOKENS_CAP, so one env var governs them all regardless of provider.
+    max_tokens = max(1, min(max_tokens, MAX_TOKENS_CAP))
+    text, inp, out = fn(system, user, max_tokens, timeout)
+    _tally(inp, out)
+    return text
 
 
 APP_SYSTEM = (

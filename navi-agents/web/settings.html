@@ -108,7 +108,8 @@ function renderStat(){
     + chip('Remote exec', s.rce_enabled, s.rce_enabled?'enabled':'gated')
     + '<span class="chip" title="'+esc(ssh.message||'')+'" style="border-color:'+(sshGood===true?'var(--ok)':sshGood===false?'var(--crit)':'var(--cx-e7c66b)')+';color:'+(sshGood===true?'var(--ok)':sshGood===false?'var(--crit)':'var(--cx-e7c66b)')+'">SSH creds: '+esc(sshTxt)+'</span>'
     + chip('navi CLI', s.navi_available, s.navi_available?(s.navi_path||'found'):'not found')
-    + chip('AI', ai, ai?('key detected · '+esc(s.llm.model)):'no key')
+    + chip('AI', ai, ai?(esc(s.llm.provider||'?')+' · '+esc(s.llm.model||'')):esc((s.llm&&s.llm.why)||'no model'))
+    + (s.llm&&s.llm.base_url?'<span class="chip" title="Reasoning endpoint in use">🔌 '+esc(s.llm.base_url)+'</span>':'')
     + chip('Max tokens', null, String(s.llm?s.llm.max_tokens:'—'))
     + '<span class="chip" title="navi.db in use">🗄 '+esc(s.db_path||'—')+'</span>'
     + chip('navi runs in', !!s.navi_cwd, s.navi_cwd||'server dir — set NAVI_DB_PATH')
@@ -119,7 +120,10 @@ function renderEnv(){
     let input;
     if(f.bool){ const on=/^(1|true|yes|on|y|t|enabled)$/i.test(f.masked||'');
       input='<select class="fld" data-k="'+f.key+'"><option value="1"'+(on?' selected':'')+'>1 — writes allowed</option><option value="0"'+(!on?' selected':'')+'>0 — gated</option></select>'; }
-    else if(f.secret){ input='<input class="fld" type="password" data-k="'+f.key+'" placeholder="'+(f.set?('•••• '+esc(f.masked)+' — leave blank to keep'):'not set — paste sk-ant-…')+'">'; }
+    else if(f.choices){ const cur=(f.value||'');   // provider picker — blank = auto-detect
+      input='<select class="fld" data-k="'+f.key+'"><option value=""'+(cur?'':' selected')+'>auto-detect</option>'
+        +f.choices.map(c=>'<option value="'+esc(c)+'"'+(cur===c?' selected':'')+'>'+esc(c)+'</option>').join('')+'</select>'; }
+    else if(f.secret){ input='<input class="fld" type="password" data-k="'+f.key+'" placeholder="'+(f.set?('•••• '+esc(f.masked)+' — leave blank to keep'):'not set')+'">'; }
     else if(f.num){ input='<input class="fld" type="number" min="1" data-k="'+f.key+'" value="'+esc(f.value||'')+'" placeholder="8000">'; }
     else { input='<input class="fld" data-k="'+f.key+'" value="'+esc(f.value||'')+'" placeholder="'+(f.key==='NAVI_DB_PATH'?'blank = bundled sample':'')+'">'; }
     return '<div class="envf"><label class="lbl">'+esc(f.label)+'</label>'+input+'<p class="help">'+f.help+'</p></div>';
