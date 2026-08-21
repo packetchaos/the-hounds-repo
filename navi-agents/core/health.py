@@ -16,6 +16,13 @@ from . import db, navi_cli
 _H_CACHE = {"t": 0.0, "v": None}
 _H_TTL = float(os.environ.get("NAVI_HEALTH_TTL_S", "30"))
 
+
+def invalidate():
+    """Drop the cached health snapshot. Call this after anything that changes what
+    health() reports mid-process — e.g. the Settings page switching model provider,
+    write gates or the db path — so the header chips don't lag by up to _H_TTL."""
+    _H_CACHE["t"], _H_CACHE["v"] = 0.0, None
+
 # The asset count on a 200 GB db can take a while (count(*) scans the assets
 # table). We NEVER block the header on it: compute it in the BACKGROUND and let
 # the header show "—" until the first result lands, then the real number.
@@ -71,11 +78,15 @@ def health() -> dict:
             v["asset_total"] = _asset_total()   # keep the count live even from cache
         return v
     path = db.db_path()
-    # soft LLM probe — true only when an ANTHROPIC_API_KEY is configured; the UI
-    # hides natural-language features when this is false instead of failing.
+    # soft LLM probe — true when ANY configured provider is reachable (Claude API, an
+    # OpenAI-compatible endpoint, local Ollama, or Bedrock). The UI hides the
+    # natural-language features when this is false instead of failing.
+    llm_ok, llm_provider, llm_model, llm_why = False, "", "", ""
     try:
         from . import llm as _llm
         llm_ok = _llm.available()
+        llm_provider, llm_model = _llm.PROVIDER, _llm.DEFAULT_MODEL
+        llm_why = "" if llm_ok else _llm.why_unavailable()
     except Exception:
         llm_ok = False
     info = {"db_path": path, "writes_enabled": navi_cli.writes_enabled(),
@@ -84,7 +95,8 @@ def health() -> dict:
             "write_gate_reason": navi_cli.write_gate_reason(),
             "navi_resolved": navi_cli._resolve_navi(),
             "navi_cli_cwd": navi_cli._navi_cwd(),
-            "enable_file": navi_cli._enable_file() or None, "llm": llm_ok}
+            "enable_file": navi_cli._enable_file() or None, "llm": llm_ok,
+            "llm_provider": llm_provider, "llm_model": llm_model, "llm_why": llm_why}
     try:
         from . import version as _version
         info["version"] = _version.version_string()

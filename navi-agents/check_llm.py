@@ -1,79 +1,79 @@
 #!/usr/bin/env python3
-"""Diagnose ANTHROPIC_API_KEY / LLM failures.
+"""Diagnose the pack's reasoning layer — whichever model you brought.
 
 Run:  python3 check_llm.py
-It makes one tiny real call and prints the EXACT status + reason from Anthropic,
-so a vague "HTTP 400 Bad Request" becomes something actionable (credit balance,
-model access, bad key, SSL, …).
+
+Prints the resolved provider / model / endpoint, then makes ONE tiny real call and
+reports the EXACT failure reason, so a vague "HTTP 400 Bad Request" becomes
+something actionable (no credit, model not enabled, wrong endpoint, Ollama not
+running, missing boto3, …).
+
+Providers: anthropic | openai (any /chat/completions endpoint) | ollama | bedrock
+Config:    NAVI_LLM_PROVIDER, NAVI_LLM_MODEL, NAVI_LLM_BASE_URL, NAVI_LLM_API_KEY
+See BYO_MODEL.md for per-provider setup.
 """
-import json
 import os
-import ssl
 import sys
-import urllib.error
-import urllib.request
 
-KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5-20251001")
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-if not KEY:
-    print("✗ ANTHROPIC_API_KEY is not set in this shell.\n"
-          "  export ANTHROPIC_API_KEY=sk-ant-...   then re-run.")
+from core import llm  # noqa: E402
+
+
+def mask(v):
+    if not v:
+        return "(none)"
+    return (v[:6] + "…" + v[-4:]) if len(v) > 12 else "set"
+
+
+cfg = llm.config()
+print("provider : %s%s" % (cfg["provider"],
+                           "" if os.environ.get("NAVI_LLM_PROVIDER") else "   (auto-detected)"))
+print("model    : %s" % cfg["model"])
+print("endpoint : %s" % (cfg["base_url"] or ("bedrock-runtime." + (cfg["region"] or "?")
+                                             + ".amazonaws.com")))
+if cfg["provider"] == "bedrock":
+    print("region   : %s" % (cfg["region"] or "(unset — set AWS_REGION)"))
+    if os.environ.get("AWS_ACCESS_KEY_ID"):
+        print("aws creds: %s" % mask(os.environ.get("AWS_ACCESS_KEY_ID")))
+    elif os.environ.get("AWS_PROFILE"):
+        print("aws creds: profile %s" % os.environ["AWS_PROFILE"])
+    else:
+        print("aws creds: (from the standard AWS chain)")
+    try:
+        import boto3  # noqa: F401
+        print("boto3    : installed")
+    except ImportError:
+        print("boto3    : NOT installed  →  pip install boto3")
+else:
+    print("key      : %s" % mask(llm.api_key()))
+print("max out  : %s tokens" % cfg["max_tokens"])
+print()
+
+if cfg["provider"] not in llm.PROVIDERS:
+    print("✗ %s" % llm.why_unavailable())
+    sys.exit(1)
+if not cfg["available"]:
+    print("✗ not configured — %s" % llm.why_unavailable())
+    sys.exit(1)
+if cfg["provider"] == "anthropic":
+    k = llm.api_key()
+    if k and not k.startswith("sk-ant-"):
+        print("⚠ That doesn't look like an Anthropic API key. Real keys start with "
+              "'sk-ant-'. A Claude.ai login / OAuth token will NOT work here.\n")
+
+print("→ one test call…")
+try:
+    out = llm._messages("Reply with exactly: pong", "ping", max_tokens=16, timeout=60)
+except Exception as e:                                    # noqa: BLE001 — printing it IS the job
+    print("\n✗ %s: %s" % (type(e).__name__, e))
+    print("\nStill stuck? Switch providers to isolate it — a local model needs no "
+          "account at all:\n"
+          "    NAVI_LLM_PROVIDER=ollama NAVI_LLM_MODEL=llama3.1 python3 check_llm.py")
     sys.exit(1)
 
-print(f"key: {KEY[:10]}…{KEY[-4:]}  (len {len(KEY)})")
-if not KEY.startswith("sk-ant-"):
-    print("⚠ This doesn't look like an API key. Real keys start with 'sk-ant-'. "
-          "A Claude.ai login / OAuth token will NOT work here.")
-print(f"model: {MODEL}\n")
-
-try:
-    import certifi
-    ctx = ssl.create_default_context(cafile=certifi.where())
-    print(f"SSL: using certifi bundle ({certifi.where()})")
-except Exception:
-    ctx = ssl.create_default_context()
-    print("SSL: certifi not installed — using system CA bundle "
-          "(if you see CERTIFICATE_VERIFY_FAILED: pip install --upgrade certifi)")
-
-body = {"model": MODEL, "max_tokens": 16,
-        "messages": [{"role": "user", "content": "ping"}]}
-req = urllib.request.Request(
-    "https://api.anthropic.com/v1/messages", data=json.dumps(body).encode(),
-    headers={"x-api-key": KEY, "anthropic-version": "2023-06-01",
-             "content-type": "application/json"})
-try:
-    with urllib.request.urlopen(req, timeout=40, context=ctx) as r:
-        resp = json.loads(r.read().decode())
-    txt = "".join(b.get("text", "") for b in resp.get("content", []))
-    print(f"\n✓ SUCCESS — the key + model work. Model replied: {txt!r}")
-    print("  If the app still fails, restart it in THIS shell so it inherits "
-          "the same ANTHROPIC_API_KEY.")
-except urllib.error.HTTPError as e:
-    detail = ""
-    try:
-        detail = e.read().decode("utf-8", "replace")
-    except Exception:
-        pass
-    msg = detail
-    try:
-        msg = (json.loads(detail).get("error") or {}).get("message") or detail
-    except Exception:
-        pass
-    print(f"\n✗ HTTP {e.code}: {msg}")
-    low = (msg or "").lower()
-    if "credit balance" in low:
-        print("  → FIX: add a payment method / buy credits at "
-              "console.anthropic.com → Plans & Billing. A valid key with $0 "
-              "credit returns exactly this 400.")
-    elif "model" in low and ("not found" in low or "invalid" in low or "access" in low):
-        print(f"  → FIX: '{MODEL}' isn't available to this key. Try "
-              "  export ANTHROPIC_MODEL=claude-3-5-haiku-latest   and re-run.")
-    elif e.code in (401, 403):
-        print("  → FIX: key rejected. Generate a fresh key at "
-              "console.anthropic.com → API Keys (must start with sk-ant-).")
-except urllib.error.URLError as e:
-    print(f"\n✗ Network/SSL error: {e}")
-    if "CERTIFICATE_VERIFY_FAILED" in str(e):
-        print("  → FIX: pip install --upgrade certifi   (or run macOS "
-              "'Install Certificates.command').")
+u = llm.usage()
+print("✓ reply   : %r" % (out or "")[:120])
+print("✓ tokens  : %s in / %s out  (provider %s)" % (u["input_tokens"], u["output_tokens"],
+                                                     u["provider"]))
+print("\nThe reasoning layer is live — every agent's ▶ Reason / NL query will use it.")

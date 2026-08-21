@@ -13,12 +13,34 @@ from core import cli_jobs, db, llm, navi_cli
 # Environment variables surfaced on the page. secret=True → value is masked and never
 # echoed back; an empty submit for a secret means "leave unchanged" (don't wipe it).
 _ENV_FIELDS = [
-    {"key": "ANTHROPIC_API_KEY", "label": "Anthropic API key", "secret": True,
-     "help": "Enables the editable-prompt AI on each agent. Create at console.anthropic.com (starts sk-ant-)."},
-    {"key": "ANTHROPIC_MODEL", "label": "Anthropic model",
-     "help": "Blank = claude-haiku-4-5-20251001. Set if that model isn't on your key (e.g. claude-3-5-haiku-latest)."},
-    {"key": "ANTHROPIC_MAX_TOKENS", "label": "Max output tokens", "num": True,
-     "help": "Ceiling on reasoning output tokens (default 8000). Lower it for older models."},
+    # ---- reasoning layer: BRING YOUR OWN MODEL (see BYO_MODEL.md) ----
+    {"key": "NAVI_LLM_PROVIDER", "label": "Model provider", "choices": list(llm.PROVIDERS),
+     "help": "Where the pack's reasoning runs. anthropic = Claude API · openai = ANY "
+             "/chat/completions endpoint (OpenAI, OpenRouter, vLLM, LM Studio, Groq…) · "
+             "ollama = fully local, no key, nothing leaves the machine · bedrock = AWS "
+             "Bedrock Converse (needs boto3). Blank = auto-detect from whichever key is set."},
+    {"key": "NAVI_LLM_MODEL", "label": "Model",
+     "help": "Model id for the chosen provider — e.g. claude-haiku-4-5-20251001, gpt-4o-mini, "
+             "llama3.1, qwen2.5:14b, anthropic.claude-3-5-haiku-20241022-v1:0. "
+             "Blank = that provider's default."},
+    {"key": "NAVI_LLM_BASE_URL", "label": "Endpoint (base URL)",
+     "help": "Override the endpoint. openai → include the version path "
+             "(e.g. http://localhost:1234/v1). ollama → http://127.0.0.1:11434. "
+             "Blank = the provider's default."},
+    {"key": "NAVI_LLM_API_KEY", "label": "Model API key", "secret": True,
+     "help": "Key for the chosen provider (ANTHROPIC_API_KEY / OPENAI_API_KEY still work). "
+             "Ollama needs none; Bedrock uses your AWS credentials."},
+    {"key": "NAVI_LLM_MAX_TOKENS", "label": "Max output tokens", "num": True,
+     "help": "Ceiling on reasoning output tokens for EVERY agent (default 8000). "
+             "Lower it for small local models."},
+    {"key": "AWS_REGION", "label": "AWS region (Bedrock)",
+     "help": "Region for the Bedrock Converse API, e.g. us-east-1. Credentials come from the "
+             "normal AWS chain (env, profile, SSO, instance/task role)."},
+    {"key": "ANTHROPIC_API_KEY", "label": "Anthropic API key (legacy)", "secret": True,
+     "help": "Still honoured when the provider is anthropic. Create at "
+             "platform.claude.com/settings/keys (starts sk-ant-)."},
+    {"key": "ANTHROPIC_MODEL", "label": "Anthropic model (legacy)",
+     "help": "Back-compat alias for the model when provider=anthropic. NAVI_LLM_MODEL wins."},
     {"key": "NAVI_ALLOW_WRITES", "label": "Allow tag writes", "bool": True,
      "help": "1 = Execute-tags / ACR writes actually run; 0 = gated (planned only)."},
     {"key": "NAVI_EMAIL", "label": "Allow email (Gabriel)", "bool": True,
@@ -99,8 +121,7 @@ def status(p):
             "navi_cwd": (cli_jobs._run_cwd() or ""),
             "write_gate_reason": navi_cli.write_gate_reason(),
             "db_path": db.db_path(),
-            "llm": {"available": llm.available(), "model": llm.DEFAULT_MODEL,
-                    "max_tokens": llm.MAX_TOKENS_CAP},
+            "llm": dict(llm.config(), why=("" if llm.available() else llm.why_unavailable())),
             "usage": llm.usage()}, 200
 
 
@@ -119,11 +140,27 @@ def set_env(p):
             os.environ.pop(k, None)
         else:
             os.environ[k] = v
-        if k == "ANTHROPIC_MODEL":         # keep import-bound llm constants live
-            llm.set_model(v)
-        elif k == "ANTHROPIC_MAX_TOKENS":
+        # keep the import-bound llm constants live (they're read at module import)
+        if k == "NAVI_LLM_PROVIDER":
+            llm.set_provider(v)
+        elif k in ("NAVI_LLM_MODEL", "ANTHROPIC_MODEL"):
+            if v or k == "NAVI_LLM_MODEL":
+                llm.set_model(v or llm._model_default())
+        elif k in ("NAVI_LLM_MAX_TOKENS", "ANTHROPIC_MAX_TOKENS"):
             llm.set_max_tokens(v)
         applied.append(k)
+    # provider/model/endpoint interact — re-resolve once after the whole batch so the
+    # order fields arrive in can't leave the layer half-switched.
+    if any(k.startswith("NAVI_LLM_") or k in ("ANTHROPIC_MODEL", "AWS_REGION") for k in applied):
+        llm.set_provider(os.environ.get("NAVI_LLM_PROVIDER") or "")
+    if applied:
+        # /api/health is cached (30s) — drop it so the header chips reflect the change
+        # immediately instead of lagging behind the Settings page.
+        try:
+            from core import health as _health
+            _health.invalidate()
+        except Exception:
+            pass
     body, _ = status(p)
     body["applied"] = applied
     return body, 200
