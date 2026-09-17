@@ -52,7 +52,7 @@
     <!-- ===== single command ===== -->
     <div class="panel on" id="p-cmd">
       <div class="row">
-        <div><label class="lbl">Target host (Linux)</label><select id="cmdHost" class="fld"></select></div>
+        <div><label class="lbl">Target host (IP or hostname)</label><input id="cmdHost" class="fld" list="cmdHostList" placeholder="10.0.5.12  ·  or any reachable Linux host" autocomplete="off" spellcheck="false"><datalist id="cmdHostList"></datalist></div>
         <div style="flex:2 1 360px"><label class="lbl">Command</label><textarea id="cmdText" class="fld" placeholder="sudo DEBIAN_FRONTEND=noninteractive apt-get install --only-upgrade -y openssl"></textarea></div>
       </div>
       <div style="display:flex;gap:8px;margin-top:12px"><button class="btn ghost sm" id="cmdPre">🔍 Precheck</button><button class="btn run sm" id="cmdArm">▶ Arm &amp; run</button></div>
@@ -65,7 +65,7 @@
     <div class="panel" id="p-file">
       <div class="row">
         <div><label class="lbl">File to ship</label><input id="fileIn" type="file" class="fld"></div>
-        <div><label class="lbl">Target host (Linux)</label><select id="fileHost" class="fld"></select></div>
+        <div><label class="lbl">Target host (IP or hostname)</label><input id="fileHost" class="fld" list="fileHostList" placeholder="10.0.5.12  ·  or any reachable Linux host" autocomplete="off" spellcheck="false"><datalist id="fileHostList"></datalist></div>
       </div>
       <div id="fileState" class="sub" style="margin-top:8px"></div>
       <div style="display:flex;gap:8px;margin-top:12px"><button class="btn ghost sm" id="fileUp">⬆ Upload to server</button><button class="btn run sm" id="fileArm">▶ Arm &amp; scp</button></div>
@@ -143,10 +143,10 @@ async function loadHosts(){
   let o; try{ o=await API.post('hosts',{}); }catch(e){ o={ok:false}; }
   if(!o||!o.ok){ return; }
   setGate(o); HOSTS=o.linux||[];
-  const opts=HOSTS.map(hostOpt).join('')||'<option value="">— no Linux hosts in navi.db —</option>';
-  $('cmdHost').innerHTML=opts; $('fileHost').innerHTML=opts;
+  const opts=HOSTS.map(hostOpt).join('');
+  $('cmdHostList').innerHTML=opts; $('fileHostList').innerHTML=opts;
   const ex=o.excluded_count?(' · '+o.excluded_count+' non-Linux excluded'):'';
-  if(HOSTS.length===0) flash('flash','No Linux hosts found in navi.db. push is Linux/SSH only'+ex,'warn');
+  if(HOSTS.length===0) flash('flash','No scanned Linux hosts in navi.db — type any reachable host IP/hostname to push (Linux/SSH only)'+ex,'warn');
 }
 
 /* ---- tabs ---- */
@@ -319,8 +319,12 @@ function resultBox(o){
   if(!o) return '';
   if(o.blocked) return '<div class="critbox">🔴 '+esc(o.message||'blocked')+'</div>';
   if(o.needs_force) return '<div class="critbox">☠ '+esc(o.error||'destructive — needs force')+'</div>';
-  if(o.ok) return '<div class="okbox">✓ '+esc(o.message||'pushed')+(o.returncode!=null?(' (exit '+o.returncode+')'):'')+'</div>';
-  return '<div class="critbox">✗ '+esc(o.error||o.message||'failed')+(o.stderr?('<pre style="white-space:pre-wrap;font-size:11.5px;margin-top:6px">'+esc(String(o.stderr).slice(-500))+'</pre>'):'')+'</div>';
+  const outPre=(x)=>{ let h=''; const so=(x.stdout||'').trim(), se=(x.stderr||'').trim();
+    if(so) h+='<div class="mut" style="margin-top:6px;font-size:11px">remote stdout</div><pre style="white-space:pre-wrap;font-size:11.5px;margin-top:2px">'+esc(String(so).slice(-4000))+'</pre>';
+    if(se) h+='<div class="mut" style="margin-top:6px;font-size:11px">stderr</div><pre style="white-space:pre-wrap;font-size:11.5px;margin-top:2px">'+esc(String(se).slice(-2000))+'</pre>';
+    return h; };
+  if(o.ok) return '<div class="okbox">✓ '+esc(o.message||'pushed')+(o.returncode!=null?(' (exit '+o.returncode+')'):'')+'</div>'+outPre(o);
+  return '<div class="critbox">✗ '+esc(o.error||o.message||'failed')+(o.returncode!=null?(' (exit '+o.returncode+')'):'')+'</div>'+outPre(o);
 }
 $('logBtn').onclick=loadLog;
 $('refreshBtn').onclick=async()=>{ flash('flash','<span class="spin"></span> syncing assets+vulns…','run'); try{ await API.post('refresh',{}); }catch(e){} flash('flash','sync kicked off in the background','ok'); setTimeout(loadHosts,1200); };
