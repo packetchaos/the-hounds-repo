@@ -11,6 +11,38 @@
   },
   "history": [
     {
+      "ts": "2026-08-14T16:36:30Z",
+      "source": "contract",
+      "evaluated": 3,
+      "newly": [],
+      "still": 0,
+      "sent": false
+    },
+    {
+      "ts": "2026-08-14T12:30:32Z",
+      "source": "contract",
+      "evaluated": 3,
+      "newly": [],
+      "still": 0,
+      "sent": false
+    },
+    {
+      "ts": "2026-08-14T07:45:21Z",
+      "source": "contract",
+      "evaluated": 3,
+      "newly": [],
+      "still": 0,
+      "sent": false
+    },
+    {
+      "ts": "2026-08-13T22:56:25Z",
+      "source": "contract",
+      "evaluated": 3,
+      "newly": [],
+      "still": 0,
+      "sent": false
+    },
+    {
       "ts": "2026-08-12T15:29:06Z",
       "source": "contract",
       "evaluated": 3,
@@ -62,5 +94,5 @@
       "sent": false
     }
   ],
-  "last_run": "2026-08-12T15:29:06Z"
+  "last_run": "2026-08-14T16:36:30Z"
 }
