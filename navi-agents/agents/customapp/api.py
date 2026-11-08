@@ -1,7 +1,8 @@
 """Custom App Name agent — self-contained HTTP actions."""
-from core import navi_cli, llm, db
+from core import navi_cli, llm, db, tagname
 from .agent import (CustomAppAgent, search_paths, search_routes, tag_query_for,
                     load_ignore, save_ignore, routing_status, _SETUP_HINT)
+from core.gates import confirmed
 
 AGENT = CustomAppAgent()
 
@@ -16,7 +17,7 @@ def _owned_names(db_path=None):
     only the ownership gaps (what nobody has named/claimed yet)."""
     names = set()
     try:
-        for r in db.query("SELECT DISTINCT tag_value FROM tags WHERE tag_key='Owner' "
+        for r in db.query("SELECT DISTINCT tag_value FROM tags WHERE " + tagname.sql_lit("tag_key", "Owner") + " "
                           "AND tag_value LIKE '%: %'", path=db_path):
             v = (r.get("tag_value") or "").strip()
             if ": " in v:
@@ -75,7 +76,7 @@ def tag(p):
     """Tag a custom app across both tables: filesystem paths via --query, and any
     matching application routes via --route_id (vuln_route has no asset_uuid)."""
     name, keyword = p.get("name", ""), p.get("keyword", "")
-    if not p.get("confirm"):
+    if not confirmed(p):
         return {"ok": False, "error": "confirm=true required to tag"}, 400
     if not name or not keyword:
         return {"ok": False, "error": "name and keyword are required"}, 400
@@ -83,7 +84,7 @@ def tag(p):
     results, ok_any = [], False
     paths = search_paths(keyword)
     if paths:
-        r = navi_cli.tag("Custom App", name, tag_query_for(keyword), remove=False)
+        r = navi_cli.tag("Custom App", name, tag_query_for(keyword), remove=False, agent="customapp")
         ok_any = ok_any or r.get("ok", False)
         results.append({"selector": "query", "via": "vuln_paths",
                         "assets": len({x["asset_uuid"] for x in paths}), **r})
@@ -93,7 +94,7 @@ def tag(p):
         rid = rt.get("route_id")
         if rid is None:
             continue
-        r = navi_cli.tag("Custom App", name, route_id=str(rid), remove=False)
+        r = navi_cli.tag("Custom App", name, route_id=str(rid), remove=False, agent="customapp")
         ok_any = ok_any or r.get("ok", False)
         results.append({"selector": "route_id", "via": "vuln_route",
                         "route_id": rid, "app_name": rt.get("app_name"), **r})

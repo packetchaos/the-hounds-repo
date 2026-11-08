@@ -3,107 +3,300 @@
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>CISA KEV Tagging · Navi Agents</title>
 <link rel="stylesheet" href="/static/console.css"/>
+<style>.plink{color:var(--accent);text-decoration:none}.plink:hover{text-decoration:underline}
+:root{--st-over:#e5484d;--st-soon:#f5a524;--st-later:#8b95a7;--st-ok:#30a46c}
+.mkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-top:10px}
+.mk{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--panel-2)}
+.mk .v{font-size:22px;font-weight:800;color:var(--ink);line-height:1.1}.mk .l{font-size:11.5px;color:var(--mut);margin-top:2px}
+.mk .u{font-size:11.5px;color:var(--ink-2,var(--ink));margin-top:4px}.mk .u b{color:var(--ink)}
+.mk[data-f]{cursor:pointer;border-left:4px solid var(--rc,var(--line))}.mk[data-f]:hover{border-color:var(--accent)}.mk.on{box-shadow:0 0 0 2px var(--accent)}
+.mhead{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 0}
+.stb{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;padding:1px 8px;border-radius:999px;border:1px solid var(--line);white-space:nowrap}
+.stb i{width:7px;height:7px;border-radius:50%;display:inline-block}
+.stb.over{color:var(--st-over);border-color:var(--st-over)}.stb.soon{color:var(--st-soon);border-color:var(--st-soon)}
+/* due timeline */
+.tl{display:flex;align-items:flex-end;gap:2px;height:150px;padding:6px 2px 0;border-bottom:1px solid var(--line);overflow-x:auto}
+.tl .b{flex:1 0 8px;min-width:8px;max-width:28px;display:flex;flex-direction:column-reverse;gap:2px;height:100%;justify-content:flex-start;cursor:pointer}
+.tl .b span{display:block;border-radius:4px 4px 0 0;min-height:0}
+.tl .b .o{background:var(--st-over)}.tl .b .u{background:var(--st-soon)}
+.tl .b:hover span{filter:brightness(1.1)}.tl .b.today{border-left:2px dashed var(--ink-2,var(--mut));padding-left:2px}
+.tlx{display:flex;justify-content:space-between;font-size:10.5px;color:var(--mut);margin-top:3px}
+.legend{display:flex;gap:14px;font-size:12px;color:var(--ink-2,var(--ink));margin:4px 0 6px}.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+.fchip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--accent);color:var(--accent);border-radius:999px;padding:3px 10px;font-size:12px}
+.fchip button{border:0;background:transparent;color:inherit;cursor:pointer;font-size:13px;padding:0}
+.flag{font-size:11px;color:var(--mut)}
+</style>
 </head><body>
 <div class="wrap">
   <header class="top" id="app-header"></header>
 
   <section class="card">
     <div class="toolbar"><div><h2 style="margin:0">🛡️ CISA KEV Tagging</h2>
-      <p class="sub" style="margin:2px 0 0">Laelaps tags <b>Known Exploited Vulnerabilities</b> off Tenable's <span class="mono">CISA-KNOWN-EXPLOITED</span> cross-reference. Tag <b>every KEV asset</b> as <span class="tagval">CISA KEV : Vulnerable</span>, or by <b>catalog date</b> as <span class="tagval">CISA KEV : &lt;Mon&gt; - &lt;DD&gt; - &lt;YYYY&gt;</span>. Gated; tracked in the <a href="/web/tags-log.html">Tagging log</a>.</p></div>
-      <button class="btn run sm" id="load" style="margin-left:auto">▶ Load CISA KEV</button></div>
+      <p class="sub" style="margin:2px 0 0">Laelaps finds the <b>Known Exploited Vulnerabilities</b> on your assets and tags <b>those assets</b>. It joins navi.db to <b>CISA's KEV catalog</b> by CVE, so you see each KEV's <b>CISA remediation due date</b>, ransomware use and vendor. Tags: <span class="tagval">CISA KEV : Vulnerable</span>, by date added <span class="tagval">CISA KEV : &lt;Mon&gt; - &lt;DD&gt; - &lt;YYYY&gt;</span>, by due date <span class="tagval">CISA KEV Due : &lt;YYYY-MM-DD&gt;</span>, and <span class="tagval">CISA KEV : Ransomware</span>. All gated; tracked in the <a href="/web/tags-log.html">Tagging log</a>.</p></div>
+      <button class="btn run sm" id="load" data-run style="margin-left:auto">▶ Run</button></div>
     <div id="flash" class="flash"></div>
-    <div class="kpi" id="kpi"></div>
-    <div class="toolbar" style="margin-top:6px"><button class="btn sm" id="tagVuln" disabled>🛡️ Tag all KEV → CISA KEV : Vulnerable (gated)</button></div>
-  </section>
-
-  <section class="card" id="datesCard" style="display:none">
-    <div class="toolbar"><div><h3 style="margin:0">By catalog date (dateAdded)</h3>
-      <p class="sub" style="margin:2px 0 0">Each KEV finding carries its CISA dateAdded. Tag assets per date.</p></div>
-      <span style="margin-left:auto;display:flex;gap:6px"><button class="btn ghost sm" id="dAll">All</button><button class="btn ghost sm" id="dNone">None</button></span></div>
-    <div class="toolbar" style="margin:4px 0"><button class="btn sm" id="tagDates" disabled>🏷 Tag selected dates (gated)</button><span class="chip" id="dSel">0 selected</span></div>
-    <div style="overflow-x:auto"><table id="dTbl"><thead><tr><th style="width:34px"></th><th>Date added</th><th>Tag value</th><th>Assets</th><th>Findings</th></tr></thead><tbody></tbody></table></div>
+    <p class="sub" id="dlNote" style="display:none;margin:6px 0 0"></p>
+    <div id="approve" class="card" style="background:var(--panel2);display:none">
+      <b style="font-size:12.5px">Human approval — external download</b>
+      <p class="sub" style="margin:6px 0">Due dates, ransomware use and vendor names come from <b>CISA's KEV catalog</b>, downloaded before the analysis runs. Review and approve.</p>
+      <div class="callbox" id="srcUrl"></div>
+      <div class="callbox" id="srcAssess" style="margin-top:6px">…</div>
+      <div class="toolbar" style="margin-top:10px"><button class="btn run sm" id="approveBtn" data-run>✓ Approve &amp; download</button><button class="btn ghost sm" id="cancelBtn">Cancel</button></div>
+    </div>
+    <div class="toolbar">
+      <label class="btn ghost sm" style="cursor:pointer">⬆ Upload catalog JSON<input id="jsonFile" type="file" accept=".json,application/json" style="display:none"></label>
+      <a class="btn ghost sm" href="https://www.cisa.gov/known-exploited-vulnerabilities-catalog" target="_blank" rel="noopener">CISA KEV catalog ↗</a>
+      <span class="chip" id="counts"></span>
+    </div>
+    <div id="metrics"><div class="setupcard"><div class="big">Press ▶ Run</div><p class="sub">Approve the CISA catalog download to see your KEV exposure by remediation due date, ransomware use and crown-jewel assets.</p></div></div>
+    <div class="toolbar" style="margin-top:10px"><button class="btn sm" id="tagVuln" disabled title="navi enrich tag --xrefs CISA-KNOWN-EXPLOITED — every asset Tenable marks as KEV">🏷️ Tag all KEV assets → CISA KEV : Vulnerable</button>
+      <button class="btn sm" id="tagRansom" disabled title="navi tag-by-CVE for each ransomware-linked KEV on your assets">🏷️ Tag ransomware-linked KEV assets → CISA KEV : Ransomware</button></div>
   </section>
 
   <section class="card needs-llm">
-    <h3 style="margin:0 0 4px">Hunt CISA KEV — ask in plain English</h3>
+    <h3 style="margin:0 0 4px">✨ Ask — hunt CISA KEV in plain English</h3>
     <p class="sub" style="margin:0 0 8px">Turn a question into a read-only SQL over navi.db / tags — e.g. <i>"assets with a CISA KEV and ACR over 7"</i>, <i>"KEV added in 2025 by hostname"</i>, <i>"which assets already carry a CISA KEV tag"</i>.</p>
     <textarea id="kevQ" rows="2" placeholder="ask about CISA KEV…" style="width:100%;box-sizing:border-box;font-size:14px;padding:10px;border-radius:7px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink)"></textarea>
-    <div class="toolbar" style="margin-top:8px"><button class="btn run sm" id="kevNl">✨ Translate to SQL</button></div>
+    <div class="toolbar" style="margin-top:8px"><button class="btn run sm" id="kevNl" data-run>✨ Ask</button></div>
     <div id="kevOut" style="margin-top:8px"></div>
   </section>
-  <div class="no-llm-note callbox" style="display:none;color:var(--warn,var(--cx-e7c66b))">The KEV hunt needs a language model. Set <span class="mono">ANTHROPIC_API_KEY</span> on the server to enable plain-English → SQL — tagging above works without it.</div>
-  <footer>Laelaps · CISA KEV via navi --xrefs CISA-KNOWN-EXPLOITED · gated · tracked in the Tagging log</footer>
+  <div class="no-llm-note callbox" style="display:none;color:var(--warn,var(--cx-e7c66b))">The KEV hunt needs a language model. Set an API key on Settings to enable plain-English → SQL — everything else here works without it.</div>
+
+  <section class="card" id="secDue" data-nav="Due dates" data-nav-icon="⏰">
+    <h2>Remediation due dates <span class="sub" id="dueCount"></span></h2>
+    <p class="sub">CISA sets a remediation <b>due date</b> for every KEV. Bars show how many of your assets have a KEV due that month: <b>overdue</b> (past due, still open) vs <b>due later</b>. Click a bar to select that month's due dates. Tag the assets behind each due date as <span class="tagval">CISA KEV Due : &lt;YYYY-MM-DD&gt;</span>. The date sorts and filters in Tenable, so “due before today” is a simple filter.</p>
+    <div class="legend"><span><i style="background:var(--st-over)"></i>Overdue</span><span><i style="background:var(--st-soon)"></i>Due later</span><span class="sub" id="tlNote"></span></div>
+    <div class="tl" id="tl"></div><div class="tlx" id="tlx"></div>
+    <div class="toolbar" style="margin-top:12px"><span class="filterbtns" id="dueF"><button data-b="" class="on">All</button><button data-b="overdue">Overdue</button><button data-b="soon">Due ≤ 30 days</button><button data-b="later">Later</button></span>
+      <span style="margin-left:auto;display:flex;gap:6px"><button class="btn ghost sm" id="dueAll">Select shown</button><button class="btn ghost sm" id="dueNone">None</button></span></div>
+    <div class="toolbar" style="margin:4px 0"><button class="btn sm" id="tagDue" disabled>🏷️ Tag assets by selected due dates</button><span class="chip" id="dueSel">0 selected</span></div>
+    <table id="dueTbl"><thead><tr><th style="width:34px"></th><th>Due date</th><th>Status</th><th>KEV CVEs</th><th>Assets</th><th>Crown jewels</th><th>Ransomware</th><th>Tag value</th></tr></thead><tbody></tbody></table>
+  </section>
+
+  <section class="card" id="secCves" data-nav="KEV CVEs on your assets" data-nav-icon="🧨">
+    <h2>KEV CVEs on your assets <span class="sub" id="cveCount"></span></h2>
+    <p class="sub">Every CISA KEV present in navi.db, soonest due first. “not xref'd” = Tenable's <span class="mono">CISA-KNOWN-EXPLOITED</span> cross-reference isn't on the finding, so <span class="tagval">CISA KEV : Vulnerable</span> misses it. The due-date and ransomware tags (by CVE) still cover it.</p>
+    <div class="toolbar"><span id="filt"></span></div>
+    <table id="cveTbl"><thead><tr><th>CVE</th><th>Vendor · product</th><th>Vulnerability</th><th>Added</th><th>Due</th><th>Status</th><th>Assets</th><th>Crown</th><th></th></tr></thead><tbody></tbody></table>
+  </section>
+
+  <section class="card" id="secCrown" data-nav="Crown jewels with KEV" data-nav-icon="👑">
+    <h2>Crown jewels with KEV (ACR &gt; 7) <span class="sub" id="crownCount"></span></h2>
+    <p class="sub">Your most critical assets carrying a known-exploited vulnerability, highest ACR first.</p>
+    <table id="crownTbl"><thead><tr><th>Host</th><th>ACR</th><th>KEV CVEs</th><th>Overdue</th><th>Ransomware</th><th>CVEs</th></tr></thead><tbody></tbody></table>
+  </section>
+
+  <section class="card" id="secVend" data-nav="Vendors & products" data-nav-icon="🏭">
+    <h2>Vendors &amp; products <span class="sub" id="vendCount"></span></h2>
+    <p class="sub">Where your KEV exposure comes from: patch these products first.</p>
+    <table id="vendTbl"><thead><tr><th>Vendor</th><th>Product</th><th>KEV CVEs</th><th>Assets</th><th>Overdue CVEs</th><th>Ransomware CVEs</th></tr></thead><tbody></tbody></table>
+  </section>
+
+  <section class="card" id="datesCard" data-nav="By date added" data-nav-icon="📅">
+    <h2>By catalog date added <span class="sub" id="addCount"></span></h2>
+    <p class="sub">The date CISA <b>added</b> each KEV, read from Tenable's xref (navi <span class="mono">--xrefs CISA-KNOWN-EXPLOITED --xid</span>). Tags the assets per date added.</p>
+    <div class="toolbar"><button class="btn sm" id="tagDates" disabled>🏷️ Tag assets by selected dates added</button><span class="chip" id="dSel">0 selected</span>
+      <span style="margin-left:auto;display:flex;gap:6px"><button class="btn ghost sm" id="dAll">All</button><button class="btn ghost sm" id="dNone">None</button></span></div>
+    <div style="overflow-x:auto"><table id="dTbl"><thead><tr><th style="width:34px"></th><th>Date added</th><th>Tag value</th><th>Assets</th><th>Findings</th></tr></thead><tbody></tbody></table></div>
+  </section>
+
+  <footer>Laelaps · CISA KEV via navi.db + CISA's KEV catalog · tags assets via navi --xrefs / tag-by-CVE · gated · tracked in the Tagging log</footer>
 </div>
 <script src="/static/console.js"></script>
 <script>
 const API=agentApi('cisakev');
-let DATES=[], WRITES=false, _dSel=new Set();
-function dPicked(){ return [..._dSel]; }   // selection survives pagination
+let R=null, K=null, DATES=[], WRITES=false, _dSel=new Set(), _dueSel=new Set(), FILTER=null, DUEF='', jsonText='';
+let APPROVED=false;   // CISA catalog download approved — ✓ Approve, or Settings → Auto-approve downloads
+const N=v=>(v==null?0:v).toLocaleString();
+const BUCKET={overdue:['over','Overdue'],'due ≤ 7 days':['soon','Due ≤ 7 days'],'due ≤ 30 days':['soon','Due ≤ 30 days'],later:['','Later'],'no due date':['','—']};
+const stBadge=(b,d)=>{ const [c,l]=BUCKET[b]||['',b]; const x=d==null?'':(d<0?` · ${N(-d)} d late`:` · ${N(d)} d left`);
+  return `<span class="stb ${c}"><i style="background:${c==='over'?'var(--st-over)':c==='soon'?'var(--st-soon)':'var(--st-later)'}"></i>${esc(l)}${esc(x)}</span>`; };
+const FILTERS={ overdue:['Overdue',c=>c.bucket==='overdue'], due30:['Due ≤ 30 days',c=>c.bucket==='due ≤ 7 days'||c.bucket==='due ≤ 30 days'],
+  ransomware:['Ransomware-linked',c=>c.ransomware], crown:['On crown jewels',c=>c.crown_assets>0], recent:['Added ≤ 30 days ago',c=>daysSince(c.date_added)<=30],
+  noxref:['Not xref\'d by Tenable',c=>c.xref_findings===0] };
+function daysSince(d){ if(!d) return 1e9; return Math.floor((Date.parse((R&&R.kev&&R.kev.today)||new Date().toISOString().slice(0,10))-Date.parse(d))/864e5); }
+
+async function load(){
+  document.getElementById('load').disabled=true;
+  flash('flash','<span class="spin"></span> joining navi.db to the CISA KEV catalog…','run');
+  let o; try{ o=await API.post('run',{json_text:jsonText,approved:APPROVED}); }catch(e){ o={ok:false,error:e.message}; }
+  document.getElementById('load').disabled=false;
+  if(!o.ok && !(o.result)){ flash('flash','✗ '+esc(o.error||'failed'),'crit'); return; }
+  R=o.result||{}; K=R.kev||{}; DATES=R.dates||[]; FILTER=null; DUEF='';
+  ['dueTbl','cveTbl','crownTbl','vendTbl','dTbl'].forEach(hPageReset);
+  if(K.ok===false) flash('flash','⚠ '+esc(K.error||'catalog unavailable')+' — showing the xref view only.','warn'); else flashClear('flash');
+  render();
+  if(!(R.summary||{}).kev_assets && !(K.metrics||{}).kev_assets) flash('flash','No CISA KEV findings found — is navi.db fresh? Run a navi update.','warn');
+}
+
+function renderMetrics(){
+  const m=K.metrics||{}, s=R.summary||{};
+  const src={live:'● live from cisa.gov',mirror:'● CISA GitHub mirror',bundled:'◆ bundled snapshot',upload:'⬆ your upload',unavailable:'✗ catalog unavailable'}[K.source]||'';
+  document.getElementById('counts').textContent=(m.catalog_total?`catalog ${m.catalog_version||''} · ${N(m.catalog_total)} KEVs · `:'')+src;
+  if(!m.catalog_total){ document.getElementById('metrics').innerHTML='<div class="mkpi">'+
+      `<div class="mk"><div class="v">${N(s.kev_assets)}</div><div class="l">KEV assets (xref)</div></div><div class="mk"><div class="v">${N(s.kev_findings)}</div><div class="l">KEV findings (xref)</div></div></div>`; return; }
+  const k=(v,l,u,o)=>{o=o||{}; return `<div class="mk${o.f&&FILTER===o.f?' on':''}"${o.f?` data-f="${o.f}"`:''} style="${o.c?'--rc:'+o.c:''}"${o.t?` title="${esc(o.t)}"`:''}><div class="v">${v}</div><div class="l">${l}</div>${u?`<div class="u">${u}</div>`:''}</div>`;};
+  const pct=m.catalog_total?(100*m.kev_cves/m.catalog_total).toFixed(1):0;
+  let h='<div class="mkpi">'+
+    k(N(m.kev_assets),'assets with a KEV', m.has_state?'open findings only':'', {t:'distinct assets in navi.db with at least one CISA Known Exploited Vulnerability'})+
+    k(N(m.kev_cves),'KEV CVEs on your assets', `<b>${pct}%</b> of CISA's ${N(m.catalog_total)}`)+
+    k(N(m.kev_findings),'KEV findings')+
+    k(N(m.crown_assets),'crown jewels with a KEV', `ACR &gt; 7 · <b>${N(m.crown_overdue_assets)}</b> overdue`, {f:'crown',c:'var(--crit)'})+
+    '</div><div class="mhead">CISA due-date compliance — click to filter the KEV list</div><div class="mkpi">'+
+    k(N(m.overdue_assets),'assets past a CISA due date', `<b>${N(m.overdue_cves)}</b> KEV CVEs overdue`+(m.max_days_overdue?` · longest <b>${N(m.max_days_overdue)}</b> d`:''), {f:'overdue',c:'var(--st-over)'})+
+    k(N(m.due30_assets),'assets with a KEV due ≤ 30 days', `<b>${N(m.due30_cves)}</b> CVE${m.due30_cves===1?'':'s'} · <b>${N(m.due7_assets)}</b> asset${m.due7_assets===1?'':'s'} due ≤ 7 d`, {f:'due30',c:'var(--st-soon)'})+
+    k(m.median_days_overdue?N(m.median_days_overdue)+' d':'—','median days overdue', 'across overdue KEV CVEs')+
+    (m.remediated?k(m.remediated.pct_on_time==null?'—':m.remediated.pct_on_time+'%','KEV fixes made by the due date', `<b>${N(m.remediated.on_time)}</b> of ${N(m.remediated.findings)} fixed KEV findings`, {c:'var(--st-ok)',t:'from navi\'s fixed table: last_fixed ≤ CISA due date'}):'')+
+    '</div><div class="mhead">Threat context</div><div class="mkpi">'+
+    k(N(m.ransomware_assets),'assets with a ransomware-linked KEV', `<b>${N(m.ransomware_cves)}</b> CVEs CISA ties to ransomware campaigns`, {f:'ransomware',c:'var(--crit)'})+
+    k(N(m.recent_assets),'assets hit by KEVs added ≤ 30 days ago', `<b>${N(m.recent_cves)}</b> newly listed CVE${m.recent_cves===1?'':'s'}`, {f:'recent',c:'var(--accent)'})+
+    k(N(m.no_xref_assets),'assets the xref tag would miss', `<b>${N(m.no_xref_cves)}</b> KEV CVE${m.no_xref_cves===1?'':'s'} without Tenable's KEV xref`, {f:'noxref',c:'var(--st-later)',t:'CISA lists the CVE as KEV, but the finding lacks the CISA-KNOWN-EXPLOITED xref, so tagging by xref (CISA KEV : Vulnerable) misses these assets; tagging by CVE covers them'})+
+    '</div>';
+  document.getElementById('metrics').innerHTML=h;
+  document.querySelectorAll('#metrics .mk[data-f]').forEach(c=>c.onclick=()=>{ FILTER=FILTER===c.dataset.f?null:c.dataset.f; hPageReset('cveTbl'); render();
+    if(FILTER) document.getElementById('secCves').scrollIntoView({behavior:'smooth',block:'start'}); });
+}
+
+function renderTimeline(){
+  // every month from the first due date to the last (empty months included) so the time axis is honest
+  const raw=K.timeline||[]; const el=document.getElementById('tl'), x=document.getElementById('tlx');
+  const tl=[]; if(raw.length){ const byM={}; raw.forEach(t=>byM[t.month]=t);
+    let [y,mo]=raw[0].month.split('-').map(Number); const [ey,em]=raw[raw.length-1].month.split('-').map(Number);
+    while(y<ey||(y===ey&&mo<=em)){ const k=y+'-'+String(mo).padStart(2,'0'); tl.push(byM[k]||{month:k,overdue:0,upcoming:0}); mo++; if(mo>12){mo=1;y++;} } }
+  if(!tl.length){ el.innerHTML='<div class="sub" style="align-self:center">No KEV due dates on your assets.</div>'; x.innerHTML=''; return; }
+  const max=Math.max(1,...tl.map(t=>t.overdue+t.upcoming)); const now=(K.today||'').slice(0,7);
+  el.innerHTML=tl.map(t=>{ const tot=t.overdue+t.upcoming;
+    return `<div class="b${t.month===now?' today':''}" data-m="${esc(t.month)}" title="${esc(t.month)} — ${N(t.overdue)} asset(s) overdue · ${N(t.upcoming)} due later${t.month===now?' (this month)':''}">`+
+      `<span class="o" style="height:${(100*t.overdue/max).toFixed(1)}%"></span><span class="u" style="height:${(100*t.upcoming/max).toFixed(1)}%"></span></div>`; }).join('');
+  // year ticks under the first bar of each year
+  x.innerHTML=tl.map((t,i)=>`<span style="flex:1 0 8px;min-width:8px;max-width:28px;overflow:visible;white-space:nowrap">${(t.month.endsWith('-01')||(i===0&&!tl.slice(1,4).some(z=>z.month.endsWith('-01'))))?esc(t.month.slice(0,4)):''}</span>`).join('');
+  x.style.cssText='display:flex;gap:2px;justify-content:flex-start;padding:0 2px';
+  document.getElementById('tlNote').textContent=`· ${tl[0].month} → ${tl[tl.length-1].month} · tallest bar ${N(max)} asset(s) · dashed line = this month`;
+  el.querySelectorAll('.b').forEach(b=>b.onclick=()=>{ (K.due_groups||[]).filter(g=>(g.due_date||'').startsWith(b.dataset.m)).forEach(g=>_dueSel.add(g.due_date)); renderDue(); });
+}
+
+function dueShown(){ const g=K.due_groups||[]; if(DUEF==='overdue') return g.filter(x=>x.bucket==='overdue');
+  if(DUEF==='soon') return g.filter(x=>x.bucket==='due ≤ 7 days'||x.bucket==='due ≤ 30 days'); if(DUEF==='later') return g.filter(x=>x.bucket==='later'); return g; }
+function renderDue(){
+  const rows=dueShown().slice().sort((a,b)=> (a.bucket==='overdue')===(b.bucket==='overdue') ? (a.bucket==='overdue'? b.due_date.localeCompare(a.due_date) : a.due_date.localeCompare(b.due_date)) : (a.bucket==='overdue'?1:-1));
+  hPaginate('dueTbl', rows, g=>`<tr><td><input type="checkbox" class="duesel" data-d="${esc(g.due_date)}"${_dueSel.has(g.due_date)?' checked':''}></td>`+
+      `<td class="mono">${esc(g.due_date)}</td><td>${stBadge(g.bucket,g.days_left)}</td><td>${N(g.cves.length)}</td><td><b>${N(g.assets)}</b></td><td>${g.crown_assets?`<b style="color:var(--crit)">${N(g.crown_assets)}</b>`:'0'}</td><td>${g.ransomware?'🔒 '+N(g.ransomware):'—'}</td>`+
+      `<td><span class="tagval">CISA KEV Due : ${esc(g.due_date)}</span></td></tr>`,
+    {cols:8, empty:'<tr><td colspan="8" class="sub">No KEV due dates in this view.</td></tr>',
+     wire:tb=>tb.querySelectorAll('input.duesel').forEach(c=>c.onchange=()=>{ if(c.checked)_dueSel.add(c.dataset.d); else _dueSel.delete(c.dataset.d); dueSync(); })});
+  const all=K.due_groups||[]; document.getElementById('dueCount').textContent=`(${N(all.length)} due dates · ${N(all.filter(g=>g.bucket==='overdue').length)} overdue)`;
+  dueSync();
+}
+function dueSync(){ const n=_dueSel.size, sel=(K.due_groups||[]).filter(g=>_dueSel.has(g.due_date));
+  document.getElementById('dueSel').textContent=n?`${n} selected · ${N(sel.reduce((s,g)=>s+g.cves.length,0))} CVE(s) · ~${N(sel.reduce((s,g)=>s+g.assets,0))} asset(s)`:'0 selected';
+  document.getElementById('tagDue').disabled=!n; }
+
+function renderCves(){
+  let rows=K.cves||[]; if(FILTER) rows=rows.filter(FILTERS[FILTER][1]);
+  document.getElementById('filt').innerHTML=FILTER?`<span class="fchip">Filtered: ${esc(FILTERS[FILTER][0])}<button id="clrF" title="Clear">✕</button></span>`:'';
+  const c=document.getElementById('clrF'); if(c) c.onclick=()=>{ FILTER=null; hPageReset('cveTbl'); render(); };
+  document.getElementById('cveCount').textContent=FILTER?`(${N(rows.length)} of ${N((K.cves||[]).length)})`:`(${N(rows.length)})`;
+  hPaginate('cveTbl', rows, v=>`<tr><td class="mono"><a class="plink" href="https://nvd.nist.gov/vuln/detail/${esc(v.cve)}" target="_blank" rel="noopener">${esc(v.cve)}</a></td>`+
+    `<td>${esc(v.vendor)} · ${esc(v.product)}</td><td style="max-width:320px">${esc(v.name)}</td><td class="mono">${esc(v.date_added||'')}</td><td class="mono">${esc(v.due_date||'')}</td>`+
+    `<td>${stBadge(v.bucket,v.days_left)}</td><td><b>${N(v.assets)}</b></td><td>${v.crown_assets?`<b style="color:var(--crit)">${N(v.crown_assets)}</b>`:'0'}</td>`+
+    `<td>${c2Link('remediate',{cve:v.cve,source:'CISA KEV'},'🛠')} ${v.ransomware?'<span title="CISA: known ransomware campaign use">🔒</span>':''}${v.xref_findings===0?' <span class="flag" title="no CISA-KNOWN-EXPLOITED xref on the finding">not xref\'d</span>':''}</td></tr>`,
+    {cols:9, empty:'<tr><td colspan="9" class="sub">'+((K.cves||[]).length?'Nothing matches the filter.':'No CISA KEV CVEs on assets in navi.db.')+'</td></tr>'});
+  setNavCount('secCves', N((K.cves||[]).length));
+}
+
+function render(){
+  if(!R) return;
+  renderMetrics(); renderTimeline(); renderDue(); renderCves();
+  const cr=K.crown||[]; document.getElementById('crownCount').textContent=`(${N(cr.length)})`; setNavCount('secCrown', N(cr.length));
+  hPaginate('crownTbl', cr, a=>`<tr><td><a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(a.asset_uuid)}">${esc(a.host)}</a></td><td><b style="color:var(--crit)">${esc(String(a.acr))}</b></td><td>${N(a.kev)}</td><td>${a.overdue?`<span class="stb over"><i style="background:var(--st-over)"></i>${N(a.overdue)}</span>`:'0'}</td><td>${a.ransomware?'🔒 '+N(a.ransomware):'—'}</td><td>${(a.cves||[]).map(c=>`<span class="tagval">${esc(c)}</span>`).join(' ')}</td></tr>`,
+    {cols:6, empty:'<tr><td colspan="6" class="sub">No crown-jewel (ACR &gt; 7) assets carry a KEV.</td></tr>'});
+  const vd=K.vendors||[]; document.getElementById('vendCount').textContent=`(${N(vd.length)})`; setNavCount('secVend', N(vd.length));
+  hPaginate('vendTbl', vd, v=>`<tr><td>${esc(v.vendor)}</td><td>${esc(v.product)}</td><td>${N(v.cves)}</td><td><b>${N(v.assets)}</b></td><td>${v.overdue?`<span style="color:var(--st-over)">${N(v.overdue)}</span>`:'0'}</td><td>${v.ransomware?'🔒 '+N(v.ransomware):'—'}</td></tr>`,
+    {cols:6, empty:'<tr><td colspan="6" class="sub">No vendors — no KEV CVEs on your assets.</td></tr>'});
+  setNavCount('secDue', N((K.due_groups||[]).length));
+  renderDates();
+  const m=K.metrics||{};
+  document.getElementById('tagVuln').disabled=!((R.summary||{}).kev_assets);
+  document.getElementById('tagRansom').disabled=!(m.ransomware_cves);
+}
+
+/* ---- by date added (xref) ---- */
+function dPicked(){ return [..._dSel]; }
 function dSync(){ const n=dPicked().length; document.getElementById('dSel').textContent=n+' selected'; document.getElementById('tagDates').disabled=!n; }
 function renderDates(){
-  hPageReset('dTbl'); hPaginate('dTbl', DATES, d=>
-    `<tr><td><input type="checkbox" class="dsel" data-d="${esc(d.kev_date)}"${_dSel.has(d.kev_date)?' checked':''}></td><td class="mono">${esc(d.kev_date)}</td><td><span class="tagval">${esc(d.value)}</span></td><td>${d.assets}</td><td>${d.findings}</td></tr>`,
-    {cols:5, empty:'<tr><td colspan="5" class="sub">No CISA KEV findings in navi.db.</td></tr>',
+  document.getElementById('addCount').textContent=`(${N(DATES.length)})`; setNavCount('datesCard', N(DATES.length));
+  hPaginate('dTbl', DATES, d=>
+    `<tr><td><input type="checkbox" class="dsel" data-d="${esc(d.kev_date)}"${_dSel.has(d.kev_date)?' checked':''}></td><td class="mono">${esc(d.kev_date)}</td><td><span class="tagval">CISA KEV : ${esc(d.value)}</span></td><td>${N(d.assets)}</td><td>${N(d.findings)}</td></tr>`,
+    {cols:5, empty:'<tr><td colspan="5" class="sub">No CISA KEV xrefs in navi.db.</td></tr>',
      wire:tb=>{ tb.querySelectorAll('input.dsel').forEach(c=>c.onchange=()=>{ if(c.checked)_dSel.add(c.dataset.d); else _dSel.delete(c.dataset.d); dSync(); }); }});
   dSync();
 }
-async function load(){
-  document.getElementById('load').disabled=true; flash('flash','<span class="spin"></span> reading CISA KEV xrefs from navi.db…','run');
-  let o; try{ o=await API.post('run'); }catch(e){ o={ok:false,error:e.message}; }
-  document.getElementById('load').disabled=false;
-  if(!o.ok && !(o.result)){ flash('flash','✗ '+esc(o.error||'failed'),'crit'); return; }
-  const r=o.result||{}; const s=r.summary||{}; DATES=r.dates||[]; flashClear('flash');
-  document.getElementById('kpi').innerHTML=`<div class="k"><div class="v">${s.kev_assets||0}</div><div class="l">KEV assets</div></div><div class="k"><div class="v">${s.kev_findings||0}</div><div class="l">KEV findings</div></div><div class="k"><div class="v">${DATES.length}</div><div class="l">catalog dates</div></div>`;
-  document.getElementById('tagVuln').disabled=!(s.kev_assets);
-  document.getElementById('datesCard').style.display='block'; renderDates();
-  if(!s.kev_assets) flash('flash','No CISA KEV findings found — is navi.db fresh? Run a navi update.','warn');
+
+/* ---- gated writes ---- */
+async function gated(btn, label, call, okMsg, ask){   /* ask: plain-text question naming the exact tag + count */
+  if(btn&&btn.disabled) return;
+  await testRunStatus();
+  if(!confirm((typeof ask==='function'?ask():ask)+(WRITES?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.'))) return;
+  if(btn&&btn.disabled) return;
+  const fb=document.getElementById('flash'); const scroll=()=>{ if(fb) fb.scrollIntoView({behavior:'smooth',block:'center'}); };
+  if(btn){ btn.dataset.label=btn.dataset.label||btn.textContent; btn.disabled=true; btn.textContent='⏳ Sending…'; }
+  flash('flash','<span class="spin"></span> '+label+'…','run'); scroll();
+  let o; try{ o=await call(); }catch(e){ o={ok:false,error:e.message}; }
+  if(btn){ btn.disabled=false; btn.textContent=btn.dataset.label; }
+  if(!o.ok&&!o.queued&&!o.warning){ flash('flash','✗ '+esc(o.error||o.message||'failed'),'crit'); scroll(); return; }
+  flash('flash','✓ '+okMsg(o)+' — watch the <a href="/web/tags-log.html">Tagging log</a>.','ok'); scroll();
 }
-async function tagVuln(){
-  const btn=document.getElementById('tagVuln'); if(btn&&btn.disabled)return;
-  if(!WRITES && !confirm('Writes are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked. Continue?')) return;
-  const fb=document.getElementById('flash');
-  const scroll=()=>{ if(fb)fb.scrollIntoView({behavior:'smooth',block:'center'}); };
-  const reset=()=>{ if(!btn)return; btn.disabled=false; btn.textContent=btn.dataset.label; btn.style.opacity=''; btn.style.transform=''; btn.style.cursor=''; };
-  if(btn){ btn.dataset.label=btn.dataset.label||btn.textContent; btn.disabled=true; btn.textContent='⏳ Sending…'; btn.style.opacity='.6'; btn.style.transform='translateY(1px)'; btn.style.cursor='default'; }
-  flash('flash','<span class="spin"></span> queuing CISA KEV : Vulnerable…','run');
-  scroll();
-  let o; try{ o=await API.post('tag_vulnerable',{confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
-  if(!o.ok&&!o.queued&&!o.warning){ flash('flash','✗ '+esc(o.error||o.message||'failed'),'crit'); reset(); scroll(); return; }
-  flash('flash','✓ queued CISA KEV : Vulnerable — watch the <a href="/web/tags-log.html">Tagging log</a> (navi --xrefs CISA-KNOWN-EXPLOITED).','ok');
-  scroll(); reset();
+document.getElementById('tagVuln').onclick=()=>gated(document.getElementById('tagVuln'),'queuing CISA KEV : Vulnerable for every KEV asset',
+  ()=>API.post('tag_vulnerable',{confirm:true}), ()=>'queued CISA KEV : Vulnerable (navi --xrefs CISA-KNOWN-EXPLOITED)',
+  ()=>`Tag ${tagCat('CISA KEV')} : Vulnerable on every asset with a CISA-KNOWN-EXPLOITED xref (${N((R&&R.summary||{}).kev_assets||0)} asset(s) in navi.db; one --xrefs selector)?`);
+document.getElementById('tagRansom').onclick=()=>gated(document.getElementById('tagRansom'),'tagging the assets behind ransomware-linked KEVs',
+  ()=>API.post('tag_ransomware',{approved:APPROVED,confirm:true}), o=>`queued CISA KEV : Ransomware for the assets behind ${N(o.cves)} CVE(s) (${N(o.queued)} job(s))`,
+  ()=>{ const m=(K&&K.metrics)||{}; return `Tag ${tagCat('CISA KEV')} : Ransomware on the ${N(m.ransomware_assets||0)} asset(s) behind ${N(m.ransomware_cves||0)} ransomware-linked KEV CVE(s)?`; });
+document.getElementById('tagDue').onclick=()=>gated(document.getElementById('tagDue'),'tagging assets by CISA due date',
+  ()=>API.post('tag_due',{dues:[..._dueSel],approved:APPROVED,confirm:true}), o=>`queued ${N(o.queued)} job(s) across ${N((o.results||[]).length)} due date(s) — CISA KEV Due : &lt;date&gt;`,
+  ()=>{ const sel=((K&&K.due_groups)||[]).filter(g=>_dueSel.has(g.due_date)); return `Tag ${tagCat('CISA KEV Due')} : <date> for ${sel.length} due date(s) — ${N(sel.reduce((s,g)=>s+g.cves.length,0))} CVE(s), ~${N(sel.reduce((s,g)=>s+g.assets,0))} asset(s)?\n\n`+sel.slice(0,12).map(g=>`• ${tagCat('CISA KEV Due')} : ${g.due_date} (${N(g.assets)} asset(s))`).join('\n')+(sel.length>12?`\n• … +${sel.length-12} more`:''); });
+document.getElementById('tagDates').onclick=()=>gated(document.getElementById('tagDates'),'tagging assets by KEV date added',
+  ()=>API.post('tag_dates',{dates:dPicked(),confirm:true}), o=>`queued ${N(o.queued)} date-added tag(s)`,
+  ()=>{ const ds=DATES.filter(d=>_dSel.has(d.kev_date)); return `Tag ${tagCat('CISA KEV')} : <date added> for ${ds.length} date(s), ~${N(ds.reduce((s,d)=>s+(d.assets||0),0))} asset(s)?\n\n`+ds.slice(0,12).map(d=>`• ${tagCat('CISA KEV')} : ${d.value} (${N(d.assets)} asset(s))`).join('\n')+(ds.length>12?`\n• … +${ds.length-12} more`:''); });
+
+/* ---- wiring ---- */
+document.querySelectorAll('#dueF button').forEach(b=>b.onclick=()=>{ document.querySelectorAll('#dueF button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); DUEF=b.dataset.b; hPageReset('dueTbl'); renderDue(); });
+document.getElementById('dueAll').onclick=()=>{ dueShown().forEach(g=>_dueSel.add(g.due_date)); renderDue(); };
+document.getElementById('dueNone').onclick=()=>{ _dueSel.clear(); renderDue(); };
+document.getElementById('dAll').onclick=()=>{ DATES.forEach(d=>_dSel.add(d.kev_date)); renderDates(); };
+document.getElementById('dNone').onclick=()=>{ _dSel.clear(); renderDates(); };
+document.getElementById('jsonFile').onchange=function(e){ const f=e.target.files&&e.target.files[0]; if(!f) return;
+  const rd=new FileReader(); rd.onload=()=>{ jsonText=rd.result||''; document.getElementById('approve').style.display='none'; flash('flash','Using uploaded catalog ('+esc(f.name)+')…','run'); load(); }; rd.readAsText(f); };
+// onOpen: called on page load — with auto-approve ON just show the source note (no auto-run)
+async function requestApprove(onOpen){
+  const auto=await downloadsAutoApproved('cisakev');
+  if(auto){ APPROVED=true; document.getElementById('approve').style.display='none';
+    const n=document.getElementById('dlNote'), u=auto.urls||[]; n.style.display='';
+    n.innerHTML='⬇ Auto-approved download: <span class="mono">'+esc(u[0]||'CISA KEV catalog')+'</span>'+(u[1]?' (fallback: <span class="mono">'+esc(u[1])+'</span>)':'')+' (<a class="plink" href="/web/settings.html">Settings</a>) · falls back to the bundled snapshot offline.';
+    if(!onOpen) load(); return; }
+  const ap=document.getElementById('approve'); ap.style.display='block';
+  document.getElementById('srcUrl').textContent='GET (CISA KEV catalog)';
+  document.getElementById('srcAssess').innerHTML='<span class="spin"></span> assessing source…';
+  let o; try{ o=await API.post('source'); }catch(e){ o={ok:false}; }
+  if(o&&o.ok){ document.getElementById('srcUrl').textContent='GET '+o.url+'  (fallback: '+o.mirror+')'; document.getElementById('srcAssess').textContent=o.assessment; }
+  else document.getElementById('srcAssess').textContent="CISA's official Known Exploited Vulnerabilities catalog. Approve to download.";
 }
-async function tagDates(dates){
-  const btn=document.getElementById('tagDates'); if(btn&&btn.disabled)return;
-  dates=dates||dPicked(); if(!dates.length) return;
-  if(!WRITES && !confirm('Writes are gated — jobs queue but are blocked. Continue?')) return;
-  const fb=document.getElementById('flash');
-  const scroll=()=>{ if(fb)fb.scrollIntoView({behavior:'smooth',block:'center'}); };
-  const reset=()=>{ if(!btn)return; btn.disabled=false; btn.textContent=btn.dataset.label; btn.style.opacity=''; btn.style.transform=''; btn.style.cursor=''; };
-  if(btn){ btn.dataset.label=btn.dataset.label||btn.textContent; btn.disabled=true; btn.textContent='⏳ Sending…'; btn.style.opacity='.6'; btn.style.transform='translateY(1px)'; btn.style.cursor='default'; }
-  flash('flash','<span class="spin"></span> queuing '+dates.length+' KEV date tag(s)…','run');
-  scroll();
-  let o; try{ o=await API.post('tag_dates',{dates,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
-  if(!o.ok){ flash('flash','✗ '+esc(o.error||'failed'),'crit'); reset(); scroll(); return; }
-  flash('flash','✓ queued '+o.queued+' date tag(s) — watch the <a href="/web/tags-log.html">Tagging log</a>.','ok');
-  scroll(); reset();
-}
+document.getElementById('load').onclick=()=>requestApprove(false);
+document.getElementById('approveBtn').onclick=()=>{ APPROVED=true; document.getElementById('approve').style.display='none'; load(); };
+document.getElementById('cancelBtn').onclick=()=>{ document.getElementById('approve').style.display='none'; };
 async function kevNl(){
-  const p=(document.getElementById('kevQ').value||'').trim();
-  const out=document.getElementById('kevOut');
+  const p=(document.getElementById('kevQ').value||'').trim(); const out=document.getElementById('kevOut');
   if(!p){ out.innerHTML='<div class="callbox" style="color:var(--crit)">Ask a question first.</div>'; return; }
   out.innerHTML='<div class="callbox"><span class="spin"></span> turning your question into SQL…</div>';
   let o; try{ o=await API.post('nl',{prompt:p}); }catch(e){ o={ok:false,message:e.message}; }
-  if(!o.ok || !o.sql){ renderSqlResult('kevOut', {ok:false, message:(o.message||o.error||'failed')+(o.fallback?' — set ANTHROPIC_API_KEY':'')}); return; }
+  if(!o.ok || !o.sql){ renderSqlResult('kevOut', {ok:false, message:(o.message||o.error||'failed')}); return; }
   renderSqlBox('kevOut', o.sql, 'vulns');
 }
-document.getElementById('load').onclick=load;
-document.getElementById('tagVuln').onclick=tagVuln;
-document.getElementById('tagDates').onclick=()=>tagDates();
-document.getElementById('dAll').onclick=()=>{ DATES.forEach(d=>_dSel.add(d.kev_date)); renderDates(); };
-document.getElementById('dNone').onclick=()=>{ _dSel.clear(); renderDates(); };
 document.getElementById('kevNl').onclick=kevNl;
-mountAgentHeader({icon:'🛡️',name:'CISA KEV Tagging',sub:'Laelaps · tag known-exploited vulns by xref / date'});
+mountAgentHeader({icon:'🛡️',name:'CISA KEV Tagging',sub:'Laelaps · KEV exposure by CISA due date · tags assets'});
+mountSectionNav();
 try{ hMailAuto(); }catch(e){}
 jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});
+requestApprove(true);   // human approves the CISA catalog download before anything is fetched (or Settings auto-approves it)
 </script>
 </body></html>

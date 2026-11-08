@@ -5,36 +5,37 @@
 <link rel="stylesheet" href="/static/console.css"/>
 <style>.plink{color:var(--accent);text-decoration:none;font-weight:600}.plink:hover{text-decoration:underline}
 #tbl{table-layout:fixed;width:100%}#tbl th,#tbl td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}</style>
-</head><body>
+</head><body data-page-cache="off">
 <div class="wrap">
   <header class="top" id="app-header"></header>
   <section class="card">
     <h2 style="margin:0">🔎 Plugin Explorer</h2>
-    <p class="sub" style="margin:2px 0 8px">Every distinct plugin in navi.db — search by ID, name, or family. 500 rows/page. Click a linked row to open the full detail.</p>
-    <div class="toolbar needs-llm"><input id="nlq" placeholder="Ask in plain English → SQL on the vulns table…" style="flex:1;min-width:240px;padding:9px;border-radius:8px;border:1px solid var(--accent);background:var(--bg-2);color:var(--ink)"><button class="btn sm" id="nlgo">✨ Ask (NL→SQL)</button></div>
+    <p class="sub" style="margin:2px 0 8px">Every distinct plugin in navi.db — search by ID, name, or family. 20 rows/page (Rows: up to 50). Click a linked row to open the full detail.</p>
+    <div class="toolbar needs-llm"><input id="nlq" placeholder="Ask in plain English → SQL on the vulns table…" style="flex:1;min-width:240px;padding:9px;border-radius:8px;border:1px solid var(--accent);background:var(--bg-2);color:var(--ink)"><button class="btn sm" id="nlgo" data-run>✨ Ask</button></div>
     <div id="nlout" class="needs-llm"></div>
-    <div class="toolbar"><input id="q" placeholder="plugin id / name / family…" style="flex:1;min-width:220px;padding:9px;border-radius:8px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink)"><button class="btn run sm" id="go">▶ Search</button><span class="chip" id="count"></span></div>
+    <div class="toolbar"><input id="q" placeholder="plugin id / name / family…" style="flex:1;min-width:220px;padding:9px;border-radius:8px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink)"><button class="btn run sm" id="go" data-run>▶ Search</button><span class="chip" id="count"></span></div>
     <div id="flash" class="flash"></div>
-    <table id="tbl" style="table-layout:fixed;width:100%"><colgroup><col style="width:92px"><col><col style="width:190px"><col style="width:74px"></colgroup><thead><tr><th>Plugin ID</th><th>Name</th><th>Family</th><th>Assets</th></tr></thead><tbody><tr><td colspan="4" class="sub">Search to load…</td></tr></tbody></table>
+    <table id="tbl" class="nopage" style="table-layout:fixed;width:100%"><colgroup><col style="width:92px"><col><col style="width:190px"><col style="width:74px"></colgroup><thead><tr><th>Plugin ID</th><th>Name</th><th>Family</th><th>Assets</th></tr></thead><tbody><tr><td colspan="4" class="sub">Search to load…</td></tr></tbody></table>
     <div class="toolbar" id="pager"></div>
   </section>
-  <footer>Plugin Explorer · read-only navi.db search (paginated 500/page)</footer>
+  <footer>Plugin Explorer · read-only navi.db search (paginated, 20–50 rows/page)</footer>
 </div>
 <script src="/static/console.js"></script>
 <script>
-const API=agentApi('ex_plugins'); const PAGE=500;
+const API=agentApi('ex_plugins'); let PAGE=hPageSize('tbl');   // 20/page by default, Rows selector up to 50
 async function go(off){ off=off||0;
   document.getElementById('go').disabled=true; flash('flash','<span class="spin"></span> querying navi.db…','run');
-  let o; try{ o=await API.post('search',{q:document.getElementById('q').value.trim(),offset:off}); }catch(e){ o={ok:false,error:e.message}; }
+  let o; try{ o=await API.post('search',{q:document.getElementById('q').value.trim(),offset:off,limit:PAGE}); }catch(e){ o={ok:false,error:e.message}; }
   document.getElementById('go').disabled=false;
-  if(!o.ok){ flash('flash','✗ '+(o.error||'failed'),'crit'); return; }
+  if(!o.ok){ flash('flash','✗ '+esc(o.error||'failed'),'crit'); return; }
   flashClear('flash'); const res=o.result||{}; const rows=res.rows||[];
   document.getElementById('count').textContent=rows.length+' shown';
-  document.querySelector('#tbl tbody').innerHTML=rows.length?rows.map(r=>`<tr><td><a class=\"plink\" href=\"/web/vuln.html?plugin=${encodeURIComponent(r.plugin_id)}\">${esc(String(r.plugin_id))}</a></td><td title=\"${esc(r.name||'')}\">${esc(r.name||'')}</td><td title=\"${esc(r.family||'')}\">${esc(r.family||'')}</td><td>${esc(String(r.assets))}</td></tr>`).join(''):'<tr><td colspan="4" class="sub">No matches.</td></tr>';
+  document.querySelector('#tbl tbody').innerHTML=rows.length?rows.map(r=>`<tr><td><a class=\"plink\" href=\"/web/vuln.html?plugin=${encodeURIComponent(r.plugin_id)}\">${esc(String(r.plugin_id))}</a></td><td title=\"${esc(r.name||'')}\">${esc(r.name||'')}</td><td title=\"${esc(r.family||'')}\">${esc(r.family||'')}</td><td>${esc(String(r.assets))}${r.assets?'<br>'+c2Link('remediate',{plugin_id:r.plugin_id,source:'Plugin Explorer'},'🛠 Fix'):''}</td></tr>`).join(''):'<tr><td colspan="4" class="sub">No matches.</td></tr>';
   const pg=document.getElementById('pager'); const page=res.page||1;
   pg.innerHTML='<button class="btn ghost sm" '+(off<=0?'disabled':'')+' id="pp">◀ Prev</button><span class="chip">page '+page+' · rows '+(rows.length?off+1:0)+'–'+(off+rows.length)+'</span><button class="btn ghost sm" '+(res.has_next?'':'disabled')+' id="pn">Next ▶</button>';
   const pp=document.getElementById('pp'); if(pp)pp.onclick=()=>go(Math.max(0,off-PAGE));
   const pn=document.getElementById('pn'); if(pn)pn.onclick=()=>go(off+PAGE);
+  hSizeControl(pg,'tbl',v=>{ PAGE=v; go(0); });
 }
 document.getElementById('go').onclick=()=>go(0);
 document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter')go(0);});

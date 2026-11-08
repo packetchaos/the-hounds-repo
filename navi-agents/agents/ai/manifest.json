@@ -1,16 +1,19 @@
 {
   "id": "ai",
   "name": "AI Inventory",
-  "icon": "\ud83e\udde0",
+  "icon": "🧠",
   "order": 6,
   "category": "Tagging",
-  "summary": "Content-first AI/ML discovery — the Tenable AI plugin family plus the software & cpes inventories, plugin output, and network endpoints. Classifies each asset by role, flags exposed/unauth endpoints, maps data-egress (shadow vs sanctioned) and MITRE ATLAS techniques, with a per-row 🔍 Why + false-positive suppression. Tag by role via navi tag-by-query (gated).",
+  "summary": "Content-first AI/ML discovery — the Tenable AI plugin family plus the software & cpes inventories, plugin output, and network endpoints. Classifies each asset by role; metrics for footprint (share of estate, found beyond the AI plugins), exposure (exposed / unauth endpoints, shadow egress), risk (KEV, critical, EOL, MITRE ATLAS) and governance (ACR vs the role's suggested ACR, already tagged). Per-row 🔍 Why + false-positive suppression. Tags assets AI, AI Role, AI Software, AI Exposed, AI Priority, AI Egress, AI ATLAS (gated) and sets ACR by AI Role (gated).",
   "needs_backend": true,
   "page": "page.html",
   "actions": [
     "run",
     "tag",
-    "apply"
+    "apply",
+    "acr_roles",
+    "tag_underrated",
+    "tag_atlas"
   ],
   "codename": "Pythia"
 }

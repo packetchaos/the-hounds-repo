@@ -5,7 +5,7 @@
 <link rel="stylesheet" href="/static/console.css"/>
 <style>.applink{color:var(--accent);text-decoration:none;font-weight:600}.applink:hover{text-decoration:underline}
 #tbl{table-layout:fixed;width:100%}#tbl th,#tbl td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}</style>
-</head><body>
+</head><body data-autorun data-page-cache="off">
 <div class="wrap">
   <header class="top" id="app-header"></header>
   <section class="card">
@@ -16,12 +16,12 @@
       <input id="q" placeholder="app name / target / technology…" style="flex:1;min-width:200px;padding:9px;border-radius:8px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink)">
       <select class="fld" id="sev"><option value="">any severity</option><option value="crit">has critical</option><option value="high">has high</option><option value="clean">clean</option></select>
       <select class="fld" id="recency"><option value="">any scan age</option><option value="fresh">scanned ≤30d</option><option value="stale">stale &gt;30d</option></select>
-      <button class="btn run sm" id="go">▶ Search</button>
+      <button class="btn run sm" id="go" data-run>▶ Search</button>
       <button class="btn ghost sm" id="csv">⤓ CSV</button>
       <span class="chip" id="count"></span>
     </div>
     <div id="flash" class="flash"></div>
-    <table id="tbl"><colgroup><col><col style="width:200px"><col style="width:52px"><col style="width:52px"><col style="width:52px"><col style="width:52px"><col style="width:56px"><col style="width:150px"><col style="width:78px"></colgroup>
+    <table id="tbl" class="nopage"><colgroup><col><col style="width:200px"><col style="width:52px"><col style="width:52px"><col style="width:52px"><col style="width:52px"><col style="width:56px"><col style="width:150px"><col style="width:78px"></colgroup>
       <thead><tr><th>App</th><th>Target</th><th>Crit</th><th>High</th><th>Med</th><th>Findings</th><th>Tech</th><th>Top OWASP</th><th>Last scan</th></tr></thead>
       <tbody><tr><td colspan="9" class="sub">Search to load…</td></tr></tbody></table>
     <div class="toolbar" id="pager"></div>
@@ -30,13 +30,13 @@
 </div>
 <script src="/static/console.js"></script>
 <script>
-const API=agentApi('ex_apps'); const PAGE=200; let LAST=[];
+const API=agentApi('ex_apps'); let PAGE=hPageSize('tbl'); let LAST=[];   // 20/page by default, Rows selector up to 50
 const fnum=n=>(n==null||n===''?'—':Number(n).toLocaleString());
 function ageDays(iso){ if(!iso)return null; const t=Date.parse(iso); if(isNaN(t))return null; return Math.max(0,Math.round((Date.now()-t)/86400000)); }
 async function go(off){ off=off||0;
   document.getElementById('go').disabled=true; flash('flash','<span class="spin"></span> querying the apps table…','run');
   const body={q:document.getElementById('q').value.trim(),sev:document.getElementById('sev').value,recency:document.getElementById('recency').value,offset:off};
-  let o; try{ o=await API.post('search',body); }catch(e){ o={ok:false,error:e.message}; }
+  let o; try{ o=await API.post('search',Object.assign({limit:PAGE},body)); }catch(e){ o={ok:false,error:e.message}; }
   document.getElementById('go').disabled=false;
   if(!o||!o.ok){ flash('flash','✗ '+esc((o&&o.error)||'failed'),'crit'); return; }
   const res=o.result||{};
@@ -60,6 +60,7 @@ async function go(off){ off=off||0;
   pg.innerHTML='<button class="btn ghost sm" '+(off<=0?'disabled':'')+' id="pp">◀ Prev</button><span class="chip">page '+page+' · rows '+(rows.length?off+1:0)+'–'+(off+rows.length)+'</span><button class="btn ghost sm" '+(res.has_next?'':'disabled')+' id="pn">Next ▶</button>';
   const pp=document.getElementById('pp'); if(pp)pp.onclick=()=>go(Math.max(0,off-PAGE));
   const pn=document.getElementById('pn'); if(pn)pn.onclick=()=>go(off+PAGE);
+  hSizeControl(pg,'tbl',v=>{ PAGE=v; go(0); });
 }
 function kpi(v,l,c){ return '<div class="k"><div class="v"'+(c?' style="color:'+c+'"':'')+'>'+v+'</div><div class="l">'+esc(l)+'</div></div>'; }
 document.getElementById('csv').onclick=()=>{ if(!LAST.length){alert('Nothing to export yet.');return;}

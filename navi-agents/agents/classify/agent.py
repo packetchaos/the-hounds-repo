@@ -18,4 +18,4 @@ class ClassifyAgent(Agent):
                 "unclassified": self.result.get("unclassified")}
 
     def _run(self, db_path=None):
-        return _classify.classify(db_path)
+        return _classify.classify(db_path, glance=True)

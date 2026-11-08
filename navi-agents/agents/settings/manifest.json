@@ -1,4 +1,4 @@
 { "id":"settings","name":"Settings","icon":"⚙","order":99,"category":"Tools",
   "summary":"Repo-only control panel: read/set environment variables, check which navi.db tables are populated, run long navi table-updates in a live CLI window, and watch API token usage. Not a hound.",
   "hidden":true,"needs_backend":true,
-  "actions":["status","set_env","db_checks","navi_start","navi_poll","navi_jobs","reset_usage"] }
+  "actions":["status","set_env","db_checks","navi_start","navi_poll","navi_jobs","reset_usage","downloads"] }

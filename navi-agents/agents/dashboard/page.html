@@ -74,7 +74,7 @@
     <div class="needs-llm">
       <textarea id="prompt" rows="2" placeholder="e.g. Top 10 plugins by number of affected assets" style="width:100%;box-sizing:border-box;font-size:14px;padding:10px;border-radius:var(--radius-sm);border:1px solid var(--line);background:var(--bg-2);color:var(--ink)"></textarea>
       <div class="exrow" id="examples"></div>
-      <div class="toolbar"><button class="btn run sm" id="go">▶ Generate dashboard</button>
+      <div class="toolbar"><button class="btn run sm" id="go" data-run>✨ Ask</button>
         <span class="chip" id="meta"></span></div>
       <div id="flash" class="flash"></div>
     </div>
@@ -599,7 +599,7 @@ function addToDashboard(){ if(!_dashCurrent){flash('flash','Generate a dashboard
   var _ov=(document.getElementById('dChartType')||{}).value||'auto';   // bake the chosen chart type
   if(_ov&&_ov!=='auto'){ _dashCurrent.r=_dashCurrent.r||{}; _dashCurrent.r.viz=_ov; }
   DASHBOARD.push(JSON.parse(JSON.stringify(_dashCurrent))); saveDash(); renderDashGrid();
-  flash('flash','✓ pinned to “'+dashActive().name+'” below — generate another to keep building.','ok');
+  flash('flash','✓ pinned to “'+esc(dashActive().name)+'” below — generate another to keep building.','ok');
   const w=document.getElementById('dashGridWrap'); if(w)w.scrollIntoView({behavior:'smooth',block:'nearest'});
 }
 /* compose the pinned board as an HTML email (chart + small table each) and hand off to Gabriel */
@@ -741,10 +741,11 @@ async function addPreset(p,btn){
   if(!p)return;
   const pin=btn&&btn.querySelector?btn.querySelector('.ppin'):null; const oldPin=pin?pin.textContent:'';
   if(btn){ btn.style.pointerEvents='none'; btn.style.opacity='.7'; } if(pin)pin.textContent='running…';
-  let o; try{ o=await runSql(p.sql); }catch(e){ o={ok:false,message:e.message}; }
+  await testRunStatus(); const sql=tagKeySql(p.sql);   // + test-run tag names (Settings → Test run)
+  let o; try{ o=await runSql(sql); }catch(e){ o={ok:false,message:e.message}; }
   if(btn){ btn.style.pointerEvents=''; btn.style.opacity=''; } if(pin)pin.textContent=oldPin;
   if(!o||!o.ok){ pflash('✗ '+esc(p.title)+': '+esc((o&&(o.message||o.error))||'query failed'),'crit'); return; }
-  const d={title:p.title,note:p.note,sql:p.sql,r:{columns:o.columns||[],rows:o.rows||[],viz:p.viz||'',label_col:p.label_col||'',value_col:p.value_col||''}};
+  const d={title:p.title,note:p.note,sql:sql,r:{columns:o.columns||[],rows:o.rows||[],viz:p.viz||'',label_col:p.label_col||'',value_col:p.value_col||''}};
   DASHBOARD.push(d); saveDash(); renderDashGrid();
   document.getElementById('dashGridWrap').scrollIntoView({behavior:'smooth',block:'nearest'});
   if(pin){ pin.textContent='✓ pinned'; setTimeout(()=>{ if(pin)pin.textContent=oldPin; },1200); }
@@ -775,7 +776,7 @@ async function go(){
   document.getElementById('go').disabled=false;
   if(!o.ok){
     flashClear('flash');
-    let msg='✗ '+(o.error||'failed');
+    let msg='✗ '+esc(o.error||'failed');
     if(o.needs_key) msg+=' — set ANTHROPIC_API_KEY on the server (the artifact build uses on-device inference).';
     flash('flash',msg,'crit');
     if(o.sql){document.getElementById('out').style.display='block';document.getElementById('dTitle').textContent='Proposed query (not run)';document.getElementById('dNote').textContent='';document.getElementById('dSql').textContent=o.sql;document.getElementById('sqlWrap').style.display='block';document.getElementById('viz').innerHTML='';}

@@ -8,7 +8,7 @@ import json
 import os
 import time
 
-from . import health as _health, discovery, db, jobq, qprofile
+from . import health as _health, discovery, db, jobq, qprofile, redact, activity
 
 RECORDS = discovery.discover()
 DISPATCH = {r["id"]: r["actions"] for r in RECORDS if r["deployed"]}
@@ -30,11 +30,32 @@ _MUTATING = {"apply", "assign", "tag", "tag_candidate", "send", "delete", "remov
              # contract state changes — must drop the cached `get` so the UI sees them
              "set", "arm", "disarm", "load", "add_removals",
              # alert (Alert Raven) state changes — new/edited/removed alerts + evaluations + test email
-             "save", "toggle", "add_template", "evaluate", "send_test"}
+             "save", "toggle", "add_template", "evaluate", "send_test",
+             # Settings — env + config-store changes must drop the cached `status`
+             "set_env", "config_mode", "sla_set", "reset_usage",
+             # Command & Control — remote execution (gated + confirm) and run control
+             "command", "upload", "push_file", "campaign", "abort", "run_checks", "cred_test",
+             "path_check", "deploy", "rollback"}
+
+
+# Live state — job progress, status, logs — must never be served from the result cache
+# (a cached navi_jobs made Settings' update buttons look dead). The Settings control panel
+# is live end to end.
+# The Search Hounds (Argos + the explorers + Advanced) answer a question about navi.db as it is
+# NOW — every search goes to the database, never a remembered answer.
+_NOCACHE_AGENTS = {"settings", "hub", "argos", "explore", "ex_apps", "ex_assets", "ex_fixed", "ex_paths",
+                   "ex_plugins", "ex_routes", "ex_tags", "ex_vulns",
+                   # Command & Control: live gate / runs / command log — never a remembered answer
+                   "c2"}
+_LIVE = {"status", "log", "loop_log", "history", "scheduler", "list", "get", "metrics",
+         "tag_jobs", "navi_poll", "navi_jobs", "db_checks", "sla_get", "activity"}
+# actions with their own server-side snapshot (or a peek of one): the short result cache
+# would only serve a stale "building…" / old summary. Still counted as runs (unlike _LIVE).
+_OWN_CACHE = {"snapshot", "scent"}
 
 
 def _cache_key(agent_id, action, payload):
-    p = {k: v for k, v in (payload or {}).items() if k not in ("refresh", "_nocache")}
+    p = {k: v for k, v in (payload or {}).items() if k not in ("refresh", "_nocache", "_run")}
     try:
         ps = json.dumps(p, sort_keys=True, default=str)
     except Exception:
@@ -43,7 +64,14 @@ def _cache_key(agent_id, action, payload):
         dbp = db.db_path()
     except Exception:
         dbp = ""
-    return f"{agent_id}|{action}|{ps}|{dbp}"
+    # Settings → Test run changes what a hound writes (tag names in plans / exports / previews)
+    # and what its readers match — a result computed under another prefix must not be served
+    try:
+        from core import tagname
+        tp = tagname.prefix() + "|" + tagname.configured_prefix()
+    except Exception:
+        tp = ""
+    return f"{agent_id}|{action}|{ps}|{dbp}|{tp}"
 
 
 def _invalidate(agent_id):
@@ -60,16 +88,16 @@ def registry() -> dict:
 
 
 def health() -> dict:
-    return _health.health()
+    return redact.scrub(_health.health())
 
 
 def jobs_list() -> dict:
-    return {"ok": True, "jobs": jobq.list_jobs(), "counts": jobq.counts()}
+    return redact.scrub({"ok": True, "jobs": jobq.list_jobs(), "counts": jobq.counts()})
 
 
 def jobs_get(job_id) -> dict:
     j = jobq.get(job_id)
-    return {"ok": True, "job": j} if j else {"ok": False, "error": "no such job"}
+    return redact.scrub({"ok": True, "job": j} if j else {"ok": False, "error": "no such job"})
 
 
 def jobs_clear() -> dict:
@@ -87,7 +115,53 @@ def profile_clear() -> dict:
     return {"ok": True}
 
 
-def dispatch(agent_id: str, action: str, payload: dict):
+def post_guard(get_header):
+    """Reject cross-site POSTs (kept for back-compat — the full per-request gate, including
+    the Host allowlist and the access token, is core.security.check, which every server
+    runs first). Returns an error string, or None when the request is fine."""
+    from . import security
+    return security.post_guard(get_header)
+
+
+def request_gate(method, path, get_header, peer_addr=None):
+    """Host allowlist + access token + POST guard for ONE request — see core.security."""
+    from . import security
+    return security.check(method, path, get_header, peer_addr)
+
+
+def dispatch(agent_id: str, action: str, payload: dict, peer=None, http=False):
+    """Run an agent action. Every response is scrubbed of secrets (core.redact) —
+    model/cloud keys never reach the browser, even inside a provider error.
+    `peer` / `http`: the HTTP servers pass the TCP peer address so actions can tell a
+    loopback caller from a remote one (core.gates.client_is_loopback)."""
+    from . import gates
+    tok = gates.set_client(peer, http=http)
+    try:
+        return _dispatch_run(agent_id, action, payload)
+    finally:
+        gates.reset_client(tok)
+
+
+def _dispatch_run(agent_id: str, action: str, payload: dict):
+    payload = dict(payload if isinstance(payload, dict) else {})
+    # the browser tags requests set off by a ▶ Run / Run all / Enter with _run:1 — those
+    # (and only those) are this hound's durable run history (core.activity)
+    run_id = payload.pop("_run", None)
+    is_run = bool(run_id)
+    t0 = time.time()
+    out = _dispatch(agent_id, action, payload)
+    if is_run and action not in _LIVE:
+        body = out[0] if isinstance(out, tuple) else out
+        ok = not (isinstance(body, dict) and body.get("ok") is False)
+        activity.note_run(agent_id, action, ok=ok, ms=(time.time() - t0) * 1000,
+                          cached=bool(isinstance(body, dict) and body.get("_cached")),
+                          rid=run_id if isinstance(run_id, str) else None)
+    if isinstance(out, tuple) and len(out) == 2:
+        return redact.scrub(out[0]), out[1]
+    return redact.scrub(out)
+
+
+def _dispatch(agent_id: str, action: str, payload: dict):
     acts = DISPATCH.get(agent_id)
     if acts is None:
         return {"ok": False, "error": f"agent '{agent_id}' is not deployed"}, 404
@@ -95,8 +169,13 @@ def dispatch(agent_id: str, action: str, payload: dict):
     if not fn:
         return {"ok": False, "error": f"unknown action '{action}' for '{agent_id}'"}, 404
     payload = payload or {}
-    mutating = (action in _MUTATING) or bool(payload.get("confirm"))
-    cacheable = (not mutating and not payload.get("refresh") and not payload.get("_nocache"))
+    # any request that carries a confirm key (true OR a bogus "false") is a write attempt:
+    # never cached, and it invalidates this agent's reads. Approval itself is checked
+    # strictly (core.gates.confirmed) inside each action.
+    mutating = (action in _MUTATING) or ("confirm" in payload)
+    cacheable = (not mutating and not payload.get("refresh") and not payload.get("_nocache")
+                 and agent_id not in _NOCACHE_AGENTS and action not in _LIVE
+                 and action not in _OWN_CACHE)
     now = time.time()
 
     # Background mode: run a heavy read/compute action on the job queue and return
@@ -104,8 +183,9 @@ def dispatch(agent_id: str, action: str, payload: dict):
     # AND in the read cache, so a later normal fetch is instant. Never background a
     # write/mutating action — those stay synchronous + confirmed.
     if payload.get("background") and not mutating:
-        key = _cache_key(agent_id, action, payload)
-        hit = _CACHE.get(key)
+        # the same key the job stores its result under (the payload without `background`)
+        key = _cache_key(agent_id, action, {k: v for k, v in payload.items() if k != "background"})
+        hit = _CACHE.get(key) if cacheable else None      # no-cache agents always run fresh
         if hit and (now - hit[0]) < _CACHE_TTL:          # already have it — skip the job
             body, status = hit[1]
             if isinstance(body, dict):
@@ -116,7 +196,8 @@ def dispatch(agent_id: str, action: str, payload: dict):
             inner = dict(payload); inner.pop("background", None)
             out = fn(inner)
             if isinstance(out, tuple) and len(out) == 2:
-                _CACHE[_cache_key(agent_id, action, inner)] = (time.time(), out)
+                if cacheable:
+                    _CACHE[_cache_key(agent_id, action, inner)] = (time.time(), out)
                 return out[0]
             return out
 

@@ -4,10 +4,29 @@
 <title>Exposure Score · Navi Agents</title>
 <link rel="stylesheet" href="/static/console.css"/>
 <style>
-  .k{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:11px 13px}
-  .kg{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;margin-top:12px}
-  .k .kl{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
-  .k .kv{font-family:var(--display);font-size:22px;font-weight:700;margin-top:2px}
+  /* metric cards / at-a-glance — same look as Exposure Routes, SLA, Scan Evaluation, AI */
+  .mkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:10px}
+  .mk{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--panel-2)}
+  .mk .v{font-size:22px;font-weight:800;color:var(--ink);line-height:1.1}.mk .v small{font-size:13px;font-weight:600;color:var(--mut)}
+  .mk .l{font-size:11.5px;color:var(--mut);margin-top:2px}
+  .mk .u{font-size:11.5px;color:var(--ink-2,var(--ink));margin-top:4px}.mk .u b{color:var(--ink)}
+  .mk[data-f],.mk[data-j]{cursor:pointer;border-left:4px solid var(--rc,var(--line))}.mk[data-f]:hover,.mk[data-j]:hover{border-color:var(--accent)}.mk.on{box-shadow:0 0 0 2px var(--accent)}
+  .mk.zero{opacity:.55}
+  .mhead{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 0}
+  .glance{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-top:10px}
+  .gl{border:1px solid var(--line);border-radius:12px;padding:10px 12px}.gl h4{margin:0 0 6px;font-size:12.5px}
+  .sbar{display:flex;height:16px;border-radius:6px;overflow:hidden;background:var(--panel-2)}
+  .sbar span{display:block;height:100%}.sbar span+span{border-left:2px solid var(--panel,#fff)}
+  .slg{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11.5px;margin-top:6px;color:var(--ink-2,var(--ink))}
+  .slg i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px}.slg b{font-family:var(--mono)}
+  .prev{display:grid;grid-template-columns:96px 1fr 40px;gap:8px;align-items:center;font-size:11.5px;margin-top:4px}
+  .prev .t{height:8px;border-radius:4px;background:var(--panel-2);overflow:hidden}.prev .t>i{display:block;height:100%}
+  .prev .n{font-family:var(--mono);text-align:right;color:var(--ink-2)}
+  .gl.wide{grid-column:1/-1}.prevg{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:0 22px}
+  .prev[data-f]{cursor:pointer}.prev[data-f]:hover .l{color:var(--accent)}
+  .fbar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:2px 0 8px}
+  .fbar .fchip{cursor:pointer;font-size:10.5px;padding:2px 8px}.fbar .fchip.on{background:var(--accent);border-color:var(--accent);color:#12131a}
+  #sec-act,#sec-play,#sec-lb,#sec-worst,#sec-score{scroll-margin-top:10px}
   .act{border:1px solid rgba(229,72,77,.45);border-radius:14px;padding:14px 16px;margin-top:14px;background:radial-gradient(120% 160% at 100% -30%,rgba(229,72,77,.13),transparent 60%),var(--panel)}
   .act .top{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
   .act .big{font-family:var(--display);font-weight:700;font-size:28px;color:var(--crit);line-height:1}
@@ -39,15 +58,6 @@
   .fac .wsl{width:100%;cursor:pointer;accent-color:var(--accent);height:4px}
   .fac .wv{font-family:var(--mono);font-size:11.5px;color:var(--ink);text-align:right}
   .fac.z{opacity:.5}.fac.z .wv{color:var(--ink-3)}
-  .subnav{position:sticky;top:0;z-index:6;display:flex;gap:6px;flex-wrap:wrap;padding:9px 0 8px;margin-top:6px;background:linear-gradient(var(--bg) 72%,transparent)}
-  .subnav a{font-family:var(--display);font-weight:600;font-size:12px;color:var(--ink-2);text-decoration:none;border:1px solid var(--line);border-radius:999px;padding:5px 12px}
-  .subnav a:hover{border-color:var(--accent);color:var(--ink)}
-  .subnav a.on{background:var(--accent);border-color:var(--accent);color:#12131a}
-  .subhead{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin:22px 0 10px;padding-bottom:7px;border-bottom:1px solid var(--line)}
-  .subhead .sn{font-family:var(--mono);font-size:12px;color:var(--accent);border:1px solid var(--accent);border-radius:6px;padding:1px 7px;flex:none}
-  .subhead h3{font-family:var(--display);font-weight:700;font-size:18px;margin:0}
-  .subhead .sh{color:var(--ink-3);font-size:12.5px;font-weight:400}
-  #sec-act,#sec-play,#sec-score,#sec-lb{scroll-margin-top:54px}
   .newpill{font-family:var(--mono);font-size:8.5px;background:rgba(109,112,230,.18);color:var(--accent);border:1px solid var(--accent);border-radius:999px;padding:1px 5px;margin-left:4px;vertical-align:1px}
   .lb{display:flex;flex-direction:column;gap:8px}
   .row{display:grid;grid-template-columns:22px 1fr;gap:10px;align-items:center;padding:9px 11px;border:1px solid var(--line);border-radius:11px;background:var(--bg-2);cursor:pointer}
@@ -65,99 +75,97 @@
   .worst{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-top:10px}
   .wc{border:1px solid var(--line);border-radius:11px;padding:11px 12px;background:var(--bg-2)}
   .wc .wh{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
-  .wc .wa{font-weight:600;font-size:14px;margin-top:3px} .wc.conv{box-shadow:inset 3px 0 0 var(--crit)}
+  .wc .wa{font-weight:600;font-size:14px;margin-top:3px} a.wc{text-decoration:none;color:var(--ink);display:block} a.wc:hover{border-color:var(--accent)} .wc.conv{box-shadow:inset 3px 0 0 var(--crit)}
 </style>
-</head><body>
+</head><body data-page-cache="off">
 <div class="wrap">
   <header class="top" id="app-header"></header>
   <section class="card" style="background:radial-gradient(120% 140% at 90% -20%,var(--amber-glow),transparent 60%),var(--panel)">
     <div class="toolbar"><div><div class="acode">Nemesis</div><h2 style="margin:0">🎯 Exposure Score</h2>
       <p class="sub" style="margin:2px 0 0">The pack's convergence page — every Hound's signal fused into <b>one score per asset</b>. Surfaces the <b>worst from each Hound</b> and where they land on the <b>same</b> assets, ranks the estate worst-first, and turns a play into a <b>projected reduction justified by the signals it clears</b>. Scores climb as more Hounds run and tag.</p></div>
-      <button class="btn run sm" id="load" style="margin-left:auto">▶ Score the estate</button></div>
+      <button class="btn run sm" id="load" data-run style="margin-left:auto">▶ Run</button></div>
     <div id="flash" class="flash"></div>
-    <div class="kg" id="kpis"></div>
+    <div class="sub" id="snapMeta" style="margin:6px 0 0"></div>
+    <div id="kpis"></div>
+    <div id="glance"></div>
   </section>
 
-  <nav class="subnav" id="subnav" style="display:none">
-    <a href="#" data-sec="sec-act">① Act now</a><a href="#" data-sec="sec-play">② Recommended play</a><a href="#" data-sec="sec-score">③ How it's scored</a><a href="#" data-sec="sec-lb">④ Estate leaderboard</a>
-  </nav>
-
-  <div id="sec-act">
-  <div class="subhead sect" style="display:none"><span class="sn">01</span><h3>Act now</h3><span class="sh">— the assets over the line today, and the one-click handoffs</span></div>
-  <div class="act" id="actCard" style="display:none">
-    <div class="top"><span class="big" id="anN">—</span>
-      <div class="sub" style="margin:0;flex:1;min-width:180px" id="anSub"></div>
-      <div class="seg" id="thr"><button data-t="80" class="on">Critical ≥ 80</button><button data-t="60">High ≥ 60</button><button data-t="40">Top slice</button></div>
+  <section class="card" id="sec-act" data-nav="Act now" data-nav-icon="🚨" style="display:none">
+    <div class="toolbar" style="margin:0 0 4px"><h2 style="margin:0;font-size:17px">🚨 Act now</h2><span class="sub" style="margin:0 0 0 8px">— the assets over the line today, and the one-click handoffs</span></div>
+    <div class="act" id="actCard" style="margin-top:6px">
+      <div class="top"><span class="big" id="anN">—</span>
+        <div class="sub" style="margin:0;flex:1;min-width:180px" id="anSub"></div>
+        <div class="seg" id="thr"><button data-t="80" class="on">Critical ≥ 80</button><button data-t="60">High ≥ 60</button><button data-t="40">Elevated ≥ 40</button></div>
+      </div>
+      <div class="actbtns" id="actbtns"></div>
+      <div class="sub" style="margin:14px 0 4px" id="actAssetsLbl"></div>
+      <div class="actassets" id="actAssets"></div>
     </div>
-    <div class="actbtns" id="actbtns"></div>
-    <div class="sub" style="margin:14px 0 4px" id="actAssetsLbl"></div>
-    <div class="actassets" id="actAssets"></div>
-  </div>
-  </div>
+  </section>
 
-  <div id="sec-play">
-  <div class="subhead sect" style="display:none"><span class="sn">02</span><h3>Recommended play(s)</h3><span class="sh">— toggle fixes to see the projected estate reduction they buy</span></div>
-  <div class="red" id="redCard" style="display:none">
-    <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap"><h3 style="margin:0;font-size:15px">📉 Projected reduction</h3><span class="sub" style="margin:0" id="redSub"></span></div>
-    <div class="plays" id="plays"></div>
-    <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
-      <div><div class="sub" style="margin:0">estate exposure now</div><div class="ba" id="baBefore" style="color:var(--crit)">—</div></div>
-      <div style="font-size:20px;color:var(--ink-3)">→</div>
-      <div><div class="sub" style="margin:0">after this play</div><div class="ba" id="baAfter" style="color:var(--ok)">—</div></div>
-      <div><div class="sub" style="margin:0">reduction</div><div class="delta" id="baDelta">—</div></div>
-      <div><div class="sub" style="margin:0">leave CRITICAL</div><div class="delta" id="baLeave" style="color:var(--accent)">—</div></div>
+  <section class="card" id="sec-play" data-nav="Recommended play" data-nav-icon="📉" style="display:none">
+    <div class="toolbar" style="margin:0 0 4px"><h2 style="margin:0;font-size:17px">📉 Recommended play</h2><span class="sub" style="margin:0 0 0 8px" id="redSub"></span></div>
+    <div class="red" id="redCard" style="margin-top:6px">
+      <div class="plays" id="plays"></div>
+      <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
+        <div><div class="sub" style="margin:0">exposure now</div><div class="ba" id="baBefore" style="color:var(--crit)">—</div></div>
+        <div style="font-size:20px;color:var(--ink-3)">→</div>
+        <div><div class="sub" style="margin:0">after this play</div><div class="ba" id="baAfter" style="color:var(--ok)">—</div></div>
+        <div><div class="sub" style="margin:0">reduction</div><div class="delta" id="baDelta">—</div></div>
+        <div><div class="sub" style="margin:0">leave CRITICAL</div><div class="delta" id="baLeave" style="color:var(--accent)">—</div></div>
+      </div>
+      <div class="sub" style="margin:12px 0 2px">Justified by — the signals each fix neutralises:</div>
+      <div id="justify"></div>
+      <div class="sub" id="redNote" style="margin:10px 0 0"></div>
     </div>
-    <div class="sub" style="margin:12px 0 2px">Justified by — the signals each fix neutralises:</div>
-    <div id="justify"></div>
-  </div>
-  </div>
+  </section>
 
-  <div id="sec-score">
-  <div class="subhead sect" style="display:none"><span class="sn">03</span><h3>How the score is scored</h3><span class="sh">— fifteen Hound signals; drag the weights to your priorities</span></div>
-  <section class="card" id="scoreCard" style="display:none">
-    <div class="toolbar" style="margin:0 0 4px"><div><h2 style="margin:0;font-size:15px">Fifteen factors → one 0–100 score</h2>
-      <p class="sub" style="margin:2px 0 0">Each factor is one Hound. They sum to 100, then a disposition discount applies and Chronos coverage sets confidence. <b>Drag any weight</b> to re-rank the estate to what matters to you — weights re-normalise to 100 on apply.</p></div>
+  <section class="card" id="sec-lb" data-nav="Leaderboard" data-nav-icon="🏁" style="display:none">
+    <div class="toolbar" style="margin:0 0 4px"><h2 style="margin:0;font-size:17px">🏁 Estate leaderboard</h2><span class="chip" id="lbCount" style="margin-left:auto"></span></div>
+    <p class="sub" style="margin:2px 0 8px">Worst first — click an asset for its factor breakdown, to tag it, or to open it in Argos. Rows over the act-now line carry a red edge. Filter by a signal below or by clicking a metric card above.</p>
+    <div class="fbar" id="fbar"></div>
+    <div class="fgrid" id="fgrid">
+      <div><div class="lb" id="lb"></div></div>
+      <div id="bdCard" style="border:1px solid var(--line);border-radius:12px;padding:12px 14px;align-self:start;position:sticky;top:12px">
+        <div style="display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap">
+          <div><div class="big2" id="bdScore">—</div><div class="sub" style="margin:2px 0 0">fused score <span id="bdBand" class="chip"></span></div></div>
+          <div style="flex:1;min-width:160px"><h3 id="bdHost" style="font-size:15px;margin:0"></h3><div class="chips" id="bdMeta" style="margin-top:5px"></div></div>
+        </div>
+        <div class="stack" id="bdStack"></div><div id="bdList"></div>
+        <div class="actbtns" id="bdActs" style="margin-top:12px"></div>
+        <div id="bdFlash" class="flash"></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card" id="sec-worst" data-nav="Worst per Hound" data-nav-icon="🐾" style="display:none">
+    <div class="toolbar" style="margin:0 0 4px"><h2 style="margin:0;font-size:17px">🐾 Worst from each Hound — and where they converge</h2></div>
+    <p class="sub" style="margin:2px 0 0" id="convNote"></p>
+    <div class="worst" id="worst"></div>
+  </section>
+
+  <section class="card" id="sec-score" data-nav="How it's scored" data-nav-icon="⚖" style="display:none">
+    <div class="toolbar" style="margin:0 0 4px"><div><h2 style="margin:0;font-size:17px">⚖ How it's scored</h2>
+      <p class="sub" style="margin:2px 0 0">Sixteen Hound signals sum to 100, then a disposition discount applies and Chronos coverage sets confidence. <b>Drag any weight</b> to re-rank the estate to what matters to you — weights re-normalise to 100 on apply, and each weighting is cached separately.</p></div>
       <span class="chip" id="wSum" style="margin-left:auto"></span></div>
     <div id="factors"></div>
-    <div class="callbox mono" style="font-size:10.5px;margin-top:10px">score = Σ(factor pts) × disposition · confidence ← Chronos coverage</div>
+    <div class="callbox mono" style="font-size:10.5px;margin-top:10px">score = Σ(factor pts) × disposition · confidence ← Chronos coverage · SLA breach = an open finding older than its severity's SLA window (<span id="slaDays">—</span>)</div>
     <div class="toolbar" style="margin-top:12px;gap:8px;flex-wrap:wrap">
       <button class="btn run sm" id="wApply" disabled>✓ Apply weights &amp; re-score</button>
       <button class="btn ghost sm" id="wReset">↺ Reset to defaults</button>
       <span class="sub" id="wNote" style="margin-left:auto"></span></div>
   </section>
-  </div>
-
-  <div id="sec-lb">
-  <div class="subhead sect" style="display:none"><span class="sn">04</span><h3>Estate leaderboard</h3><span class="sh">— worst first; click any asset to break it down, tag it, or open it in Argos</span></div>
-  <div class="fgrid" id="fgrid" style="display:none">
-    <section class="card">
-      <div class="toolbar" style="margin:0 0 4px"><h2 style="margin:0;font-size:15px">Worst first</h2><span class="chip" id="lbCount" style="margin-left:auto"></span></div>
-      <p class="sub" style="margin:2px 0 8px">Click an asset for its factor breakdown. Rows over the act-now line carry a red edge.</p>
-      <div class="lb" id="lb"></div>
-    </section>
-    <section class="card" id="bdCard">
-      <div style="display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap">
-        <div><div class="big2" id="bdScore">—</div><div class="sub" style="margin:2px 0 0">fused score <span id="bdBand" class="chip"></span></div></div>
-        <div style="flex:1;min-width:160px"><h2 id="bdHost" style="font-size:15px;margin:0"></h2><div class="chips" id="bdMeta" style="margin-top:5px"></div></div>
-      </div>
-      <div class="stack" id="bdStack"></div><div id="bdList"></div>
-      <div class="actbtns" id="bdActs" style="margin-top:12px"></div>
-    </section>
-  </div>
-
-  <section class="card" id="worstCard" style="display:none;margin-top:16px">
-    <h2 style="margin:0;font-size:15px">🐾 Worst from each Hound — and where they converge</h2>
-    <p class="sub" style="margin:2px 0 0" id="convNote"></p>
-    <div class="worst" id="worst"></div>
-  </section>
-  </div>
-  <footer>Nemesis · fused exposure score · read-only rollup over KEV/EPSS/VPR/ACR + every Hound's tags · Priority tagging gated</footer>
+  <footer>Nemesis · fused exposure score · read-only rollup over KEV/EPSS/VPR/ACR/AES + every Hound's tags · cached per navi.db · Priority tagging gated</footer>
 </div>
 <script src="/static/console.js"></script>
 <script>
 const API=agentApi('fused_score');
-let DATA=null, ROWS=[], WRITES=false, THR=80, SEL=new Set(['patch','eol','crypto','segment','own']), CUR=0, WEIGHTS={}, WDEF={}, CURSEC='sec-act';
-const FCOLOR={expl:'var(--crit)',aes:'#38bdf8',sev:'var(--high)',crit:'#e6c34a',path:'#e06a9c',ident:'#e06a9c',exp:'#6ea8e6',ai:'var(--accent)',eol:'#e0913a',cry:'#5d92d6',mit:'#6ea8e6',own:'#a78bfa'};
+let DATA=null, META={}, CACHED=false, STALE=false, ROWS=[], WRITES=false, THR=80, THR_USER=false, SEQ=0, FILT=null,
+    SEL=new Set(['patch','eol','crypto','segment','own']), CUR=0, WEIGHTS={}, WDEF={}, APPLIED=null, SHOWN_W=null;
+const N=v=>Number(v||0).toLocaleString();
+const pct=(a,b)=>b?Math.round(100*a/b):0;
+const FCOLOR={expl:'var(--crit)',aes:'#38bdf8',sev:'var(--high)',crit:'#e6c34a',path:'#e06a9c',ident:'#c084fc',comp:'#94a3b8',was:'#f472b6',
+  eol:'#e0913a',exp:'#6ea8e6',ai:'var(--accent)',cry:'#5d92d6',sla:'#f59e0b',vol:'#64748b',own:'#a78bfa',mit:'#2dd4bf'};
 const FNEW={aes:1,path:1,ident:1,ai:1,eol:1,cry:1};
 const PLAYS=[
  {id:'patch',  lab:'Patch KEV / critical', s:'clears exploitability, severity, ATT&CK', clears:['expl','sev','mit']},
@@ -166,160 +174,329 @@ const PLAYS=[
  {id:'segment',lab:'Segment / close exposure', s:'clears internet + AI exposure', clears:['exp','ai']},
  {id:'own',    lab:'Assign owners', s:'clears ownership gap', clears:['own']},
 ];
+const BANDS=[['CRITICAL','var(--crit)'],['HIGH','var(--high)'],['ELEVATED','var(--med)'],['LOW','var(--low)']];
 const dispMul=a=> a.disp==='Mitigated'?0.3:a.disp==='Accepted'?0.55:1;
-const band=s=> s>=80?['CRITICAL','var(--crit)']:s>=60?['HIGH','var(--high)']:s>=40?['ELEVATED','var(--med)']:['LOW','var(--low)'];
+const band=s=> s>=80?BANDS[0]:s>=60?BANDS[1]:s>=40?BANDS[2]:BANDS[3];
 function clearedFor(a){ const c=new Set(); PLAYS.forEach(p=>{ if(SEL.has(p.id)&&a.applies&&a.applies[p.id]) p.clears.forEach(x=>c.add(x)); }); return c; }
 function projScore(a){ const cl=clearedFor(a); let pts=0; for(const k in a.factors){ if(!cl.has(k)) pts+=a.factors[k]; } return Math.min(100,Math.round(pts*dispMul(a))); }
 
+/* ---- leaderboard filters: one predicate per metric card / signal chip ---- */
+const FILTERS={
+ 'band:CRITICAL':['Critical',a=>a.score>=80], 'band:HIGH':['High',a=>a.score>=60&&a.score<80],
+ 'band:ELEVATED':['Elevated',a=>a.score>=40&&a.score<60], 'band:LOW':['Low',a=>a.score<40],
+ crownkev:['Crown + KEV',a=>a.crown&&a.kev], kevunowned:['KEV, no owner',a=>a.kev&&a.unowned],
+ kevexposed:['KEV + internet-exposed',a=>a.kev&&a.exposed], eolcrown:['EOL on a crown jewel',a=>a.eol&&a.crown],
+ pathunowned:['Attack-path target, no owner',a=>a.path==='target'&&a.unowned], reusekev:['Account reuse + KEV',a=>a.ident>=2&&a.kev],
+ crownblind:['Crown jewel, blind',a=>a.crown&&a.blind], critunowned:['Critical, no owner',a=>a.score>=80&&a.unowned],
+ kev:['KEV',a=>a.kev], crown:['Crown jewel',a=>a.crown], path:['Attack path',a=>a.path], ident:['Identity',a=>a.ident>0],
+ exposed:['Internet-exposed',a=>a.exposed], ai:['AI',a=>a.ai], eol:['EOL',a=>a.eol], crypto:['Weak crypto',a=>a.crypto],
+ comp:['Compliance fail',a=>a.comp>0], was:['Web-app',a=>a.was>0], sla:['SLA breach',a=>a.sla], mitre:['ATT&CK',a=>a.mitre],
+ unowned:['Unowned',a=>a.unowned], blind:['Blind',a=>a.blind],
+};
+const CHIPF=['kev','crown','path','ident','exposed','ai','eol','crypto','comp','was','sla','mitre','unowned','blind'];
+function lbRows(){ const f=FILTERS[FILT]; return f?ROWS.filter(f[1]):ROWS; }
+function setFilter(f,jump){ FILT=(FILT===f||!FILTERS[f])?null:f; LB_PAGE=0; renderMetrics(); renderLB(); showBd(0,true);
+ if(jump&&FILT){ const s=document.getElementById('sec-lb'); if(s) s.scrollIntoView({behavior:'smooth',block:'start'}); } }
+
 function chips(a){const c=[];
  if(a.kev)c.push('<span class="fchip" style="color:var(--crit);border-color:rgba(229,72,77,.5)">🔥 KEV</span>');
- c.push(`<span class="fchip">⚡ EPSS ${Math.round(a.epss*100)}%</span><span class="fchip">▲ VPR ${(a.vpr||0).toFixed(1)}</span><span class="fchip" style="color:#e6c34a;border-color:rgba(230,195,74,.5)">${a.crown?'👑 crown':'ACR '+(a.acr==null?'—':a.acr)}</span>`);
- if(a.aes!=null&&a.aes>0)c.push(`<span class="fchip" style="color:#38bdf8;border-color:rgba(56,189,248,.5)">AES ${a.aes}</span>`);
- if(a.path)c.push(`<span class="fchip" style="color:#e06a9c;border-color:rgba(224,106,156,.5)">🕸 path:${a.path}</span>`);
- if(a.ident>=2)c.push('<span class="fchip" style="color:#e06a9c;border-color:rgba(224,106,156,.5)">🪪 cred-reuse</span>');else if(a.ident===1)c.push('<span class="fchip" style="color:#e06a9c;border-color:rgba(224,106,156,.5)">🪪 NHI</span>');
+ c.push(`<span class="fchip">⚡ EPSS ${Math.round((a.epss||0)*100)}%</span><span class="fchip">▲ VPR ${(a.vpr||0).toFixed(1)}</span><span class="fchip" style="color:#e6c34a;border-color:rgba(230,195,74,.5)">${a.crown?'👑 crown':'ACR '+(a.acr==null?'—':esc(a.acr))}</span>`);
+ if(a.aes!=null&&a.aes>0)c.push(`<span class="fchip" style="color:#38bdf8;border-color:rgba(56,189,248,.5)">AES ${esc(a.aes)}</span>`);
+ if(a.path)c.push(`<span class="fchip" style="color:#e06a9c;border-color:rgba(224,106,156,.5)">🕸 path:${esc(a.path)}</span>`);
+ if(a.ident>=2)c.push('<span class="fchip" style="color:#c084fc;border-color:rgba(192,132,252,.5)" title="an account that exists on many hosts (Identity Risk : Account Reuse) — not a known shared password">🔁 account reuse</span>');
+ else if(a.ident===1)c.push('<span class="fchip" style="color:#c084fc;border-color:rgba(192,132,252,.5)" title="a non-human identity or other Identity Risk tag">🪪 NHI / identity</span>');
  if(a.exposed)c.push('<span class="fchip" style="color:#6ea8e6;border-color:rgba(110,168,230,.5)">🌐 exposed</span>');
- if(a.ai)c.push(`<span class="fchip" style="color:var(--accent);border-color:rgba(109,112,230,.5)">🧠 AI:${a.ai}</span>`);
+ if(a.ai)c.push(`<span class="fchip" style="color:var(--accent);border-color:rgba(109,112,230,.5)">🧠 AI:${esc(a.ai)}</span>`);
  if(a.eol)c.push('<span class="fchip" style="color:#e0913a;border-color:rgba(224,145,58,.5)">🔩 EOL</span>');
  if(a.crypto)c.push(`<span class="fchip" style="color:#5d92d6;border-color:rgba(93,146,214,.5)">${a.crypto==='pq'?'⚛ PQ-weak':'🔐 cert'}</span>`);
- if(a.mitre)c.push(`<span class="fchip" style="color:#6ea8e6;border-color:rgba(110,168,230,.5)">🎯 ${esc(a.mitre)}</span>`);
+ if(a.sla)c.push('<span class="fchip" style="color:#f59e0b;border-color:rgba(245,158,11,.5)">⏱ past SLA</span>');
+ if(a.comp)c.push(`<span class="fchip" style="color:#94a3b8">📋 ${N(a.comp)} audit fail</span>`);
+ if(a.was)c.push('<span class="fchip" style="color:#f472b6;border-color:rgba(244,114,182,.5)">🕷 web-app</span>');
+ if(a.mitre)c.push('<span class="fchip" style="color:#2dd4bf;border-color:rgba(45,212,191,.5)">🎯 ATT&amp;CK</span>');
  if(a.unowned)c.push('<span class="fchip" style="color:#a78bfa;border-color:rgba(167,139,250,.5)">📌 unowned</span>');
  if(a.blind)c.push('<span class="fchip" style="color:var(--med);border-color:rgba(201,168,63,.5)">⚠ blind</span>');
  if(a.disp)c.push(`<span class="fchip" style="color:var(--ok);border-color:rgba(67,185,138,.5)">✓ ${esc(a.disp)}</span>`);
  return c.join('');}
 
-function actSet(){ let s=ROWS.filter(a=>a.score>=THR); if(!s.length) s=ROWS.slice(0,Math.min(10,ROWS.length)); return s; }
+/* ---- the act-now set: whole-estate counts come from the engine (kpi.act); the asset list
+   is what's loaded (the worst 500). Nothing over the line → the worst 10, same as the tag. ---- */
+function actStats(){ const a=((DATA.kpi||{}).act||{})[String(THR)]||{n:0,unowned:0,owned:0,crown_kev:0,blind:0}; return a; }
+function actSet(){ let s=ROWS.filter(a=>a.score>=THR); if(!s.length&&!actStats().n) s=ROWS.slice(0,Math.min(10,ROWS.length)); return s; }
+function actN(){ const st=actStats(); return st.n||actSet().length; }
+
+/* ---- metric cards ---- */
+function card(val,l,u,o){ o=o||{}; return `<div class="mk${o.f&&FILT===o.f?' on':''}${o.z?' zero':''}"${o.f?` data-f="${o.f}"`:''}${o.j?` data-j="${o.j}"`:''} style="${o.c?'--rc:'+o.c:''}"${o.t?` title="${esc(o.t)}"`:''}><div class="v">${val}</div><div class="l">${l}</div>${u?`<div class="u">${u}</div>`:''}</div>`; }
+function conv(n,l,u,f,c,t){ return card(N(n),l,u,{f,c,t,z:!n}); }
+function renderMetrics(){
+ const k=DATA.kpi||{}, n=k.assets||0, hiOnly=(k.high||0)-(k.critical||0), st=actStats();
+ let h='<div class="mhead">Estate — click a band to filter the leaderboard</div><div class="mkpi">'+
+  card(N(n),'assets scored',`estate exposure <b>${N(k.estate)}</b> · avg <b>${k.avg}</b>`,{j:'sec-lb',c:'var(--accent)'})+
+  card(N(k.critical),'CRITICAL ≥ 80',`${pct(k.critical,n)}% of assets · <b>${N(k.unowned_crit)}</b> with no owner`,{f:'band:CRITICAL',c:'var(--crit)'})+
+  card(N(hiOnly),'HIGH 60–79',`${pct(hiOnly,n)}% of assets`,{f:'band:HIGH',c:'var(--high)'})+
+  card(N(k.elevated),'ELEVATED 40–59',`${pct(k.elevated,n)}% of assets`,{f:'band:ELEVATED',c:'var(--med)'})+
+  card(N((k.low||0)+(k.clean||0)),'LOW &lt; 40',`<b>${N(k.clean)}</b> score 0`,{f:'band:LOW',c:'var(--low)'})+
+  card(N(st.n),'act now ≥ '+THR,`<b>${N(st.unowned)}</b> unowned · <b>${N(st.crown_kev)}</b> crown+KEV`,{j:'sec-act',c:'var(--crit)'})+
+ '</div><div class="mhead">Convergence — where several Hounds land on the same asset (whole estate; click to filter)</div><div class="mkpi">'+
+  conv(k.crown_kev,'crown jewel + KEV',`of <b>${N(k.crown)}</b> crown jewels`,'crownkev','var(--crit)','ACR ≥ 9 with a CISA KEV finding')+
+  conv(k.kev_unowned,'KEV with no owner',`of <b>${N(k.kev)}</b> KEV assets`,'kevunowned','#a78bfa','KEV finding and no Owner tag — nobody is on the hook')+
+  conv(k.kev_exposed,'KEV + internet-exposed','reachable and exploited in the wild','kevexposed','#6ea8e6')+
+  conv(k.eol_crown,'EOL on a crown jewel','no patch is coming','eolcrown','#e0913a')+
+  conv(k.path_unowned,'attack-path target, no owner','Fenrir target nobody owns','pathunowned','#e06a9c')+
+  conv(k.identreuse_kev,'account reuse + KEV','a reused account on a KEV host','reusekev','#c084fc','Identity found this account on many hosts, and this host has a KEV — a lateral-movement path')+
+  conv(k.crown_blind,'crown jewel, blind','credential failure / low coverage','crownblind','var(--med)','the score may understate — Chronos coverage is low')+
+ '</div><div class="mhead">Confidence — how much the score can be trusted</div><div class="mkpi">'+
+  conv(k.unowned,'no owner',`${pct(k.unowned,n)}% · <b>${N(k.crown_unowned)}</b> crown jewels`,'unowned','#a78bfa')+
+  conv(k.blind,'blind (low coverage)',`${pct(k.blind,n)}% — scores may understate`,'blind','var(--med)')+
+  card(N(k.no_signal),'no Hound signal',`${pct(k.no_signal,n)}% — scored on ACR/AES/VPR only; run more Hounds`,{c:'var(--line)',z:!k.no_signal})+
+  card(DATA.epss_used?'on':'off','EPSS refinement',DATA.epss_used?'per-CVE EPSS feeds exploitability':'KEV drives exploitability (no epss table, or the estate is over the cap)',{c:'var(--line)'})+
+  card(DATA.weights_custom?'custom':'default','weighting',DATA.weights_custom?'your weights are applied':'drag weights in How it’s scored',{j:'sec-score',c:'var(--accent)'})+
+ '</div>';
+ if(FILT) h+=`<div class="sub" style="margin:8px 0 0">Leaderboard filtered to <b>${esc(FILTERS[FILT][0])}</b> — <a href="#" id="clrF">clear</a></div>`;
+ const el=document.getElementById('kpis'); el.innerHTML=h;
+ el.querySelectorAll('.mk[data-f]').forEach(x=>x.onclick=()=>setFilter(x.dataset.f,true));
+ el.querySelectorAll('.mk[data-j]').forEach(x=>x.onclick=()=>{ const s=document.getElementById(x.dataset.j); if(s) s.scrollIntoView({behavior:'smooth',block:'start'}); });
+ const c=document.getElementById('clrF'); if(c) c.onclick=e=>{ e.preventDefault(); setFilter(null); };
+}
+
+/* ---- at a glance ---- */
+function sbar(parts){ const tot=parts.reduce((s,p)=>s+p.n,0)||1;
+ return `<div class="sbar">${parts.filter(p=>p.n).map(p=>`<span style="width:${(100*p.n/tot).toFixed(2)}%;background:${p.c}" title="${esc(p.l)}: ${N(p.n)}"></span>`).join('')}</div>`+
+   `<div class="slg">${parts.filter(p=>p.n).map(p=>`<span><i style="background:${p.c}"></i>${esc(p.l)} <b>${N(p.n)}</b></span>`).join('')}</div>`; }
+const gl=(t,inner,foot,wide)=>`<div class="gl${wide?' wide':''}"><h4>${t}</h4>${inner}${foot?`<div class="sub" style="margin:6px 0 0;font-size:11px">${foot}</div>`:''}</div>`;
+function renderGlance(){
+ const k=DATA.kpi||{}, n=k.assets||0; if(!n){ document.getElementById('glance').innerHTML=''; return; }
+ const ft=k.factor_totals||{}, F=DATA.factors||[], tot=Object.values(ft).reduce((s,v)=>s+v,0)||1;
+ const fs=F.map(f=>({l:f.label,n:ft[f.id]||0,c:FCOLOR[f.id]||'var(--accent)'})).sort((a,b)=>b.n-a.n);
+ const top=fs.slice(0,7), rest=fs.slice(7).reduce((s,x)=>s+x.n,0); if(rest) top.push({l:'other factors',n:rest,c:'var(--line)'});
+ const sig=[['KEV','kev',k.kev,'var(--crit)'],['attack path','path',k.path,'#e06a9c'],['identity','ident',k.ident,'#c084fc'],['exposed','exposed',k.exposed,'#6ea8e6'],
+   ['AI','ai',k.ai,'var(--accent)'],['EOL','eol',k.eol,'#e0913a'],['weak crypto','crypto',k.crypto,'#5d92d6'],['past SLA','sla',k.sla_breach,'#f59e0b'],
+   ['audit fail','comp',k.comp_fail,'#94a3b8'],['web-app','was',k.was_exposed,'#f472b6'],['unowned','unowned',k.unowned,'#a78bfa']].sort((a,b)=>b[2]-a[2]);
+ const st=actStats();
+ document.getElementById('glance').innerHTML='<div class="mhead">At a glance</div><div class="glance">'+
+  gl('Estate by score band', sbar([{l:'critical',n:k.critical||0,c:'var(--crit)'},{l:'high',n:(k.high||0)-(k.critical||0),c:'var(--high)'},{l:'elevated',n:k.elevated||0,c:'var(--med)'},{l:'low',n:k.low||0,c:'var(--low)'},{l:'score 0',n:k.clean||0,c:'var(--line)'}]),'Bands: ≥ 80 · 60–79 · 40–59 · &lt; 40.')+
+  gl('What drives estate exposure', sbar(top.map(x=>({l:x.l,n:Math.round(x.n),c:x.c}))), 'Share of all factor points across every asset — the Hound to run (or fix) first.')+
+  gl('Who owns the act-now set (≥ '+THR+')', st.n?sbar([{l:'owned',n:st.owned||0,c:'var(--ok)'},{l:'no owner',n:st.unowned||0,c:'#a78bfa'}]):'<p class="sub" style="margin:0">Nothing scores ≥ '+THR+'.</p>', st.n?`<b>${N(st.crown_kev)}</b> crown+KEV · <b>${N(st.blind)}</b> blind`:'')+
+  gl('Signal prevalence', '<div class="prevg">'+sig.map(([l,f,v,c])=>`<div class="prev" data-f="${f}"><span class="l">${esc(l)}</span><span class="t"><i style="width:${Math.max(v?1:0,pct(v,n))}%;background:${c}"></i></span><span class="n">${pct(v,n)}%</span></div>`).join('')+'</div>', '% of scored assets each Hound flags · click to filter.',true)+
+ '</div>';
+ document.querySelectorAll('#glance .prev[data-f]').forEach(x=>x.onclick=()=>setFilter(x.dataset.f,true));
+}
 
 function renderAll(){
- const k=DATA.kpi;
- const tile=(l,v)=>`<div class="k"><div class="kl">${l}</div><div class="kv">${v}</div></div>`;
- document.getElementById('kpis').innerHTML=tile('Assets',k.assets)+tile('Estate exposure',k.estate)+tile('Avg score',k.avg)+
-   tile('Critical ≥80',k.critical)+tile('High ≥60',k.high)+tile('KEV assets',k.kev)+tile('Crown+KEV',k.crown_kev)+tile('Blind',k.blind);
- initWeights(); renderFactors();
- renderLB(); drawAct(); drawPlays(); drawRed(); drawWorst();
- document.getElementById('subnav').style.display='flex';
- document.querySelectorAll('.subhead.sect').forEach(el=>el.style.display='flex');
- ['actCard','redCard','scoreCard','fgrid','worstCard'].forEach(id=>document.getElementById(id).style.display=id==='fgrid'?'grid':'block');
- showBd(0);
- showSection(CURSEC);   // land on Act now (or keep the tab the user was on)
+ initWeights(); renderFactors(); renderMetrics(); renderGlance();
+ renderFbar(); renderLB(); drawAct(); drawPlays(); drawRed(); drawWorst();
+ ['sec-act','sec-play','sec-lb','sec-worst','sec-score'].forEach(id=>document.getElementById(id).style.display='block');
+ const sd=DATA.sla_days||{}; document.getElementById('slaDays').textContent=Object.keys(sd).length?Object.entries(sd).map(([k,v])=>k+' '+v+'d').join(' · '):'Sköll thresholds';
+ showBd(0,true);
+ mountSectionNav();
+ setNavCount('sec-act', N(actN())); setNavCount('sec-lb', N(DATA.total||ROWS.length)); setNavCount('sec-worst', (DATA.worst||[]).length);
 }
-const SECTIONS=['sec-act','sec-play','sec-score','sec-lb'];
-function showSection(id){
- if(!SECTIONS.includes(id)) id='sec-act'; CURSEC=id;
- SECTIONS.forEach(s=>{const el=document.getElementById(s); if(el) el.style.display=(s===id?'block':'none');});
- document.querySelectorAll('#subnav a').forEach(a=>a.classList.toggle('on',a.dataset.sec===id));
- window.scrollTo({top:0,behavior:'smooth'});
-}
+
 /* ---- weight editor ---- */
+const WKEY='fused_weights_v1';
+function saveW(){ try{ APPLIED?localStorage.setItem(WKEY,JSON.stringify(APPLIED)):localStorage.removeItem(WKEY); }catch(e){} }
+function loadW(){ try{ const o=JSON.parse(localStorage.getItem(WKEY)||'null'); if(o&&typeof o==='object') APPLIED=o; }catch(e){} }
 function initWeights(){
- // seed defaults once from the engine's factor metadata; keep user edits across re-scores
- if(!Object.keys(WDEF).length){ (DATA.factors||[]).forEach(f=>{ WDEF[f.id]=f.default; if(WEIGHTS[f.id]==null) WEIGHTS[f.id]=f.default; }); }
+ (DATA.factors||[]).forEach(f=>{ WDEF[f.id]=f.default; });
+ if(!Object.keys(WEIGHTS).length) (DATA.factors||[]).forEach(f=>{ WEIGHTS[f.id]=APPLIED&&APPLIED[f.id]!=null?+APPLIED[f.id]:f.default; });
 }
 function renderFactors(){
  const F=DATA.factors||[];
  document.getElementById('factors').innerHTML=F.map(f=>{const w=WEIGHTS[f.id]!=null?WEIGHTS[f.id]:f.default;
-  return `<div class="fac ${w==0?'z':''}" data-f="${f.id}"><span class="dot" style="background:${FCOLOR[f.id]||'var(--accent)'}"></span>`+
+  return `<div class="fac ${w==0?'z':''}" data-f="${esc(f.id)}"><span class="dot" style="background:${FCOLOR[f.id]||'var(--accent)'}"></span>`+
    `<span class="nm"><b>${esc(f.label)}</b>${FNEW[f.id]?'<span class="newpill">+ added</span>':''} <span>· ${esc(f.hound)}</span></span>`+
-   `<input type="range" class="wsl" min="0" max="25" step="1" value="${w}"><span class="wv">${w}</span></div>`;}).join('');
+   `<input type="range" class="wsl" min="0" max="25" step="1" value="${+w}"><span class="wv">${+w}</span></div>`;}).join('');
  document.querySelectorAll('#factors .fac').forEach(row=>{const id=row.dataset.f, sl=row.querySelector('.wsl'), vv=row.querySelector('.wv');
-  sl.oninput=()=>{WEIGHTS[id]=+sl.value; vv.textContent=sl.value; row.classList.toggle('z',+sl.value===0); updateWSum(true);};});
- updateWSum(DATA.weights_custom);
+  sl.oninput=()=>{WEIGHTS[id]=+sl.value; vv.textContent=sl.value; row.classList.toggle('z',+sl.value===0); updateWSum();};});
+ updateWSum();
 }
-function updateWSum(dirty){
+const sameW=(a,b)=>(DATA.factors||[]).every(f=>(+((a||WDEF)[f.id]??WDEF[f.id]))===(+((b||WDEF)[f.id]??WDEF[f.id])));
+function updateWSum(){
  const sum=(DATA.factors||[]).reduce((s,f)=>s+(WEIGHTS[f.id]||0),0);
- const changed=(DATA.factors||[]).some(f=>(WEIGHTS[f.id]||0)!==WDEF[f.id]);
+ const dirty=!sameW(WEIGHTS,APPLIED), custom=!sameW(WEIGHTS,null);
  document.getElementById('wSum').textContent='Σ weights '+sum+(sum!==100?' → re-normalised to 100':'');
- const ap=document.getElementById('wApply'); ap.disabled=!(dirty||changed);
- document.getElementById('wNote').innerHTML=changed?'<span style="color:var(--accent)">custom weighting — apply to re-rank the estate</span>':(DATA.weights_custom?'custom weighting active':'default weighting');
+ document.getElementById('wApply').disabled=!dirty||!sum;
+ document.getElementById('wNote').innerHTML=dirty?'<span style="color:var(--accent)">changed — apply to re-rank the estate</span>':(custom?'custom weighting active':'default weighting');
 }
-async function applyWeights(){ await load(WEIGHTS); }
-function resetWeights(){ (DATA.factors||[]).forEach(f=>WEIGHTS[f.id]=WDEF[f.id]); load(null); }
+function applyWeights(){ APPLIED=sameW(WEIGHTS,null)?null:Object.assign({},WEIGHTS); saveW(); run(); }
+function resetWeights(){ (DATA.factors||[]).forEach(f=>WEIGHTS[f.id]=WDEF[f.id]); const was=APPLIED; APPLIED=null; saveW(); renderFactors(); if(was) run(); }
+
+/* ---- leaderboard ---- */
+function renderFbar(){
+ document.getElementById('fbar').innerHTML='<span class="sub" style="margin:0 4px 0 0">Filter:</span>'+
+  `<span class="fchip ${!FILT?'on':''}" data-f="">all</span>`+CHIPF.map(f=>{ const c=ROWS.filter(FILTERS[f][1]).length; return c?`<span class="fchip ${FILT===f?'on':''}" data-f="${f}">${esc(FILTERS[f][0])} ${N(c)}</span>`:''; }).join('')+
+  (FILT&&!CHIPF.includes(FILT)?`<span class="fchip on" data-f="${FILT}">${esc(FILTERS[FILT][0])} ✕</span>`:'');
+ document.querySelectorAll('#fbar .fchip').forEach(x=>x.onclick=()=>setFilter(x.dataset.f||null));
+}
+let LB_PAGE=0, LB_PER=hPageSize('lb');
 function renderLB(){
- document.getElementById('lbCount').textContent=((DATA.total||ROWS.length).toLocaleString())+' assets'+(DATA.truncated?(' · worst '+ROWS.length+' shown'):'');
- document.getElementById('lb').innerHTML=ROWS.slice(0,120).map((a,i)=>{const b=band(a.score);
-  return `<div class="row ${a.score>=THR?'act1':''}" data-i="${i}"><div class="rank">${i+1}</div><div><div class="rhost"><span class="hn">${esc(a.host)}</span><span style="flex:1"></span><span class="fchip" style="color:${b[1]};border-color:${b[1]}">${b[0]}</span><span class="scv" style="color:${b[1]}">${a.score}</span></div><div class="gauge"><i style="width:${a.score}%;background:${b[1]}"></i></div><div class="chips">${chips(a)}</div></div></div>`;}).join('');
- document.querySelectorAll('.row').forEach(r=>r.onclick=()=>showBd(+r.dataset.i));
+ renderFbar();
+ const R=lbRows();
+ document.getElementById('lbCount').textContent=(FILT?N(R.length)+' match · ':'')+N(DATA.total||ROWS.length)+' assets'+(DATA.truncated?' · worst '+N(ROWS.length)+' loaded':'');
+ const pages=Math.max(1,Math.ceil(R.length/LB_PER)); if(LB_PAGE>=pages)LB_PAGE=pages-1; if(LB_PAGE<0)LB_PAGE=0;
+ const off=LB_PAGE*LB_PER;
+ document.getElementById('lb').innerHTML=R.length?R.slice(off,off+LB_PER).map((a,k)=>{const i=off+k, b=band(a.score), gi=ROWS.indexOf(a);
+  return `<div class="row ${a.score>=THR?'act1':''}" data-i="${gi}"><div class="rank">${gi+1}</div><div><div class="rhost"><span class="hn">${esc(a.host)}</span><span style="flex:1"></span><span class="fchip" style="color:${b[1]};border-color:${b[1]}">${b[0]}</span><span class="scv" style="color:${b[1]}">${a.score}</span></div><div class="gauge"><i style="width:${a.score}%;background:${b[1]}"></i></div><div class="chips">${chips(a)}</div></div></div>`;}).join('')
+  :`<p class="sub">No asset in the worst ${N(ROWS.length)} matches <b>${esc(FILT?FILTERS[FILT][0]:'')}</b>${DATA.truncated?' — the whole-estate count on the card includes assets further down the ranking':''}.</p>`;
+ document.querySelectorAll('#lb .row').forEach(r=>r.onclick=()=>showBd(+r.dataset.i));
+ let pg=document.getElementById('lbPager');
+ if(!pg){ pg=document.createElement('div'); pg.id='lbPager'; pg.className='toolbar'; pg.style.marginTop='8px'; const lb=document.getElementById('lb'); lb.parentNode.insertBefore(pg, lb.nextSibling); }
+ if(R.length<=10){ pg.innerHTML=''; pg.style.display='none'; return; }
+ pg.style.display='flex';
+ pg.innerHTML='<button class="btn ghost sm" '+(LB_PAGE<=0?'disabled':'')+' data-p="-1">‹ Prev</button><span class="sub" style="margin:0 10px">'+(off+1)+'–'+Math.min(R.length,off+LB_PER)+' of '+N(R.length)+(pages>1?' · page '+(LB_PAGE+1)+'/'+pages:'')+'</span><button class="btn ghost sm" '+(LB_PAGE>=pages-1?'disabled':'')+' data-p="1">Next ›</button>';
+ pg.querySelectorAll('[data-p]').forEach(b=>b.onclick=()=>{ LB_PAGE+=parseInt(b.dataset.p,10); renderLB(); });
+ hSizeControl(pg,'lb',v=>{ LB_PER=v; LB_PAGE=0; renderLB(); });
 }
-function drawAct(){const S=actSet(),u=S.filter(a=>a.unowned).length,ck=S.filter(a=>a.crown&&a.kev).length,bl=S.filter(a=>a.blind).length,cap=ROWS.some(a=>a.score>=THR);
- document.getElementById('anN').textContent=S.length;
- document.getElementById('anSub').innerHTML=(cap?`assets ≥ ${THR}`:`no asset ≥ ${THR} yet — showing the top ${S.length}`)+` · <b style="color:#a78bfa">${u} unowned</b> · <b style="color:#e6c34a">${ck} crown+KEV</b>`+(bl?` · <b style="color:var(--med)">${bl} blind</b>`:'');
+
+/* ---- act now ---- */
+function drawAct(){ const S=actSet(), st=actStats(), n=actN(), over=!!st.n;
+ const u=over?st.unowned:S.filter(a=>a.unowned).length, ck=over?st.crown_kev:S.filter(a=>a.crown&&a.kev).length, bl=over?st.blind:S.filter(a=>a.blind).length;
+ document.getElementById('anN').textContent=N(n);
+ document.getElementById('anSub').innerHTML=(over?`assets ≥ ${THR} across the whole estate`:`no asset ≥ ${THR} yet — showing the worst ${S.length}`)+` · <b style="color:#a78bfa">${N(u)} unowned</b> · <b style="color:#e6c34a">${N(ck)} crown+KEV</b>`+(bl?` · <b style="color:var(--med)">${N(bl)} blind</b>`:'');
  document.getElementById('actbtns').innerHTML=
-  `<button class="abtn hot" data-a="tag">🏷 Tag Priority : P1 <b>${S.length}</b></button>`+
-  `<a class="abtn" href="/agents/asset_ownership/page.html">📌 Assign owners <b>${u}</b></a>`+
-  `<a class="abtn" href="/agents/email/page.html">📧 Email owners <b>${S.length-u}</b></a>`+
-  `<a class="abtn" href="/agents/acr/page.html">⚖ Raise ACR <b>${ck}</b></a>`+
+  `<button class="abtn hot" data-a="tag">🏷️ Tag Priority : P1 <b>${N(n)}</b></button>`+
+  `<a class="abtn" href="/agents/asset_ownership/page.html">🏷️ Tag owners <b>${N(u)}</b></a>`+
+  `<a class="abtn" href="/agents/email/page.html">📧 Email owners <b>${N(Math.max(0,n-u))}</b></a>`+
+  `<a class="abtn" href="/agents/acr/page.html">⚖ Raise ACR <b>${N(ck)}</b></a>`+
   `<a class="abtn" href="/agents/contract/page.html">📜 Add to AI Contract</a>`;
- const tb=document.querySelector('#actbtns [data-a="tag"]'); if(tb)tb.onclick=()=>tagPriority(S);
- // the actual assets over the line — click any to open it in Argos
+ const tb=document.querySelector('#actbtns [data-a="tag"]'); if(tb)tb.onclick=()=>tagAct(tb);
  const CAP=100, shown=S.slice(0,CAP);
  document.getElementById('actAssetsLbl').innerHTML=S.length?('Assets over the line — <b>click any to open it in Argos</b>:'):'';
  document.getElementById('actAssets').innerHTML=shown.map((a,i)=>{const c=band(a.score)[1];
   return `<a class="aa" href="/agents/argos/page.html?target=${encodeURIComponent(a.uuid||'')}" title="Open ${esc(a.host)} in Argos"><span class="rk">${i+1}</span><span>${esc(a.host)}</span><span class="s" style="color:${c}">${a.score}</span></a>`;}).join('')+
-  (S.length>CAP?`<span class="sub" style="align-self:center">+${S.length-CAP} more</span>`:'');
+  (n>shown.length?`<span class="sub" style="align-self:center">+${N(n-shown.length)} more${n>S.length?' (the tag covers all '+N(n)+')':''}</span>`:'');
+ setNavCount('sec-act', N(n));
 }
 function drawPlays(){document.getElementById('plays').innerHTML=PLAYS.map(p=>`<div class="play ${SEL.has(p.id)?'on':''}" data-p="${p.id}"><span class="bx"></span><span><b style="color:var(--ink)">${p.lab}</b> <span>· ${p.s}</span></span></div>`).join('');
  document.querySelectorAll('#plays .play').forEach(el=>el.onclick=()=>{const id=el.dataset.p;SEL.has(id)?SEL.delete(id):SEL.add(id);drawPlays();drawRed();});}
-function drawRed(){const S=actSet();
- const before=ROWS.reduce((s,a)=>s+a.score,0);
- const inSet=new Set(S.map(a=>a.uuid));
- const after=ROWS.reduce((s,a)=>s+(inSet.has(a.uuid)?projScore(a):a.score),0);
+function drawRed(){ const S=actSet(), n=actN();
+ const before=S.reduce((s,a)=>s+a.score,0), after=S.reduce((s,a)=>s+projScore(a),0);
  const leave=S.filter(a=>a.score>=80&&projScore(a)<80).length;
- document.getElementById('redSub').textContent='apply to the '+S.length+' act-now asset(s) — toggle fixes to see the trade';
- document.getElementById('baBefore').textContent=before; document.getElementById('baAfter').textContent=after;
- const d=before-after; document.getElementById('baDelta').textContent='−'+d+' ('+(before?Math.round(d/before*100):0)+'%)';
- document.getElementById('baLeave').textContent=leave;
+ document.getElementById('redSub').textContent='— apply fixes to the '+N(S.length)+' act-now asset(s); toggle them to see the trade';
+ document.getElementById('baBefore').textContent=N(before); document.getElementById('baAfter').textContent=N(after);
+ const d=before-after; document.getElementById('baDelta').textContent='−'+N(d)+' ('+(before?Math.round(d/before*100):0)+'%)';
+ document.getElementById('baLeave').textContent=N(leave);
  const jf={}; S.forEach(a=>{const cl=clearedFor(a); (DATA.factors||[]).forEach(f=>{ if(cl.has(f.id)){ const p=Math.round((a.factors[f.id]||0)*dispMul(a)); if(p){jf[f.id]=jf[f.id]||{pts:0,n:0,f};jf[f.id].pts+=p;jf[f.id].n++;} } }); });
  const rows=Object.values(jf).sort((a,b)=>b.pts-a.pts), mx=Math.max(1,...rows.map(r=>r.pts));
- document.getElementById('justify').innerHTML=rows.length?rows.map(r=>`<div class="jrow"><div style="font-size:12px"><b>${esc(r.f.label)}</b> <span style="color:var(--ink-3);font-size:10.5px">· ${esc(r.f.hound)} — cleared on ${r.n}</span></div><div class="jbar"><i style="width:${r.pts/mx*100}%;background:${FCOLOR[r.f.id]}"></i></div><div class="jp">−${r.pts}</div></div>`).join(''):'<div class="sub">Select a fix above to see the reduction it buys.</div>';
+ document.getElementById('justify').innerHTML=rows.length?rows.map(r=>`<div class="jrow"><div style="font-size:12px"><b>${esc(r.f.label)}</b> <span style="color:var(--ink-3);font-size:10.5px">· ${esc(r.f.hound)} — cleared on ${N(r.n)}</span></div><div class="jbar"><i style="width:${r.pts/mx*100}%;background:${FCOLOR[r.f.id]||'var(--accent)'}"></i></div><div class="jp">−${N(r.pts)}</div></div>`).join(''):'<div class="sub">Select a fix above to see the reduction it buys.</div>';
+ document.getElementById('redNote').innerHTML=(n>S.length?`Projection covers the worst <b>${N(S.length)}</b> loaded of the <b>${N(n)}</b> act-now assets — the rest rank lower but are still over the line, so the true reduction is larger. `:'')+'Exposure = the sum of the act-now assets\' scores.';
 }
-function showBd(i){const a=ROWS[i]; if(!a)return; CUR=i; const b=band(a.score);
- document.querySelectorAll('.row').forEach(r=>r.classList.toggle('sel',+r.dataset.i===i));
+function showBd(i,quiet){ const R=lbRows(); let a=ROWS[i]; if(quiet&&(!a||(FILT&&!R.includes(a)))){ a=R[0]; i=ROWS.indexOf(a); }
+ const card=document.getElementById('bdCard'); if(!a){ card.style.display='none'; return; } card.style.display='block'; CUR=i; const b=band(a.score);
+ document.querySelectorAll('#lb .row').forEach(r=>r.classList.toggle('sel',+r.dataset.i===i));
  document.getElementById('bdScore').textContent=a.score; document.getElementById('bdScore').style.color=b[1];
  const bb=document.getElementById('bdBand'); bb.textContent=b[0]; bb.style.cssText=`background:${b[1]}22;color:${b[1]};border:1px solid ${b[1]}`;
  document.getElementById('bdHost').textContent=a.host; document.getElementById('bdMeta').innerHTML=chips(a);
- const F=DATA.factors, parts=F.map(f=>({f,p:a.factors[f.id]||0})), rs=parts.reduce((s,x)=>s+x.p,0)||1, dm=dispMul(a);
- document.getElementById('bdStack').innerHTML=parts.filter(x=>x.p>0).map(x=>`<i style="width:${x.p/rs*100}%;background:${FCOLOR[x.f.id]}" title="${esc(x.f.label)}: +${x.p}"></i>`).join('');
- document.getElementById('bdList').innerHTML=parts.map(x=>`<div class="bdrow ${x.p?'':'zero'}"><span class="dot" style="background:${FCOLOR[x.f.id]}"></span><span class="lab"><b>${esc(x.f.label)}</b> <span>· ${esc(x.f.hound)}</span></span><span class="pts">${x.p?'+'+x.p:'0'}</span></div>`).join('')+
+ const F=DATA.factors||[], parts=F.map(f=>({f,p:a.factors[f.id]||0})), rs=parts.reduce((s,x)=>s+x.p,0)||1, dm=dispMul(a);
+ document.getElementById('bdStack').innerHTML=parts.filter(x=>x.p>0).map(x=>`<i style="width:${x.p/rs*100}%;background:${FCOLOR[x.f.id]||'var(--accent)'}" title="${esc(x.f.label)}: +${x.p}"></i>`).join('');
+ document.getElementById('bdList').innerHTML=parts.map(x=>`<div class="bdrow ${x.p?'':'zero'}"><span class="dot" style="background:${FCOLOR[x.f.id]||'var(--accent)'}"></span><span class="lab"><b>${esc(x.f.label)}</b> <span>· ${esc(x.f.hound)}</span></span><span class="pts">${x.p?'+'+x.p:'0'}</span></div>`).join('')+
    (dm<1?`<div class="bdrow"><span class="dot" style="background:var(--ok)"></span><span class="lab"><b>${esc(a.disp)}</b> <span>· disposition discount</span></span><span class="pts">×${dm}</span></div>`:'')+
    (a.blind?`<div class="bdrow"><span class="dot" style="background:var(--med)"></span><span class="lab"><b>Low coverage</b> <span>· Chronos — score may understate</span></span><span class="pts">±</span></div>`:'')+
    `<div class="bdrow" style="border-top:1px solid var(--line);margin-top:4px;padding-top:6px"><span></span><span class="lab"><b>Fused score</b></span><span class="pts" style="color:${b[1]};font-weight:700">${a.score}</span></div>`;
  const qu=encodeURIComponent(a.uuid||''), qh=encodeURIComponent(a.host||'');
- document.getElementById('bdActs').innerHTML=`<button class="abtn hot" data-x="tag">🏷 Tag Priority</button><a class="abtn" href="/agents/asset_ownership/page.html?focus=${qu}&host=${qh}">📌 ${a.unowned?'Assign owner':'Owned — review'}</a><a class="abtn" href="/agents/argos/page.html?target=${qu}">🔦 Open in Argos</a>`;
- const t=document.querySelector('#bdActs [data-x="tag"]'); if(t)t.onclick=()=>tagPriority([a]);
+ document.getElementById('bdActs').innerHTML=`<button class="abtn hot" data-x="tag">🏷️ Tag Priority : P1</button><a class="abtn" href="/agents/asset_ownership/page.html?focus=${qu}&host=${qh}">${a.unowned?'🏷️ Tag owner':'📌 Owned — review'}</a><a class="abtn" href="/agents/argos/page.html?target=${qu}">🔦 Open in Argos</a>`;
+ const t=document.querySelector('#bdActs [data-x="tag"]'); if(t)t.onclick=()=>tagOne(a,t);
 }
-function drawWorst(){const w=DATA.worst||[], conv=DATA.convergence||[]; const hh={}; w.forEach(x=>hh[x.host]=(hh[x.host]||0)+1);
+function drawWorst(){const w=DATA.worst||[], conv=DATA.convergence||[]; const hh={}; w.forEach(x=>hh[x.uuid]=(hh[x.uuid]||0)+1);
  document.getElementById('convNote').innerHTML='The single worst finding from each Hound. '+(conv.length?('<b>'+conv.length+'</b> asset(s) top more than one Hound — that convergence is why they lead the board: '+conv.slice(0,5).map(c=>`<b>${esc(c.host)}</b> tops ${c.tops}`).join(' · ')):'each lands on a different asset (or the pack hasn\'t fully run yet).');
- document.getElementById('worst').innerHTML=w.map(x=>`<div class="wc ${hh[x.host]>=2?'conv':''}"><div class="wh">${esc(x.hound)}</div><div class="wa">${esc(x.host)}</div><div class="sub" style="margin:3px 0 0">${esc(x.label)} · <b style="color:${FCOLOR[x.id]}">+${x.pts}</b> pts</div></div>`).join('')||'<p class="sub">Run more Hounds to populate this.</p>';
+ document.getElementById('worst').innerHTML=w.map(x=>`<a class="wc ${hh[x.uuid]>=2?'conv':''}" href="/agents/argos/page.html?target=${encodeURIComponent(x.uuid||'')}" title="Open in Argos"><div class="wh">${esc(x.hound)}</div><div class="wa">${esc(x.host)}</div><div class="sub" style="margin:3px 0 0">${esc(x.label)} · <b style="color:${FCOLOR[x.id]||'var(--accent)'}">+${x.pts}</b> pts</div></a>`).join('')||'<p class="sub">Run more Hounds to populate this.</p>';
 }
-async function tagPriority(S){
- const uuids=S.map(a=>a.uuid); if(!uuids.length)return;
- if(!WRITES && !confirm('Writes are gated (NAVI_ALLOW_WRITES not set). The tag job will queue but be blocked. Continue?'))return;
- if(!confirm('Tag Priority : P1 on '+uuids.length+' asset(s)? (gated navi write)'))return;
- flash('flash','<span class="spin"></span> tagging '+uuids.length+' asset(s) Priority : P1…','run');
- let o; try{o=await API.post('tag',{uuids,value:'P1',confirm:true});}catch(e){o={ok:false,error:e.message};}
- if(!o.ok){flash('flash','✗ '+esc(o.error||'failed'),'crit');return;}
- flash('flash','✓ queued Priority : P1 on '+(o.count||uuids.length)+' asset(s) — filter to it anywhere in the pack. Allow ~30 min propagation.','ok');
+
+/* ---- gated writes: one line of feedback; the server recomputes the asset set ---- */
+async function gated(btn,label,call,okMsg,el,asked){
+ el=el||'flash'; if(btn&&btn.disabled) return null;
+ if(!asked && !WRITES && !confirm('Writes are gated (NAVI_ALLOW_WRITES not set) — jobs queue but are blocked. Continue?')) return null;
+ const fb=document.getElementById(el); const scroll=()=>{ if(fb) fb.scrollIntoView({behavior:'smooth',block:'center'}); };
+ if(btn){ btn.dataset.label=btn.dataset.label||btn.innerHTML; btn.disabled=true; btn.textContent='⏳'; }
+ flash(el,'<span class="spin"></span> '+label+'…','run'); scroll();
+ let o; try{ o=await call(); }catch(e){ o={ok:false,error:e.message}; }
+ if(o&&o.ok&&o.background&&o.job_id!=null) o=await followTagJob(o,label,el);   // big sets: server works it out on the job queue
+ if(btn){ btn.disabled=false; btn.innerHTML=btn.dataset.label; }
+ if(!o||!o.ok){ flash(el,'✗ '+esc((o&&(o.error||o.message))||'failed'),'crit'); scroll(); return o; }
+ flash(el,'✓ '+okMsg(o)+' — sent to the <a href="/web/tags-log.html">Tagging log</a>.'+(o.writes_enabled===false?' Writes are gated, so nothing reaches Tenable until NAVI_ALLOW_WRITES=1.':' Tags take ~30 min to land in Tenable.'),'ok'); scroll();
+ return o;
 }
-async function load(weights){
- const b=document.getElementById('load'), ap=document.getElementById('wApply');
- b.disabled=true; if(ap)ap.disabled=true;
- const rescore=!!weights;
- flash('flash','<span class="spin"></span> '+(rescore?'re-scoring the estate with your weighting…':'fusing every Hound\'s signal across the estate…'),'run');
- let o; try{o=await API.post('overview', weights?{weights}:{});}catch(e){o={ok:false,error:e.message};}
- b.disabled=false; const res=o.result||o;
- if(!res||!res.ok){flash('flash','✗ '+esc((res&&res.error)||o.error||'failed'),'crit');return;}
- DATA=res; ROWS=res.assets||[]; flashClear('flash');
- if(rescore){ flash('flash','✓ re-scored with your weighting — estate re-ranked.','ok'); setTimeout(()=>flashClear('flash'),2600); }
- // default threshold: if nothing hits 80, drop to the highest sensible band so the page is useful
- if(!ROWS.some(a=>a.score>=80)){ THR=ROWS.some(a=>a.score>=60)?60:40; document.querySelectorAll('#thr button').forEach(x=>x.classList.toggle('on',+x.dataset.t===THR)); }
- renderAll();
+/* The act-now tag recomputes its asset set from navi.db on the job queue. Poll the job and
+   hand back its result ({ok, count, …}); leaving the page doesn't stop it. */
+async function followTagJob(o,label,el){ const t0=Date.now();
+ while(true){
+  flash(el,`<span class="spin"></span> ${label} — selecting the assets from navi.db in the background · ${Math.round((Date.now()-t0)/1000)}s · <a href="/web/agent-runs.html">Runs log</a>`,'run');
+  await new Promise(r=>setTimeout(r,1000));
+  let j=null; try{ const r=await jget('/api/jobs/'+encodeURIComponent(o.job_id)); j=r&&r.job; }catch(e){}
+  if(!j) return {ok:false,error:'lost track of the tag job — check the Runs log'};
+  if(j.status==='done') return Object.assign({writes_enabled:o.writes_enabled}, j.result||{}, {ok:true});
+  if(j.status==='error') return {ok:false,error:(j.result&&j.result.error)||j.message||'tag job failed'};
+ }
 }
-document.getElementById('load').onclick=()=>load();
+function tagAct(btn){ const n=actN(); if(btn.disabled) return;
+ if(!confirm(`Tag ${tagCat('Priority')} : P1 on ${N(n)} asset(s) scoring ≥ ${THR}${actStats().n?'':' (none do — the worst '+n+')'}? The set is recomputed from navi.db with the current weighting.`+(WRITES?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the jobs queue but are blocked.'))) return;
+ gated(btn,'tagging the act-now set Priority : P1',()=>API.post('tag',{mode:'act',threshold:THR,weights:SHOWN_W||undefined,value:'P1',confirm:true}),o=>`queued Priority : P1 on ${N(o.count)} asset(s)`,'flash',true); }
+function tagOne(a,btn){ if(btn&&btn.disabled) return;
+ if(!confirm(`Tag ${tagCat('Priority')} : P1 on ${a.host||a.uuid}?`+(WRITES?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.'))) return;
+ gated(btn,'tagging '+esc(a.host)+' Priority : P1',()=>API.post('tag',{mode:'one',uuid:a.uuid,value:'P1',confirm:true}),o=>`queued Priority : P1 on ${esc(a.host)}`,'bdFlash',true); }
+
+/* ---- ▶ Run — one `snapshot` per weighting, cached on disk per navi.db signature + SLA
+   policy. Unchanged navi.db (and built today) → renders at once. Otherwise the build runs on
+   the job queue: you can leave the page, and coming back re-attaches (peek on open). ---- */
+function payload(extra){ const p=Object.assign({_nocache:true},extra||{}); if(APPLIED) p.weights=APPLIED; return p; }
+async function run(opts){ opts=opts||{}; const my=++SEQ; const b=document.getElementById('load'), ap=document.getElementById('wApply'); b.disabled=true; if(ap) ap.disabled=true;
+ flash('flash','<span class="spin"></span> '+(opts.force?'rebuilding the exposure snapshot…':APPLIED?'scoring the estate with your weighting…':'fusing every Hound\'s signal across the estate…'),'run');
+ let o; try{ o=await API.post('snapshot', payload({force:!!opts.force})); }catch(e){ o={ok:false,error:e.message}; }
+ if(my!==SEQ) return;
+ if(!o||!o.ok){ b.disabled=false; flash('flash','✗ '+esc((o&&(o.error||o.message))||'failed'),'crit'); if(DATA) updateWSum(); return; }
+ if(o.result){ b.disabled=false; flashClear('flash'); applySnap(o.result,!!o.cached,!!o.stale); return; }
+ if(o.building) await waitBuild(o.building,my);
+ if(my===SEQ) b.disabled=false;
+}
+async function waitBuild(bd,my){
+ my=my||++SEQ; const b=document.getElementById('load'); b.disabled=true; const t0=Date.now();
+ const msg=()=>flash('flash',`<span class="spin"></span> building the exposure snapshot in the background${bd.started?' (started '+esc(String(bd.started).slice(11,19))+')':''} · ${Math.round((Date.now()-t0)/1000)}s — <b>you can leave this page</b>; it keeps running and the result is cached for when you come back. <a href="/web/agent-runs.html">Runs log</a>`,'run');
+ msg();
+ while(true){
+  await new Promise(r=>setTimeout(r,1200)); if(my!==SEQ) return; msg();
+  let j=null; try{ const o=await jget('/api/jobs/'+encodeURIComponent(bd.job_id)); j=o&&o.job; }catch(e){}
+  if(my!==SEQ) return;
+  if(j&&j.status==='error'){ b.disabled=false; flash('flash','✗ build failed: '+esc(j.message||'error')+(DATA?' — still showing the previous snapshot.':''),'crit'); return; }
+  if(!j||j.status==='done') break;
+ }
+ let o; try{ o=await API.post('snapshot', payload({peek:true})); }catch(e){ o=null; }
+ if(my!==SEQ) return;
+ b.disabled=false;
+ if(o&&o.result){ flashClear('flash'); applySnap(o.result,false,!!o.stale); }
+ else if(o&&o.building) return waitBuild(o.building,my);
+ else flash('flash','⚠ the build finished but navi.db changed meanwhile — press ▶ Run again.','warn');
+}
+function applySnap(s,cached,stale){
+ const res=s.result||{}; if(!res.ok){ flash('flash','✗ '+esc(res.error||'no result'),'crit'); return; }
+ DATA=res; SHOWN_W=APPLIED?Object.assign({},APPLIED):null; META=s.meta||{}; CACHED=cached; STALE=stale; ROWS=DATA.assets||[];
+ WEIGHTS={}; (DATA.factors||[]).forEach(f=>{ WEIGHTS[f.id]=APPLIED&&APPLIED[f.id]!=null?+APPLIED[f.id]:f.default; });
+ if(!THR_USER){ const A=(DATA.kpi||{}).act||{}; THR=(A['80']||{}).n?80:(A['60']||{}).n?60:40; }
+ document.querySelectorAll('#thr button').forEach(x=>x.classList.toggle('on',+x.dataset.t===THR));
+ renderAll(); snapLine();
+}
+function snapLine(){ const m=META||{}, el=document.getElementById('snapMeta'); if(!el) return;
+ const t=v=>v?esc(String(v).replace('T',' ').slice(0,16)):'—';
+ el.innerHTML=`${CACHED?'⚡ from cache · ':''}snapshot built <b>${t(m.built_at)}</b>${m.build_sec!=null?` in ${m.build_sec}s`:''}`
+  +(STALE?` · <span style="color:var(--high)">built on an earlier day — SLA ages have moved since; ▶ Run recomputes</span>`:' · navi.db unchanged since')
+  +(APPLIED?' · custom weighting':'')+` · <a href="#" id="snapRebuild">↻ rebuild</a>`;
+ document.getElementById('snapRebuild').onclick=e=>{ e.preventDefault(); run({force:true}); };
+}
+
+document.getElementById('load').onclick=()=>run();
 document.getElementById('wApply').onclick=()=>applyWeights();
 document.getElementById('wReset').onclick=()=>resetWeights();
-document.querySelectorAll('#subnav a').forEach(a=>a.onclick=e=>{e.preventDefault();showSection(a.dataset.sec);});
-document.querySelectorAll('#thr button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#thr button').forEach(x=>x.classList.remove('on'));b.classList.add('on');THR=+b.dataset.t;renderLB();drawAct();drawRed();showBd(CUR);});
+document.querySelectorAll('#thr button').forEach(b=>b.onclick=()=>{ THR=+b.dataset.t; THR_USER=true; document.querySelectorAll('#thr button').forEach(x=>x.classList.toggle('on',x===b)); renderMetrics(); renderGlance(); renderLB(); drawAct(); drawRed(); showBd(CUR,true); });
 mountAgentHeader({id:'fused_score',icon:'🎯',name:'Exposure Score',sub:'Nemesis · one score from every Hound · act now'});
 try{ hMailAuto(); }catch(e){}
 jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});
+/* NO auto-run. Opening the page PEEKS: the cached snapshot for your weighting renders at
+   once, or a build still running from before is re-attached. Peek never computes. */
+document.getElementById('kpis').innerHTML='<div class="setupcard"><div class="big">🎯 Press ▶ Run</div><p class="sub">Nemesis fuses every Hound\'s signal into one 0–100 score per asset and ranks the estate. The result is cached per navi.db — it builds in the background (you can leave the page) and reopens instantly until navi.db, your weighting or the SLA policy changes.</p></div>';
+loadW();
+(async()=>{ const my=++SEQ;
+ let o; try{ o=await API.post('snapshot', payload({peek:true})); }catch(e){ return; }
+ if(my!==SEQ||!o) return;
+ if(o.result) applySnap(o.result,true,!!o.stale);
+ if(o.building) waitBuild(o.building,my);
+})();
 </script>
 </body></html>

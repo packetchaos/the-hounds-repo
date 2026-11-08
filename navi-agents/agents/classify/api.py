@@ -9,6 +9,7 @@ import re
 
 from core import navi_cli, classify as _classify, topology as _topology
 from .agent import ClassifyAgent
+from core.gates import confirmed
 
 AGENT = ClassifyAgent()
 
@@ -62,7 +63,8 @@ def os_plan(p):
     thr = parsed["threshold"]
     if thr is None:
         thr = int(p["threshold"]) if str(p.get("threshold") or "").isdigit() else 0
-    fams = set(parsed["families"]) or set(p.get("families") or [])
+    pf = p.get("families")
+    fams = set(parsed["families"]) or set(f for f in (pf if isinstance(pf, list) else []) if isinstance(f, str))
     group = p.get("group") or parsed["group"]
     rows = _classify.os_confidence()
     kept = [r for r in rows if r["confidence"] >= thr and (not fams or r["family"] in fams)]
@@ -106,6 +108,7 @@ def run(p):
 
 
 def assets(p):
+    p = p or {}
     res = AGENT.result or AGENT.run()
     cls = (p.get("cls") or "").strip()
     sub = (p.get("sub") or "").strip()
@@ -135,14 +138,16 @@ def tag(p):
     'Asset Inventory', value '<Facet>: <Value>' (Class / OS / Device Type / App / Cloud).
     Targets a cohort by explicit `uuids` (OS Signals) OR by the path (cls/sub/…)."""
     p = p or {}
-    if not p.get("confirm"):
+    if not confirmed(p):
         return {"ok": False, "error": "confirm=true required to write tags"}, 400
     facet = (p.get("facet") or "Class").strip()
     value = (p.get("value") or p.get("cls") or "").strip()
     if not value:
         return {"ok": False, "error": "value required"}, 400
+    if p.get("uuids") is not None and not isinstance(p.get("uuids"), list):
+        return {"ok": False, "error": "uuids must be a list"}, 400
     if p.get("uuids"):
-        uuids = [str(u) for u in p["uuids"] if u]
+        uuids = [str(u) for u in p["uuids"] if u and isinstance(u, str)]
     else:
         m = _topology.members(cls=p.get("cls"), sub=p.get("sub"), software=p.get("software"),
                               version=p.get("version"), subnet=p.get("subnet"), cap=100000)

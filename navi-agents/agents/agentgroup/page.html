@@ -3,14 +3,14 @@
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Agent Group Tagging · Navi Agents</title>
 <link rel="stylesheet" href="/static/console.css"/>
-</head><body>
+</head><body data-page-cache="off">
 <div class="wrap">
   <header class="top" id="app-header"></header>
 
   <section class="card">
     <div class="toolbar"><div><h2 style="margin:0">🛰️ Agent Group Tagging</h2>
       <p class="sub" style="margin:2px 0 0">Sirius tags every asset in a Tenable <b>agent group</b> with <span class="tagval">Agent Group : &lt;name&gt;</span> — runs <span class="mono">navi enrich tag --c "Agent Group" --v "&lt;name&gt;" --group "&lt;name&gt;"</span> per group, on the background queue (see the <a href="/web/tags-log.html">Tagging log</a>). Three ways below. Writes are gated.</p></div>
-      <button class="btn run sm" id="load" style="margin-left:auto">▶ Load agent groups</button></div>
+      <button id="load" style="margin-left:auto" class="btn ghost sm" title="Re-fetch the list (it loads automatically when the page opens)">↻ Reload</button></div>
     <div id="flash" class="flash"></div>
     <div class="kpi" id="kpi"></div>
   </section>
@@ -20,7 +20,7 @@
     <h3 style="margin:0 0 4px">① Tag by a list of group names</h3>
     <p class="sub" style="margin:0 0 8px">Paste group names (one per line or comma-separated). Each is matched to a real agent group and tagged.</p>
     <textarea id="nlList" rows="4" placeholder="Linux&#10;Missing&#10;Exclusion test" style="width:100%;box-sizing:border-box;font-size:14px;padding:10px;border-radius:7px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink)"></textarea>
-    <div class="toolbar" style="margin-top:8px"><button class="btn sm" id="nlTag">▶ Tag listed groups (gated)</button><span class="chip" id="nlMatch"></span></div>
+    <div class="toolbar" style="margin-top:8px"><button class="btn sm" id="nlTag">🏷️ Tag listed groups</button><span class="chip" id="nlMatch"></span></div>
     <div id="nlFlash" class="flash"></div>
   </section>
 
@@ -29,7 +29,7 @@
     <div class="toolbar"><div><h3 style="margin:0">② Pick groups to tag</h3>
       <p class="sub" style="margin:2px 0 0">Tick the agent groups, then tag the selected.</p></div>
       <span style="margin-left:auto;display:flex;gap:6px"><input id="grpFilter" placeholder="filter…" style="padding:6px 9px;border-radius:7px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink)"><button class="btn ghost sm" id="selAll">All</button><button class="btn ghost sm" id="selNone">None</button></span></div>
-    <div class="toolbar" style="margin:6px 0"><button class="btn sm" id="pickTag" disabled>▶ Tag selected (gated)</button><span class="chip" id="pickSel">0 selected</span></div>
+    <div class="toolbar" style="margin:6px 0"><button class="btn sm" id="pickTag" disabled>🏷️ Tag selected</button><span class="chip" id="pickSel">0 selected</span></div>
     <div style="overflow-x:auto"><table id="grpTbl"><thead><tr><th style="width:34px"></th><th>Agent group</th><th>Group ID</th><th>UUID</th></tr></thead><tbody></tbody></table></div>
   </section>
 
@@ -37,7 +37,7 @@
   <section class="card" id="allCard" style="display:none">
     <h3 style="margin:0 0 4px">③ Tag every agent group</h3>
     <p class="sub" style="margin:0 0 8px">Runs through <b>every</b> group and tags each — the classic agent-group-tags script, on the background queue.</p>
-    <button class="btn sm" id="tagAll">▶ Tag ALL groups (gated)</button>
+    <button class="btn sm" id="tagAll">🏷️ Tag all groups</button>
     <div id="allFlash" class="flash"></div>
   </section>
   <footer>Sirius · agent-group tagging · navi enrich tag --group · gated by NAVI_ALLOW_WRITES · tracked in the Tagging log</footer>
@@ -71,7 +71,10 @@ async function load(){
 async function tagNames(names, flashId, btn){
   if(btn&&btn.disabled)return;
   if(!names.length){ flash(flashId,'No groups to tag.','warn'); return; }
-  if(!WRITES && !confirm('Writes are gated (NAVI_ALLOW_WRITES not set) — jobs will queue but be blocked. Continue?')) return;
+  await testRunStatus();
+  if(!confirm('Tag '+tagCat('Agent Group')+' : <group name> on the agents in '+names.length+' agent group'+(names.length===1?'':'s')+' (navi --group, one selector each)?\n\n'
+    +names.slice(0,12).map(n=>'• '+tagCat('Agent Group')+' : '+n).join('\n')+(names.length>12?'\n• … +'+(names.length-12)+' more':'')+(WRITES?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.'))) return;
+  if(btn&&btn.disabled)return;
   const fb=document.getElementById(flashId);
   const scroll=()=>{ if(fb)fb.scrollIntoView({behavior:'smooth',block:'center'}); };
   const reset=()=>{ if(!btn)return; btn.disabled=false; btn.textContent=btn.dataset.label; btn.style.opacity=''; btn.style.transform=''; btn.style.cursor=''; };
@@ -96,8 +99,9 @@ function nlTag(){
 async function tagAll(){
   const btn=document.getElementById('tagAll'); if(btn&&btn.disabled)return;
   if(!GROUPS.length) return;
-  if(!confirm('Tag ALL '+GROUPS.length+' agent groups? Each runs navi enrich tag --group on the background queue.')) return;
-  if(!WRITES && !confirm('Writes are gated (NAVI_ALLOW_WRITES not set) — jobs will queue but be blocked. Continue?')) return;
+  await testRunStatus();
+  if(!confirm('Tag ALL '+GROUPS.length+' agent groups as '+tagCat('Agent Group')+' : <group name>? Each runs navi enrich tag --group on the background queue ('+GROUPS.length+' selector'+(GROUPS.length===1?'':'s')+').'+(WRITES?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.'))) return;
+  if(btn&&btn.disabled)return;
   const fb=document.getElementById('allFlash');
   const scroll=()=>{ if(fb)fb.scrollIntoView({behavior:'smooth',block:'center'}); };
   const reset=()=>{ if(!btn)return; btn.disabled=false; btn.textContent=btn.dataset.label; btn.style.opacity=''; btn.style.transform=''; btn.style.cursor=''; };
@@ -119,5 +123,6 @@ document.getElementById('tagAll').onclick=tagAll;
 mountAgentHeader({icon:'🛰️',name:'Agent Group Tagging',sub:'Sirius · tag assets by Tenable agent group'});
 try{ hMailAuto(); }catch(e){}
 jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});
+load();   // the agent-group list loads on open (live, navi explore info agent-groups)
 </script>
 </body></html>

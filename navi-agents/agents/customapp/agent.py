@@ -14,8 +14,9 @@ import json
 import os
 import re
 
-from core import db
+from core import db, tagname
 from core.agents.base import Agent
+from core.security import private_open as _popen
 
 # ---- persistent ignore list (false positives / web pages that look like apps) ----
 IGNORE_PATH = os.environ.get(
@@ -34,7 +35,7 @@ def load_ignore() -> list:
 def save_ignore(terms: list) -> list:
     terms = sorted({str(t).strip().lower() for t in (terms or []) if str(t).strip()})
     try:
-        with open(IGNORE_PATH, "w", encoding="utf-8") as f:
+        with _popen(IGNORE_PATH, "w", encoding="utf-8") as f:
             json.dump(terms, f, indent=2)
     except Exception:
         pass
@@ -108,9 +109,13 @@ class CustomAppAgent(Agent):
                            "WHERE path IS NOT NULL AND path<>'';", db_path)
         setup = routing_status(db_path)
 
+        # one joined string: a substring test across every software string in C, instead of
+        # a Python loop over the whole inventory for every candidate token (same answer —
+        # a term never contains the '\n' separator, so it can't match across two entries)
+        sw_blob = "\n".join(sw)
+
         def in_inventory(term: str) -> bool:
-            term = term.lower()
-            return any(term in s for s in sw)
+            return term.lower() in sw_blob
 
         candidates = []
         seen = set()
@@ -154,11 +159,76 @@ class CustomAppAgent(Agent):
         terms = load_ignore()
         kept = [c for c in candidates if not is_ignored(c["name"], c.get("keyword"), terms)]
         hidden = len(candidates) - len(kept)
+        metrics = _enrich(kept, tok_assets, db_path)
         return {"candidates": kept, "ignored": terms, "hidden": hidden,
                 "setup": setup, "needs_setup": not (setup["vuln_route"] or setup["vuln_paths"]),
-                "setup_hint": _SETUP_HINT,
+                "setup_hint": _SETUP_HINT, "metrics": metrics,
                 "counts": {"routes": len(routes), "software": len(sw),
                            "paths": len(paths), "candidates": len(kept), "hidden": hidden}}
+
+
+CROWN_ACR = 7
+
+
+def _nk(s):
+    return " ".join((s or "").strip().lower().split())
+
+
+def _enrich(cands, tok_assets, db_path=None) -> dict:
+    """Per-candidate visibility: the assets it sits on (paths: assets with that path token;
+    routes: assets with any of the route's plugins — one linear scan, no LIKE joins), how
+    many are crown jewels (ACR ≥ 7) or have no Owner tag at all, and whether the app is
+    already named (a `Custom App` tag with that value). Mutates the candidates; returns the
+    page metrics."""
+    route_pl = {}
+    for r in _safe_rows("SELECT app_name, plugin_list FROM vuln_route WHERE app_name IS NOT NULL;", db_path):
+        ids = set(re.findall(r"\d+", str(r.get("plugin_list") or "")))
+        route_pl.setdefault(r["app_name"].strip().lower(), set()).update(ids)
+    want = {p for c in cands if c["source"] == "route" for p in route_pl.get(c["name"].lower(), ())}
+    plug_assets = {}
+    if want:
+        for r in _safe_rows("SELECT DISTINCT plugin_id, asset_uuid FROM vulns;", db_path):
+            pid = str(r.get("plugin_id"))
+            if pid in want and r.get("asset_uuid"):
+                plug_assets.setdefault(pid, set()).add(r["asset_uuid"])
+    acr = {}
+    for r in _safe_rows("SELECT uuid, acr FROM assets;", db_path):
+        try:
+            acr[r["uuid"]] = float(r["acr"]) if r.get("acr") not in (None, "") else None
+        except (TypeError, ValueError):
+            acr[r["uuid"]] = None
+    has_acr = any(v is not None for v in acr.values())
+    owned_assets = {r["asset_uuid"] for r in _safe_rows(
+        "SELECT DISTINCT asset_uuid FROM tags WHERE " + tagname.sql_lit("tag_key", "Owner") + ";", db_path) if r.get("asset_uuid")}
+    named = {_nk(r.get("tag_value")) for r in _safe_rows(
+        "SELECT DISTINCT tag_value FROM tags WHERE " + tagname.sql_lit("tag_key", "Custom App") + ";", db_path)}
+    all_assets, crown_assets, unowned_assets = set(), set(), set()
+    for c in cands:
+        if c["source"] == "route":
+            aset = set().union(*[plug_assets.get(p, set()) for p in route_pl.get(c["name"].lower(), ())]) \
+                if route_pl.get(c["name"].lower()) else set()
+        else:
+            aset = {a for a in tok_assets.get(c["keyword"], set()) if a}
+        cr = {a for a in aset if (acr.get(a) or 0) >= CROWN_ACR}
+        uo = aset - owned_assets
+        c["assets"] = len(aset)
+        c["crown"] = len(cr)
+        c["unowned"] = len(uo)
+        c["named"] = _nk(c["name"]) in named or _nk(c.get("keyword")) in named
+        all_assets |= aset; crown_assets |= cr; unowned_assets |= uo
+    n = len(cands)
+    return {"candidates": n,
+            "routes": sum(1 for c in cands if c["source"] == "route"),
+            "paths": sum(1 for c in cands if c["source"] == "path"),
+            "assets": len(all_assets), "crown_assets": len(crown_assets), "has_acr": has_acr,
+            "crown_candidates": sum(1 for c in cands if c["crown"]),
+            "unowned_assets": len(unowned_assets),
+            "unowned_candidates": sum(1 for c in cands if c["assets"] and c["unowned"] == c["assets"]),
+            "named": sum(1 for c in cands if c["named"]),
+            "unnamed": sum(1 for c in cands if not c["named"]),
+            "named_pct": round(100.0 * sum(1 for c in cands if c["named"]) / n, 1) if n else None,
+            "top_assets": max((c["assets"] for c in cands), default=0),
+            "custom_app_tags": len(named)}
 
 
 # ---- helpers used by the service layer for the NL tag flow ----

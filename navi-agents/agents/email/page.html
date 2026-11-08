@@ -18,7 +18,9 @@
   .msg{border:1px solid var(--line);border-radius:11px;padding:12px 14px;margin:0 0 14px;background:var(--panel)}
   .msg .subj{font-weight:800;font-size:14.5px}
   .msg .to input{width:260px;max-width:60vw;padding:5px 9px;border-radius:7px;border:1px solid var(--accent);background:var(--bg-2);color:var(--ink);font-size:12.5px;font-family:var(--mono)}
-  .msg .prev{margin-top:10px;border:1px solid var(--line);border-radius:9px;padding:2px 6px;background:var(--bg-2);max-height:min(70vh,620px);overflow:auto}
+  .msg .prev{margin-top:10px;border:1px solid var(--line);border-radius:9px;background:#fff;overflow:hidden}
+  .msg .prev iframe{display:block;width:100%;height:min(70vh,620px);border:0;background:#fff}
+  .msg .tofrom{font-size:12px;margin:4px 0 0}
   .msg pre.txt{white-space:pre-wrap;font-family:var(--mono);font-size:11.5px;line-height:1.5;color:var(--ink-2);margin:10px 0 0;max-height:440px;overflow:auto;display:none}
   .msgs-grid{display:grid;grid-template-columns:1fr;gap:14px}
   @media(min-width:1100px){.msgs-grid.multi{grid-template-columns:1fr 1fr}}
@@ -71,7 +73,7 @@
         <input id="to" class="fld" placeholder="security-team@company.com">
       </div>
       <div class="ctrl actions">
-        <button class="btn run" id="prevBtn">📝 Preview</button>
+        <button class="btn run" id="prevBtn" data-run>▶ Run</button>
         <button class="btn ghost sm" id="recipBtn">👥 Owner routing</button>
       </div>
     </div>
@@ -155,41 +157,54 @@ function renderMsgs(){
       <div class="to" style="margin:7px 0 2px"><span class="sub">To </span>
         <input data-i="${i}" class="toIn" value="${esc(m.to||'')}" placeholder="recipient@company.com">
         ${m.owner?`<span class="pill">${esc(m.owner)}</span>`:''}
-        ${m.asset_count!=null?`<span class="pill">${m.asset_count} asset${m.asset_count==1?'':'s'}</span>`:''}
-        ${m.kev_count?`<span class="pill" style="color:#f43f5e;border-color:rgba(244,63,94,.5)">🔥 ${m.kev_count} KEV</span>`:''}
+        ${m.asset_count!=null?`<span class="pill">${esc(m.asset_count)} asset${m.asset_count==1?'':'s'}</span>`:''}
+        ${m.kev_count?`<span class="pill" style="color:#f43f5e;border-color:rgba(244,63,94,.5)">🔥 ${esc(m.kev_count)} KEV</span>`:''}
       </div>
-      <div class="prev">${m.body_html||''}</div>
+      <div class="sub tofrom">Will be sent to: <b class="mono toShow" data-i="${i}">${esc(m.to||'— no recipient yet —')}</b></div>
+      <div class="prev"><iframe class="prevFrame" data-i="${i}" sandbox="" referrerpolicy="no-referrer" title="Email preview (sandboxed)"></iframe></div>
       <pre class="txt" ${SHOWTXT?'style="display:block"':''}>${esc(m.body_text||'')}</pre>
     </div>`).join('');
-  document.querySelectorAll('.toIn').forEach(inp=>inp.addEventListener('input',e=>{ MSGS[+e.target.dataset.i].to=e.target.value.trim(); MSGS[+e.target.dataset.i].needs_address=!e.target.value.trim(); }));
+  // body_html is rendered ONLY inside a sandboxed iframe (no scripts, opaque origin): it is
+  // composed from navi.db data and can be replayed from the page cache, so it never touches
+  // the console DOM.
+  document.querySelectorAll('iframe.prevFrame').forEach(f=>{ const m=MSGS[+f.dataset.i]||{};
+    f.srcdoc='<!doctype html><meta charset="utf-8"><style>body{margin:8px 10px;font:13px/1.5 system-ui,Segoe UI,Arial,sans-serif;color:#0d1420;background:#fff;word-break:break-word}img{max-width:100%}</style>'+String(m.body_html||''); });
+  document.querySelectorAll('.toIn').forEach(inp=>inp.addEventListener('input',e=>{ const i=+e.target.dataset.i, v=e.target.value.trim(); MSGS[i].to=v; MSGS[i].needs_address=!v;
+    const sh=document.querySelector('.toShow[data-i="'+i+'"]'); if(sh) sh.textContent=v||'— no recipient yet —'; }));
 }
 async function sendAll(){
   const ready=MSGS.filter(m=>(m.to||'').trim());
   if(!ready.length){ flash('flash','No recipients set — add at least one email address.','warn'); return; }
-  if(!confirm('Send '+ready.length+' email'+(ready.length==1?'':'s')+' via navi action mail? This is a real send.')) return;
+  const who=ready.map(m=>'• '+String(m.to).slice(0,200)+'  —  '+String(m.subject||'').slice(0,80));
+  if(!confirm('Send '+ready.length+' email'+(ready.length==1?'':'s')+' via navi action mail? This is a real send.\n\nRecipients:\n'+who.slice(0,15).join('\n')+(who.length>15?'\n• … +'+(who.length-15)+' more':''))) return;
   flash('flash','<span class="spin"></span> sending '+ready.length+'…','run');
   let o; try{ o=await API.post('send',{confirm:true,messages:MSGS}); }catch(e){ o={ok:false,error:e.message}; }
   if(!o||(o.ok===false&&!o.results)){ flash('flash','✗ '+esc((o&&(o.reason||o.error))||'send failed'),'crit'); if(o) setGate(o); return; }
   setGate(o);
-  const parts=[]; if(o.sent)parts.push('✓ '+o.sent+' sent'); if(o.failed)parts.push('✗ '+o.failed+' failed'); if(o.skipped)parts.push(o.skipped+' skipped (no address)');
+  const parts=[]; if(o.sent)parts.push('✓ '+esc(o.sent)+' sent'); if(o.failed)parts.push('✗ '+esc(o.failed)+' failed'); if(o.skipped)parts.push(esc(o.skipped)+' skipped (no address)');
   flash('flash',parts.join(' · ')||'done', o.failed?'warn':'ok');
 }
 
 /* ---- cross-agent hand-off receiver ----
    Another Hound calls emailFindings(payload) (console.js) which stashes JSON in
    sessionStorage and opens this page; we pick it up, switch to the findings report
-   and auto-preview. */
+   and auto-preview. SECURITY: the hand-off comes ONLY from sessionStorage (same-origin,
+   written by the console's own pages) — never from the URL, so a link from another site
+   can't pre-compose an email. A hand-off never chooses recipients: any to/recipient
+   fields in it are dropped, so every address is one the user typed (or the configured
+   default the server applies), and the send confirm lists them. */
 let HANDOFF=null;
 (function(){
-  let raw=sessionStorage.getItem('gabriel_handoff');
-  const q=new URLSearchParams(location.search).get('handoff');
-  if(q){ try{ raw=decodeURIComponent(q); }catch(e){} }
+  let raw=null; try{ raw=sessionStorage.getItem('gabriel_handoff'); sessionStorage.removeItem('gabriel_handoff'); }catch(e){}
   if(!raw) return;
   try{ HANDOFF=JSON.parse(raw); }catch(e){ HANDOFF=null; }
-  sessionStorage.removeItem('gabriel_handoff');
-  if(!HANDOFF) return;
+  if(!HANDOFF || typeof HANDOFF!=='object' || Array.isArray(HANDOFF)){ HANDOFF=null; return; }
+  ['to','cc','bcc','recipient','recipients'].forEach(k=>{ delete HANDOFF[k]; });
+  if(Array.isArray(HANDOFF.messages)) HANDOFF.messages=HANDOFF.messages.filter(m=>m&&typeof m==='object').map(m=>Object.assign({}, m, {to:'', needs_address:true}));
+  // a fresh hand-off wins over the page cache: don't replay the last run (and its recipients) on top of it
+  try{ if(typeof HC!=='undefined' && HC.state && HC.state.ready) HC.state.ready.then(()=>{ HC.state.mode='live'; HC.state.entry=null; }); }catch(e){}
   if(HANDOFF.report==='contract_summary'){
-    document.getElementById('handoffBox').innerHTML='<div class="handoff">📜 Hand-off from the <b>AI Contract</b> ('+(HANDOFF.armed?'armed · executed':'plan · preview')+') — composing the run summary (tags per category, assets, errors, what didn\'t run). Composed below.</div>';
+    document.getElementById('handoffBox').innerHTML='<div class="handoff">📜 Hand-off from the <b>AI Contract</b> ('+(HANDOFF.armed===true?'armed · executed':'plan · preview')+') — composing the run summary (tags per category, assets, errors, what didn\'t run). Composed below.</div>';
   } else if(HANDOFF.report==='sphinx_digest'){
     document.getElementById('handoffBox').innerHTML='<div class="handoff">🐾 Hand-off from <b>Sphinx — On the Scent</b>: composing the daily unknown-unknowns digest (KEV, Ownerless Risk, coverage, the reduction, champion fix, severity + top apps). Composed below — set a recipient and send.</div>';
   } else {

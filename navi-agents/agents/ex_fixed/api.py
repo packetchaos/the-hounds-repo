@@ -51,6 +51,10 @@ def search(p):
     where, args = _where(p)
     args = tuple(args)
     off = max(0, int(p.get("offset") or 0))
+    try:
+        _n = max(1, min(_PAGE, int(p.get("limit") or _PAGE)))   # UI asks 10–50
+    except (TypeError, ValueError):
+        _n = _PAGE
     dur = _dur_days("first_found", "last_fixed")
 
     kpi = db.query(
@@ -74,10 +78,10 @@ def search(p):
         "  CASE lower(pass_fail) WHEN 'fail' THEN 0 WHEN 'pass' THEN 1 ELSE 2 END,"
         "  CASE lower(severity) WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2"
         "   WHEN 'low' THEN 3 ELSE 4 END"
-        " LIMIT ? OFFSET ?", args + (_PAGE + 1, off))
-    has_next = len(rows) > _PAGE
-    return {"ok": True, "result": {"rows": rows[:_PAGE], "kpi": k, "offset": off,
-            "page": off // _PAGE + 1, "has_next": has_next, "count": min(len(rows), _PAGE)}}, 200
+        " LIMIT ? OFFSET ?", args + (_n + 1, off))
+    has_next = len(rows) > _n
+    return {"ok": True, "result": {"rows": rows[:_n], "kpi": k, "offset": off,
+            "page": off // _n + 1, "has_next": has_next, "count": min(len(rows), _n)}}, 200
 
 
 ACTIONS = {"search": search}

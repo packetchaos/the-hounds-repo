@@ -33,8 +33,14 @@
 .olbl{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin:15px 0 2px}
 .oinst{border-top:1px dashed var(--line);margin-top:14px;padding-top:8px}.oinst.first{border-top:0;margin-top:6px}
 .ourl{font-size:12px;color:var(--accent);word-break:break-all}
+/* cohort banner — the WAS Overview widget this page was opened from */
+.cohort{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--panel-2);border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:9px;padding:9px 12px;font-size:12.5px}
+.cohort .capps{display:flex;flex-wrap:wrap;gap:6px;width:100%}
+.capp{font-size:12px;border:1px solid var(--line);border-radius:100px;padding:3px 10px;color:var(--ink-2);text-decoration:none;background:var(--panel)}
+.capp:hover{border-color:var(--accent);color:var(--ink)}.capp.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.capp b{font-family:var(--mono);font-size:10.5px;margin-left:4px}
 </style>
-</head><body>
+</head><body data-autorun>
 <div class="wrap">
   <header class="top" id="app-header"></header>
   <section class="card">
@@ -44,6 +50,7 @@
         <label class="sub" for="appsel" style="margin:0">App</label>
         <select class="fld" id="appsel" style="min-width:200px;max-width:320px"></select>
         <a class="btn ghost sm" href="/agents/was/page.html" title="Back to the consolidated WAS overview">← Overview</a></span></div>
+    <div id="cohort" style="display:none;margin-top:10px"></div>
     <div id="flash" class="flash"></div>
   </section>
   <div id="body"></div>
@@ -62,6 +69,10 @@
 <script>
 const API=agentApi('was_asset');
 let INF=null, APPS=[], CURR=null;
+/* ?f=<cohort> — opened from a WAS Overview widget (sev:critical, owasp:A3, tech:PHP, scan:stale,
+   clean, asset): the app list is narrowed to that group. ?sd = the Overview's stale-scan days. */
+let COH=wasCohort(q('f')); const SD=+q('sd')||30;
+const inCohort=a=>!COH||wasAppMatch(a,COH,SD);
 const SEV=[['critical','Critical','var(--crit)'],['high','High','var(--high)'],['medium','Medium','var(--med)'],['low','Low','var(--low)'],['info','Info','var(--info)']];
 const fnum=n=>(n==null?'—':Number(n).toLocaleString());
 const normSev=v=>{ v=String(v||'info').toLowerCase(); return ['critical','high','medium','low','info'].includes(v)?v:'info'; };
@@ -70,23 +81,41 @@ function ageDays(iso){ if(!iso)return null; const t=Date.parse(iso); if(isNaN(t)
 function kpi(v,l,c){ return `<div class="k"><div class="v"${c?' style="color:'+c+'"':''}>${v}</div><div class="l">${esc(l)}</div></div>`; }
 function svpill(rf){ rf=normSev(rf); return `<span class="sv sv-${rf}">${rf}</span>`; }
 
-async function load(appUuid){
+async function load(appUuid,depth){
   CURR=appUuid||q('app')||q('asset')||q('target')||'';
   flash('flash','<span class="spin"></span> mapping the web app…','run');
   let o; try{ o=await API.post('info',{app_uuid:CURR}); }catch(e){ o={ok:false,error:e.message}; }
   if(!o||!o.ok){ flash('flash','✗ '+esc((o&&o.error)||'failed'),'crit'); return; }
   flashClear('flash'); const r=o.result||{}; INF=r.info||{}; APPS=r.apps||[];
   CURR=(INF.app&&INF.app.uuid)||CURR;
+  // opened for a group with no app (or one outside it) → show the group's worst app instead
+  if(COH&&!depth){ const m=APPS.filter(inCohort); const cur=APPS.find(a=>a.uuid===CURR);
+    if(m.length&&(!cur||!inCohort(cur))){ setURL(m[0].uuid); return load(m[0].uuid,1); } }
   render();
+}
+function setURL(u){ const p=new URLSearchParams(); if(u) p.set('app',u); if(COH){ p.set('f',COH.f); p.set('sd',String(SD)); }
+  try{ history.replaceState(null,'','?'+p.toString()); }catch(_){} }
+function cohortBar(){
+  const el=document.getElementById('cohort');
+  if(!COH){ el.style.display='none'; el.innerHTML=''; return; }
+  const m=APPS.filter(inCohort), CAP=60;
+  el.style.display='block';
+  el.innerHTML=`<div class="cohort"><span>🕸 From the WAS Overview: <b>${esc(COH.label)}</b> — <b>${m.length}</b> app${m.length===1?'':'s'}${COH.kind==='scan'?' (stale = not scanned within '+SD+' days)':''}</span>`
+    +`<a class="applink" href="#" id="cohortClear" style="margin-left:auto">show all apps</a>`
+    +(m.length?`<div class="capps">${m.slice(0,CAP).map(a=>`<a class="capp${a.uuid===CURR?' on':''}" href="#" data-app="${esc(a.uuid)}" title="${esc(a.target||'')}">${esc(a.name)}${a.critical?'<b>'+a.critical+' crit</b>':(a.high?'<b>'+a.high+' high</b>':'')}</a>`).join('')}${m.length>CAP?`<span class="sub">+${m.length-CAP} more in the App list</span>`:''}</div>`:'<div class="sub">No app in navi.db matches this group any more.</div>')+'</div>';
+  document.getElementById('cohortClear').onclick=e=>{ e.preventDefault(); COH=null; setURL(CURR); render(); };
+  el.querySelectorAll('[data-app]').forEach(x=>x.onclick=e=>{ e.preventDefault(); const u=x.getAttribute('data-app'); setURL(u); load(u,1); });
 }
 function appOptions(){
   const sel=document.getElementById('appsel');
-  if(!APPS.length){ sel.innerHTML='<option value="">(no apps)</option>'; return; }
-  sel.innerHTML=APPS.map(a=>{ const tag=a.critical?(' · '+a.critical+' crit'):(a.high?(' · '+a.high+' high'):'');
-    return `<option value="${esc(a.uuid)}"${a.uuid===CURR?' selected':''}>${esc(a.name)}${tag}</option>`; }).join('');
+  const list=COH?APPS.filter(a=>inCohort(a)||a.uuid===CURR):APPS;
+  if(!list.length){ sel.innerHTML='<option value="">(no apps)</option>'; return; }
+  const outside=a=>COH&&!inCohort(a)?' · (outside this group)':'';
+  sel.innerHTML=list.map(a=>{ const tag=a.critical?(' · '+a.critical+' crit'):(a.high?(' · '+a.high+' high'):'');
+    return `<option value="${esc(a.uuid)}"${a.uuid===CURR?' selected':''}>${esc(a.name)}${tag}${outside(a)}</option>`; }).join('');
 }
 function render(){
-  appOptions();
+  appOptions(); cohortBar();
   const B=document.getElementById('body');
   if(!INF.available){ B.innerHTML='<section class="card"><p class="sub">No WAS apps in navi.db. Populate with <span class="mono">navi config update was</span> in <a href="/web/settings.html">Settings</a>.</p></section>'; return; }
   const a=INF.app||{}, age=ageDays(a.scan_completed_time);
@@ -94,7 +123,7 @@ function render(){
   let h='';
   // ---- app identity ----
   h+='<section class="card"><div class="toolbar" style="margin-bottom:6px"><div><h3 style="margin:0">'+esc(a.name)+'</h3>'
-    +'<p class="sub" style="margin:2px 0 0">'+(a.target?'<a class="applink" href="'+esc(a.target)+'" target="_blank" rel="noopener">'+esc(a.target)+' ↗</a>':'(no target)')
+    +'<p class="sub" style="margin:2px 0 0">'+(a.target?(safeUrl(a.target,'')?'<a class="applink" href="'+esc(safeUrl(a.target))+'" target="_blank" rel="noopener noreferrer">'+esc(a.target)+' ↗</a>':'<span class="mono">'+esc(a.target)+'</span>'):'(no target)')
     +(a.asset_uuid?' · <span class="mono" title="Tenable asset UUID" style="font-size:11px;color:var(--ink-3)">asset '+esc(String(a.asset_uuid).slice(0,8))+'…</span>':'')+'</p></div>'
     +'<span style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap"><span class="chip">'+(age==null?'never scanned':('scanned '+age+'d ago'))+'</span>'
     +'<a class="btn sm" href="/agents/was/report.html?app='+encodeURIComponent(a.uuid)+'" title="Full findings + severity filter">📄 App Report</a></span></div>'
@@ -192,7 +221,7 @@ document.getElementById('omodal').addEventListener('click',e=>{ if(e.target.id==
 document.addEventListener('keydown',e=>{ if(e.key==='Escape')closeOutput(); });
 document.getElementById('ocopy').onclick=()=>{ const b=document.getElementById('ocopy'),t=b.textContent;
   try{ navigator.clipboard.writeText(window._orawText||''); b.textContent='✓ copied'; setTimeout(()=>b.textContent=t,1200);}catch(_){ b.textContent='copy failed'; setTimeout(()=>b.textContent=t,1200);} };
-document.getElementById('appsel').onchange=e=>{ const u=e.target.value; try{history.replaceState(null,'','?app='+encodeURIComponent(u));}catch(_){} load(u); };
+document.getElementById('appsel').onchange=e=>{ const u=e.target.value; setURL(u); load(u,1); };
 mountAgentHeader({id:'was_asset',icon:'🐾',name:'Web App Recon',sub:'Beagle · per-app recon'});
 try{ hMailAuto(); }catch(e){}
 load(q('app')||q('asset')||q('target'));

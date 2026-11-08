@@ -8,5 +8,5 @@
   "summary": "Sköll — remediation adherence + open-vuln aging vs the SLA clock, segmented by owner/tag. Emailable dashboard; records a daily snapshot for trending.",
   "needs_backend": true,
   "page": "page.html",
-  "actions": ["run"]
+  "actions": ["run", "snapshot", "history"]
 }

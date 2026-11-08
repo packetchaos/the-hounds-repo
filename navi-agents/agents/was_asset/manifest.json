@@ -5,7 +5,7 @@
   "order": 16,
   "category": "Explore",
   "codename": "Beagle",
-  "summary": "Beagle — the WAS asset deep-dive. Point it at a web app and it maps the terrain from navi's info plugins: sitemap, scan telemetry, target facts, screenshot, external URLs, cookies, methods — every plugin clickable to its raw stored output. Argos for web apps; launched from the WAS dashboards.",
+  "summary": "Beagle — the WAS asset deep-dive. Point it at a web app and it maps the terrain from navi's info plugins: sitemap, scan telemetry, target facts, screenshot, external URLs, cookies, methods — every plugin clickable to its raw stored output. Argos for web apps; launched from the WAS dashboards — a widget link (?f=sev:critical, owasp:A3, tech:PHP, scan:stale…) narrows the app list to that group.",
   "needs_backend": true,
   "page": "page.html",
   "actions": ["run", "info", "plugin_output"]

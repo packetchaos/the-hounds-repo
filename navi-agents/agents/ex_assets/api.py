@@ -3,7 +3,7 @@ from core import search
 
 def run(p):
     try:
-        res = search.assets((p.get("q") or "").strip(), int(p.get("offset") or 0))
+        res = search.assets((p.get("q") or "").strip(), int(p.get("offset") or 0), p.get("limit"))
     except Exception as e:
         return {"ok": False, "error": str(e)}, 200
     return {"ok": True, "result": res}, 200

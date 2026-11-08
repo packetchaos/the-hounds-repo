@@ -4,7 +4,7 @@
   "icon": "\ud83c\udfaf",
   "order": 5,
   "category": "Tagging",
-  "summary": "Follows the navi tag-by-CVE recipe: fetches the live ATT&CK\u2192CVE mapping and tags each CVE in your navi.db with its Primary/Secondary Impact + Exploit Technique via navi's tag-by-CVE function.",
+  "summary": "Tags assets by the ATT&CK impact of their vulnerabilities: fetches the live ATT&CK\u2192CVE mapping and tags every asset whose findings cite a mapped CVE with its Primary/Secondary Impact + Exploit Technique, via navi's tag-by-CVE selector.",
   "needs_backend": true,
   "page": "page.html",
   "actions": [

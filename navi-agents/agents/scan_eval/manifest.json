@@ -1,15 +1,16 @@
 {
   "id": "scan_eval",
   "name": "Scan Evaluations",
-  "icon": "\ud83d\udcc8",
+  "icon": "📈",
   "order": 8,
   "category": "Scanning",
-  "summary": "Reproduces navi scan evaluate (avg scan time by scanner / policy / scan, from plugin 19506) cleaned and interactive, plus credential-failure coverage (plugin 104410). Tag problematic scanners, policies, scans, and credential failures via navi.",
+  "summary": "Chronos — what your scans can and can't see. Per asset: credential health from the Target Credential Status / Issues plugins (104410 failed, 110385/102094 insufficient privilege, 117885 intermittent, 110723 none provided, 141118/110095 OK) and plugin 19506, patch-assessment failures (21745), scan freshness, agent vs network, crown-jewel blind spots. Per scanner / policy / scan: time per asset, load share, credential success, Nessus version and plugin-feed currency, safe-checks off. Tags the exact assets under Scan Health (gated).",
   "needs_backend": true,
   "page": "page.html",
   "actions": [
     "run",
     "tag"
   ],
-  "codename": "Chronos"
+  "codename": "Chronos",
+  "status_panel": true
 }

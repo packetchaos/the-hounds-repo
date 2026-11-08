@@ -6,6 +6,13 @@
 <style>
   .argrid{display:grid;grid-template-columns:320px 1fr;gap:16px;margin-top:14px}
   @media(max-width:820px){.argrid{grid-template-columns:1fr}}
+  /* at a glance */
+  .gkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr));gap:10px;margin-top:8px}
+  .gmk{display:block;border:1px solid var(--line);border-left:4px solid var(--rc,var(--line));border-radius:12px;padding:10px 12px;background:var(--panel-2);color:inherit;text-decoration:none}
+  .gmk:hover{border-color:var(--accent)} .gmk.dim{opacity:.6}
+  .gmk .v{font-size:22px;font-weight:800;color:var(--ink);line-height:1.1}.gmk .v small{font-size:12px;font-weight:600;color:var(--mut)}
+  .gmk .l{font-size:11.5px;color:var(--mut);margin-top:2px}.gmk .u{font-size:11px;color:var(--accent);margin-top:4px}
+  #glanceCard .mhead{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin:12px 0 0}
   .idrow{display:flex;justify-content:space-between;gap:10px;font-size:13.5px;padding:6px 0;border-bottom:1px solid var(--line)}
   .idrow:last-child{border-bottom:0} .idrow .k{color:var(--mut)} .idrow .v{font-weight:600;text-align:right;word-break:break-all}
   .ring-wrap{display:flex;align-items:center;gap:18px}
@@ -45,7 +52,7 @@
   #vulnTbl{table-layout:fixed;width:100%}#vulnTbl th,#vulnTbl td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .lnk{color:var(--accent);text-decoration:underline;text-underline-offset:2px;font-weight:600}
 </style>
-</head><body>
+</head><body data-page-cache="off">
 <div class="wrap">
   <header class="top" id="app-header"></header>
 
@@ -54,52 +61,57 @@
       <p class="sub" style="margin:2px 0 0">Argos recognizes one asset by <b>UUID</b> or <b>IP</b> and tells its whole story — risk band, the pack's tags <b>deciphered</b>, top CVEs, software and certs. Reads <span class="mono">navi.db</span>; the live <span class="mono">navi explore uuid</span> views run on demand.</p></div></div>
     <div class="toolbar" style="margin-top:10px">
       <input id="target" class="fld" style="flex:1;min-width:280px;padding:9px 12px;border-radius:8px;border:1px solid var(--accent);background:var(--bg-2);color:var(--ink)" placeholder="Asset UUID  (e.g. 6f2c…-9a1b)  or  IP  (e.g. 10.4.22.15)">
-      <button class="btn run sm" id="goBtn">🔦 Look up</button>
+      <button class="btn run sm" id="goBtn" data-run>▶ Run</button>
     </div>
     <div id="flash" class="flash"></div>
   </section>
 
   <div id="result" style="display:none">
+    <section class="card" id="glanceCard" data-nav="At a glance" data-nav-icon="📊" style="margin-top:14px">
+      <h2 style="margin:0;font-size:17px">📊 At a glance</h2>
+      <p class="sub" style="margin:2px 0 0">The numbers that decide what to do with this asset — each opens the Hound that owns it.</p>
+      <div id="glanceBody"></div>
+    </section>
     <div class="argrid">
       <!-- identity + risk left column -->
       <div>
-        <section class="card" id="idCard">
+        <section class="card" id="idCard" data-nav="Asset" data-nav-icon="🖥">
           <h2 style="margin:0 0 8px;font-size:15px">🖥 Asset</h2>
           <div id="idBody"></div>
           <div id="covStrip" style="margin-top:10px"></div>
         </section>
-        <section class="card" id="hostCard" style="margin-top:16px">
+        <section class="card" id="hostCard" data-nav="Host & scan health" data-nav-icon="🩺" style="margin-top:16px">
           <h2 style="margin:0 0 8px;font-size:15px">🖥 Host profile &amp; scan health</h2>
           <div id="hostBody"></div>
         </section>
-        <section class="card" id="riskCard" style="margin-top:16px">
+        <section class="card" id="riskCard" data-nav="Risk" data-nav-icon="⚠" style="margin-top:16px">
           <h2 style="margin:0 0 10px;font-size:15px">⚠ Risk</h2>
           <div class="ring-wrap"><div id="ring"></div>
             <div id="riskMeta" style="flex:1"></div></div>
           <div id="sevBars" style="margin-top:12px"></div>
         </section>
-        <section class="card" id="ownCard" style="margin-top:16px">
+        <section class="card" id="ownCard" data-nav="Ownership" data-nav-icon="👑" style="margin-top:16px">
           <div class="toolbar" style="margin:0"><h2 style="margin:0;font-size:15px">👑 Ownership</h2><span class="chip" id="ownCount" style="margin-left:auto"></span></div>
           <p class="sub" style="margin:4px 0 0">Who's accountable for this asset, from its <span class="mono">Owner</span> tags (by app/route).</p>
           <div id="ownBody" style="margin-top:8px"></div>
         </section>
-        <section class="card" id="idnCard" style="margin-top:16px">
+        <section class="card" id="idnCard" data-nav="Identities" data-nav-icon="🧑‍💻" style="margin-top:16px">
           <div class="toolbar" style="margin:0"><h2 style="margin:0;font-size:15px">🧑‍💻 Identities on this host</h2><span class="chip" id="idnCount" style="margin-left:auto"></span></div>
           <p class="sub" style="margin:4px 0 0">Accounts enumerated on this asset (Janus logic) — human / service / machine.</p>
           <div id="idnBody" style="margin-top:8px"></div>
         </section>
-        <section class="card" id="swCard" style="margin-top:16px">
+        <section class="card" id="swCard" data-nav="Software" data-nav-icon="📦" style="margin-top:16px">
           <div class="toolbar" style="margin:0"><h2 style="margin:0;font-size:15px">📦 Software</h2><span class="chip" id="swCount" style="margin-left:auto"></span></div>
           <div id="swBody" style="margin-top:8px"></div>
         </section>
-        <section class="card" id="certCard" style="margin-top:16px">
+        <section class="card" id="certCard" data-nav="Certificates" data-nav-icon="🔐" style="margin-top:16px">
           <div class="toolbar" style="margin:0"><h2 style="margin:0;font-size:15px">🔐 Certificates</h2><span class="chip" id="certCount" style="margin-left:auto"></span></div>
           <div id="certBody" style="margin-top:8px"></div>
         </section>
       </div>
       <!-- pack intelligence right column -->
       <div>
-        <section class="card" id="tagCard">
+        <section class="card" id="tagCard" data-nav="Pack tags" data-nav-icon="🐾">
           <div class="toolbar" style="margin:0"><h2 style="margin:0;font-size:15px">🐾 What the pack knows</h2>
             <span class="chip" id="tagCount" style="margin-left:auto"></span></div>
           <p class="sub" style="margin:4px 0 8px">Every tag on this asset, deciphered — what it means and which Hound raised it. <b>Grouped by tag category</b>, worst band first; click a category to open it.</p>
@@ -111,23 +123,23 @@
           <div id="tagBody"></div>
         </section>
 
-        <section class="card" id="cveCard" style="margin-top:16px">
+        <section class="card" id="cveCard" data-nav="CVEs" data-nav-icon="🧬" style="margin-top:16px">
           <div class="toolbar" style="margin:0"><h2 style="margin:0;font-size:15px">🧬 CVEs</h2><span class="chip" id="cveCount" style="margin-left:auto"></span></div>
           <div id="cveBody" style="margin-top:8px"></div>
         </section>
 
-        <section class="card" id="vulnCard" style="margin-top:16px">
+        <section class="card" id="vulnCard" data-nav="Top findings" data-nav-icon="🔒" style="margin-top:16px">
           <div class="toolbar" style="margin:0"><h2 style="margin:0;font-size:15px">🔒 Top findings</h2><span class="chip" id="vulnCount" style="margin-left:auto"></span></div>
           <div style="margin-top:8px"><table id="vulnTbl"><colgroup><col style="width:62px"><col style="width:74px"><col><col style="width:50px"><col style="width:120px"></colgroup><thead><tr><th>Sev</th><th>Plugin</th><th>Name</th><th>VPR</th><th>Family</th></tr></thead><tbody></tbody></table></div>
         </section>
 
-        <section class="card" id="webCard" style="margin-top:16px">
+        <section class="card" id="webCard" data-nav="Web pages" data-nav-icon="🌐" style="margin-top:16px">
           <div class="toolbar" style="margin:0"><h2 style="margin:0;font-size:15px">🌐 Captured web pages</h2><span class="chip" id="webCount" style="margin-left:auto"></span></div>
           <p class="sub" style="margin:4px 0 0">Plugin <span class="mono">24260</span> (and other web plugins) captured the HTTP response — including the page HTML — when it scanned this host. <b>Render now</b> shows it back in a locked sandbox: no scripts run and no external requests are made.</p>
           <div id="webBody" style="margin-top:8px"></div>
         </section>
 
-        <section class="card" id="liveCard" style="margin-top:16px">
+        <section class="card" id="liveCard" data-nav="Live navi" data-nav-icon="🛰" style="margin-top:16px">
           <div class="toolbar" style="margin:0"><h2 style="margin:0;font-size:15px">🛰 Live · navi explore uuid</h2></div>
           <p class="sub" style="margin:4px 0 8px">Flag-driven per-asset views, straight from the navi CLI (needs navi on the server). Base lookup plus the workhorse views.</p>
           <div class="toolbar" style="margin:0;flex-wrap:wrap;gap:6px">
@@ -150,7 +162,7 @@ const API=agentApi('argos');
 let CUR=null;
 const SEV_COLOR={critical:'var(--cx-f43f5e)',high:'var(--cx-fb923c)',medium:'var(--cx-fbbf24)',low:'var(--cx-6ea8ff)',info:'#8a99ad'};
 const BAND_COLOR={critical:'var(--cx-f43f5e)',high:'var(--cx-fb923c)',medium:'var(--cx-fbbf24)',low:'var(--cx-6ea8ff)',info:'#8a99ad',good:'var(--ok)',clear:'var(--ok)'};
-function crestFor(agent){ return agent?`<img src="/static/crests/${agent}.png?v=5" onerror="this.style.display='none'">`:''; }
+function crestFor(agent){ return crestSrc(agent)?`<img src="${esc(crestSrc(agent))}?v=5" data-fb="hide">`:''; }
 
 /* ---- What the pack knows: tags grouped by CATEGORY, collapse / expand ----
    One asset can carry 100+ tags in a single category (CVE / KEV tagging), which
@@ -226,7 +238,7 @@ function capList(id, rows, rowHtml, opts){
   const more=rows.length>TOP_N
     ? `<button class="btn ghost sm morebtn" data-more="${id}">${all?'▴ show top '+TOP_N:'▾ show all '+rows.length}</button>`
     : `<span class="sub" style="font-size:11.5px">${rows.length} of ${rows.length}</span>`;
-  const link=o.href?`<a class="lnk" style="font-size:12px" href="${o.href}">${o.linkText||'open →'}</a>`:'';
+  const link=o.href?`<a class="lnk" style="font-size:12px" href="${esc(safeHref(o.href))}">${esc(o.linkText||'open →')}</a>`:'';
   body.innerHTML=(o.open||'')+shown.map(rowHtml).join('')+(o.close||'')+
     `<div class="moreRow">${more}${link?`<span style="margin-left:auto">${link}</span>`:''}</div>`;
   const b=body.querySelector('[data-more]');
@@ -279,12 +291,54 @@ function wireDocker(dk){
   }, {});
 }
 
+/* ---- At a glance: the numbers that decide what to do with this asset; each card opens
+   the Hound that owns it (or jumps to the card below). Built from d.glance (api._glance). ---- */
+function renderGlance(d){
+  const g=d.glance||{}, uu=encodeURIComponent((d.asset&&d.asset.uuid)||''), N=v=>Number(v||0).toLocaleString();
+  const card=(v,l,u,href,c,dim)=>`<a class="gmk${dim?' dim':''}" href="${esc(href)}"${href[0]==='#'?` data-j="${esc(href.slice(1))}"`:''} style="--rc:${c}"><div class="v">${v}</div><div class="l">${esc(l)}</div><div class="u">${u}</div></a>`;
+  const sm=t=>` <small>${esc(t)}</small>`;
+  const nm=g.nemesis, f=g.findings||{}, sla=g.sla, cp=g.compliance, ce=g.certs, eol=g.eol, sc=g.scan, pk=g.pack||{hounds:[],of:0};
+  const BC={CRITICAL:'var(--crit)',HIGH:'var(--high)',ELEVATED:'var(--med)',LOW:'var(--low)'};
+  let h='<div class="mhead">Exposure</div><div class="gkpi">'
+   +(nm?card(N(nm.score)+(nm.rank?sm('· #'+N(nm.rank)+' of '+N(nm.of)):''),'Exposure Score (Nemesis) · '+esc(nm.band.toLowerCase())+' · default weighting',
+        nm.rank?'→ Exposure Score breakdown':(nm.beyond?'below the worst '+N(nm.beyond)+' of '+N(nm.of)+' → Exposure Score':'→ run Exposure Score for the estate rank'),
+        '/agents/fused_score/page.html',BC[nm.band]||'var(--line)')
+       :card('—','Exposure Score (Nemesis)','no score for this asset','/agents/fused_score/page.html','var(--line)',true))
+   +card(N(f.critical)+sm('/ '+N(f.high)),'open critical / high','→ Top findings ↓','#vulnCard',f.critical?'var(--crit)':(f.high?'var(--high)':'var(--ok)'),!(f.critical||f.high))
+   +card(N(f.kev),'CISA KEV findings',f.kev?'exploited in the wild → CISA KEV':'→ CISA KEV','/agents/cisakev/page.html',f.kev?'var(--crit)':'var(--ok)',!f.kev)
+   +'</div><div class="mhead">Remediation clock</div><div class="gkpi">'
+   +(sla&&sla.first_found?card(N(sla.past),'findings past SLA',Object.entries(sla.windows||{}).map(([k,v])=>esc(k.slice(0,4))+' &gt; '+esc(v)+' d').join(' · ')+' → SLA Adherence','/agents/sla/page.html',sla.past?'#f59e0b':'var(--ok)',!sla.past)
+       :card('—','findings past SLA','no first-found dates in navi.db','/agents/sla/page.html','var(--line)',true))
+   +(sla&&sla.oldest_critical_days!=null?card(N(sla.oldest_critical_days)+sm('days'),'oldest open critical','first found '+esc(sla.oldest_critical_since||'—'),'#vulnCard','var(--crit)')
+       :(f.critical?card(N(f.critical),'oldest open critical',(sla&&sla.first_found)?'no first-found date on them':'no first-found dates in navi.db','#vulnCard','var(--crit)')
+         :card('—','oldest open critical','no open critical findings','#vulnCard','var(--ok)',true)))
+   +'</div><div class="mhead">Hygiene</div><div class="gkpi">'
+   +(cp?card(cp.pass_pct!=null?esc(cp.pass_pct)+'%':'—','compliance pass rate',N(cp.failed)+' failing check'+(cp.failed===1?'':'s')+' → Compliance Deep-Dive','/agents/compliance_asset/page.html?asset='+uu,
+        cp.pass_pct==null?'var(--line)':(cp.pass_pct>=80?'var(--ok)':(cp.pass_pct>=50?'var(--med)':'var(--crit)')))
+       :card('—','compliance pass rate','no audit results for this asset','/agents/compliance/page.html','var(--line)',true))
+   +(ce?card(ce.expired?N(ce.expired)+sm('expired'):N(ce.soon)+sm('expiring'),'certificates · '+N(ce.total)+' on this asset',
+        (ce.expired&&ce.soon?N(ce.soon)+' more expire'+(ce.soon===1?'s':'')+' in '+N(ce.soonest_days)+' days':(ce.soon?'next in '+N(ce.soonest_days)+' days':'none expiring in '+ce.window+' days'))+' → Certificates ↓',
+        '#certCard',ce.expired?'var(--crit)':(ce.soon?'var(--high)':'var(--ok)'),!(ce.expired||ce.soon))
+       :card('0','certificates','none recorded on this asset','#certCard','var(--line)',true))
+   +(eol?card(N(eol.findings),'EOL / unsupported software',(eol.tagged?'tagged Lifecycle · ':'')+'→ EOL / Unsupported','/agents/eol/page.html',(eol.findings||eol.tagged)?'#e0913a':'var(--ok)',!(eol.findings||eol.tagged))
+       :card('—','EOL / unsupported software','no findings table','/agents/eol/page.html','var(--line)',true))
+   +'</div><div class="mhead">Confidence</div><div class="gkpi">'
+   +(sc&&sc.days!=null?card(N(sc.days)+sm('days'),'since last scan',esc(sc.date||'')+(sc.name?' · '+esc(sc.name):'')+' → Scan Evaluations','/agents/scan_eval/page.html',sc.days>30?'var(--med)':'var(--ok)')
+       :card('—','since last scan','no scan-information plugin (19506) on this asset','/agents/scan_eval/page.html','var(--line)',true))
+   +(sc&&sc.credentialed!=null?card(sc.credentialed?'yes':'no','credentialed scan',sc.credentialed?'local checks ran → Scan Evaluations':'findings may be understated → Scan Evaluations','/agents/scan_eval/page.html',sc.credentialed?'var(--ok)':'var(--med)')
+       :card('—','credentialed scan','unknown','/agents/scan_eval/page.html','var(--line)',true))
+   +card(N(pk.hounds.length)+sm('of '+N(pk.of)),'Hounds that tagged this asset',pk.hounds.length?(pk.hounds.length<=3?esc(pk.hounds.join(', '))+(pk.hounds.length<pk.of?' so far':''):'')+' → run the pack':'none yet → run the pack','/',pk.hounds.length?'var(--accent)':'var(--line)',!pk.hounds.length)
+   +'</div>';
+  document.getElementById('glanceBody').innerHTML=h;
+  document.querySelectorAll('#glanceBody a[data-j]').forEach(x=>x.onclick=e=>{ e.preventDefault(); const t=document.getElementById(x.dataset.j); if(t) t.scrollIntoView({behavior:'smooth',block:'start'}); });
+}
 function render(d){
   CUR=d;
+  try{ renderGlance(d); }catch(e){ document.getElementById('glanceBody').innerHTML='<p class="sub">At a glance unavailable: '+esc(e.message)+'</p>'; }
   Object.keys(MORE).forEach(k=>MORE[k]=false);   // every list starts at top 5 on a new asset
   const a=d.asset||{}, R=d.risk||{};
   // identity
-  const url=a.url?`<a href="${esc(a.url)}" target="_blank" class="chip" style="text-decoration:none">Tenable ↗</a>`:'';
+  const url=safeUrl(a.url,'')?`<a href="${esc(safeUrl(a.url))}" target="_blank" rel="noopener noreferrer" class="chip" style="text-decoration:none">Tenable ↗</a>`:'';
   document.getElementById('idBody').innerHTML=
     idRow('Hostname', esc(a.hostname||'—'))+idRow('IP', esc(a.ip_address||'—'))+
     idRow('OS', esc(a.operating_system||'—'))+idRow('Network', esc(a.network||'—'))+
@@ -333,9 +387,9 @@ function render(d){
     const c=SEV_COLOR[v.severity]||'#8a99ad';
     const pid=v.plugin_id!=null?String(v.plugin_id):'';
     return `<tr><td><span class="pill" style="padding:1px 8px;color:${c};border-color:${c}66">${esc(v.severity||'—')}</span></td>
-      <td class="mono">${pid?`<a class="mono" style="cursor:pointer;text-decoration:underline;color:var(--accent)" onclick="pluginOut('${esc(pid)}','${esc(v.plugin_name||'')}')" title="View this plugin's stored output on this asset (from navi.db — HTML output is rendered)">${esc(pid)}</a>`:'—'}</td>
-      <td title="${esc(v.plugin_name||'')}">${pid?`<a style="cursor:pointer;color:var(--ink)" onclick="pluginOut('${esc(pid)}','${esc(v.plugin_name||'')}')">${esc(v.plugin_name||'—')}</a>`:esc(v.plugin_name||'—')}</td><td class="mono">${v.vpr!=null&&v.vpr!==''?esc(v.vpr):'—'}</td>
-      <td class="sub">${esc(v.family||'—')}</td></tr>`;
+      <td class="mono">${pid?`<a class="mono" style="cursor:pointer;text-decoration:underline;color:var(--accent)" data-pout="${esc(pid)}" data-pname="${esc(v.plugin_name||'')}" title="View this plugin's stored output on this asset (from navi.db — HTML output is rendered)">${esc(pid)}</a>`:'—'}</td>
+      <td title="${esc(v.plugin_name||'')}">${pid?`<a style="cursor:pointer;color:var(--ink)" data-pout="${esc(pid)}" data-pname="${esc(v.plugin_name||'')}">${esc(v.plugin_name||'—')}</a>`:esc(v.plugin_name||'—')}</td><td class="mono">${v.vpr!=null&&v.vpr!==''?esc(v.vpr):'—'}</td>
+      <td class="sub">${esc(v.family||'—')}${pid&&a.ip_address?'<br>'+c2Link('remediate',{plugin_id:pid,targets:[{ip:a.ip_address,uuid:a.uuid||a.asset_uuid||'',hostname:a.hostname||''}],source:'Argos'},'🛠 Remediate'):''}</td></tr>`;
   }, {cols:5, empty:'<tr><td colspan="5" class="sub">No findings.</td></tr>'});
   const tbl=d.tables||{};
   // when a table isn't in navi.db yet, name the exact command that builds it
@@ -381,6 +435,11 @@ function render(d){
     +(!cov.owned?'<a class="chip" href="/web/ownermap.html" style="text-decoration:none">Assign owner →</a> ':'')
     +(!cov.classified?'<a class="chip" href="/agents/classify/page.html" style="text-decoration:none">Classify →</a>':'');
   document.getElementById('result').style.display='';
+  /* jump nav over the dossier's cards (counts filled from the same numbers the cards show) */
+  mountSectionNav(); const sn=document.getElementById('secNav'); if(sn) sn.style.display='';
+  const cn=(id,v)=>setNavCount(id, v==null?'':Number(v).toLocaleString());
+  cn('ownCard',(d.ownership||[]).length||null); cn('idnCard',(d.identities||[]).length); cn('swCard',(d.software||[]).length);
+  cn('certCard',(d.certs||[]).length); cn('cveCard',d.risk&&d.risk.cve_count||0); cn('vulnCard',d.counts&&d.counts.vulns||0);
   document.getElementById('result').scrollIntoView({behavior:'smooth',block:'start'});
 }
 const OWN_PAL=['var(--cx-5a5fe0)','var(--cx-3f78c2)','var(--cx-2f9d9d)','var(--cx-2fa06e)','var(--cx-7d64d4)','var(--cx-3f8fb0)','var(--cx-4a6fd0)','var(--cx-2f9e88)'];
@@ -400,7 +459,7 @@ async function lookup(){
   flash('flash','<span class="spin"></span> recognizing '+esc(t)+' across navi.db…','run');
   let o; try{ o=await API.post('lookup',{target:t}); }catch(e){ o={ok:false,error:e.message}; }
   if(!o||!o.ok){ flash('flash','✗ '+esc((o&&o.error)||'lookup failed'),'crit'); return; }
-  if(!o.found){ flash('flash','⚠ '+esc(o.message||'no match'),'warn'); document.getElementById('result').style.display='none'; return; }
+  if(!o.found){ flash('flash','⚠ '+esc(o.message||'no match'),'warn'); document.getElementById('result').style.display='none'; const sn=document.getElementById('secNav'); if(sn) sn.style.display='none'; return; }
   flashClear('flash'); render(o);
   try{ loadWebPages(t); }catch(e){}
 }
@@ -410,7 +469,7 @@ async function lookup(){
 let WEBPAGES=[];
 function webPageHtml(p){
   const i=WEBPAGES.indexOf(p);
-  const site=p.url?(' · <a href="'+esc(p.url)+'" target="_blank" rel="noopener" class="mono" style="color:var(--accent)">open in Tenable ↗</a>'):'';
+  const site=safeUrl(p.url,'')?(' · <a href="'+esc(safeUrl(p.url))+'" target="_blank" rel="noopener noreferrer" class="mono" style="color:var(--accent)">open in Tenable ↗</a>'):'';
   const where=p.where?(' · '+esc(p.where)):'';
   return '<div class="callbox" style="margin-bottom:10px"><div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;align-items:center">'
     +'<span><b>Web page</b> <span class="sub">· plugin <span class="mono">'+esc(p.plugin_id)+'</span> · '+esc(p.plugin_name||'')+where+site+' · '+p.html.length.toLocaleString()+' bytes</span></span>'
@@ -471,6 +530,10 @@ async function runLive(view,btn){
    carry HTML, so when output looks like HTML we render it in a sandboxed iframe with a Raw
    toggle; plain output shows as preformatted text. Falls back to the live CLI view if navi.db
    has no stored output for it. */
+// plugin links carry their id/name as data- attributes (never inside inline JS, where a
+// name like "SSL Certificate 'commonName' Mismatch" would break the string)
+document.addEventListener('click',e=>{ const t=e.target.closest&&e.target.closest('[data-pout]'); if(!t) return;
+  e.preventDefault(); pluginOut(t.getAttribute('data-pout'), t.getAttribute('data-pname')||''); });
 async function pluginOut(id,name){
   const lc=document.getElementById('liveCard'); if(lc)lc.scrollIntoView({behavior:'smooth',block:'start'});
   const box=document.getElementById('liveOut'); box.style.display='block';

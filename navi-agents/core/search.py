@@ -16,13 +16,23 @@ def _cols(table):
         return set()
 
 
-def _page(rows, offset):
-    has_next = len(rows) > PAGE
-    return {"rows": rows[:PAGE], "count": min(len(rows), PAGE),
-            "offset": offset, "has_next": has_next, "page": offset // PAGE + 1}
+def _lim(limit):
+    """Page size: the UI asks for 10–50; other callers (MCP, scripts) keep the 500 default."""
+    try:
+        n = int(limit or PAGE)
+    except (TypeError, ValueError):
+        n = PAGE
+    return max(1, min(PAGE, n))
 
 
-def assets(q="", offset=0):
+def _page(rows, offset, n=PAGE):
+    has_next = len(rows) > n
+    return {"rows": rows[:n], "count": min(len(rows), n), "limit": n,
+            "offset": offset, "has_next": has_next, "page": offset // n + 1}
+
+
+def assets(q="", offset=0, limit=None):
+    n = _lim(limit)
     cols = _cols("assets")
     has = lambda c: c in cols
     sel = ["uuid", "hostname", "ip_address",
@@ -36,11 +46,12 @@ def assets(q="", offset=0):
         where = "WHERE " + " OR ".join(f"{c} LIKE ?" for c in tc)
         params = [f"%{q}%"] * len(tc)
     rows = db.query(f"SELECT {', '.join(sel)} FROM assets {where} ORDER BY hostname "
-                    f"LIMIT {PAGE+1} OFFSET {int(offset)};", tuple(params))
-    return _page(rows, int(offset))
+                    f"LIMIT {n+1} OFFSET {int(offset)};", tuple(params))
+    return _page(rows, int(offset), n)
 
 
-def vulns(q="", offset=0):
+def vulns(q="", offset=0, limit=None):
+    n = _lim(limit)
     """Per-FINDING rows from the vulns table (NOT grouped by plugin — that's the Plugin
     Explorer). Each row carries its finding_id and the Tenable platform url so the UI can
     deep-link. Degrades gracefully on the simplified sample schema (no finding_id /
@@ -75,11 +86,12 @@ def vulns(q="", offset=0):
              "vpr DESC")
     rows = db.query(
         f"SELECT {', '.join(sel)} FROM vulns v {join} {where} {order} "
-        f"LIMIT {PAGE+1} OFFSET {int(offset)};", tuple(params))
-    return _page(rows, int(offset))
+        f"LIMIT {n+1} OFFSET {int(offset)};", tuple(params))
+    return _page(rows, int(offset), n)
 
 
-def plugins(q="", offset=0):
+def plugins(q="", offset=0, limit=None):
+    n = _lim(limit)
     cols = _cols("vulns")
     fam = "MAX(plugin_family)" if "plugin_family" in cols else "''"
     where, params = "", []
@@ -90,16 +102,17 @@ def plugins(q="", offset=0):
     rows = db.query(
         f"SELECT plugin_id, MAX(plugin_name) AS name, {fam} AS family, "
         f"COUNT(DISTINCT asset_uuid) AS assets FROM vulns {where} "
-        f"GROUP BY plugin_id ORDER BY assets DESC LIMIT {PAGE+1} OFFSET {int(offset)};", tuple(params))
-    return _page(rows, int(offset))
+        f"GROUP BY plugin_id ORDER BY assets DESC LIMIT {n+1} OFFSET {int(offset)};", tuple(params))
+    return _page(rows, int(offset), n)
 
 
-def tags(q="", offset=0):
+def tags(q="", offset=0, limit=None):
+    n = _lim(limit)
     """Grouped tag list — one row per tag (tag_key : tag_value) with a DISTINCT
     asset count, so you can see how big each tag is before drilling in."""
     cols = _cols("tags")
     if not cols:
-        return _page([], int(offset))
+        return _page([], int(offset), n)
     has = lambda c: c in cols
     dt = "tag_added_date" if has("tag_added_date") else None
     sel = ["tag_key", "tag_value",
@@ -114,11 +127,12 @@ def tags(q="", offset=0):
         params = [f"%{q}%"] * len(tc)
     rows = db.query(f"SELECT {', '.join(sel)} FROM tags {where} "
                     f"GROUP BY tag_key, tag_value ORDER BY assets DESC, tag_key, tag_value "
-                    f"LIMIT {PAGE+1} OFFSET {int(offset)};", tuple(params))
-    return _page(rows, int(offset))
+                    f"LIMIT {n+1} OFFSET {int(offset)};", tuple(params))
+    return _page(rows, int(offset), n)
 
 
-def tag_assets(key, value, q="", offset=0):
+def tag_assets(key, value, q="", offset=0, limit=None):
+    n = _lim(limit)
     """The assets carrying ONE tag — tags ⋈ assets, so each row shows the full
     asset (hostname, IP, OS, ACR/AES, platform url), not just a UUID. Falls back
     to the tags table's own asset_ip when the asset row isn't in navi.db."""
@@ -143,11 +157,12 @@ def tag_assets(key, value, q="", offset=0):
     rows = db.query(
         f"SELECT {', '.join(sel)} FROM tags t LEFT JOIN assets a ON a.uuid = t.asset_uuid "
         f"WHERE {' AND '.join(where)} GROUP BY t.asset_uuid "
-        f"ORDER BY hostname, ip_address LIMIT {PAGE+1} OFFSET {int(offset)};", tuple(params))
-    return _page(rows, int(offset))
+        f"ORDER BY hostname, ip_address LIMIT {n+1} OFFSET {int(offset)};", tuple(params))
+    return _page(rows, int(offset), n)
 
 
-def routes(q="", offset=0):
+def routes(q="", offset=0, limit=None):
+    n = _lim(limit)
     where, params = "", []
     if q:
         where = "WHERE app_name LIKE ? OR vuln_type LIKE ?"
@@ -155,13 +170,14 @@ def routes(q="", offset=0):
     try:
         rows = db.query(
             f"SELECT route_id, app_name, vuln_type, total_vulns, plugin_list FROM vuln_route {where} "
-            f"ORDER BY total_vulns DESC LIMIT {PAGE+1} OFFSET {int(offset)};", tuple(params))
+            f"ORDER BY total_vulns DESC LIMIT {n+1} OFFSET {int(offset)};", tuple(params))
     except Exception:
         rows = []
-    return _page(rows, int(offset))
+    return _page(rows, int(offset), n)
 
 
-def paths(q="", offset=0):
+def paths(q="", offset=0, limit=None):
+    n = _lim(limit)
     where, params = "", []
     if q:
         where = "WHERE p.path LIKE ?"
@@ -170,7 +186,7 @@ def paths(q="", offset=0):
         rows = db.query(
             "SELECT p.path, p.plugin_id, p.asset_uuid, a.hostname, a.ip_address "
             "FROM vuln_paths p LEFT JOIN assets a ON a.uuid=p.asset_uuid "
-            f"{where} ORDER BY p.path LIMIT {PAGE+1} OFFSET {int(offset)};", tuple(params))
+            f"{where} ORDER BY p.path LIMIT {n+1} OFFSET {int(offset)};", tuple(params))
     except Exception:
         rows = []
-    return _page(rows, int(offset))
+    return _page(rows, int(offset), n)

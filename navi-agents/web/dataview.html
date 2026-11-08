@@ -35,7 +35,7 @@
 
     <div id="dvEmailForm" style="display:none;margin-top:6px;gap:6px;align-items:center;flex-wrap:wrap">
       <input id="dvEmailTo" class="fld" style="min-width:240px;padding:8px 10px" placeholder="recipient email">
-      <button class="btn run sm" id="dvEmailSend">▶ Send data (gated)</button>
+      <button class="btn run sm" id="dvEmailSend">📧 Send data (gated)</button>
       <button class="btn ghost sm" id="dvEmailCancel">cancel</button>
       <span id="dvEmailRes" class="sub" style="margin:0"></span>
     </div>
@@ -136,6 +136,8 @@ async function emailData(){
   const cs=cols(), rs=rows();
   if(!to){ res.innerHTML='<span style="color:var(--crit)">enter a recipient</span>'; return; }
   if(!rs.length){ res.innerHTML='<span style="color:var(--crit)">no rows to send</span>'; return; }
+  { let W=false; try{ W=!!(await jget('/api/health')).writes_enabled; }catch(e){}
+    if(!confirm('Email "'+(CTX.comp.title||'Query data')+'" ('+rs.length+' row'+(rs.length===1?'':'s')+') to '+to+'? This is a real send.'+(W?'':'\n\nEmail is gated (NAVI_ALLOW_WRITES / NAVI_EMAIL not set) — the send will be refused.'))) return; }
   res.innerHTML='<span class="spin"></span> sending…';
   const payload={ to, title:(CTX.comp.title||'Query data'), note:(CTX.comp.note||''),
                   sql:(CTX.comp.sql||''), columns:cs, rows:rs, confirm:true };

@@ -64,7 +64,7 @@
       <span style="margin-left:auto;display:flex;gap:6px;align-items:center"><span class="chip" id="count"></span><button class="btn run sm" id="refresh">↻ Refresh data</button><button class="btn sm" id="emailBtn" title="Email this dashboard as an HTML report (gated)">📧 Email dashboard</button><a class="btn ghost sm" href="/agents/dashboard/page.html">✏️ Edit in builder</a></span></div>
     <div id="emailForm" style="display:none;margin-top:8px;gap:6px;align-items:center;flex-wrap:wrap">
       <input id="emailTo" class="fld" style="min-width:240px;padding:8px 10px" placeholder="recipient email">
-      <button class="btn run sm" id="emailSend">▶ Send dashboard (gated)</button>
+      <button class="btn run sm" id="emailSend">📧 Send dashboard (gated)</button>
       <button class="btn ghost sm" id="emailCancel">cancel</button>
       <span id="emailRes" class="sub"></span></div>
     <div id="flash" class="flash"></div>
@@ -459,6 +459,8 @@ async function emailDashboard(){
   const to=(document.getElementById('emailTo').value||'').trim(), res=document.getElementById('emailRes');
   if(!to){ res.innerHTML='<span style="color:var(--crit)">enter a recipient</span>'; return; }
   if(!DASHBOARD.length){ res.innerHTML='<span style="color:var(--crit)">no components to send</span>'; return; }
+  { let W=false; try{ W=!!(await jget('/api/health')).writes_enabled; }catch(e){}
+    if(!confirm('Email the Custom Dashboard ('+DASHBOARD.length+' component'+(DASHBOARD.length===1?'':'s')+') to '+to+'? This is a real send.'+(W?'':'\n\nEmail is gated (NAVI_ALLOW_WRITES / NAVI_EMAIL not set) — the send will be refused.'))) return; }
   res.innerHTML='<span class="spin"></span> sending…';
   const components=DASHBOARD.map(d=>({title:d.title||'Component',note:d.note||'',
     viz:(d.r&&d.r.viz)||'',label_col:(d.r&&d.r.label_col)||'',value_col:(d.r&&d.r.value_col)||'',

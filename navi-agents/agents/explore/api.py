@@ -164,8 +164,14 @@ def applied(p):
         rows = db.query("SELECT tag_key, tag_value FROM tags WHERE tag_value IS NOT NULL;")
     except Exception:
         rows = []
-    return {"ok": True, "applied": [{"tag_key": r.get("tag_key"), "tag_value": r.get("tag_value")}
-                                    for r in rows]}, 200
+    from core import tagname
+    out = []
+    for r in rows:
+        d = {"tag_key": r.get("tag_key"), "tag_value": r.get("tag_value")}
+        if tagname.is_prefixed(d["tag_key"]):        # a Settings → Test run tag also counts
+            d["base"] = tagname.base(d["tag_key"])   # as its plain category (tagApplied)
+        out.append(d)
+    return {"ok": True, "applied": out}, 200
 
 
 def tags_compare(p):
@@ -233,7 +239,7 @@ def run_sql(p):
     if err:
         return {"ok": False, "message": err}, 200
     try:
-        rows = db.query(sql)
+        rows = db.user_query(sql)          # engine-level guard: navi's credential tables are unreadable
     except Exception as e:
         return {"ok": False, "message": str(e), "sql": sql}, 200
     return {"ok": True, "sql": sql, "rows": rows, "count": len(rows),
@@ -369,6 +375,17 @@ def tag_clear(p):
     return {"ok": True, "removed": tagq.clear(), "counts": tagq.counts()}, 200
 
 
+_CSV_FORMULA = ("=", "+", "-", "@", "\t", "\r")
+
+
+def csv_safe(v):
+    """A CSV cell that a spreadsheet won't run as a formula: text starting with = + - @ TAB CR
+    gets a leading ' (OWASP CSV injection). Non-strings pass through."""
+    if isinstance(v, str) and v.startswith(_CSV_FORMULA):
+        return "'" + v
+    return v
+
+
 def _acr_cmd(spec):
     """Render a `navi enrich acr` command from an ACR spec (for exported scripts)."""
     from core.contract import _sh
@@ -383,7 +400,10 @@ def tag_export(p):
     """Export every navi command in the Tagging log as a runnable script — a shell
     script (default) or a python script — so the batch can be dropped into cron.
 
-    payload: {format: 'sh'|'py' (default 'sh'), which: 'all'|'done' (default 'all')}
+    payload: {format: 'sh'|'py' (default 'sh'), which: 'all'|'done' (default 'all'),
+              include_acr: false (default) — ACR changes are left out unless asked for, and then
+              only the ones that were applied (status done): a replayed ACR change runs outside
+              the Hounds, so it is NOT recorded in the ACR log.}
     Rebuilds each command from the job's retained spec, reproducing the exact
     `navi enrich tag` / `navi enrich acr` calls (add-only unless the job was a
     removal). Emitted oldest-first for replay.
@@ -399,36 +419,46 @@ def tag_export(p):
         import io as _io
         buf = _io.StringIO()
         w = _csv.writer(buf)
-        w.writerow(["agent", "category", "value", "selector", "detail", "op", "status"])
+        w.writerow(["agent", "category", "value", "selector", "detail", "op", "status", "business_case"])
         rows = 0
         for j in tagq.list_jobs():
             if which == "done" and j.get("status") != "done":
                 continue
-            w.writerow([j.get("agent", ""), j.get("category", ""), j.get("value", ""),
-                        j.get("selector", ""), j.get("detail", ""), j.get("op", ""),
-                        j.get("status", "")])
+            w.writerow([csv_safe(x) for x in (
+                j.get("agent", ""), j.get("category", ""), j.get("value", ""),
+                j.get("selector", ""), j.get("detail", ""), j.get("op", ""),
+                j.get("status", ""), j.get("business_case", ""))])
             rows += 1
         return {"ok": True, "format": "csv", "count": rows,
                 "filename": "navi-tags-log.csv", "script": buf.getvalue()}, 200
+    include_acr = p.get("include_acr") is True or str(p.get("include_acr")).lower() in ("1", "true", "yes", "on")
     jobs = list(reversed(tagq.list_jobs()))          # log is newest-first; replay oldest-first
-    cmds = []
+    cmds, n_acr, skipped_acr = [], 0, 0
     for j in jobs:
-        if which == "done" and j.get("status") != "done":
-            continue
         spec = j.get("spec") or {}
-        if not spec.get("category") and not spec.get("value"):
-            continue
-        is_acr = (j.get("op") == "acr" or spec.get("_acr")
+        is_acr = (j.get("op") == "acr" or spec.get("_acr") or str(j.get("selector") or "").startswith("acr ")
                   or ("score" in spec and "query" not in spec and "plugin" not in spec
                       and "cve" not in spec and "xrefs" not in spec))
+        if is_acr and (not include_acr or j.get("status") != "done"):
+            skipped_acr += 1 if spec.get("category") else 0
+            continue
+        if which == "done" and j.get("status") != "done":
+            continue
+        if not spec.get("category") and not spec.get("value"):
+            continue
+        if is_acr:
+            n_acr += 1
         cmds.append(_acr_cmd(spec) if is_acr else _cmd_for_spec(spec))
     n = len(cmds)
+    acr_note = ["Includes %d applied ACR change(s): a replayed ACR change is NOT recorded in The Hounds' "
+                "ACR log, and navi skips every asset tagged NO : UPDATE." % n_acr] if n_acr else []
     if fmt in ("py", "python"):
         body = "\n".join("    %r," % c for c in cmds)
         script = ('#!/usr/bin/env python3\n'
                   '"""Replay every navi command captured in The Hounds tagging log.\n'
                   'Generated for cron — runs each navi command in order, logging pass/fail.\n'
-                  'Requires the navi CLI on PATH (or set NAVI_BIN) with API keys configured."""\n'
+                  'Requires the navi CLI on PATH (or set NAVI_BIN) with API keys configured.\n'
+                  + "".join(x + "\n" for x in acr_note) + '"""\n'
                   'import os, shlex, subprocess, sys\n\n'
                   'NAVI = os.environ.get("NAVI_BIN", "navi")\n'
                   'COMMANDS = [\n' + body + '\n]\n\n'
@@ -456,13 +486,15 @@ def tag_export(p):
                   '# Replay every navi command captured in The Hounds tagging log.\n'
                   '# Generated for cron — e.g.:  0 * * * * /path/to/navi-tags-from-log.sh >> /var/log/navi-tags.log 2>&1\n'
                   '# Requires the navi CLI on PATH (or export NAVI_BIN) with API keys configured.\n'
-                  'set -uo pipefail\n'
+                  + "".join("# " + x + "\n" for x in acr_note)
+                  + 'set -uo pipefail\n'
                   'NAVI="${NAVI_BIN:-navi}"\n\n'
                   + lines + ("\n\n" if lines else "\n")
                   + 'echo "replayed ' + str(n) + ' navi command(s)"\n')
         fn = "navi-tags-from-log.sh"
     return {"ok": True, "format": ("py" if fmt in ("py", "python") else "sh"),
-            "count": n, "filename": fn, "script": script}, 200
+            "count": n, "filename": fn, "script": script, "acr_included": n_acr,
+            "acr_left_out": skipped_acr}, 200
 
 
 def verify_tags(p):
@@ -518,7 +550,14 @@ def verify_tags(p):
             "results": results}, 200
 
 
-ACTIONS = {"asset": asset, "vuln": vuln, "cert_month": cert_month, "applied": applied,
+def activity(p):
+    """'Done so far' for one hound: its runs + writes (Hounds log) and what of that is on
+    assets now (navi.db). Live — never cached. See core/activity.py."""
+    from core import activity as _act
+    return _act.summary(p.get("agent", "")), 200
+
+
+ACTIONS = {"activity": activity, "asset": asset, "vuln": vuln, "cert_month": cert_month, "applied": applied,
            "tags_compare": tags_compare, "verify_tags": verify_tags,
            "nl_query": nl_query, "nl_translate": nl_translate, "run_sql": run_sql,
            "columns": columns, "which_agent": which_agent,

@@ -1,118 +1,174 @@
 <!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>IoT Discovery Squad · Navi Agents</title>
+<title>IoT Discovery Squad · Cerberus · Navi Agents</title>
 <link rel="stylesheet" href="/static/console.css"/>
 <style>
-.agrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px}
+.agrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(150px,100%),1fr));gap:12px}
 .agent{border:1px solid var(--line);border-radius:12px;padding:14px;background:var(--panel)}
-.agent .ah{display:flex;align-items:center;gap:10px}.agent .ico{width:30px;height:30px;border-radius:8px;background:var(--panel2);display:flex;align-items:center;justify-content:center;border:1px solid var(--line)}
+.agent{min-width:0}.agent .ah{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.agent .ico{width:30px;height:30px;border-radius:8px;background:var(--panel-2);display:flex;align-items:center;justify-content:center;border:1px solid var(--line)}
 .agent .nm{font-weight:700;font-size:13px}.agent .ds{color:var(--mut);font-size:11px;margin-top:6px}
-.plink{color:var(--accent);text-decoration:none}.plink:hover{text-decoration:underline}
+.plink,.applink{color:var(--accent);text-decoration:none}.plink:hover,.applink:hover{text-decoration:underline}.applink{font-weight:600}
 .kind{font-size:10px;font-weight:800;padding:2px 7px;border-radius:5px;text-transform:uppercase;letter-spacing:.3px}
 .k-confirm{background:rgba(52,211,153,.16);color:var(--ok)}.k-cross{background:rgba(62,166,255,.15);color:var(--accent)}.k-new{background:rgba(231,198,107,.16);color:var(--cx-e7c66b)}
 .src{font-size:10px;color:var(--mut);border:1px solid var(--line);border-radius:4px;padding:1px 5px}
-.note{background:var(--panel2);border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:8px;padding:9px 11px;font-size:12px;color:var(--ink-2);margin:6px 0}
+.note{background:var(--panel-2);border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:8px;padding:9px 11px;font-size:12px;color:var(--ink-2);margin:6px 0}
 .switch{display:inline-flex;align-items:center;gap:7px;font-size:12px;cursor:pointer;user-select:none}
 .cov{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
-.cov .c{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:11.5px}
-.cov .c b{font-size:14px;color:var(--txt)}
-table{table-layout:fixed;width:100%}td,th{overflow:hidden;text-overflow:ellipsis}
+.cov .c{background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:11.5px}
+.cov .c b{font-size:14px;color:var(--ink)}
+.cov .c.off{opacity:.55}
+.tscroll{overflow-x:auto}
+.tscroll table{table-layout:fixed;width:100%;min-width:640px}.tscroll td,.tscroll th{overflow:hidden;text-overflow:ellipsis}
 .warnpill{color:var(--cx-e7c66b);font-size:11px}
+.seclbl{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+.setupcard{text-align:center;padding:22px 18px}.setupcard .big{font-size:15px;font-weight:700;margin-bottom:6px}
+/* metric cards — same look as WAS (Arachne) / Compliance (Minos) */
+.mkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr));gap:10px;margin-top:10px}
+.mk{display:block;border:1px solid var(--line);border-left:4px solid var(--rc,var(--line));border-radius:12px;padding:10px 12px;background:var(--panel-2);color:inherit;text-decoration:none}
+.mk .v{font-size:22px;font-weight:800;color:var(--ink);line-height:1.1}.mk .l{font-size:11.5px;color:var(--mut);margin-top:2px}
+.mk .u{font-size:11px;color:var(--accent);margin-top:4px}
+a.mk:hover{border-color:var(--accent)} .mk.zero{opacity:.55}
+.mhead{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 0}
+/* device-table filter chips */
+.fchips{display:flex;flex-wrap:wrap;gap:7px;margin:6px 0 10px}
+.fchips button{font-size:12px;background:var(--panel-2);border:1px solid var(--line);border-radius:100px;padding:4px 11px;color:var(--ink-2);cursor:pointer;font-family:inherit}
+.fchips button b{color:var(--ink);font-family:var(--mono);margin-left:5px}
+.fchips button.on{background:var(--accent);border-color:var(--accent);color:#fff}.fchips button.on b{color:#fff}
+.sevn{font-family:var(--mono)}
 </style>
 </head><body>
 <div class="wrap">
   <header class="top" id="app-header"></header>
 
   <section class="card">
-    <div class="toolbar"><div><h2 style="margin:0">IoT Discovery Squad</h2>
+    <div class="toolbar"><div><h2 style="margin:0">📡 IoT Discovery Squad <span class="sub" style="font-weight:400">· Cerberus watches the unmanageable</span></h2>
       <p class="sub" style="margin:2px 0 0">Discovery → Carrier harvest → Cross-term hunt → QA. Two human gates: IoT tag approval, new-detection approval.</p></div>
-      <button class="btn run sm" id="runIot" style="margin-left:auto">▶ Run squad</button></div>
+      <button class="btn run sm" id="runIot" data-run style="margin-left:auto">▶ Run</button></div>
     <div class="toolbar" style="margin:8px 0 2px;gap:16px;flex-wrap:wrap">
       <label class="switch"><input type="checkbox" id="usePack"> Use known-IoT term pack <span id="packMeta" class="sub"></span></label>
       <span id="optMeta" class="sub mono"></span>
     </div>
     <div class="note" id="packNote" style="display:none">The term pack is an optional, curated vocabulary of known IoT/OT vendors (Sonos, Hikvision, Siemens, Synology…). Off = hunt only your registry's own terms. On = also sweep carrier plugins for the whole pack, so a device you never defined (e.g. Sonos) can surface for the first time. A bigger authoritative list can replace it via <span class="mono">IOT_TERM_PACK_PATH</span>. Everything it surfaces is still gated below.</div>
     <div class="agrid" id="pipeline" style="margin-top:10px"></div>
+    <div id="flash" class="flash"></div>
+  </section>
+
+  <section class="card" id="secMetrics" data-nav="At a glance" data-nav-icon="📊">
+    <h2 style="margin:0 0 2px;font-size:17px">📊 At a glance</h2>
+    <div id="metrics"><div class="setupcard"><div class="big">Press ▶ Run</div><p class="sub">Runs the four-agent pipeline against navi.db — devices found, their exposure, carrier plugins and proposed detections. Your last run is kept on the server, so coming back restores it instantly.</p></div></div>
+  </section>
+
+  <section class="card" id="secDevices" data-nav="Devices" data-nav-icon="📟">
+    <h2 style="margin:0 0 2px;font-size:17px">📟 Discovered devices</h2>
+    <p class="seclbl">one row per asset · click a host for its Argos deep-dive</p>
+    <div class="fchips" id="devFilt"></div>
+    <div class="tscroll"><table id="sqDevs"><colgroup><col><col style="width:120px"><col><col style="width:130px"><col style="width:96px"><col style="width:52px"><col style="width:52px"><col style="width:56px"><col style="width:52px"><col style="width:60px"></colgroup>
+      <thead><tr><th>Asset</th><th>IP</th><th>Device</th><th>Vendor</th><th>Found by</th><th>Crit</th><th>High</th><th>KEV</th><th>ACR</th><th>AES</th></tr></thead>
+      <tbody><tr><td colspan="10" class="sub">Run the squad…</td></tr></tbody></table></div>
   </section>
 
   <!-- GATE 1 -->
-  <section class="card">
-    <h2>Gate 1 — discovered IoT devices</h2><p class="sub">Tags in the unified scheme <span class="tagval">Asset Inventory : &lt;Category&gt;: &lt;name&gt;</span> — same as the Classifier, so they show up on the classification graphs. <b>Category</b> defaults to <span class="mono">Device Type</span>; change it per device (e.g. <span class="mono">OT</span>). Approve to queue gated writes.</p>
+  <section class="card" id="secGate1" data-nav="Gate 1 · tags" data-nav-icon="🏷️">
+    <h2 style="margin:0 0 2px;font-size:17px">🏷️ Gate 1 — tag discovered devices</h2><p class="sub">Tags in the unified scheme <span class="tagval">Asset Inventory : &lt;Category&gt;: &lt;name&gt;</span> — same as the <a class="applink" href="/agents/classify/page.html">Classifier</a>, so they show up on the classification graphs. <b>Category</b> defaults to <span class="mono">Device Type</span>; change it per device (e.g. <span class="mono">OT</span>). Approve to queue gated writes.</p>
     <div id="sqFlash" class="flash"></div>
     <div class="toolbar"><button class="btn sm" id="sqApproveAll">Approve all</button><span class="chip" id="sqApprCount"></span></div>
-    <table id="sqTags"><colgroup><col><col style="width:140px"><col style="width:120px"><col style="width:64px"><col style="width:150px"><col style="width:120px"></colgroup>
+    <div class="tscroll"><table id="sqTags"><colgroup><col><col style="width:140px"><col style="width:120px"><col style="width:64px"><col style="width:150px"><col style="width:120px"></colgroup>
       <thead><tr><th>Tag (Asset Inventory)</th><th>Category</th><th>Vendor</th><th>Assets</th><th>Status</th><th></th></tr></thead>
-      <tbody><tr><td colspan="6" class="sub">Run the squad…</td></tr></tbody></table>
+      <tbody><tr><td colspan="6" class="sub">Run the squad…</td></tr></tbody></table></div>
     <div id="sqQueue"></div>
   </section>
 
   <!-- GATE 2 -->
-  <section class="card">
-    <div class="toolbar"><div><h2 style="margin:0">Gate 2 — proposed detections</h2>
-      <p class="sub" style="margin:2px 0 0"><span class="kind k-confirm">confirm</span> strengthens a device · <span class="kind k-cross">cross</span> maps a carrier plugin to another known device · <span class="kind k-new">new</span> is a device you hadn't defined. Approve = persist to the registry (term + plugin); Reject = remembered.</p></div></div>
+  <section class="card" id="secGate2" data-nav="Gate 2 · detections" data-nav-icon="🧪">
+    <h2 style="margin:0 0 2px;font-size:17px">🧪 Gate 2 — proposed detections</h2>
+    <p class="sub" style="margin:2px 0 0"><span class="kind k-confirm">confirm</span> strengthens a device · <span class="kind k-cross">cross</span> maps a carrier plugin to another known device · <span class="kind k-new">new</span> is a device you hadn't defined. Approve = persist to the registry (term + plugin); Reject = remembered.</p>
     <div id="propFlash" class="flash"></div>
-    <table id="sqProps"><colgroup><col style="width:78px"><col><col><col style="width:150px"><col style="width:60px"><col style="width:66px"><col style="width:150px"></colgroup>
+    <div class="tscroll"><table id="sqProps"><colgroup><col style="width:78px"><col><col><col style="width:150px"><col style="width:60px"><col style="width:66px"><col style="width:150px"></colgroup>
       <thead><tr><th>Kind</th><th>Device</th><th>Carrier plugin</th><th>Term</th><th>Assets</th><th>Prev.</th><th>Decision</th></tr></thead>
-      <tbody><tr><td colspan="7" class="sub">Run the squad…</td></tr></tbody></table>
+      <tbody><tr><td colspan="7" class="sub">Run the squad…</td></tr></tbody></table></div>
     <div class="toolbar" style="margin-top:8px;flex-wrap:wrap"><button class="btn sm" id="submitProps">Submit decisions</button><span class="chip" id="propCount"></span>
-      <span style="margin-left:auto;display:flex;gap:6px;align-items:center"><label class="switch"><input type="checkbox" id="mergeSeeds"> merge seeds</label>
+      <span style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap"><label class="switch"><input type="checkbox" id="mergeSeeds"> merge seeds</label>
       <button class="btn ghost sm" id="promoteBase" title="Write the confirmed proposals to a reviewable learned base file">⬇ Promote confirmed → base</button></span></div>
     <div id="promoteRes"></div>
   </section>
 
   <!-- CARRIER PLUGINS (Agent 2) -->
-  <section class="card">
-    <h2>Carrier plugins <span class="sub" id="carrMeta"></span></h2>
+  <section class="card" id="secCarriers" data-nav="Carrier plugins" data-nav-icon="🔎">
+    <h2 style="margin:0 0 2px;font-size:17px">🔎 Carrier plugins <span class="sub" id="carrMeta"></span></h2>
     <p class="sub">Plugins whose name/output carry a device term — harvested from confirmed hosts (host-scoped) plus any supplied list. Agent 3 sweeps these across the whole population.</p>
-    <table id="sqCarriers"><colgroup><col style="width:150px"><col><col><col style="width:70px"><col style="width:110px"></colgroup>
+    <div class="tscroll"><table id="sqCarriers"><colgroup><col style="width:190px"><col><col><col style="width:70px"><col style="width:110px"></colgroup>
       <thead><tr><th>Plugin</th><th>Via device(s)</th><th>Via term(s)</th><th>Hosts</th><th>Source</th></tr></thead>
-      <tbody><tr><td colspan="5" class="sub">Run the squad…</td></tr></tbody></table>
+      <tbody><tr><td colspan="5" class="sub">Run the squad…</td></tr></tbody></table></div>
   </section>
 
   <!-- QA + COVERAGE -->
-  <section class="card"><h2>QA &amp; coverage ledger</h2>
+  <section class="card" id="secQa" data-nav="QA & coverage" data-nav-icon="🤖">
+    <h2 style="margin:0 0 2px;font-size:17px">🤖 QA &amp; coverage ledger</h2>
+    <p class="seclbl" style="margin-top:8px">identity signals in navi.db</p>
+    <div class="cov" id="sigCards"><span class="sub">Run the squad…</span></div>
+    <div class="note" id="sigNote" style="display:none"></div>
     <div class="note" id="floorNote" style="display:none"></div>
+    <p class="seclbl" style="margin-top:12px">pipeline coverage</p>
     <div class="cov" id="covCards"></div>
-    <div id="sqQa" class="sub">Run the squad…</div>
+    <div id="sqQa" class="sub"></div>
     <p class="sub" style="margin:12px 0 4px" id="ledgerHead"></p>
-    <table id="sqLedger"><colgroup><col style="width:150px"><col><col><col style="width:120px"></colgroup>
-      <thead><tr><th>Plugin</th><th>Term</th><th>Would-be device</th><th>Result</th></tr></thead><tbody></tbody></table>
-    <div id="sqReg" style="margin-top:14px"></div>
+    <div class="tscroll"><table id="sqLedger"><colgroup><col style="width:150px"><col><col><col style="width:150px"></colgroup>
+      <thead><tr><th>Plugin</th><th>Term</th><th>Would-be device</th><th>Result</th></tr></thead><tbody></tbody></table></div>
   </section>
-  <footer>IoT Discovery Squad · host-scoped carriers · √-scaled signal floor · gated <span class="mono">navi enrich tag</span></footer>
+
+  <section class="card" id="secRegistry" data-nav="Registry" data-nav-icon="📚">
+    <h2 style="margin:0 0 2px;font-size:17px">📚 Detection registry</h2>
+    <div id="sqReg" class="sub">Run the squad…</div>
+  </section>
+  <footer>IoT Discovery Squad · Cerberus · host-scoped carriers · √-scaled signal floor · gated <span class="mono">navi enrich tag</span></footer>
 </div>
 <script src="/static/console.js"></script>
 <script>
 const API=agentApi('iot_squad');
-let IOT=null, OPT=null, propDecisions={};
-let iotAppr=JSON.parse(localStorage.getItem('iotAppr')||'{}');
-const saveIot=()=>localStorage.setItem('iotAppr',JSON.stringify(iotAppr));
+let IOT=null, OPT=null, propDecisions={}, DEVF='', PENDING_FOCUS='';
+const lsGet=(k)=>{ try{ const v=JSON.parse(localStorage.getItem(k)||'{}'); return (v&&typeof v==='object')?v:{}; }catch(e){ return {}; } };
+const lsSet=(k,v)=>{ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} };
+let iotAppr=lsGet('iotAppr');
+const saveIot=()=>lsSet('iotAppr',iotAppr);
 /* Unified inventory scheme (same as the Classifier): the written tag is
    "Asset Inventory : <Facet>: <device>". The operator can change the facet per device. */
 const IOT_FACETS=['Device Type','IoT','OT','Class','App','Cloud','OS'];
-let iotFacet=JSON.parse(localStorage.getItem('iotFacet')||'{}');
-const saveFacet=()=>localStorage.setItem('iotFacet',JSON.stringify(iotFacet));
+let iotFacet=lsGet('iotFacet');
+const saveFacet=()=>lsSet('iotFacet',iotFacet);
 const facetOf=a=>iotFacet[a.value]||a.facet||'Device Type';
 const facetOpts=sel=>IOT_FACETS.map(f=>`<option${f===sel?' selected':''}>${esc(f)}</option>`).join('');
 const iotTagVal=a=>facetOf(a)+': '+a.value;                 // "<Facet>: <device>"
 const iotApplied=a=>(typeof tagApplied==='function')&&(tagApplied('Asset Inventory',iotTagVal(a))||tagApplied('IoT',a.value));
 let IOT_SUBMITTED=new Set();
 (function(){let d=false;Object.keys(iotAppr).forEach(k=>{if(iotAppr[k]==='applied'){delete iotAppr[k];d=true;}});if(d)saveIot();})();
+const fnum=n=>(n==null?'—':Number(n).toLocaleString());
+const KINDS=new Set(['confirm','cross','new']);
+const argosHref=u=>'/agents/argos/page.html?target='+encodeURIComponent(u||'');
 
-function badge(s){return s==='running'?'<span class="badge b-running"><span class="spin"></span>Running</span>':s==='complete'?'<span class="badge b-applied">Done</span>':'<span class="badge b-pending">Ready</span>';}
-function renderPipeline(){const steps=[['📡','1 · Discovery'],['🔎','2 · Carrier harvest'],['🕸️','3 · Cross-term hunt'],['🤖','4 · QA + coverage']];
-  document.getElementById('pipeline').innerHTML=steps.map(s=>`<div class="agent"><div class="ah"><div class="ico">${s[0]}</div><div class="nm">${s[1]}</div><span style="margin-left:auto">${badge(IOT?'complete':'ready')}</span></div></div>`).join('');}
+function badge(s){return s==='running'?'<span class="badge b-running"><span class="spin"></span>Running</span>':s==='complete'?'<span class="badge b-applied">Done</span>':s==='error'?'<span class="badge b-pending" style="color:var(--crit)">Error</span>':'<span class="badge b-pending">Ready</span>';}
+function renderPipeline(running){
+  const ag=(IOT&&IOT.qa&&IOT.qa.agents)||{}, cov=(IOT&&IOT.qa&&IOT.qa.coverage)||{};
+  const nDev=IOT?devRows().length:null;
+  const steps=[['📡','1 · Discovery',ag.discovery,nDev!=null?fnum(nDev)+' device'+(nDev===1?'':'s'):''],
+    ['🔎','2 · Carrier harvest',ag.carrier,IOT?fnum(cov.carriers)+' carrier plugin'+(cov.carriers===1?'':'s'):''],
+    ['🕸️','3 · Cross-term hunt',ag.xterm,IOT?fnum(cov.proposals)+' proposal'+(cov.proposals===1?'':'s')+' · '+fnum(cov.combinations_tested)+' tested':''],
+    ['🤖','4 · QA + coverage',IOT?'complete':'',IOT?fnum(((IOT.qa||{}).flags||[]).length)+' QA flag'+(((IOT.qa||{}).flags||[]).length===1?'':'s'):'']];
+  document.getElementById('pipeline').innerHTML=steps.map(s=>`<div class="agent"><div class="ah"><div class="ico">${s[0]}</div><div class="nm">${esc(s[1])}</div><span style="margin-left:auto">${badge(running?'running':(s[2]||(IOT?'complete':'ready')))}</span></div>${s[3]?`<div class="ds">${esc(s[3])}</div>`:''}</div>`).join('');}
 
 async function runIot(){
-  document.getElementById('runIot').disabled=true;
-  flash('sqFlash','<span class="spin"></span> running pipeline'+(document.getElementById('usePack').checked?' (term pack on)':'')+'…','run');
+  const rb=document.getElementById('runIot'); rb.disabled=true; renderPipeline(true);
+  flash('flash','<span class="spin"></span> running pipeline'+(document.getElementById('usePack').checked?' (term pack on)':'')+'…','run');
+  let ok=false;
   try{
     const o=await API.post('run',{use_pack:document.getElementById('usePack').checked});
-    if(!o.ok){flash('sqFlash','✗ '+(o.error||''),'crit');}
-    else{IOT=o.result; OPT=o.options||{}; flashClear('sqFlash'); if(typeof loadAppliedTags==='function')await loadAppliedTags(); renderSquad();}
-  }catch(e){flash('sqFlash','✗ '+e.message,'crit');}
-  document.getElementById('runIot').disabled=false;
+    if(!o||!o.ok){flash('flash','✗ '+esc((o&&o.error)||'failed'),'crit');}
+    else{IOT=o.result||{}; OPT=o.options||{}; flashClear('flash'); if(typeof loadAppliedTags==='function')await loadAppliedTags(); renderSquad(); ok=true;}
+  }catch(e){flash('flash','✗ '+esc(e.message),'crit');}
+  rb.disabled=false; if(!ok) renderPipeline();
+  if(ok && PENDING_FOCUS){ const f=PENDING_FOCUS; PENDING_FOCUS='';
+    if(!focusRow('#sqTags',f) && !focusRow('#sqDevs',f)) flash('sqFlash','Handoff: “'+esc(f)+'” not in this run’s detected devices.','warn'); }
+  return ok;
 }
 
 function renderSquad(){
@@ -120,7 +176,95 @@ function renderSquad(){
   const opt=OPT||{};
   document.getElementById('packMeta').textContent=opt.pack_size?`(${opt.pack_size} terms${opt.byo_pack?' · BYO file':''})`:'';
   document.getElementById('optMeta').textContent=(opt.supplied_carriers?`${opt.supplied_carriers} supplied carriers · `:'')+(opt.use_pack?'pack ON':'pack off');
-  renderTags(); renderProps(); renderCarriers(); renderQA(); loadReg();
+  if(IOT.available===false){
+    flash('flash','navi.db has no <span class="mono">'+esc((IOT.missing||['vulns']).join(', '))+'</span> table yet — run <span class="mono">navi config update full</span> (Settings ▸ navi.db tables), then ▶ Run again.','warn');
+  }
+  renderMetrics(); renderDevices(); renderTags(); renderProps(); renderCarriers(); renderQA(); loadReg();
+  mountSectionNav();
+  setNavCount('secDevices', devRows().length); setNavCount('secGate1', (IOT.tag_actions||[]).length);
+  setNavCount('secGate2', (IOT.proposals||[]).length);
+  setNavCount('secCarriers', Object.keys((IOT.carriers&&IOT.carriers.carriers)||{}).length);
+  setNavCount('secQa', ((IOT.qa||{}).flags||[]).length||'');
+}
+
+// ---- one row per discovered asset (detections can name the same asset twice) ----
+function devRows(){
+  if(!IOT) return [];
+  const ex={}; (((IOT.exposure||{}).assets)||[]).forEach(e=>{ex[e.asset_uuid]=e;});
+  const by=new Map();
+  ((IOT.discovery||{}).detected||[]).forEach(a=>{ const u=a.asset_uuid; if(!u) return;
+    let r=by.get(u);
+    if(!r){ r={uuid:u, host:(a.hostname&&a.hostname!=='(none)')?a.hostname:'', ip:a.ip||'', devices:[], vendors:[], reg:false, fused:false, signals:a.signals||[]}; by.set(u,r); }
+    if(a.iot_name && !r.devices.includes(a.iot_name)) r.devices.push(a.iot_name);
+    if(a.vendor && !r.vendors.includes(a.vendor)) r.vendors.push(a.vendor);
+    if(a.fused) r.fused=true; else r.reg=true; });
+  const rows=[...by.values()].map(r=>Object.assign(r, ex[r.uuid]||{critical:0,high:0,kev:0,acr:null,aes:null}));
+  rows.sort((a,b)=>(b.kev-a.kev)||(b.critical-a.critical)||(b.high-a.high)||((b.aes||0)-(a.aes||0)));
+  return rows;
+}
+const DEVFILT=[['','All',r=>true],['registry','Registry-confirmed',r=>r.reg],['fused','Signal-fusion only',r=>r.fused&&!r.reg],
+  ['crit','Criticals',r=>r.critical>0],['high','Highs',r=>r.high>0],['kev','CISA KEV',r=>r.kev>0],['aes','AES ≥ 650',r=>(r.aes||0)>=650]];
+const devFn=f=>(DEVFILT.find(x=>x[0]===f)||DEVFILT[0])[2];
+const devCount=f=>devRows().filter(devFn(f)).length;
+
+// ---- 📊 At a glance ----
+function renderMetrics(){
+  const rows=devRows(), sm=((IOT.exposure||{}).summary)||{}, acts=IOT.tag_actions||[], props=IOT.proposals||[];
+  const cov=(IOT.qa||{}).coverage||{}, flags=((IOT.qa||{}).flags)||[], sig=IOT.signal_coverage||[];
+  const sigOn=sig.filter(s=>s.assets>0).length, nNew=props.filter(p=>p.kind==='new').length;
+  const applied=acts.filter(a=>iotApplied(a)).length;
+  const dTxt=n=>fnum(n)+' device'+(n===1?'':'s');
+  // a metric card: f = filter the device table, j = jump to a section, href = another hound
+  const mk=(v,l,o)=>{ o=o||{}; let href, u;
+    if(o.href){ href=o.href; u=o.u||'open →'; }
+    else if(o.f!=null){ href='#secDevices'; u=o.u||(dTxt(devCount(o.f))+' in the list ↓'); }
+    else { href='#'+(o.j||'secMetrics'); u=o.u||'jump to it ↓'; }
+    const zero=o.n!=null?o.n===0:false;
+    return `<a class="mk${zero?' zero':''}" href="${esc(href)}"${o.f!=null?` data-f="${esc(o.f)}"`:''}${o.j?` data-j="${esc(o.j)}"`:''} style="--rc:${o.c||'var(--line)'}"${o.t?` title="${esc(o.t)}"`:''}><div class="v">${v}</div><div class="l">${esc(l)}</div><div class="u">${u}</div></a>`; };
+  const kevKnown=sm.has_kev_column!==false, scores=sm.has_scores!==false;
+  let h='<p class="sub" style="margin:2px 0 0">Cards open the matching devices in the list below, jump to the gate that acts on them, or hand off to <b>🐾 Argos</b>, <b>Exposure Score</b> and the <b>Classifier</b>.</p>'
+    +'<div class="mhead">Devices</div><div class="mkpi">'
+    +mk(fnum(rows.length),'IoT / OT devices found',{f:'',n:rows.length,c:'var(--accent)',t:'Distinct assets the squad identified as IoT / OT / embedded'})
+    +mk(fnum(devCount('registry')),'confirmed by the registry',{f:'registry',n:devCount('registry'),c:'var(--ok)',t:'Matched a known detection (plugin / name / identity output)'})
+    +mk(fnum(devCount('fused')),'signal-fusion only',{f:'fused',n:devCount('fused'),c:'var(--cx-e7c66b)',t:'Found only by Device Type / OUI / mDNS / certificate signals — no registry detection yet'})
+    +mk(fnum(acts.length),'device types to tag',{j:'secGate1',n:acts.length,c:'var(--accent)',u:'Gate 1 ↓'})
+    +mk(fnum(applied)+' / '+fnum(acts.length),'device tags in navi.db',{href:'/agents/classify/page.html',n:applied,c:'var(--ok)',u:'Asset Classification · IoT / OT →',t:'Device Type tags the Classifier maps into the IoT / OT class'})
+    +'</div><div class="mhead">Exposure on these devices</div><div class="mkpi">'
+    +mk(fnum(sm.with_critical),'devices with criticals',{f:'crit',n:sm.with_critical||0,c:'var(--crit)'})
+    +mk(fnum(sm.with_high),'devices with highs',{f:'high',n:sm.with_high||0,c:'var(--high)'})
+    +mk(kevKnown?fnum(sm.with_kev):'—','devices with a CISA KEV',kevKnown?{f:'kev',n:sm.with_kev||0,c:'var(--crit)',t:'Open findings listed in CISA Known Exploited Vulnerabilities'}:{href:'/agents/cisakev/page.html',n:0,u:'no xrefs column → CISA KEV'})
+    +(sm.max_aes_uuid?mk(fnum(sm.max_aes),'highest AES (one device)',{href:argosHref(sm.max_aes_uuid),c:(sm.max_aes>=650?'var(--crit)':'var(--high)'),u:'🐾 open it in Argos →'})
+      :mk('—','highest AES (one device)',{href:'/agents/fused_score/page.html',n:0,u:scores?'no scored devices':'no AES in navi.db'}))
+    +mk(fnum(sm.critical_findings),'critical findings on devices',{href:'/agents/fused_score/page.html',n:sm.critical_findings||0,c:'var(--crit)',u:'🎯 rank them in Exposure Score →'})
+    +'</div><div class="mhead">Learning loop</div><div class="mkpi">'
+    +mk(fnum(cov.carriers),'carrier plugins',{j:'secCarriers',n:cov.carriers||0,c:'var(--accent)',u:'carrier plugins ↓'})
+    +mk(fnum(props.length),'proposed detections',{j:'secGate2',n:props.length,c:'var(--accent)',u:'Gate 2 ↓'})
+    +mk(fnum(nNew),'new devices proposed',{j:'secGate2',n:nNew,c:'var(--cx-e7c66b)',u:'Gate 2 ↓',t:'Devices your registry does not define yet'})
+    +mk(fnum(flags.length),'QA flags',{j:'secQa',n:flags.length,c:'var(--high)',u:'QA ledger ↓'})
+    +mk(fnum(sigOn)+' / '+sig.length,'identity signals present',{j:'secQa',n:sigOn,c:sigOn>=3?'var(--ok)':'var(--cx-e7c66b)',u:'signal coverage ↓',t:'Device Type, OUI, mDNS, certificate … plugins seen in navi.db. Few or none = a scan-coverage gap (credentialed agent scans of VMs), not a bug.'})
+    +mk(fnum((IOT.registry||{}).detections),'registry detections',{j:'secRegistry',n:(IOT.registry||{}).detections||0,c:'var(--line)',u:'registry ↓'})
+    +'</div>';
+  const M=document.getElementById('metrics'); M.innerHTML=h;
+  M.querySelectorAll('a.mk[data-f]').forEach(x=>x.onclick=e=>{ e.preventDefault(); DEVF=x.dataset.f; renderDevices(); jump('secDevices'); });
+  M.querySelectorAll('a.mk[data-j]').forEach(x=>x.onclick=e=>{ e.preventDefault(); jump(x.dataset.j); });
+}
+function jump(id){ const t=document.getElementById(id); if(t) t.scrollIntoView({behavior:'smooth',block:'start'}); }
+
+// ---- 📟 device list ----
+function renderDevices(){
+  const all=devRows(), rows=all.filter(devFn(DEVF));
+  document.getElementById('devFilt').innerHTML=DEVFILT.map(([k,l])=>`<button type="button" data-f="${esc(k)}"${k===DEVF?' class="on"':''}>${esc(l)} <b>${fnum(all.filter(devFn(k)).length)}</b></button>`).join('');
+  document.querySelectorAll('#devFilt button[data-f]').forEach(b=>b.onclick=()=>{ DEVF=b.dataset.f; window.__hpg&&(window.__hpg.sqDevs=0); renderDevices(); });
+  const n=(v,c)=>v?`<span class="sevn" style="color:${c};font-weight:700">${fnum(v)}</span>`:'<span class="sevn sub">0</span>';
+  hPaginate('sqDevs', rows, r=>{
+    const lbl=r.host||r.ip||r.uuid.slice(0,8);
+    const src=(r.reg?'<span class="src">registry</span> ':'')+(r.fused&&!r.reg?`<span class="src" title="${esc((r.signals||[]).join(' · '))}">signals</span>`:'');
+    return `<tr><td><a class="applink" href="${esc(argosHref(r.uuid))}" title="Argos — full asset deep-dive">${esc(lbl)}</a></td>`
+      +`<td class="mono" style="font-size:11.5px">${esc(r.ip)}</td><td>${esc(r.devices.join(', '))}</td><td class="sub">${esc(r.vendors.join(', ')||'—')}</td><td>${src}</td>`
+      +`<td>${n(r.critical,'var(--crit)')}</td><td>${n(r.high,'var(--high)')}</td>`
+      +`<td>${r.kev?'<a class="applink" href="/agents/cisakev/page.html" title="CISA KEV tagging (Laelaps)" style="color:var(--crit)">KEV</a>':'<span class="sub">—</span>'}</td>`
+      +`<td class="mono">${r.acr==null?'—':esc(r.acr)}</td><td class="mono"${(r.aes||0)>=650?' style="color:var(--crit);font-weight:700"':''}>${r.aes==null?'—':esc(r.aes)}</td></tr>`;
+  }, {cols:10, empty:'<tr><td colspan="10" class="sub">'+(all.length?'No devices match this filter.':'No IoT devices detected — see <a class="applink" href="#secQa">identity signals</a> for why.')+'</td></tr>'});
 }
 
 // ---- Gate 1 tags ----
@@ -130,8 +274,8 @@ function renderTags(){
     const B=tagBadge('Asset Inventory',iotTagVal(a),IOT_SUBMITTED.has(a.value)?'applied':iotAppr[a.value]);
     return `<tr><td><span class="tagval">Asset Inventory : ${esc(facetOf(a))}: ${esc(a.value)}</span></td>`
       +`<td><select class="facetSel fld" data-v="${esc(a.value)}" style="font-size:12px;padding:3px 6px">${facetOpts(facetOf(a))}</select></td>`
-      +`<td>${esc(a.vendor||'')}</td><td>${a.asset_count}</td>`
-      +`<td><span class="badge ${B.cls}">${B.label}</span></td>`
+      +`<td>${esc(a.vendor||'')}</td><td>${fnum(a.asset_count)}</td>`
+      +`<td><span class="badge ${esc(B.cls)}">${esc(B.label)}</span></td>`
       +`<td><button class="btn sm" data-v="${esc(a.value)}">${iotAppr[a.value]==='approved'?'Un-approve':(B.done?'Re-tag':'Approve')}</button></td></tr>`;
   }, {cols:6, empty:'<tr><td colspan="6" class="sub">No IoT devices detected.</td></tr>',
       wire:tb=>{
@@ -143,18 +287,18 @@ function renderTags(){
 }
 
 // ---- Gate 2 proposals ----
-function prevPct(p){return (p*100).toFixed(p<0.1?1:0)+'%';}
+function prevPct(p){return ((+p||0)*100).toFixed(p<0.1?1:0)+'%';}
 function renderProps(){
   const ps=IOT.proposals||[];
   hPaginate('sqProps', ps, p=>{
-    const d=propDecisions[p.key]||'';
-    const warn=p.warnings&&p.warnings.length?`<div class="warnpill" title="${esc(p.warnings.join(' · '))}">⚠ ${esc(p.warnings[0].split('—')[0])}</div>`:'';
+    const d=propDecisions[p.key]||'', kind=KINDS.has(p.kind)?p.kind:'new';
+    const warn=p.warnings&&p.warnings.length?`<div class="warnpill" title="${esc(p.warnings.join(' · '))}">⚠ ${esc(String(p.warnings[0]).split('—')[0])}</div>`:'';
     const reg=p.already_registered?'<span class="sub" style="font-size:10px"> ·already reg.</span>':'';
-    return `<tr><td><span class="kind k-${p.kind}">${p.kind}</span></td>`
+    return `<tr><td><span class="kind k-${kind}">${esc(p.kind)}</span></td>`
       +`<td>${esc(p.iot_name)}${reg}</td>`
       +`<td class="mono" style="font-size:11.5px"><a class="plink" href="/web/vuln.html?plugin=${encodeURIComponent(p.plugin_id)}">#${esc(p.plugin_id)}</a> ${esc(p.plugin_name||'')}</td>`
-      +`<td class="mono">${esc(p.term)} <span class="src">${p.source}</span></td>`
-      +`<td>${p.asset_count}</td><td class="mono">${prevPct(p.prevalence)}</td>`
+      +`<td class="mono">${esc(p.term)} <span class="src">${esc(p.source)}</span></td>`
+      +`<td>${fnum(p.asset_count)}</td><td class="mono">${prevPct(p.prevalence)}</td>`
       +`<td><button class="btn sm ${d==='approve'?'':'ghost'}" data-app="${esc(p.key)}">Approve</button> <button class="btn sm ${d==='reject'?'':'ghost'}" data-rej="${esc(p.key)}">Reject</button>${warn}</td></tr>`;
   }, {cols:7, empty:'<tr><td colspan="7" class="sub">No detections cleared the signal floor. Turn on the term pack, supply carrier plugins, or run against a richer navi.db.</td></tr>',
       wire:tb=>{ tb.querySelectorAll('[data-app]').forEach(x=>x.onclick=()=>{propDecisions[x.dataset.app]='approve';renderProps();});
@@ -169,31 +313,35 @@ function renderCarriers(){
   document.getElementById('carrMeta').textContent=`(${rows.length}${IOT.carriers&&IOT.carriers.supplied&&IOT.carriers.supplied.length?` · ${IOT.carriers.supplied.length} supplied`:''})`;
   hPaginate('sqCarriers', rows, c=>`<tr><td class="mono"><a class="plink" href="/web/vuln.html?plugin=${encodeURIComponent(c.plugin_id)}">#${esc(c.plugin_id)}</a> <span class="sub">${esc((c.plugin_name||'').slice(0,40))}</span></td>`
     +`<td>${esc((c.via_devices||[]).join(', ')||'—')}</td><td class="mono" style="font-size:11.5px">${esc((c.via_terms||[]).join(', ')||'—')}</td>`
-    +`<td>${c.host_count||0}</td><td><span class="src">${esc(c.source||'')}</span></td></tr>`,
+    +`<td>${fnum(c.host_count||0)}</td><td><span class="src">${esc(c.source||'')}</span></td></tr>`,
     {cols:5, empty:'<tr><td colspan="5" class="sub">No carrier plugins on the confirmed hosts (and none supplied).</td></tr>'});
 }
 
 // ---- Agent 4 QA + coverage ledger ----
 function renderQA(){
-  const qa=IOT.qa||{}, cov=qa.coverage||{};
+  const qa=IOT.qa||{}, cov=qa.coverage||{}, sig=IOT.signal_coverage||[];
+  document.getElementById('sigCards').innerHTML=sig.length?sig.map(s=>`<a class="c${s.assets?'':' off'}" href="/web/vuln.html?plugin=${encodeURIComponent(s.plugin_id)}" style="text-decoration:none;color:inherit" title="Plugin ${esc(s.plugin_id)} · ${esc(s.name)}"><b>${fnum(s.assets)}</b><br>${esc(s.name)} <span class="sub mono">#${esc(s.plugin_id)}</span></a>`).join(''):'<span class="sub">—</span>';
+  const on=sig.filter(s=>s.assets>0).length, sn=document.getElementById('sigNote');
+  if(sig.length && on<3){ sn.style.display=''; sn.innerHTML='📉 Only <b>'+on+' of '+sig.length+'</b> identity signals are in navi.db. IoT discovery needs network (uncredentialed / discovery) scans that collect Device Type, OUI, mDNS and certificate plugins — credentialed agent scans of servers and VMs don’t, so an empty squad here is a <b>scan-coverage gap</b>, not a bug.'; }
+  else sn.style.display='none';
   const fn=document.getElementById('floorNote');
   if(cov.floor_note){fn.style.display='';fn.innerHTML='🎚 '+esc(cov.floor_note);}else fn.style.display='none';
   const cards=[['assets',cov.assets],['carriers',cov.carriers],['vocab terms',cov.vocab_terms],
     ['pack terms',cov.pack_terms],['pack deduped',cov.pack_deduped],['combos tested',cov.combinations_tested],
     ['proposals',cov.proposals],['warned',cov.warned_proposals],['below floor',cov.dropped_below_floor],['signal floor',cov.floor]];
-  document.getElementById('covCards').innerHTML=cards.map(c=>`<div class="c"><b>${c[1]!=null?c[1]:'—'}</b><br>${c[0]}</div>`).join('');
+  document.getElementById('covCards').innerHTML=cards.map(c=>`<div class="c"><b>${c[1]!=null?esc(fnum(c[1])):'—'}</b><br>${esc(c[0])}</div>`).join('');
   const flags=qa.flags||[];
-  document.getElementById('sqQa').innerHTML=`Checks: ${(qa.checks||[]).join(', ')} · flags: <b>${flags.length}</b>`
-    +(flags.length?'<div class="callbox" style="color:var(--cx-ffd28a);white-space:pre-wrap">'+flags.map(f=>`${f.type}: ${f.plugin_id||''} ${(f.iot_names||[]).join(' / ')} — ${f.detail||''}`).join('\n')+'</div>':'');
+  document.getElementById('sqQa').innerHTML=`Checks: ${esc((qa.checks||[]).join(', '))} · flags: <b>${flags.length}</b>`
+    +(flags.length?'<div class="callbox" style="color:var(--cx-ffd28a);white-space:pre-wrap">'+flags.map(f=>esc(`${f.type}: ${f.plugin_id||''} ${(f.iot_names||[]).join(' / ')} — ${f.detail||''}`)).join('\n')+'</div>':'');
   const led=qa.ledger||[];
   document.getElementById('ledgerHead').innerHTML=`Coverage ledger — every combination that was tested but <b>not</b> proposed (nothing silently skipped): <b>${led.length}</b> shown`;
   hPaginate('sqLedger', led, l=>`<tr><td class="mono"><a class="plink" href="/web/vuln.html?plugin=${encodeURIComponent(l.plugin_id)}">#${esc(l.plugin_id)}</a></td>`
     +`<td class="mono" style="font-size:11.5px">${esc(l.term)}</td><td>${esc(l.iot_name)}</td>`
-    +`<td class="sub">${l.reason==='below_floor'?`${l.count} asset(s) &lt; floor ${l.floor}`:esc(l.reason)}</td></tr>`,
+    +`<td class="sub">${l.reason==='below_floor'?`${esc(l.count)} asset(s) &lt; floor ${esc(l.floor)}`:esc(l.reason)}</td></tr>`,
     {cols:4, empty:'<tr><td colspan="4" class="sub">Nothing dropped — every tested combination was proposed.</td></tr>'});
 }
 
-// ---- tag execution (unchanged flow) ----
+// ---- tag execution ----
 async function pollJobs(ids, timeoutMs=25000){
   const want=[...new Set((ids||[]).filter(x=>x!=null).map(String))]; let map={}; if(!want.length)return map;
   const t0=Date.now();
@@ -209,26 +357,24 @@ function renderQueue(){
   const q=document.getElementById('sqQueue'); if(!IOT){q.innerHTML='';return;}
   const ap=(IOT.tag_actions||[]).filter(a=>iotAppr[a.value]==='approved');
   if(!ap.length){q.innerHTML='';return;}
-  q.innerHTML='<div class="toolbar" style="margin:14px 0 4px"><b style="font-size:12.5px">Queued</b><button class="btn run sm" id="execTags" style="margin-left:auto">▶ Execute tags</button></div>'+ap.map(a=>`<div class="callbox" style="font-size:12px"><b class="tagval">Asset Inventory : ${esc(facetOf(a))}: ${esc(a.value)}</b> <span class="sub">· ${(a.selectors&&a.selectors.length)||1} navi command(s) · ${a.asset_count} asset(s)</span></div>`).join('')+'<div id="tagRes"></div>';
+  q.innerHTML='<div class="toolbar" style="margin:14px 0 4px"><b style="font-size:12.5px">Queued</b><button class="btn run sm" id="execTags" style="margin-left:auto">🏷️ Tag all queued</button></div>'+ap.map(a=>`<div class="callbox" style="font-size:12px"><b class="tagval">Asset Inventory : ${esc(facetOf(a))}: ${esc(a.value)}</b> <span class="sub">· ${(a.selectors&&a.selectors.length)||1} navi command(s) · ${fnum(a.asset_count)} asset(s)</span></div>`).join('')+'<div id="tagRes"></div>';
   document.getElementById('execTags').onclick=async(ev)=>{const btn=ev.currentTarget; if(btn.disabled)return;   // guard: one send
+    const nA=ap.reduce((s,a)=>s+(+a.asset_count||0),0);
+    if(!confirm('Tag '+ap.length+' '+tagCat('Asset Inventory')+' tag'+(ap.length===1?'':'s')+' to '+nA+' asset'+(nA===1?'':'s')+' in Tenable via navi?\n\n'+ap.map(a=>'• '+tagCat('Asset Inventory')+' : '+facetOf(a)+': '+a.value).join('\n'))) return;
     const res=document.getElementById('tagRes');
     btn.dataset.label=btn.dataset.label||btn.textContent; btn.disabled=true; btn.textContent='⏳ Sending…'; btn.style.opacity='.6'; btn.style.transform='translateY(1px)'; btn.style.cursor='default';
     const reset=()=>{ btn.disabled=false; btn.textContent=btn.dataset.label; btn.style.opacity=''; btn.style.transform=''; btn.style.cursor=''; };
     res.innerHTML='<div class="callbox" style="color:var(--ok);border:1px solid var(--ok);background:var(--okbg,rgba(78,200,140,.10));font-weight:600"><span class="spin"></span> Tags being sent to the Tagging log…</div>';
-    res.scrollIntoView({behavior:'smooth',block:'center'});   // take the user to the message, even with a big batch
+    res.scrollIntoView({behavior:'smooth',block:'center'});
     const facets={}; ap.forEach(a=>{facets[a.value]=facetOf(a);});
-    let o; try{ o=await API.post('tags_apply',{values:ap.map(a=>a.value),facets,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+    let o; try{ o=await API.post('tags_apply',{values:ap.map(a=>a.value),facets,use_pack:!!(OPT&&OPT.use_pack),confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
     if(!o||!o.ok){ res.innerHTML='<div class="callbox" style="color:var(--crit)">✗ '+esc((o&&(o.error||o.message))||'failed')+'</div>'; reset(); res.scrollIntoView({behavior:'smooth',block:'center'}); return; }
     const results=o.results||[];
-    // Writes gated → nothing was queued; say so plainly and stop.
     if(!o.writes_enabled){ res.innerHTML='<div class="callbox" style="color:var(--warn,var(--cx-e7c66b))"><b>Nothing was written.</b> '+esc(o.write_gate_reason||'Writes are gated — set NAVI_ALLOW_WRITES=1')+'.</div>'; reset(); res.scrollIntoView({behavior:'smooth',block:'center'}); return; }
-    // The queue + Tagging log are the source of truth: each tag is COMMITTED the moment it's
-    // queued. "Execute all" can enqueue many navi commands that run in the background longer
-    // than one poll window — so report the send as done up front, then upgrade rows as jobs
-    // finish. (Previously a slow queue looked like a failed button even though it logged.)
+    // each tag is COMMITTED the moment it's queued — report the send up front, then upgrade rows as jobs finish
     const totalCmds=results.reduce((s,r)=>s+(r.commands||(r.job_ids?r.job_ids.length:0)),0);
     res.innerHTML='<div class="callbox" style="color:var(--ok);border:1px solid var(--ok);background:var(--okbg,rgba(78,200,140,.10));font-weight:600">✓ Tags sent to the Tagging log — '+results.length+' device tag'+(results.length>1?'s':'')+' ('+totalCmds+' navi command'+(totalCmds>1?'s':'')+') running in the background. Track them in the <a href="/web/tags-log.html">Tagging log</a>.</div><div id="tagRows"></div>';
-    res.scrollIntoView({behavior:'smooth',block:'center'}); btn.textContent='✓ Sent'; btn.style.opacity=''; btn.style.transform='';   // done — the writes are committed on queue
+    res.scrollIntoView({behavior:'smooth',block:'center'}); btn.textContent='✓ Sent'; btn.style.opacity=''; btn.style.transform='';
     const rowsEl=document.getElementById('tagRows');
     const allIds=results.reduce((s,r)=>s.concat(r.job_ids||(r.job_id!=null?[r.job_id]:[])),[]);
     const jm=await pollJobs(allIds,40000);
@@ -243,19 +389,23 @@ function renderQueue(){
       const d=document.createElement('div');d.className='callbox';
       if(anyOkTag){ IOT_SUBMITTED.add(r.value); delete iotAppr[r.value]; saveIot(); d.style.color='var(--ok)'; d.textContent='✓ '+label+' applied ('+nCmd+' navi command'+(nCmd>1?'s':'')+')'; }
       else if(!allFinished){ IOT_SUBMITTED.add(r.value); delete iotAppr[r.value]; saveIot(); d.style.color='var(--cx-9ad9ff)'; d.textContent='↻ '+label+' queued — navi is still running it (see Tagging log)'; }
-      else if(anyErr){ d.style.color='var(--cx-ffb4c6)'; const em=jobs.filter(j=>j.status==='error').map(j=>j.message).filter(Boolean).join('; '); d.textContent='✗ '+label+': '+esc(em||'failed'); }
+      else if(anyErr){ d.style.color='var(--cx-ffb4c6)'; const em=jobs.filter(j=>j.status==='error').map(j=>j.message).filter(Boolean).join('; '); d.textContent='✗ '+label+': '+(em||'failed'); }
       else { d.style.color='var(--cx-e7c66b)'; d.textContent='⚠ '+label+' — navi ran but matched no assets in navi.db yet (updates after a navi update)'; }
       rowsEl.appendChild(d); });
     const g=document.createElement('div');g.className='sub';g.style.cssText='margin-top:6px;color:var(--ink-3)';g.innerHTML='navi.db reflects new tags only after a <span class="mono">navi update</span> (~30 min for Tenable). See the <a href="/web/tags-log.html">Tagging log</a>.';rowsEl.appendChild(g);
-    if(typeof loadAppliedTags==='function')loadAppliedTags().then(renderTags);};
+    if(typeof loadAppliedTags==='function')loadAppliedTags().then(()=>{renderTags();renderMetrics();});};
 }
 
 async function loadReg(){
-  try{const d=await API.post('registry');
-    document.getElementById('sqReg').innerHTML='<p class="sub" style="margin:0 0 4px">Detection registry ('+d.detections.length+' devices, '+(d.rejected||[]).length+' rejected)</p>'
-      +'<table><colgroup><col><col style="width:170px"><col><col style="width:90px"></colgroup><thead><tr><th>IoT</th><th>Plugins</th><th>Match terms</th><th>Source</th></tr></thead><tbody>'
-      +d.detections.map(x=>`<tr><td>${esc(x.iot_name)}</td><td class="mono" style="font-size:11.5px">${esc((x.plugins||[]).join(', ')||'—')}</td><td class="sub">${esc([...(x.name_contains||[]),...(x.output_contains||[])].join(', '))}</td><td>${esc(x.source||'')}</td></tr>`).join('')+'</tbody></table>';
-  }catch(e){}
+  const el=document.getElementById('sqReg');
+  try{const d=await API.post('registry',{});
+    const dets=d.detections||[];
+    setNavCount('secRegistry', dets.length);
+    el.innerHTML='<p class="sub" style="margin:0 0 4px">'+fnum(dets.length)+' device detection'+(dets.length===1?'':'s')+', '+fnum((d.rejected||[]).length)+' rejected proposal'+((d.rejected||[]).length===1?'':'s')+' · <span class="mono">'+esc(d.path||'')+'</span></p>'
+      +'<div class="tscroll"><table><colgroup><col><col style="width:170px"><col><col style="width:90px"></colgroup><thead><tr><th>IoT</th><th>Plugins</th><th>Match terms</th><th>Source</th></tr></thead><tbody>'
+      +(dets.length?dets.map(x=>`<tr><td>${esc(x.iot_name)}</td><td class="mono" style="font-size:11.5px">${(x.plugins||[]).length?(x.plugins||[]).map(p=>`<a class="plink" href="/web/vuln.html?plugin=${encodeURIComponent(p)}">${esc(p)}</a>`).join(', '):'—'}</td><td class="sub">${esc([...(x.name_contains||[]),...(x.output_contains||[])].join(', '))}</td><td>${esc(x.source||'')}</td></tr>`).join('')
+        :'<tr><td colspan="4" class="sub">The registry is empty.</td></tr>')+'</tbody></table></div>';
+  }catch(e){ el.innerHTML='<span style="color:var(--crit)">✗ could not read the registry: '+esc(e.message)+'</span>'; }
 }
 
 document.getElementById('runIot').onclick=runIot;
@@ -263,28 +413,36 @@ document.getElementById('usePack').onchange=()=>{document.getElementById('packNo
 document.getElementById('sqApproveAll').onclick=()=>{if(IOT){(IOT.tag_actions||[]).forEach(a=>{if(!IOT_SUBMITTED.has(a.value)&&!iotApplied(a))iotAppr[a.value]='approved';});saveIot();renderTags();renderQueue();}};
 document.getElementById('submitProps').onclick=async()=>{
   if(!IOT)return;
-  const decisions=IOT.proposals.filter(p=>propDecisions[p.key]).map(p=>({iot_name:p.iot_name,plugin_id:p.plugin_id,plugin_name:p.plugin_name,term:p.term,kind:p.kind,vendor:p.vendor,approve:propDecisions[p.key]==='approve'}));
+  const decisions=(IOT.proposals||[]).filter(p=>propDecisions[p.key]).map(p=>({iot_name:p.iot_name,plugin_id:p.plugin_id,plugin_name:p.plugin_name,term:p.term,kind:p.kind,vendor:p.vendor,approve:propDecisions[p.key]==='approve'}));
   if(!decisions.length){flash('propFlash','Mark at least one Approve/Reject first.','warn');return;}
+  const nA=decisions.filter(d=>d.approve).length, nR=decisions.length-nA;
+  if(!confirm('Update the IoT detection registry?\n\n'+nA+' approval'+(nA===1?'':'s')+' (term + plugin added to the device) · '+nR+' rejection'+(nR===1?'':'s')+' (remembered, never re-proposed).\n\nThe squad re-runs afterwards.')) return;
   flash('propFlash','<span class="spin"></span> submitting…','run');
-  const o=await API.post('detections_decide',{decisions,confirm:true});
-  if(o.ok){flash('propFlash',`Registry updated: +${o.added} added, ${o.rejected} rejected. Re-running…`,'ok');propDecisions={};runIot();}
-  else flash('propFlash','✗ '+(o.error||'failed'),'crit');
+  let o; try{ o=await API.post('detections_decide',{decisions,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+  if(o&&o.ok){flash('propFlash',`Registry updated: +${esc(o.added)} added, ${esc(o.rejected)} rejected. Re-running…`,'ok');propDecisions={};runIot();}
+  else flash('propFlash','✗ '+esc((o&&o.error)||'failed'),'crit');
 };
 document.getElementById('promoteBase').onclick=async()=>{
   if(!IOT||!(IOT.proposals||[]).length){flash('propFlash','Run a hunt with proposals first.','warn');return;}
+  const merge=document.getElementById('mergeSeeds').checked;
+  if(!confirm('Write '+IOT.proposals.length+' proposal'+(IOT.proposals.length===1?'':'s')+' to a learned base file (iot_detections.learned.json)'+(merge?', merged with the current registry':'')+'?\n\nThe live registry is not changed.')) return;
   const res=document.getElementById('promoteRes');
   res.innerHTML='<div class="callbox"><span class="spin"></span> writing learned base…</div>';
-  let o; try{o=await API.post('detections_export',{confirm:true,merge:document.getElementById('mergeSeeds').checked});}catch(e){o={ok:false,error:e.message};}
-  if(o.ok){res.innerHTML=`<div class="callbox" style="color:var(--ok)">✓ Wrote ${o.detections} detection(s) to <span class="mono">${esc(o.path)}</span>${o.merged_seeds?' (seeds merged)':''}. Review it, then replace <span class="mono">iot_detections.json</span> to adopt it as the base.</div>`;}
-  else res.innerHTML='<div class="callbox" style="color:var(--crit)">✗ '+esc(o.error||'failed')+'</div>';
+  let o; try{o=await API.post('detections_export',{confirm:true,merge,use_pack:!!(OPT&&OPT.use_pack)});}catch(e){o={ok:false,error:e.message};}
+  if(o&&o.ok){res.innerHTML=`<div class="callbox" style="color:var(--ok)">✓ Wrote ${esc(o.detections)} detection(s) to <span class="mono">${esc(o.path)}</span>${o.merged_seeds?' (seeds merged)':''}. Review it, then replace <span class="mono">iot_detections.json</span> to adopt it as the base.</div>`;}
+  else res.innerHTML='<div class="callbox" style="color:var(--crit)">✗ '+esc((o&&o.error)||'failed')+'</div>';
 };
 
-mountAgentHeader({id:'iot_squad',icon:'📡',name:'IoT Discovery Squad',sub:'discover→carrier→cross-term→QA'});
+mountAgentHeader({id:'iot_squad',icon:'📡',name:'IoT Discovery Squad',sub:'Cerberus · discover→carrier→cross-term→QA'});
 try{ hMailAuto(); }catch(e){}
 renderPipeline();
-flash('sqFlash','Ready — click <b>Run squad</b> to run the pipeline against navi.db. Toggle the term pack for a wider hunt.','run');
+mountSectionNav();
+/* explicit-run: nothing scans navi.db until ▶ Run (the page cache replays a saved run).
+   A ?focus= handoff only pre-selects the row; it runs by itself only with ?run=1. */
 (async()=>{ const h=handoffParams();
-  if(h.focus){ await runIot(); if(!focusRow('#sqTags',h.focus)) flash('sqFlash','Handoff: “'+h.focus+'” not in this run’s detected devices.','warn'); }
+  if(h.focus){ PENDING_FOCUS=h.focus;
+    if(h.run) await runIot();
+    else flash('flash','Handoff — “'+esc(h.focus)+'”. Click <b>▶ Run</b> to find it.','run'); }
 })();
 </script>
 </body></html>

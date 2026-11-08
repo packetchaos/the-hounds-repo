@@ -1,45 +1,50 @@
-"""Certificate Agent — three actions, all driven from live navi.db reads.
+"""Certificate Agent — deterministic, driven from live navi.db reads.
 
-  1. Identify assets with certs failing in the next 12 months and produce the
-     `Cert failure : <Mon>-<dd>-<yyyy>` tag actions (exact expiry date per cert).
-  2. Build two heat maps: a 12-month failure timeline, and cert-issue plugins
-     x distinct affected assets.
+  1. Find every certificate that has EXPIRED (bucketed by month over the last 12
+     months, plus everything older than that) or will FAIL within the next 12 months,
+     and produce the `Cert failure : <Mon>-<dd>-<yyyy>` tag actions (exact expiry date).
+  2. Build the expiry timeline (older | 12 past months | 12 future months), metrics
+     (crown jewels, weak crypto, self-signed, how long expired), and the cert-issue
+     plugin matrix.
   3. Cache application names and IoT/appliance devices fingerprinted from certs.
 
-Reads use core.db (read-only sqlite3). Tag writes are executed separately by
-the service layer via core.navi_cli (gated).
+No free-form LLM reasoning here — ad-hoc questions go through the MCP. Reads use
+core.db (read-only sqlite3). Tag writes go through core.navi_cli (gated).
 """
 import datetime
 import re
+import statistics
 
-from core import db
+from core import db, tagname
 from core.agents.base import Agent
 
-# The agent's DEFAULT static reasoning prompt — shown (editable) in the HITL page.
-DEFAULT_PROMPT = """You are the Certificate Lifecycle Agent for a Tenable / navi deployment.
+CROWN_ACR = 7
+_EC = re.compile(r"ecdsa|elliptic|\bec\b", re.I)
+_WEAK_SIG = re.compile(r"md5|sha-?1(?!\d)", re.I)
 
-You are given certificates that are ALREADY EXPIRED or will FAIL (expire) within the
-next 12 months. Each is mapped to its asset, carries a "status" of "expired" or
-"failing", and an exact-date tag value of the form "Cert failure:<Mon>-<DD>-<YYYY>".
 
-Act like a security engineer triaging certificate risk. For each certificate, decide
-whether to TAG it now and assign a priority (high / med / low), reasoning about:
-  - status: already-expired certs are the highest priority (active outage/risk),
-  - how soon a failing cert expires (sooner = higher priority),
-  - weak crypto (MD5 / SHA-1 signatures, RSA keys < 2048 bits),
-  - whether it looks internet-facing, and CA vs leaf certificate,
-  - obvious irrelevance (lab / test hosts, certificates already rotated).
+def key_bits(v):
+    m = re.search(r"\d+", str(v or ""))
+    return int(m.group()) if m else 0
 
-Default to tagging unless a certificate is clearly out of scope. Follow any extra
-instruction the operator adds above (e.g. "only tag certs that have expired" should
-TAG every status=="expired" cert and SKIP the rest).
 
-Return ONLY JSON, no prose, in exactly this shape:
-{"assessment":"<2-4 sentence triage summary for an operator>",
- "tag":[{"value":"<exact tag value from the list>","priority":"high|med|low","why":"<=12 words>"}],
- "skip":[{"value":"<exact tag value from the list>","why":"<=12 words>"}]}
+def is_weak(sig, key_length):
+    kb = key_bits(key_length)
+    return bool(_WEAK_SIG.search(sig or "")) or (0 < kb < 2048 and not _EC.search(sig or ""))
 
-Never invent a value that is not in the provided list."""
+
+def is_self_signed(r):
+    subj, iss = (r.get("subject_name") or "").strip(), (r.get("issuer_name") or "").strip()
+    if subj and iss:
+        return subj == iss
+    cn = (r.get("common_name") or "").strip()
+    return bool(cn and iss and ("CN=" + cn) in iss and iss.count("CN=") == 1 and cn in subj)
+
+
+def _month_add(y, m, n):
+    m0 = (y * 12 + (m - 1)) + n
+    return m0 // 12, m0 % 12 + 1
+
 
 MONTHS = {m: i for i, m in enumerate(
     ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -77,8 +82,9 @@ class CertificateAgent(Agent):
     id = "certificate"
     name = "Certificate Agent"
     icon = "🔐"
-    description = ("Tags 12-month cert failures, builds two heat maps, and caches "
-                   "IoT/app devices fingerprinted from certificates.")
+    description = ("Finds expired certificates (by month, last 12 months, and older) and "
+                   "those failing in the next 12 months, tags their assets by expiry date, "
+                   "and caches IoT/app devices fingerprinted from certificates.")
 
     def summary(self) -> dict:
         if not self.result:
@@ -91,7 +97,10 @@ class CertificateAgent(Agent):
 
     def _run(self, db_path: str | None) -> dict:
         today = datetime.date.today()
-        end = today.replace(year=today.year + 1)
+        try:
+            end = today.replace(year=today.year + 1)
+        except ValueError:                       # Feb 29 → Feb 28 next year
+            end = today.replace(year=today.year + 1, day=28)
 
         # --- meta ---
         asset_total = db.scalar("SELECT count(uuid) FROM assets;", path=db_path)
@@ -101,11 +110,20 @@ class CertificateAgent(Agent):
             fresh = None
 
         # --- Action 1 + 3 source: certs joined to assets ---
+        try:
+            cc = {r["name"] for r in db.query('PRAGMA table_info("certs");', path=db_path)}
+            ac = {r["name"] for r in db.query('PRAGMA table_info("assets");', path=db_path)}
+        except Exception:
+            cc, ac = set(), set()
+        extra = "".join(f", c.{c}" for c in ("subject_name", "issuer_name", "not_valid_before") if c in cc)
+        # older/leaner navi.db exports have no organization columns — select NULL instead of failing
+        col = lambda c: ("c." + c) if c in cc else ("NULL AS " + c)
         certs = db.query(
-            "SELECT c.asset_uuid, a.hostname, a.ip_address, c.common_name, "
-            "c.organization, c.organization_unit, c.not_valid_after, "
-            "c.signature_algorithm, c.key_length "
-            "FROM certs c LEFT JOIN assets a ON a.uuid = c.asset_uuid;", path=db_path)
+            "SELECT c.asset_uuid, a.hostname, a.ip_address, " + col("common_name") + ", "
+            + col("organization") + ", " + col("organization_unit") + ", " + col("not_valid_after") + ", "
+            + col("signature_algorithm") + ", " + col("key_length") + extra
+            + (", a.acr" if "acr" in ac else "") +
+            " FROM certs c LEFT JOIN assets a ON a.uuid = c.asset_uuid;", path=db_path)
 
         # --- Heat map 2 source ---
         matrix = db.query(
@@ -114,12 +132,20 @@ class CertificateAgent(Agent):
             "GROUP BY plugin_id, plugin_name ORDER BY asset_count DESC;", path=db_path)
 
         # --- Action 1: failing in next 12 months ---
-        twelve, expired, seen = [], [], set()
+        twelve, expired, seen, unparsed = [], [], set(), 0
         for r in certs:
             d = parse_not_after(r["not_valid_after"])
             if not d:
+                unparsed += 1
                 continue
             host = (r["hostname"] or "").strip() or "(none)"
+            try:
+                acr = float(r.get("acr") or 0)
+            except (TypeError, ValueError):
+                acr = 0.0
+            r = {**r, "acr": acr or None, "crown": acr > CROWN_ACR,
+                 "weak": is_weak(r.get("signature_algorithm"), r.get("key_length")),
+                 "self_signed": is_self_signed(r)}
             if today <= d <= end:
                 key = (r["asset_uuid"], d.isoformat())
                 if key in seen:
@@ -162,6 +188,69 @@ class CertificateAgent(Agent):
                                           "asset_uuid": r["asset_uuid"], "hostname": r["hostname"],
                                           "days_left": r["days_left"]})
 
+        # --- expiry timeline: older | last 12 months (expired) | next 12 months (failing) ---
+        win0 = _month_add(today.year, today.month, -11)          # first month of the 12-month look-back
+        win0_key = f"{win0[0]:04d}-{win0[1]:02d}"
+        tl, tmap = [], {}
+        older = {"key": "older", "label": "Older", "expired": 0, "failing": 0, "assets": set()}
+        for n in range(-11, 13):
+            yy, mm = _month_add(today.year, today.month, n)
+            b = {"key": f"{yy:04d}-{mm:02d}", "label": datetime.date(yy, mm, 1).strftime("%b %Y"),
+                 "expired": 0, "failing": 0, "assets": set(), "current": n == 0}
+            tl.append(b); tmap[b["key"]] = b
+        for r in expired + twelve:
+            k = r["expiry_iso"][:7]
+            b = tmap.get(k) or (older if k < win0_key else None)
+            if b is None:
+                continue
+            b["expired" if r["status"] == "expired" else "failing"] += 1
+            b["assets"].add(r["asset_uuid"])
+        timeline = [{**older, "assets": len(older["assets"])}] + [{**b, "assets": len(b["assets"])} for b in tl]
+        for r in expired:
+            r["bucket"] = "older" if r["expiry_iso"][:7] < win0_key else "last12"
+
+        # --- metrics ---
+        inscope = expired + twelve
+        A = lambda rows: len({x["asset_uuid"] for x in rows})
+        exp12 = [r for r in expired if r["bucket"] == "last12"]
+        expold = [r for r in expired if r["bucket"] == "older"]
+        d30 = [r for r in twelve if r["days_left"] <= 30]
+        d90 = [r for r in twelve if r["days_left"] <= 90]
+        crown_rows = [r for r in inscope if r["crown"]]
+        weak_all = [r for r in certs if is_weak(r.get("signature_algorithm"), r.get("key_length"))]
+        self_all = [r for r in certs if is_self_signed(r)]
+        ages = [-r["days_left"] for r in expired]
+        metrics = {
+            "cert_rows": len(certs), "cert_assets": len({r["asset_uuid"] for r in certs}),
+            "unparsed": unparsed,
+            "expired": len(expired), "expired_assets": A(expired),
+            "expired_12": len(exp12), "expired_12_assets": A(exp12),
+            "expired_older": len(expold), "expired_older_assets": A(expold),
+            "max_days_expired": max(ages) if ages else None,
+            "median_days_expired": int(statistics.median(ages)) if ages else None,
+            "failing": len(twelve), "failing_assets": A(twelve),
+            "due30": len(d30), "due30_assets": A(d30), "due90": len(d90), "due90_assets": A(d90),
+            "crown": len(crown_rows), "crown_assets": A(crown_rows),
+            "crown_expired_assets": A([r for r in crown_rows if r["status"] == "expired"]),
+            "weak": len(weak_all), "weak_assets": len({r["asset_uuid"] for r in weak_all}),
+            "weak_inscope": sum(1 for r in inscope if r["weak"]),
+            "self_signed": len(self_all), "self_signed_assets": len({r["asset_uuid"] for r in self_all}),
+            "self_signed_inscope": sum(1 for r in inscope if r["self_signed"]),
+            "common_names": len({(r.get("common_name") or "").strip() for r in certs if r.get("common_name")}),
+            "issue_plugins": len(matrix), "issue_assets": sum(m.get("asset_count") or 0 for m in matrix),
+            "has_acr": "acr" in ac,
+        }
+        cr = {}
+        for r in crown_rows:
+            c = cr.setdefault(r["asset_uuid"], {"asset_uuid": r["asset_uuid"], "host": r["hostname"], "ip": r["ip_address"],
+                                                "acr": r["acr"], "expired": 0, "failing": 0, "soonest": None, "cns": []})
+            c[r["status"] if r["status"] == "expired" else "failing"] += 1
+            if r["status"] != "expired" and (c["soonest"] is None or r["days_left"] < c["soonest"]):
+                c["soonest"] = r["days_left"]
+            if r["common_name"] and r["common_name"] not in c["cns"]:
+                c["cns"].append(r["common_name"])
+        crown = sorted(cr.values(), key=lambda c: (-(c["acr"] or 0), -c["expired"], c["soonest"] if c["soonest"] is not None else 1e9))
+
         # --- Action 3: IoT / application cache ---
         cache = {}
         for r in certs:
@@ -178,37 +267,29 @@ class CertificateAgent(Agent):
         cache_list = sorted(cache.values(), key=lambda x: (x["device_type"], x["vendor"]))
 
         # --- tag actions (write manifest) — expired first (highest risk), then failing ---
+        # The query selects the EXACT assets the page lists for each date (by uuid), so every
+        # raw date format navi.db stores (OpenSSL 'Nov  4 …', ISO, slashed) is covered.
         tag_actions = []
+        by_val = {}
+        for r in expired + twelve:
+            if r.get("asset_uuid"):
+                by_val.setdefault(r["tag_value"], set()).add(r["asset_uuid"])
         seen_val = set()
         for r in expired + twelve:
             if r["tag_value"] in seen_val:
                 continue
             seen_val.add(r["tag_value"])
-            # Build the tag query to match this expiry DATE in whatever format
-            # navi.db stores not_valid_after (OpenSSL / ISO / slashed), so tagging
-            # works regardless of source format.
-            raw = r["not_valid_after"] or ""
-            _d = datetime.date.fromisoformat(r["expiry_iso"])
-            if re.match(r"[A-Za-z]{3}\s", raw):                 # OpenSSL 'Jun 24 .. 2026'
-                q = (f"SELECT asset_uuid FROM certs WHERE not_valid_after "
-                     f"LIKE '{raw[:6]}%{r['expiry_iso'][:4]}%';")
-            elif re.match(r"\d{4}-\d{1,2}-\d{1,2}", raw):        # ISO '2026-06-24..'
-                q = (f"SELECT asset_uuid FROM certs WHERE not_valid_after "
-                     f"LIKE '{_d.strftime('%Y-%m-%d')}%';")
-            elif re.match(r"\d{4}/\d{1,2}/\d{1,2}", raw):        # '2026/06/24..'
-                q = (f"SELECT asset_uuid FROM certs WHERE not_valid_after "
-                     f"LIKE '{_d.strftime('%Y/%m/%d')}%';")
-            else:                                               # unknown → exact match
-                q = ("SELECT asset_uuid FROM certs WHERE not_valid_after = '"
-                     + raw.replace("'", "''") + "';")
+            inl = ",".join("'" + str(u).replace("'", "''") + "'" for u in sorted(by_val.get(r["tag_value"], ())))
+            q = f"SELECT uuid AS asset_uuid FROM assets WHERE uuid IN ({inl});" if inl else \
+                "SELECT uuid AS asset_uuid FROM assets WHERE 0;"
             tag_actions.append({
                 "category": "Cert failure", "value": r["tag_value"],
                 "status": r["status"],
                 "asset_uuid": r["asset_uuid"], "ip": r["ip_address"],
                 "hostname": r["hostname"], "common_name": r["common_name"],
                 "expiry": r["not_valid_after"], "days_left": r["days_left"],
-                "query": q,
-                "tool_call": (f'navi enrich tag --c "Cert failure" --v "{r["tag_value"]}" '
+                "query": q, "assets": len(by_val.get(r["tag_value"], ())),
+                "tool_call": (f'navi enrich tag --c "{tagname.effective("Cert failure")}" --v "{r["tag_value"]}" '
                               f'--query "{q}"')})
 
         return {
@@ -219,4 +300,6 @@ class CertificateAgent(Agent):
             "failing_count": len(twelve), "expired_count": len(expired),
             "heatmap_months": buckets, "cert_issue_matrix": matrix,
             "iot_app_cache": cache_list, "tag_actions": tag_actions,
+            "timeline": timeline, "metrics": metrics, "crown": crown,
+            "lookback_start": win0_key,
         }

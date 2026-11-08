@@ -94,6 +94,8 @@ def _authorizer(action, arg1, arg2, dbname, trigger):
     """Deny ATTACH/DETACH (reaching other DBs), dangerous functions (file/host
     access), and reads of any database other than navi.db (main/temp). Everything
     else is a normal read and allowed."""
+    if db.user_sql_authorizer(action, arg1, arg2, dbname, trigger) != _SQLITE_OK:
+        return _SQLITE_DENY               # the shared guard: navi's credential tables, PRAGMA, …
     if action in (_ACT_ATTACH, _ACT_DETACH):
         return _SQLITE_DENY
     if action == _ACT_FUNCTION and arg2 and arg2.lower() in _BAD_FUNCS:

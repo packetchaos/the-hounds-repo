@@ -4,333 +4,698 @@
 <title>Amarok · Command &amp; Control · Navi Agents</title>
 <link rel="stylesheet" href="/static/console.css"/>
 <style>
+  .mkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(180px,100%),1fr));gap:10px;margin-top:10px}
+  .mk{display:block;border:1px solid var(--line);border-left:4px solid var(--rc,var(--line));border-radius:12px;padding:10px 12px;background:var(--panel-2);color:inherit;text-decoration:none}
+  .mk .v{font-size:22px;font-weight:800;color:var(--ink);line-height:1.1}.mk .l{font-size:11.5px;color:var(--mut);margin-top:2px}
+  .mk .u{font-size:11px;color:var(--accent);margin-top:4px}
+  a.mk:hover{border-color:var(--accent)} .mk.zero{opacity:.55}
+  .mhead{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 0}
   .gatebar{border:1px solid var(--line);border-left-width:4px;border-radius:9px;padding:11px 13px;margin:10px 0;font-size:13px}
-  .tabs2{display:flex;flex-wrap:wrap;gap:6px;margin:14px 0 6px}
+  .tabs2{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 6px}
   .tabs2 button{border:1px solid var(--line);background:var(--bg-2);color:var(--ink);border-radius:8px;padding:7px 13px;font-size:13px;cursor:pointer}
-  .tabs2 button.on{background:var(--accent);border-color:var(--accent);color:#0b1220;font-weight:700}
+  .tabs2 button.on{background:var(--accent);border-color:var(--accent);color:#fff;font-weight:700}
   .panel{display:none;margin-top:12px}
   .panel.on{display:block}
   label.lbl{display:block;font-size:12px;color:var(--mut);margin:12px 0 5px;text-transform:uppercase;letter-spacing:.05em}
   .fld,select.fld,textarea.fld{width:100%;padding:9px 12px;border-radius:8px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink);font-size:14px;font-family:inherit;box-sizing:border-box}
   textarea.fld{font-family:var(--mono);font-size:13px;min-height:64px;resize:vertical}
   .row{display:flex;flex-wrap:wrap;gap:12px 16px;align-items:flex-end}
-  .row>div{flex:1 1 240px;min-width:180px}
+  .row>div{flex:1 1 240px;min-width:0}
   .badge{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:700;border-radius:99px;padding:2px 9px;border:1px solid var(--line);margin-left:6px}
-  .crown{color:#f59e0b;border-color:rgba(245,158,11,.5)}
-  .warnbox{border:1px solid rgba(251,146,60,.45);background:rgba(251,146,60,.08);border-radius:9px;padding:9px 12px;font-size:13px;margin:8px 0}
-  .critbox{border:1px solid rgba(244,63,94,.5);background:rgba(244,63,94,.09);border-radius:9px;padding:9px 12px;font-size:13px;margin:8px 0}
-  .okbox{border:1px solid rgba(52,211,153,.45);background:rgba(52,211,153,.08);border-radius:9px;padding:9px 12px;font-size:13px;margin:8px 0}
+  .crown{color:var(--high);border-color:var(--high)}
+  .warnbox{border:1px solid var(--warn);background:var(--warnbg);border-radius:9px;padding:9px 12px;font-size:13px;margin:8px 0}
+  .critbox{border:1px solid var(--crit);background:var(--crit-bg);border-radius:9px;padding:9px 12px;font-size:13px;margin:8px 0}
+  .okbox{border:1px solid var(--ok);background:var(--ok-bg);border-radius:9px;padding:9px 12px;font-size:13px;margin:8px 0}
+  .infobox{border:1px solid var(--line);background:var(--bg-2);border-radius:9px;padding:9px 12px;font-size:13px;margin:8px 0}
   .arm{border:1px solid var(--accent);border-radius:11px;padding:13px 15px;margin:12px 0;background:var(--panel)}
-  .arm pre{white-space:pre-wrap;font-family:var(--mono);font-size:12.5px;background:var(--bg-2);border:1px solid var(--line);border-radius:8px;padding:9px 11px;margin:8px 0;color:var(--ink)}
-  table.c2 th,table.c2 td{font-size:12.5px;padding:6px 9px;border-bottom:1px solid var(--line);text-align:left}
+  .arm pre,pre.out{white-space:pre-wrap;word-break:break-word;font-family:var(--mono);font-size:12px;background:var(--bg-2);border:1px solid var(--line);border-radius:8px;padding:9px 11px;margin:6px 0;color:var(--ink);max-height:320px;overflow:auto}
+  table.c2{width:100%;border-collapse:collapse}
+  table.c2 th,table.c2 td{font-size:12.5px;padding:6px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
   table.c2 th{color:var(--mut);text-transform:uppercase;letter-spacing:.04em;font-size:11px}
-  .hostpick{max-height:230px;overflow:auto;border:1px solid var(--line);border-radius:9px;padding:4px 2px;margin-top:6px}
-  .hostpick label{display:flex;gap:8px;align-items:center;padding:5px 9px;font-size:13px;cursor:pointer;text-transform:none;letter-spacing:0;color:var(--ink);margin:0}
+  .tw{overflow-x:auto;max-width:100%}
+  .hostpick{max-height:260px;overflow:auto;border:1px solid var(--line);border-radius:9px;padding:4px 2px;margin-top:6px}
+  .hostpick label{display:flex;gap:8px;align-items:center;padding:5px 9px;font-size:13px;cursor:pointer;text-transform:none;letter-spacing:0;color:var(--ink);margin:0;flex-wrap:wrap}
   .mut{color:var(--mut)}
   .swch{display:inline-flex;align-items:center;gap:8px;font-size:13px}
   .pill{display:inline-flex;align-items:center;gap:5px;font-size:12px;border-radius:99px;padding:2px 9px;border:1px solid var(--line);margin:2px 4px 2px 0}
+  .st{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700;border:1px solid var(--line);white-space:nowrap}
+  .st.ok,.st.changed{color:var(--ok);background:var(--ok-bg)}
+  .st.failed,.st.auth_failed,.st.unreachable,.st.port_closed,.st.dns_failed,.st.timeout,.st.no_credentials,.st.refused{color:var(--crit);background:var(--crit-bg)}
+  .st.hostkey_mismatch{color:#fff;background:var(--crit);border-color:var(--crit)}
+  .st.hostkey_unknown,.st.blocked,.st.skipped,.st.cancelled{color:var(--warn);background:var(--warnbg)}
+  .st.not_applicable,.st.pending{color:var(--mut)}
+  .st.running,.st.queued{color:var(--accent);background:var(--runbg)}
+  .chkgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(230px,100%),1fr));gap:4px 12px;margin-top:6px}
+  .chkgrid label{display:flex;gap:7px;align-items:flex-start;font-size:13px;text-transform:none;letter-spacing:0;color:var(--ink);margin:0;padding:3px 0}
+  .chkgrid .grp{grid-column:1/-1;font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin-top:6px}
+  .bundles{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+  .bundles button{border:1px solid var(--line);background:var(--bg-2);color:var(--ink);border-radius:99px;padding:5px 12px;font-size:12.5px;cursor:pointer}
+  .bundles button.on{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);font-weight:700}
+  .hostcard{border:1px solid var(--line);border-radius:10px;padding:9px 11px;margin:9px 0;background:var(--panel-2)}
+  .hostcard.sec{border-color:var(--crit);box-shadow:0 0 0 1px var(--crit)}
+  .hostcard h4{margin:0 0 6px;font-size:13.5px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  details.o summary{cursor:pointer;font-size:12px;color:var(--accent)}
+  .note3p{font-size:11.5px;color:var(--warn)}
+  .handoff{border:1px solid var(--accent);background:var(--runbg);border-radius:10px;padding:10px 13px;margin:10px 0;font-size:13px}
+  .cols2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(360px,100%),1fr));gap:14px}
+  .stepbox{border:1px solid var(--line);border-radius:9px;padding:8px 10px;margin:8px 0;background:var(--panel-2)}
+  .stepbox.rej{border-color:var(--crit)}
+  .stepbox .fld{font-family:var(--mono);font-size:12.5px;padding:6px 9px}
+  .prog{height:7px;border-radius:9px;background:var(--bg-2);border:1px solid var(--line);overflow:hidden;margin:6px 0}
+  .prog>i{display:block;height:100%;background:var(--accent)}
+  .copy{font-size:11px;padding:1px 7px;margin-left:6px}
+  .mono{word-break:break-all}
 </style>
-</head><body>
+</head><body data-page-cache="off">
 <div class="wrap">
   <header class="top" id="app-header"></header>
 
-  <section class="card">
+  <section class="card" id="titleCard">
     <div class="toolbar"><div><h2 style="margin:0">🐺 Command &amp; Control</h2>
-      <p class="sub" style="margin:2px 0 0"><b>Amarok</b> — the pack's remediation executor. Runs a command, ships a file, or applies a vuln-derived patch to a <b>Linux</b> host via <span class="mono">navi action push</span> (remote code execution over SSH). The pack's highest-risk capability: <b>triple-gated</b> (writes + remote-exec opt-in + per-host confirm), Linux-only, canary-first, fully logged.</p></div>
-      <button class="btn ghost sm" id="refreshBtn" style="margin-left:auto" title="Sync assets+vulns so post-patch state lands">⟳ Sync navi.db</button></div>
+      <p class="sub" style="margin:2px 0 0"><b>Amarok</b> — troubleshoot and remediate <b>Linux</b> hosts over SSH via <span class="mono">navi action push</span>: built-in read-only checks, credential tests, “does this path exist?”, AI-assisted remediation plans, and free-form commands — on navi.db assets <b>or any IP / hostname</b>. Every remote command is <b>triple-gated</b> (writes + remote-exec opt-in + your confirm) and lands in the <a class="applink" href="/web/c2-log.html">C2 command log</a> (what ran where and when — never the reply).</p></div>
+      <div style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap"><a class="btn ghost sm" href="/web/c2-log.html" title="Every command run on every host, with timestamp and status">🧾 C2 log</a>
+      <button class="btn ghost sm" id="refreshBtn" title="Sync assets+vulns so post-patch state lands">↻ Refresh navi.db</button></div></div>
     <div id="gate" class="gatebar">checking capability…</div>
+    <div id="handoff" class="handoff" style="display:none"></div>
+    <div id="flash" class="flash" style="margin-top:8px"></div>
+  </section>
 
+  <section class="card" id="secGlance" data-nav="At a glance" data-nav-icon="📊">
+    <h2 style="margin:0">📊 At a glance</h2>
+    <div id="glance"><p class="sub">loading…</p></div>
+  </section>
+
+  <section class="card" id="secTargets" data-nav="Targets" data-nav-icon="🎯">
+    <h2 style="margin:0">🎯 Targets</h2>
+    <p class="sub" style="margin:4px 0 0">Pick Linux hosts from navi.db and/or type <b>any</b> IP, hostname or small CIDR (≤ 256 hosts). Everything is validated like navi does it (plain IP / hostname only — nothing that starts with <span class="mono">-</span>, no spaces, quotes or shell characters). Public addresses and hosts navi.db has never seen are flagged in every confirm. The sections below run on these targets.</p>
+    <div class="row">
+      <div><label class="lbl">From navi.db — Linux hosts <span id="hostCount" class="mut"></span></label>
+        <input id="hostFilter" class="fld" placeholder="filter by IP, hostname or OS…" autocomplete="off" spellcheck="false">
+        <div class="hostpick" id="hostPick"><p class="sub" style="padding:6px 9px">loading…</p></div>
+        <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap"><button class="btn ghost sm" id="pickAll">☑ Select shown</button><button class="btn ghost sm" id="pickNone">☐ Clear</button></div></div>
+      <div><label class="lbl">Any IP · hostname · CIDR</label>
+        <textarea id="freeTargets" class="fld" placeholder="10.0.5.12, web01.corp.local&#10;192.168.10.0/28" spellcheck="false"></textarea>
+        <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap"><button class="btn ghost sm" id="validateBtn">✓ Validate targets</button></div></div>
+    </div>
+    <div id="tgtOut"></div>
+    <details style="margin-top:10px"><summary class="sub" style="cursor:pointer">⚙ Run options — canary, error threshold, retries</summary>
+      <div class="row" style="margin-top:6px">
+        <div style="flex:0 1 auto"><span class="swch"><input type="checkbox" id="optCanary2" checked> Canary first (one host, then the rest)</span></div>
+        <div style="flex:0 1 150px"><label class="lbl" style="margin:0 0 4px">Stop after N errors</label><input id="optMaxErr" class="fld" type="number" min="0" placeholder="no limit"></div>
+        <div style="flex:0 1 150px"><label class="lbl" style="margin:0 0 4px">…or error %</label><input id="optMaxPct" class="fld" type="number" min="0" max="100" placeholder="no limit"></div>
+        <div style="flex:0 1 150px"><label class="lbl" style="margin:0 0 4px">Transport retries</label><input id="optRetries" class="fld" type="number" min="0" max="3" value="1"></div>
+      </div>
+      <p class="sub" style="margin:6px 0 0">Retries happen only when the host could not be reached before anything ran — never after an auth failure (account lockout) or a host-key problem, never after a command ran. Remediation always stops on the first error.</p>
+    </details>
+  </section>
+
+  <section class="card" id="secDiag" data-nav="Diagnostics" data-nav-icon="🩺">
+    <h2 style="margin:0">🩺 Quick diagnostics</h2>
+    <p class="sub" style="margin:4px 0 0">Built-in <b>read-only</b> checks — fixed commands, nothing installed or restarted, each bounded by a remote <span class="mono">timeout</span>, packed into one SSH session per host. Still remote execution: gated and confirmed. <span class="note3p">🌐 Public IP <span id="pubipNote"></span>.</span></p>
+    <div class="bundles" id="bundles"></div>
+    <div class="chkgrid" id="checks"></div>
+    <div class="row" id="paramRow" style="margin-top:6px">
+      <div><label class="lbl">Package name (Installed package version)</label><input id="pkgName" class="fld" placeholder="openssl" spellcheck="false"></div>
+      <div><label class="lbl">Certificate file (Certificate expiry)</label><input id="certPath" class="fld" placeholder="/etc/ssl/certs/server.pem" spellcheck="false"></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button class="btn ghost sm" id="diagDry">🧪 Dry run</button><button class="btn run sm" id="diagRun">⚡ Run checks</button></div>
+    <div id="diagOut"></div>
+  </section>
+
+  <section class="card" id="secCred" data-nav="Credentials" data-nav-icon="🔑">
+    <h2 style="margin:0">🔑 Credential test</h2>
+    <p class="sub" style="margin:4px 0 0">Logs in with the <span class="mono">navi config ssh</span> credentials and runs <span class="mono">id; sudo -n true</span> — one attempt per host (auth failures are never retried). Tells apart <b>auth failed</b>, <b>unreachable</b>, <b>port closed</b>, <b>DNS</b>, <b>timeout</b> and a <b>changed host key</b> (a security event — nothing runs). A NEW host's key is recorded here, so run this before strict-host-key changes.</p>
+    <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button class="btn ghost sm" id="credDry">🧪 Dry run</button><button class="btn run sm" id="credRun">🔑 Test credentials</button></div>
+    <div id="credOut"></div>
+  </section>
+
+  <section class="card" id="secPath" data-nav="Path check" data-nav-icon="🔎">
+    <h2 style="margin:0">🔎 Does this path exist?</h2>
+    <p class="sub" style="margin:4px 0 0">exists · type · size · owner · permissions · mtime · sha256 (regular files ≤ 50 MB). The path is passed as ONE shell-quoted argument — characters like <span class="mono">;</span> are part of the name, never a command. Falls back to <span class="mono">sudo -n</span> when unreadable (never prompts).</p>
+    <div class="row"><div style="flex:3 1 320px"><label class="lbl">Absolute path</label><input id="pathIn" class="fld" placeholder="/opt/app/lib/log4j-core-2.14.1.jar" spellcheck="false"></div></div>
+    <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button class="btn ghost sm" id="pathDry">🧪 Dry run</button><button class="btn run sm" id="pathRun">🔎 Check path</button></div>
+    <div id="pathOut"></div>
+  </section>
+
+  <section class="card" id="secRem" data-nav="Remediation" data-nav-icon="🛠">
+    <h2 style="margin:0">🛠 Remediation — plan → review → deploy</h2>
+    <p class="sub" style="margin:4px 0 0">Tenable's own <b>Solution</b> and the plugin output in navi.db are the source of truth; the configured model (or, without one, deterministic package-manager templates) turns them into a strict JSON plan; a <b>deterministic validator</b> — not another model — allows only package installs/upgrades of the named package, <span class="mono">systemctl restart/reload</span>, and <span class="mono">rm/chmod/chown</span> on a path the source names, and rejects everything else with the reason. Deploy = canary first, stop on the first error, verify each step, strict host keys.</p>
+    <div class="row">
+      <div style="flex:2 1 260px"><label class="lbl">Plugin ID · CVE</label><input id="remSel" class="fld" placeholder="12345  ·  CVE-2024-0001" spellcheck="false"></div>
+      <div style="flex:0 1 auto"><label class="lbl">&nbsp;</label><button class="btn run sm" id="remFind" data-run>▶ Find affected hosts</button></div>
+    </div>
+    <div id="remHosts"></div>
+    <div class="row" style="margin-top:8px">
+      <div style="flex:0 1 200px"><label class="lbl" style="margin:0 0 4px">Distribution</label><select id="remFam" class="fld"><option value="">auto (from navi.db OS)</option><option value="apt">Debian / Ubuntu (apt)</option><option value="dnf">RHEL 8+ / Rocky / Alma (dnf)</option><option value="yum">RHEL 7 / Amazon Linux 2 (yum)</option><option value="zypper">SUSE (zypper)</option></select></div>
+      <div style="flex:0 1 auto"><span class="swch"><input type="checkbox" id="remAi" checked> Use the configured AI model (falls back to templates)</span></div>
+      <div style="flex:0 1 auto"><button class="btn sm" id="remGen">✨ Generate plan</button></div>
+    </div>
+    <div id="remOut"></div>
+  </section>
+
+  <section class="card" id="secCmd" data-nav="Free-form" data-nav-icon="⌨️">
+    <h2 style="margin:0">⌨️ Free-form command &amp; files</h2>
+    <p class="sub" style="margin:4px 0 0">Your own command, a file push, or an armed campaign across the selected targets. The destructive-command denylist is <b>advisory — a warning, not a guard</b> (it demands an extra confirm). Strict host keys by default: a host whose key isn't known yet is refused — run a 🔑 credential test first, or tick “accept a new host key”.</p>
     <div class="tabs2" id="tabs">
       <button data-t="cmd" class="on">⌨️ Single command</button>
       <button data-t="file">📦 File push</button>
-      <button data-t="patch">🩹 Patch a vuln</button>
       <button data-t="camp">🎯 Campaign</button>
-      <button data-t="log">🧾 Ledger</button>
     </div>
-    <div id="flash" class="flash" style="margin-top:8px"></div>
+    <div style="margin-top:4px"><span class="swch"><input type="checkbox" id="tofu"> Accept a new host key (first contact) — a CHANGED key is always refused</span></div>
 
-    <!-- ===== single command ===== -->
     <div class="panel on" id="p-cmd">
       <div class="row">
         <div><label class="lbl">Target host (IP or hostname)</label><input id="cmdHost" class="fld" list="cmdHostList" placeholder="10.0.5.12  ·  or any reachable Linux host" autocomplete="off" spellcheck="false"><datalist id="cmdHostList"></datalist></div>
         <div style="flex:2 1 360px"><label class="lbl">Command</label><textarea id="cmdText" class="fld" placeholder="sudo DEBIAN_FRONTEND=noninteractive apt-get install --only-upgrade -y openssl"></textarea></div>
       </div>
-      <div style="display:flex;gap:8px;margin-top:12px"><button class="btn ghost sm" id="cmdPre">🔍 Precheck</button><button class="btn run sm" id="cmdArm">▶ Arm &amp; run</button></div>
+      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button class="btn ghost sm" id="cmdPre">🔍 Precheck</button><button class="btn run sm" id="cmdArm">⚡ Arm &amp; run</button></div>
       <div id="cmdMsg"></div>
       <div id="cmdArmBox"></div>
       <div id="cmdOut"></div>
     </div>
 
-    <!-- ===== file push ===== -->
     <div class="panel" id="p-file">
       <div class="row">
         <div><label class="lbl">File to ship</label><input id="fileIn" type="file" class="fld"></div>
         <div><label class="lbl">Target host (IP or hostname)</label><input id="fileHost" class="fld" list="fileHostList" placeholder="10.0.5.12  ·  or any reachable Linux host" autocomplete="off" spellcheck="false"><datalist id="fileHostList"></datalist></div>
       </div>
       <div id="fileState" class="sub" style="margin-top:8px"></div>
-      <div style="display:flex;gap:8px;margin-top:12px"><button class="btn ghost sm" id="fileUp">⬆ Upload to server</button><button class="btn run sm" id="fileArm">▶ Arm &amp; scp</button></div>
-      <p class="sub" style="margin-top:8px">scp lands the file on the host at navi's default location. To <b>run</b> it, switch to <b>Single command</b> and push e.g. <span class="mono">sudo bash &lt;remote-path&gt;</span> as its own confirmed step (the install-agent pattern).</p>
+      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap"><button class="btn ghost sm" id="fileUp">⬆ Upload to server</button><button class="btn run sm" id="fileArm">⚡ Arm &amp; scp</button></div>
+      <p class="sub" style="margin-top:8px">scp lands the file on the host at navi's default location. To <b>run</b> it, push e.g. <span class="mono">sudo bash &lt;remote-path&gt;</span> as its own confirmed Single command (the install-agent pattern).</p>
       <div id="fileArmBox"></div>
       <div id="fileOut"></div>
     </div>
 
-    <!-- ===== patch a vuln ===== -->
-    <div class="panel" id="p-patch">
-      <div class="row">
-        <div style="flex:2 1 300px"><label class="lbl">Plugin ID · CVE · software keyword</label><input id="planSel" class="fld" placeholder="openssl   ·   CVE-2024-0001   ·   12345"></div>
-        <div style="flex:0 0 auto"><label class="lbl">&nbsp;</label><button class="btn run sm" id="planBtn">🩹 Find affected hosts</button></div>
-      </div>
-      <div id="planOut"></div>
-    </div>
-
-    <!-- ===== campaign ===== -->
     <div class="panel" id="p-camp">
-      <div id="campEmpty" class="sub">Build a campaign from <b>Patch a vuln</b>, or select hosts here after loading them.</div>
-      <div id="campBody" style="display:none">
-        <label class="lbl">Command for every host</label>
-        <textarea id="campCmd" class="fld"></textarea>
-        <div id="campFileNote" class="sub" style="margin-top:6px;display:none"></div>
-        <label class="lbl" style="margin-top:12px">Target hosts (<span id="campCount">0</span>)</label>
-        <div id="campHosts" style="margin-top:4px"></div>
-        <div class="row" style="margin-top:12px">
-          <div style="flex:0 0 auto"><span class="swch"><input type="checkbox" id="optCanary" checked> Canary first (halt if host #1 fails)</span></div>
-          <div style="flex:0 0 auto"><span class="swch"><input type="checkbox" id="optStop" checked> Stop on failure</span></div>
-          <div style="flex:0 0 120px"><label class="lbl" style="margin:0 0 4px">Max hosts</label><input id="optMax" class="fld" type="number" value="200" min="1"></div>
-        </div>
-        <div class="arm" style="margin-top:14px">
-          <span class="swch"><input type="checkbox" id="armSwitch"> <b>ARM</b> this campaign</span>
-          <span class="sub" style="margin-left:10px">Nothing fires until armed. Then confirm to run.</span>
-          <div style="margin-top:10px;display:flex;gap:8px"><button class="btn run sm" id="campRun" disabled>🚀 Run campaign</button><button class="btn ghost sm" id="campVerify">✅ Verify (re-check vulns)</button></div>
-        </div>
+      <p class="sub" style="margin:0">Runs ONE command (or ships the uploaded file) on every selected target, as a background job: canary first, then stop on failure or at the error threshold; ⛔ Abort halts before the next host.</p>
+      <label class="lbl">Command for every host</label>
+      <textarea id="campCmd" class="fld"></textarea>
+      <div id="campFileNote" class="sub" style="margin-top:6px"></div>
+      <label class="lbl" style="margin-top:12px">Target hosts (<span id="campCount">0</span>) — from 🎯 Targets</label>
+      <div id="campHosts" style="margin-top:4px"></div>
+      <div class="row" style="margin-top:12px">
+        <div style="flex:0 1 auto"><span class="swch"><input type="checkbox" id="optCanary" checked> Canary first (halt if host #1 fails)</span></div>
+        <div style="flex:0 1 auto"><span class="swch"><input type="checkbox" id="optStop" checked> Stop on failure</span></div>
+        <div style="flex:0 1 auto"><span class="swch"><input type="checkbox" id="campFile"> Ship the uploaded file instead</span></div>
+        <div style="flex:0 1 120px"><label class="lbl" style="margin:0 0 4px">Max hosts</label><input id="optMax" class="fld" type="number" value="200" min="1"></div>
+      </div>
+      <div class="arm" style="margin-top:14px">
+        <span class="swch"><input type="checkbox" id="armSwitch"> <b>ARM</b> this campaign</span>
+        <span class="sub" style="margin-left:10px">Nothing fires until armed. Then confirm to run.</span>
+        <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn run sm" id="campRun" disabled>⚡ Run campaign</button></div>
       </div>
       <div id="campArmBox"></div>
       <div id="campOut"></div>
     </div>
-
-    <!-- ===== ledger ===== -->
-    <div class="panel" id="p-log">
-      <div class="toolbar" style="margin:4px 0 8px"><h2 style="margin:0;font-size:15px">🧾 Push ledger</h2><button class="btn ghost sm" id="logBtn" style="margin-left:auto">⟳ Refresh</button></div>
-      <p class="sub" style="margin:0 0 8px">Every push is written to the shared Tagging log (<span class="mono">op=push</span>) — who ran what, where, and the exit. Also visible on the Tagging log page.</p>
-      <div id="logOut"></div>
-    </div>
   </section>
-  <footer>Amarok · command &amp; control · reads navi.db read-only · executes via navi action push (triple-gated: writes + NAVI_REMOTE_CODE_EXECUTION + confirm) · Linux/SSH only</footer>
+
+  <section class="card" id="secRuns" data-nav="Runs" data-nav-icon="🚦">
+    <div class="toolbar"><h2 style="margin:0">🚦 Runs</h2><button class="btn ghost sm" id="runsBtn" style="margin-left:auto">↻ Reload</button></div>
+    <p class="sub" style="margin:4px 0 0">Runs in progress and recent runs since the server started (output lives only here, in memory). Every command they ran is in the <a class="applink" href="/web/c2-log.html">C2 log</a>; pushes also appear in the <a class="applink" href="/web/tags-log.html">Tagging log</a> (op=push).</p>
+    <div id="runsOut"></div>
+  </section>
+
+  <footer>Amarok · command &amp; control · destructive-command denylist is advisory (a warning, not a guard) · built-in checks are fixed read-only commands · reads navi.db read-only · executes via navi action push (triple-gated: writes + NAVI_REMOTE_CODE_EXECUTION + confirm) · Linux/SSH only · <a class="applink" href="/web/c2-log.html">C2 log</a></footer>
 </div>
 <script src="/static/console.js"></script>
 <script>
 const API=agentApi('c2');
-let RCE=false, SSH=null, HOSTS=[], UPLOAD=null, PLAN=null;
-const CAMP={hosts:[], command:"", path:"", selector:""};
+let RCE=false, SSH=null, HOSTS=[], UPLOAD=null, CAT=null, TGT=null, PICKED=new Set(), REM=null, REMHOSTS=[], DEPLOYED=null;
 const $=id=>document.getElementById(id);
+const N=n=>Number(n||0).toLocaleString();
+const ST=s=>'<span class="st '+esc(s||'')+'">'+esc(String(s||'').replace(/_/g,' '))+'</span>';
+const LBL=id=>((CAT&&CAT.checks||[]).find(c=>c.id===id)||{}).label||id;
 
+/* ---------------- gate ---------------- */
 function sshLine(h){
   if(!h) return '';
   if(!h.configured) return '<div style="margin-top:6px;font-size:12.5px">🔑 <b>SSH not configured</b> — run <span class="mono">navi config ssh</span> before any push, or it can\'t authenticate.</div>';
-  if(h.plaintext_password) return '<div style="margin-top:6px;font-size:12.5px;color:#fbbf24">🔑 SSH configured — ⚠ a <b>plaintext SSH password</b> is stored in navi.db (<span class="mono">ssh</span> table). Prefer a key file and protect navi.db.</div>';
+  if(h.plaintext_password) return '<div style="margin-top:6px;font-size:12.5px;color:var(--warn)">🔑 SSH configured — ⚠ a <b>plaintext SSH password</b> is stored in navi.db (<span class="mono">ssh</span> table). Prefer a key file and protect navi.db.</div>';
   return '<div style="margin-top:6px;font-size:12.5px">🔑 SSH configured (key file).</div>';
 }
 function setGate(g){
-  RCE=!!(g&&g.rce_enabled); const el=$('gate');
-  if(RCE){ el.style.borderLeftColor='var(--ok)'; el.innerHTML='🟢 <b>Remote execution ARMED on the server</b> — writes + remote-exec opt-in are on. Every push still needs a per-host confirm. SSH creds come from <span class="mono">navi config ssh</span>.'; }
-  else { el.style.borderLeftColor='#f43f5e'; el.innerHTML='🔴 <b>Remote execution is DISABLED</b> — you can plan, precheck and pick hosts freely; nothing can run. To arm it: '+esc((g&&g.reason)||'set NAVI_ALLOW_WRITES=1 + NAVI_REMOTE_CODE_EXECUTION=1 and restart.'); }
+  if(!g||g.rce_enabled===undefined) return;
+  RCE=!!g.rce_enabled; const el=$('gate');
+  if(RCE){ el.style.borderLeftColor='var(--ok)'; el.innerHTML='🟢 <b>Remote execution ARMED on the server</b> — writes + remote-exec opt-in are on. Every action still asks you first and names the hosts. SSH creds come from <span class="mono">navi config ssh</span>.'; }
+  else { el.style.borderLeftColor='var(--crit)'; el.innerHTML='🔴 <b>Remote execution is DISABLED</b> — you can pick targets, dry-run, plan and validate freely; nothing can run. To arm it: '+esc((g&&g.reason)||'set NAVI_ALLOW_WRITES=1 + NAVI_REMOTE_CODE_EXECUTION=1 and restart.'); }
   el.innerHTML += sshLine(SSH);
 }
-function hostLabel(h){ return h.ip+(h.hostname?(' · '+h.hostname):'')+' · '+esc(h.os||h.os_class); }
-function hostOpt(h){ return '<option value="'+esc(h.ip)+'">'+esc(h.ip)+(h.hostname?(' — '+h.hostname):'')+(h.crown?'  ★ACR '+h.acr:'')+'</option>'; }
-
 async function loadStatus(){ let o; try{o=await API.post('status',{});}catch(e){o={};} SSH=(o&&o.ssh)||null; setGate(o||{}); }
-async function loadHosts(){
-  let o; try{ o=await API.post('hosts',{}); }catch(e){ o={ok:false}; }
-  if(!o||!o.ok){ return; }
-  setGate(o); HOSTS=o.linux||[];
-  const opts=HOSTS.map(hostOpt).join('');
-  $('cmdHostList').innerHTML=opts; $('fileHostList').innerHTML=opts;
-  const ex=o.excluded_count?(' · '+o.excluded_count+' non-Linux excluded'):'';
-  if(HOSTS.length===0) flash('flash','No scanned Linux hosts in navi.db — type any reachable host IP/hostname to push (Linux/SSH only)'+ex,'warn');
+
+/* ---------------- at a glance ---------------- */
+async function loadGlance(){
+  let o; try{ o=await API.post('glance',{}); }catch(e){ o=null; }
+  if(!o||!o.ok){ $('glance').innerHTML='<p class="sub">At-a-glance unavailable.</p>'; return; }
+  SSH=o.ssh||SSH; setGate(o);
+  if(o.chain&&!o.chain.ok&&o.chain.rows) flash('flash',(o.chain.state==='unverifiable'?'⚠ C2 log hash chain is UNVERIFIABLE — ':'⚠ C2 log hash chain is BROKEN — ')+esc(o.chain.reason||'')+' · <a class="applink" href="/web/c2-log.html">C2 log</a>','crit');
+  const day=Math.floor(o.since_utc_midnight||0), wk=Math.floor(Date.now()/1000-7*86400);
+  const lg=q=>'/web/c2-log.html?'+Object.keys(q).map(k=>encodeURIComponent(k)+'='+encodeURIComponent(q[k])).join('&');
+  const mk=(v,l,href,c,u,t)=>`<a class="mk${(+v||0)?'':' zero'}" href="${esc(safeHref(href))}" style="--rc:${c||'var(--line)'}"${t?` title="${esc(t)}"`:''}><div class="v">${esc(typeof v==='number'?N(v):v)}</div><div class="l">${esc(l)}</div><div class="u">${esc(u)} →</div></a>`;
+  const last=o.last; const lastTxt=last?new Date(last.ts*1000).toLocaleString():'never';
+  const ch=o.chain||{};
+  $('glance').innerHTML='<div class="mhead">Commands</div><div class="mkpi">'
+    +mk(o.today,'commands run today (UTC)',lg({since:day}),'var(--accent)','C2 log · today')
+    +mk(o.week,'commands run in 7 days',lg({since:wk}),'var(--accent)','C2 log · 7 days')
+    +mk(o.hosts_week,'hosts touched in 7 days',lg({since:wk}),'var(--cyan)','C2 log · by host')
+    +`<a class="mk${last?'':' zero'}" href="${esc(last?lg({target:last.target}):'/web/c2-log.html')}" style="--rc:var(--line)"><div class="v" style="font-size:15px">${esc(lastTxt)}</div><div class="l">last command${last?(' · '+esc(last.target)+' · '+esc(last.status)):''}</div><div class="u">C2 log · this host →</div></a>`
+    +'</div><div class="mhead">Problems (7 days)</div><div class="mkpi">'
+    +mk(o.failures_week,'commands that did not succeed',lg({since:wk,status:'failed'}),'var(--crit)','C2 log · failed','every non-ok status; the link opens “failed” — use the Status filter for the rest')
+    +mk(o.auth_failed_week,'auth failures',lg({since:wk,status:'auth_failed'}),'var(--crit)','C2 log · auth_failed')
+    +mk(o.hostkey_changed,'host-key changes (all time)',lg({status:'hostkey_mismatch'}),'var(--crit)','C2 log · hostkey_mismatch','a CHANGED host key: possible impersonation or a rebuilt host — nothing ran')
+    +mk(o.off_inventory_week,'commands on hosts not in navi.db',lg({since:wk,in_inventory:'0'}),'var(--warn)','C2 log · off-inventory')
+    +'</div><div class="mhead">Remediation &amp; readiness</div><div class="mkpi">'
+    +mk(o.plans_pending,'remediation plans generated, not deployed','#secRem','var(--warn)','Remediation')
+    +mk(o.plans_deployed,'plans deployed',lg({mode:'remediation'}),'var(--ok)','C2 log · remediation')
+    +mk(o.linux_hosts,'Linux hosts in navi.db','#secTargets','var(--cyan)','Targets')
+    +mk(o.active_runs,'runs in progress','#secRuns','var(--accent)','Runs')
+    +`<a class="mk" href="/web/c2-log.html" style="--rc:${ch.ok?'var(--ok)':(ch.state==='unverifiable'?'var(--warn)':'var(--crit)')}"><div class="v" style="font-size:15px">${ch.ok?'🔗 intact':(ch.state==='unverifiable'?'⚠ unverifiable':'⚠ broken')}</div><div class="l">${ch.ok?('hash chain verified · '+N(ch.rows)+' row(s)'):(ch.state==='unverifiable'?esc(ch.reason||'head file missing'):('hash chain breaks at row '+esc(ch.broken_at||'?')+' — '+esc(ch.reason||'')))}</div><div class="u">C2 log →</div></a>`
+    +'</div>';
+  document.querySelectorAll('#glance a.mk[href^="#"]').forEach(a=>a.onclick=e=>{ e.preventDefault(); const s=$(a.getAttribute('href').slice(1)); if(s) s.scrollIntoView({behavior:'smooth'}); });
+  setNavCount('secRuns', o.active_runs?String(o.active_runs):'');
 }
 
-/* ---- tabs ---- */
+/* ---------------- targets ---------------- */
+function hostRow(h){ return '<label><input type="checkbox" class="hp" data-ip="'+esc(h.ip)+'"'+(PICKED.has(h.ip)?' checked':'')+'> <span class="mono">'+esc(h.ip)+'</span> '+esc(h.hostname||'')+' <span class="mut" style="font-size:11.5px">'+esc(h.os||'')+'</span>'+(h.crown?' <span class="badge crown">★ ACR '+esc(h.acr)+'</span>':'')+'</label>'; }
+function renderPick(){
+  const q=$('hostFilter').value.trim().toLowerCase();
+  const shown=HOSTS.filter(h=>!q||(h.ip+' '+h.hostname+' '+h.os).toLowerCase().includes(q)).slice(0,400);
+  $('hostPick').innerHTML=shown.length?shown.map(hostRow).join('')+(HOSTS.length>shown.length&&!q?'<p class="sub" style="padding:4px 9px">showing 400 of '+N(HOSTS.length)+' — filter to narrow</p>':''):'<p class="sub" style="padding:6px 9px">'+(HOSTS.length?'No host matches the filter.':'No scanned Linux hosts in navi.db — type any reachable IP / hostname on the right.')+'</p>';
+}
+async function loadHosts(){
+  let o; try{ o=await API.post('hosts',{}); }catch(e){ o={ok:false}; }
+  if(!o||!o.ok){ $('hostPick').innerHTML='<p class="sub" style="padding:6px 9px">navi.db not readable.</p>'; return; }
+  setGate(o); HOSTS=o.linux||[];
+  $('hostCount').textContent='('+N(HOSTS.length)+(o.excluded_count?(' · '+N(o.excluded_count)+' non-Linux excluded'):'')+')';
+  const opts=HOSTS.slice(0,2000).map(h=>'<option value="'+esc(h.ip)+'">'+esc(h.ip)+(h.hostname?(' — '+esc(h.hostname)):'')+'</option>').join('');
+  $('cmdHostList').innerHTML=opts; $('fileHostList').innerHTML=opts;
+  renderPick();
+}
+$('hostFilter').addEventListener('input',renderPick);
+$('hostPick').addEventListener('change',e=>{ const c=e.target.closest('.hp'); if(!c) return; if(c.checked) PICKED.add(c.dataset.ip); else PICKED.delete(c.dataset.ip); schedValidate(); });
+$('pickAll').onclick=()=>{ document.querySelectorAll('#hostPick .hp').forEach(c=>{ c.checked=true; PICKED.add(c.dataset.ip); }); schedValidate(); };
+$('pickNone').onclick=()=>{ PICKED.clear(); renderPick(); schedValidate(); };
+function rawTargets(){ return [...PICKED].concat($('freeTargets').value.split(/[\s,]+/).map(x=>x.trim()).filter(Boolean)); }
+let vt=null; function schedValidate(){ clearTimeout(vt); vt=setTimeout(validateTargets,350); }
+$('freeTargets').addEventListener('input',schedValidate);
+$('validateBtn').onclick=validateTargets;
+async function validateTargets(){
+  const raw=rawTargets();
+  if(!raw.length){ TGT=null; $('tgtOut').innerHTML='<p class="sub" style="margin-top:8px">No targets selected yet.</p>'; setNavCount('secTargets',''); syncCamp(); return; }
+  let o; try{ o=await API.post('targets',{targets:raw}); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o.ok){ TGT=null; $('tgtOut').innerHTML='<div class="critbox">✗ '+esc(o.error||'validation failed')+'</div>'; syncCamp(); return; }
+  TGT=o; setNavCount('secTargets', N(o.count));
+  if(!(o.refused&&o.refused.length)) flashClear('flash');
+  let h='';
+  if(o.refused&&o.refused.length) h+='<div class="critbox">⛔ Refused (not sent anywhere): '+o.refused.slice(0,12).map(r=>'<span class="mono">'+esc(r.input)+'</span> — '+esc(r.reason)).join('; ')+(o.refused.length>12?' …':'')+'<br><span class="sub">Fix or remove these — a run is refused while any target is invalid.</span></div>';
+  (o.warnings||[]).forEach(w=>h+='<div class="warnbox">⚠ '+esc(w)+'</div>');
+  if(o.targets.length){
+    h+='<div class="tw"><table class="c2"><thead><tr><th>Target</th><th>Kind</th><th>navi.db</th><th>Notes</th></tr></thead><tbody>'+o.targets.slice(0,300).map(t=>{
+      const a=t.asset; return '<tr><td class="mono">'+esc(t.target)+'</td><td>'+esc(t.kind)+'</td><td>'+(a?('✓ '+(a.uuid?'<a class="applink" href="/agents/argos/page.html?target='+encodeURIComponent(a.uuid)+'">'+esc(a.hostname||a.ip||'asset')+'</a>':esc(a.hostname||''))+' <span class="mut">'+esc(a.os||'')+'</span>'):'<span style="color:var(--warn)">not in navi.db</span>')+'</td><td style="font-size:12px">'+(t.warnings||[]).map(esc).join('<br>')+'</td></tr>'; }).join('')+'</tbody></table></div>'
+      +(o.targets.length>300?'<p class="sub">… '+N(o.targets.length-300)+' more</p>':'');
+  }
+  $('tgtOut').innerHTML='<div style="margin-top:8px"><b>'+N(o.count)+'</b> target(s) ready'+(o.refused&&o.refused.length?' · <b style="color:var(--crit)">'+N(o.refused.length)+' refused</b>':'')+'</div>'+h;
+  if(o.targets.length===1 && !$('cmdHost').value) { $('cmdHost').value=o.targets[0].target; $('fileHost').value=o.targets[0].target; }
+  syncCamp();
+}
+function targetsOrWarn(where){
+  if(!TGT||!TGT.targets||!TGT.targets.length){ flash(where,'Pick or type at least one target in 🎯 Targets first.','warn'); $('secTargets').scrollIntoView({behavior:'smooth'}); return null; }
+  if(TGT.refused&&TGT.refused.length){ flash(where,'Some targets are refused — fix or remove them in 🎯 Targets first.','crit'); return null; }
+  return TGT.targets.map(t=>t.target);
+}
+function runOpts(){ const o={canary:$('optCanary2').checked, retries:+($('optRetries').value||0)};
+  if($('optMaxErr').value!=='') o.max_errors=+$('optMaxErr').value; if($('optMaxPct').value!=='') o.max_errors_pct=+$('optMaxPct').value; return o; }
+function confirmText(head, lines){
+  const t=TGT.targets, pub=t.filter(x=>x.kind==='public').length, off=t.filter(x=>!x.in_inventory).length, crown=t.filter(x=>x.asset&&x.asset.crown).length;
+  let s=head+'\n\nOn '+t.length+' host(s): '+t.slice(0,15).map(x=>x.target).join(', ')+(t.length>15?' … (+'+(t.length-15)+')':'');
+  (lines||[]).forEach(l=>s+='\n'+l);
+  if(pub) s+='\n\n⚠ '+pub+' PUBLIC address(es) — make sure you are authorised to log in to them.';
+  if(off) s+='\n⚠ '+off+' target(s) are not in navi.db.';
+  if(crown) s+='\n⚠ '+crown+' crown-jewel asset(s) (ACR ≥ 9).';
+  const o=runOpts(); s+='\n\n'+(o.canary&&t.length>1?'Canary first · ':'')+(o.max_errors!=null?('stop after '+o.max_errors+' error(s) · '):'')+'every command is recorded in the C2 log.';
+  if(!RCE) s+='\n\nRemote execution is DISABLED on the server — this will be refused.';
+  return s; }
+
+/* ---------------- runs: polling + rendering ---------------- */
+const POLL={};
+async function pollRun(runId, render){
+  if(POLL[runId]) return; POLL[runId]=true;
+  for(let i=0;i<2400;i++){
+    let o; try{ o=await API.post('run_status',{run_id:runId}); }catch(e){ o=null; }
+    if(o&&o.ok&&o.run){ render(o.run); if(!['queued','running'].includes(o.run.status)) break; }
+    if(o&&o.unknown){ render({run_id:runId,label:'run '+runId,kind:'',status:'unknown',done:0,total:0,errors:0,hosts:[],
+      message:'The server restarted — this run is no longer tracked. Everything that ran is in the C2 log (filter run_id = '+runId+').'}); break; }
+    await new Promise(r=>setTimeout(r,1500));
+  }
+  delete POLL[runId]; loadRuns(); loadGlance();
+}
+function progress(run){
+  const pct=run.total?Math.round(100*run.done/run.total):0;
+  return '<div class="infobox"><b>'+esc(run.label||run.kind)+'</b> · '+ST(run.status)+' · '+N(run.done)+'/'+N(run.total)+' host(s)'+(run.errors?' · <b style="color:var(--crit)">'+N(run.errors)+' with errors</b>':'')
+    +(run.message?'<div class="sub" style="margin-top:4px">'+esc(run.message)+'</div>':'')
+    +'<div class="prog"><i style="width:'+pct+'%"></i></div>'
+    +(['queued','running'].includes(run.status)?'<button class="btn ghost sm" data-abort="'+esc(run.run_id)+'">⛔ Abort</button> ':'')
+    +'<a class="applink" style="font-size:12px" href="/web/c2-log.html?run_id='+encodeURIComponent(run.run_id)+'">C2 log for this run →</a></div>';
+}
+document.addEventListener('click',async e=>{ const b=e.target.closest&&e.target.closest('[data-abort]'); if(!b) return;
+  let a; try{ a=await API.post('abort',{run_id:b.dataset.abort}); }catch(x){ a={}; } flash('flash',esc((a&&a.message)||'abort requested'),'warn'); });
+document.addEventListener('click',e=>{ const b=e.target.closest&&e.target.closest('[data-copy]'); if(!b) return;
+  const pre=b.closest('.cpbox')&&b.closest('.cpbox').querySelector('pre'); const txt=b.dataset.copy==='pre'?(pre?pre.textContent:''):b.dataset.copy;
+  try{ navigator.clipboard.writeText(txt); b.textContent='✓ copied'; setTimeout(()=>b.textContent='📋 Copy',1200); }catch(x){} });
+function hostHead(h){ const a=h.asset; return '<h4><span class="mono">'+esc(h.target)+'</span>'+(a&&a.hostname?' <span class="mut">'+esc(a.hostname)+'</span>':'')+' '+ST(h.status)+(h.in_inventory===false?' <span class="badge" style="color:var(--warn)">not in navi.db</span>':'')+(h.canary?' <span class="badge">canary</span>':'')+'</h4>'
+  +(h.status==='hostkey_mismatch'?'<div class="critbox">🚨 <b>HOST KEY CHANGED</b> — possible impersonation or a rebuilt host. Nothing ran. Verify the host out-of-band before clearing its old key (<span class="mono">ssh-keygen -R '+esc(h.target)+'</span>).</div>':'')
+  +(h.message&&h.status!=='ok'?'<div class="sub">'+esc(h.message)+'</div>':''); }
+function factLine(cid,f){ f=f||{}; if(cid==='pubip') return f.public_ip?('egress IP <b class="mono">'+esc(f.public_ip)+'</b>'):'';
+  if(cid==='os') return esc(f.pretty||''); if(cid==='updates') return f.updates?('updates: <b>'+esc(f.updates)+'</b>'):'';
+  if(cid==='cert') return ''; if(f.cert) return 'certificate: <b>'+esc(f.cert)+'</b>'; if(f.pkg) return esc(f.pkg); if(f.tconn) return esc(f.tconn); return ''; }
+function renderDiag(run, box){
+  let h=progress(run);
+  (run.hosts||[]).forEach(x=>{ if(!x.checks&&['pending','running'].includes(x.status)){ h+='<div class="hostcard">'+hostHead(x)+'</div>'; return; }
+    h+='<div class="hostcard'+(x.status==='hostkey_mismatch'?' sec':'')+'">'+hostHead(x);
+    const ck=x.checks||{}; const ids=Object.keys(ck);
+    if(ids.length) h+='<div class="tw"><table class="c2"><tbody>'+ids.map(cid=>{ const c=ck[cid];
+      return '<tr><td style="width:34%">'+esc(LBL(cid))+'</td><td style="width:110px">'+ST(c.status)+(c.rc!=null&&c.rc!==0?' <span class="mut">rc '+esc(c.rc)+'</span>':'')+'</td><td>'+factLine(cid,c.facts)
+        +(c.output?'<details class="o cpbox"><summary>output</summary><button class="btn ghost sm copy" data-copy="pre">📋 Copy</button><pre class="out">'+esc(c.output)+'</pre></details>':(c.note?'<span class="sub">'+esc(c.note)+'</span>':''))+'</td></tr>'; }).join('')+'</tbody></table></div>';
+    h+='</div>'; });
+  $(box).innerHTML=h;
+}
+function afterStart(o, box, render){
+  setGate(o);
+  if(o.blocked){ $(box).innerHTML='<div class="critbox">🔴 '+esc(o.reason||o.message||'remote execution disabled')+'</div>'; return; }
+  if(o.ok===false && !o.run){ $(box).innerHTML='<div class="critbox">✗ '+esc(o.error||o.message||'failed')+'</div>'; return; }
+  if(o.run){ render(o.run, box); loadGlance(); loadRuns(); return; }
+  if(o.run_id){ $(box).innerHTML='<div class="infobox"><span class="spin"></span> '+esc(o.message||'queued')+'</div>'; pollRun(o.run_id, run=>render(run, box)); loadRuns(); }
+}
+function renderDry(o, box){
+  if(!o.ok){ $(box).innerHTML='<div class="critbox">✗ '+esc(o.error||'failed')+'</div>'; return; }
+  let h='<div class="okbox">🧪 '+esc(o.message||'dry run')+'</div>';
+  (o.warnings||[]).forEach(w=>h+='<div class="warnbox">⚠ '+esc(w)+'</div>');
+  if(o.hostkey_policy) h+='<p class="sub">Host keys: '+esc(o.hostkey_policy)+'</p>';
+  if(o.pushes){ const p=o.pushes[0]; h+='<p class="sub">Same command(s) on every host — first host shown ('+esc(p.target)+'):</p>'+p.commands.map(c=>'<div class="cpbox"><div class="sub">checks: '+c.ids.map(i=>esc(LBL(i))).join(', ')+' · navi --timeout '+esc(c.navi_timeout)+'s <button class="btn ghost sm copy" data-copy="pre">📋 Copy</button></div><pre class="out">'+esc(c.command)+'</pre></div>').join(''); }
+  if(o.sequence) h+='<p class="sub">Per host, in order:</p>'+o.sequence.map(s=>'<div class="sub"><b>'+esc(s.what)+'</b></div><pre class="out">'+esc(s.command)+'</pre>').join('');
+  $(box).innerHTML=h;
+}
+
+/* ---------------- diagnostics ---------------- */
+let SELCHK=new Set(), BUNDLE='quick';
+function renderCatalog(){
+  $('pubipNote').textContent=CAT.pubip_note||'';
+  $('bundles').innerHTML=(CAT.bundles||[]).map(b=>'<button type="button" data-b="'+esc(b.id)+'" class="'+(b.id===BUNDLE?'on':'')+'">'+esc(b.label)+(b.default?' · default':'')+'</button>').join('')+'<button type="button" data-b="">✕ none</button>';
+  const groups={}; (CAT.checks||[]).filter(c=>!c.hidden).forEach(c=>(groups[c.group]=groups[c.group]||[]).push(c));
+  $('checks').innerHTML=Object.keys(groups).map(g=>'<div class="grp">'+esc(g)+'</div>'+groups[g].map(c=>'<label title="'+esc(c.command)+'"><input type="checkbox" class="ck" data-id="'+esc(c.id)+'"'+(SELCHK.has(c.id)?' checked':'')+'> <span>'+esc(c.label)+(c.needs_sudo?' <span class="mut" style="font-size:11px">(sudo -n)</span>':'')+(c.note?'<br><span class="note3p">'+esc(c.note)+'</span>':'')+'</span></label>').join('')).join('');
+}
+function pickBundle(id){ BUNDLE=id; const b=(CAT.bundles||[]).find(x=>x.id===id); SELCHK=new Set(b?b.checks:[]); renderCatalog(); }
+$('bundles').addEventListener('click',e=>{ const b=e.target.closest('button[data-b]'); if(b) pickBundle(b.dataset.b); });
+$('checks').addEventListener('change',e=>{ const c=e.target.closest('.ck'); if(!c) return; if(c.checked) SELCHK.add(c.dataset.id); else SELCHK.delete(c.dataset.id); BUNDLE=''; document.querySelectorAll('#bundles button').forEach(x=>x.classList.toggle('on',x.dataset.b==='')); });
+async function loadCatalog(){ let o; try{ o=await API.post('catalog',{}); }catch(e){ o=null; } if(!o||!o.ok) return; CAT=o; pickBundle('quick'); }
+function diagBody(){ const params={}; if($('pkgName').value.trim()) params.name=$('pkgName').value.trim(); if($('certPath').value.trim()) params.path=$('certPath').value.trim();
+  return {checks:[...SELCHK], params}; }
+$('diagDry').onclick=async()=>{ const t=targetsOrWarn('flash'); if(!t) return; if(!SELCHK.size){ flash('flash','pick at least one check','warn'); return; }
+  let o; try{ o=await API.post('run_checks',Object.assign({targets:t,dry_run:true},diagBody())); }catch(e){ o={ok:false,error:e.message}; } renderDry(o,'diagOut'); };
+$('diagRun').onclick=async()=>{ const t=targetsOrWarn('flash'); if(!t) return; if(!SELCHK.size){ flash('flash','pick at least one check','warn'); return; }
+  const ids=[...SELCHK]; const lines=['Read-only checks: '+ids.map(LBL).join(', ')];
+  if(ids.includes('pubip')) lines.push('🌐 Public IP '+(CAT.pubip_note||'contacts a third party'));
+  if(ids.includes('tconn')) lines.push('🌐 Tenable reachability contacts sensor.cloud.tenable.com');
+  if(!confirm(confirmText('Run built-in diagnostics over SSH?',lines))) return;
+  $('diagOut').innerHTML='<div class="infobox"><span class="spin"></span> running…</div>';
+  let o; try{ o=await API.post('run_checks',Object.assign({targets:t,confirm:true,source:HANDOFF_SRC||''},diagBody(),runOpts())); }catch(e){ o={ok:false,error:e.message}; }
+  afterStart(o,'diagOut',renderDiag); };
+
+/* ---------------- credential test ---------------- */
+function renderCred(run, box){
+  let h=progress(run);
+  h+='<div class="tw"><table class="c2"><thead><tr><th>Target</th><th>Login</th><th>sudo</th><th>User</th><th>Detail</th></tr></thead><tbody>'+(run.hosts||[]).map(x=>
+    '<tr'+(x.status==='hostkey_mismatch'?' style="background:var(--crit-bg)"':'')+'><td class="mono">'+esc(x.target)+(x.in_inventory===false?' <span class="badge" style="color:var(--warn)">not in navi.db</span>':'')+'</td><td>'+(x.status==='hostkey_mismatch'?'🚨 ':'')+ST(x.status)+'</td><td>'+(x.sudo==='sudo_ok'?'<span class="st ok">sudo ok</span>':x.sudo==='sudo_needs_password'?'<span class="st blocked">needs password</span>':'<span class="mut">—</span>')+'</td><td class="mono">'+esc(x.user||'')+'</td><td style="font-size:12px">'+esc(x.status==='hostkey_mismatch'?'HOST KEY CHANGED — possible impersonation; verify before clearing the old key':(x.message||''))+'</td></tr>').join('')+'</tbody></table></div>';
+  $(box).innerHTML=h;
+}
+$('credDry').onclick=async()=>{ const t=targetsOrWarn('flash'); if(!t) return; let o; try{ o=await API.post('cred_test',{targets:t,dry_run:true}); }catch(e){ o={ok:false,error:e.message}; } renderDry(o,'credOut'); };
+$('credRun').onclick=async()=>{ const t=targetsOrWarn('flash'); if(!t) return;
+  if(!confirm(confirmText('Test the navi SSH credentials (log in, run `id; sudo -n true`)?',['One attempt per host — auth failures are never retried.','A NEW host key is recorded; a CHANGED key is refused.']))) return;
+  $('credOut').innerHTML='<div class="infobox"><span class="spin"></span> testing…</div>';
+  let o; try{ o=await API.post('cred_test',Object.assign({targets:t,confirm:true,source:HANDOFF_SRC||''},runOpts(),{retries:0})); }catch(e){ o={ok:false,error:e.message}; }
+  afterStart(o,'credOut',renderCred); };
+
+/* ---------------- path check ---------------- */
+function renderPath(run, box){
+  let h=progress(run);
+  h+='<div class="tw"><table class="c2"><thead><tr><th>Target</th><th>Exists</th><th>Type</th><th>Size</th><th>Owner</th><th>Mode</th><th>Modified</th><th>sha256</th></tr></thead><tbody>'+(run.hosts||[]).map(x=>{
+    const ex=x.exists===true?'<b style="color:var(--ok)">✓ yes</b>':x.exists===false?'<b>✗ no</b>':x.denied?'<span style="color:var(--warn)">permission denied</span>':ST(x.status);
+    const mt=x.mtime?new Date(+x.mtime*1000).toLocaleString():'';
+    return '<tr><td class="mono">'+esc(x.target)+'</td><td>'+ex+'</td><td>'+esc(x.type||'')+'</td><td class="mono">'+(x.size?N(x.size):'')+'</td><td class="mono">'+esc(x.owner?(x.owner+':'+(x.group||'')):'')+'</td><td class="mono">'+esc(x.mode||'')+'</td><td style="font-size:11.5px">'+esc(mt)+'</td><td class="mono" style="font-size:11px">'+(x.sha&&x.sha!=='skipped_size'?esc(x.sha)+' <button class="btn ghost sm copy" data-copy="'+esc(x.sha)+'">📋 Copy</button>':(x.sha==='skipped_size'?'<span class="mut">&gt; 50 MB — skipped</span>':''))+'</td></tr>'; }).join('')+'</tbody></table></div>';
+  $(box).innerHTML=h;
+}
+$('pathDry').onclick=async()=>{ const t=targetsOrWarn('flash'); if(!t) return; const path=$('pathIn').value.trim(); if(!path){ flash('flash','enter a path','warn'); return; }
+  let o; try{ o=await API.post('path_check',{targets:t,path,dry_run:true}); }catch(e){ o={ok:false,error:e.message}; } renderDry(o,'pathOut'); };
+$('pathRun').onclick=async()=>{ const t=targetsOrWarn('flash'); if(!t) return; const path=$('pathIn').value.trim(); if(!path){ flash('flash','enter a path','warn'); return; }
+  if(!confirm(confirmText('Check whether this path exists (read-only stat + sha256)?',['Path: '+path]))) return;
+  $('pathOut').innerHTML='<div class="infobox"><span class="spin"></span> checking…</div>';
+  let o; try{ o=await API.post('path_check',Object.assign({targets:t,path,confirm:true,source:HANDOFF_SRC||''},runOpts())); }catch(e){ o={ok:false,error:e.message}; }
+  afterStart(o,'pathOut',renderPath); };
+
+/* ---------------- remediation ---------------- */
+function remHostList(){ return [...document.querySelectorAll('#remHosts .rh:checked')].map(c=>c.dataset.ip); }
+function renderRemHosts(list, note){
+  REMHOSTS=list||[];
+  $('remHosts').innerHTML=(note?'<div class="sub" style="margin-top:6px">'+note+'</div>':'')+(REMHOSTS.length?'<div class="hostpick">'+REMHOSTS.map(x=>'<label><input type="checkbox" class="rh" data-ip="'+esc(x.ip)+'" checked> <span class="mono">'+esc(x.ip)+'</span> '+esc(x.hostname||'')+' <span class="mut" style="font-size:11.5px">'+esc(x.os||'')+'</span>'+(x.crown?' <span class="badge crown">★ ACR '+esc(x.acr)+'</span>':'')+'</label>').join('')+'</div>':'');
+}
+$('remFind').onclick=async()=>{ const selector=$('remSel').value.trim(); if(!selector){ flash('flash','enter a plugin id or CVE','warn'); return; }
+  $('remHosts').innerHTML='<div class="infobox"><span class="spin"></span> searching navi.db…</div>';
+  let o; try{ o=await API.post('plan',{selector}); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o.ok){ $('remHosts').innerHTML='<div class="critbox">✗ '+esc(o.error||'failed')+'</div>'; return; }
+  renderRemHosts(o.linux_hosts||[], 'Matched <b>'+N(o.matched_assets)+'</b> asset(s) · <b>'+N((o.linux_hosts||[]).length)+'</b> Linux host(s) with an IP'+(o.excluded_count?(' · '+N(o.excluded_count)+' non-Linux excluded'):'')+(o.plugin_names&&o.plugin_names.length?' · '+o.plugin_names.slice(0,3).map(esc).join(' · '):''));
+};
+function stepHtml(s, rej){ const r=(rej||[]).filter(x=>x.n===s.n&&(x.where==='step'||x.where==='verify'));
+  return '<div class="stepbox'+(r.length?' rej':'')+'" data-n="'+s.n+'"><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><b>Step '+s.n+'</b> <span class="badge">risk '+esc(s.risk)+'</span>'+(s.requires_reboot?' <span class="badge" style="color:var(--warn)">needs reboot</span>':'')+' <span class="sub">'+esc(s.purpose)+'</span> <button class="btn ghost sm" data-rmstep="'+s.n+'" style="margin-left:auto">✕ remove</button></div>'
+    +'<label class="lbl" style="margin:6px 0 3px">command</label><input class="fld sc" value="'+esc(s.command)+'" spellcheck="false">'
+    +'<div class="row" style="gap:6px 10px"><div><label class="lbl" style="margin:6px 0 3px">verify (read-only)'+vcNote(s.verify)+'</label><input class="fld sv" value="'+esc(s.verify?s.verify.command:'')+'" spellcheck="false"></div><div style="flex:0 1 200px"><label class="lbl" style="margin:6px 0 3px">verify expects (regex)</label><input class="fld sx" value="'+esc(s.verify?s.verify.expect_regex:'')+'" spellcheck="false"></div></div>'
+    +'<label class="lbl" style="margin:6px 0 3px">rollback (optional, separately confirmed)</label><input class="fld sr" value="'+esc(s.rollback||'')+'" spellcheck="false">'
+    +r.map(x=>'<div class="critbox" style="margin:6px 0 0">✗ '+esc(x.where)+' rejected: '+x.reasons.map(esc).join('; ')+'</div>').join('')+'</div>'; }
+function collectPlan(){ const p=JSON.parse(JSON.stringify(REM.plan)); p.generator='edited';
+  const chk=(old,cmd,rx)=>{ if(!cmd) return null; const c=Object.assign({expect_exit:[0]},old||{}); c.command=cmd; c.expect_regex=rx||''; return c; };
+  p.steps=[...document.querySelectorAll('#remSteps .stepbox')].map((b,i)=>{ const old=REM.plan.steps.find(s=>String(s.n)===b.dataset.n)||{expect_exit:[0],risk:'medium',requires_reboot:false,purpose:'added by operator'};
+    return Object.assign({},old,{n:i+1,command:b.querySelector('.sc').value.trim(),verify:chk(old.verify,b.querySelector('.sv').value.trim(),b.querySelector('.sx').value.trim()),rollback:b.querySelector('.sr').value.trim()}); });
+  p.precheck=chk(REM.plan.precheck,($('remPre')?$('remPre').value:'').trim(),($('remPreX')?$('remPreX').value:'').trim());
+  p.post_verify=chk(REM.plan.post_verify,($('remPost')?$('remPost').value:'').trim(),($('remPostX')?$('remPostX').value:'').trim());
+  return p; }
+const vcNote=c=>c&&c.fixed_version?' <span class="badge" title="judged by a '+esc(c.compare)+' version compare, not a regex">'+(c.want==='older'?'applies if installed &lt; ':'passes if installed ≥ ')+esc(c.fixed_version)+'</span>':'';
+function renderPlan(){
+  const o=REM, p=o.plan, rej=o.rejected||[];
+  const src=(o.source&&o.source.plugins)||[]; const hs=o.hosts||[];
+  let left='<h3 style="margin:0 0 6px;font-size:14px">📜 Tenable\'s source text (navi.db)</h3>'+(src.length?src.map(x=>'<div class="infobox"><b class="mono">'+esc(x.plugin_id)+'</b> '+esc(x.plugin_name)+(x.synopsis?'<div class="sub" style="margin-top:4px">'+esc(x.synopsis)+'</div>':'')+(x.solution?'<div style="margin-top:6px;white-space:pre-wrap"><b>Solution:</b> '+esc(x.solution)+'</div>':'<div class="sub" style="margin-top:6px">No Solution text stored — run <span class="mono">navi config update plugins</span>.</div>')+'</div>').join(''):'<p class="sub">No plugin text in navi.db.</p>');
+  hs.forEach(h=>Object.keys(h.outputs||{}).slice(0,2).forEach(pid=>left+='<div class="sub" style="margin-top:6px">plugin '+esc(pid)+' output on <span class="mono">'+esc(h.ip)+'</span> ('+esc(h.os||'?')+')</div><pre class="out">'+esc(h.outputs[pid])+'</pre>'));
+  let right='<h3 style="margin:0 0 6px;font-size:14px">🧩 Plan <span class="badge">'+esc(o.generator==='llm'?('AI · '+(o.model||'model')):o.generator==='template'?'template (no AI)':'edited')+'</span></h3>'
+    +(o.note?'<div class="sub">'+esc(o.note)+'</div>':'')+(p.summary?'<div class="infobox">'+esc(p.summary)+'</div>':'')
+    +'<div class="row" style="gap:6px 10px"><div><label class="lbl" style="margin:8px 0 3px">precheck — exits 0 when the host is affected'+vcNote(p.precheck)+'</label><input id="remPre" class="fld" style="font-family:var(--mono);font-size:12.5px" value="'+esc(p.precheck?p.precheck.command:'')+'" spellcheck="false"></div><div style="flex:0 1 200px"><label class="lbl" style="margin:8px 0 3px">expects (regex)</label><input id="remPreX" class="fld" style="font-family:var(--mono);font-size:12.5px" value="'+esc(p.precheck?p.precheck.expect_regex||'':'')+'" spellcheck="false"></div></div>'
+    +rej.filter(x=>x.where==='precheck').map(x=>'<div class="critbox">✗ precheck rejected: '+x.reasons.map(esc).join('; ')+'</div>').join('')
+    +'<div id="remSteps">'+p.steps.map(s=>stepHtml(s,rej)).join('')+'</div>'
+    +'<button class="btn ghost sm" id="remAdd">＋ Add step</button>'
+    +'<div class="row" style="gap:6px 10px"><div><label class="lbl" style="margin:8px 0 3px">post-verify (read-only)'+vcNote(p.post_verify)+'</label><input id="remPost" class="fld" style="font-family:var(--mono);font-size:12.5px" value="'+esc(p.post_verify?p.post_verify.command:'')+'" spellcheck="false"></div><div style="flex:0 1 200px"><label class="lbl" style="margin:8px 0 3px">expects (regex)</label><input id="remPostX" class="fld" style="font-family:var(--mono);font-size:12.5px" value="'+esc(p.post_verify?p.post_verify.expect_regex:'')+'" spellcheck="false"></div></div>'
+    +rej.filter(x=>x.where==='post_verify').map(x=>'<div class="critbox">✗ post-verify rejected: '+x.reasons.map(esc).join('; ')+'</div>').join('')
+    +(o.warnings||[]).map(w=>'<div class="warnbox">⚠ '+esc(w)+'</div>').join('')
+    +((p.references||[]).length?'<div class="sub" style="margin-top:6px">References: '+p.references.map(u=>'<a class="applink" target="_blank" rel="noopener noreferrer" href="'+esc(safeUrl(u))+'">'+esc(u)+'</a>').join(' · ')+'</div>':'')
+    +'<div class="sub mono" style="margin-top:6px;font-size:11px">generated sha256 '+esc((o.generated_hash||'').slice(0,16))+'… · current '+esc((o.hash||'').slice(0,16))+'…</div>'
+    +'<div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap"><button class="btn ghost sm" id="remVal">↻ Re-validate edits</button><button class="btn ghost sm" id="remDry">🧪 Dry run</button><button class="btn run sm" id="remDeploy"'+(o.deployable?'':' disabled title="fix or remove the rejected steps first"')+'>🛠 Deploy plan</button></div>'
+    +(o.deployable?'<div class="okbox">✓ Validator passed — '+N(p.steps.length)+' step(s) deployable.</div>':'<div class="critbox">⛔ Not deployable yet — '+(rej.length?N(rej.length)+' rejected command(s); edit or remove them and re-validate.':'no steps.')+'</div>');
+  $('remOut').innerHTML='<div class="cols2" style="margin-top:10px"><div>'+left+'</div><div>'+right+'</div></div><div id="remRun"></div>';
+  $('remVal').onclick=revalidate; $('remDry').onclick=()=>deployPlan(true); $('remDeploy').onclick=()=>deployPlan(false);
+  $('remAdd').onclick=()=>{ REM.plan=collectPlan(); REM.plan.steps.push({n:REM.plan.steps.length+1,purpose:'added by operator',command:'',expect_exit:[0],verify:null,rollback:'',requires_reboot:false,risk:'medium'}); REM.deployable=false; renderPlan(); };
+  document.querySelectorAll('[data-rmstep]').forEach(b=>b.onclick=()=>{ const p2=collectPlan(); p2.steps=p2.steps.filter((s,i)=>String(i+1)!==b.dataset.rmstep).map((s,i)=>Object.assign(s,{n:i+1})); REM.plan=p2; REM.deployable=false; renderPlan(); });
+  $('remOut').querySelectorAll('input').forEach(i=>i.addEventListener('input',()=>{ const d=$('remDeploy'); if(d){ d.disabled=true; d.title='re-validate your edits first'; } }));
+}
+function remTargets(){ const l=remHostList(); if(l.length) return l; return (TGT&&TGT.targets||[]).map(t=>t.target); }
+$('remGen').onclick=async()=>{ const selector=$('remSel').value.trim(); if(!selector){ flash('flash','enter a plugin id or CVE','warn'); return; }
+  const targets=remTargets();
+  $('remOut').innerHTML='<div class="infobox"><span class="spin"></span> reading Tenable\'s text'+($('remAi').checked?' and asking the model':'')+'…</div>';
+  let o; try{ o=await API.post('plan_ai',{selector,targets,family:$('remFam').value,use_llm:$('remAi').checked,source:HANDOFF_SRC||''}); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o.ok){ $('remOut').innerHTML='<div class="critbox">✗ '+esc(o.error||'failed')+'</div>'; return; }
+  REM=o; REM.selector=selector; renderPlan(); loadGlance(); };
+async function revalidate(){ const plan=collectPlan();
+  let o; try{ o=await API.post('plan_validate',{plan,plan_id:REM.plan_id,selector:REM.selector,targets:remTargets()}); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o.ok){ flash('flash','✗ '+esc(o.error||'validation failed'),'crit'); return; }
+  Object.assign(REM,{plan:o.plan,rejected:o.rejected,warnings:(o.changes&&o.changes.length?['Your edits vs the generated plan: '+o.changes.join(' · ')]:[]).concat(o.warnings||[]),deployable:o.deployable,hash:o.hash,generator:'edited'}); renderPlan(); }
+function renderRem(run, box){ let h=progress(run);
+  (run.hosts||[]).forEach(x=>{ h+='<div class="hostcard">'+hostHead(x)+((x.steps||[]).length?'<div class="tw"><table class="c2"><tbody>'+x.steps.map(s=>'<tr><td style="width:30%">'+esc(s.what)+'</td><td>'+ST(s.status)+(s.exit_code!=null?' <span class="mut">exit '+esc(s.exit_code)+'</span>':'')+'</td><td><details class="o cpbox"><summary>command &amp; output</summary><pre class="out">$ '+esc(s.command)+'\n'+esc(s.output||'')+'</pre></details></td></tr>').join('')+'</tbody></table></div>':'')+'</div>'; });
+  const failed=(run.hosts||[]).filter(x=>(+x.ran_upto||0)>0&&x.status!=='changed').map(x=>x.target);
+  const hasRb=REM&&REM.plan&&REM.plan.steps.some(s=>s.rollback);
+  if(run.kind==='remediate' && !['queued','running'].includes(run.status) && failed.length && hasRb) h+='<div class="warnbox">↩ '+N(failed.length)+' host(s) ran step(s) but did not finish cleanly. <button class="btn ghost sm" id="rbBtn">↩ Roll back on '+N(failed.length)+' host(s)</button> (separately confirmed)</div>';
+  if(!['queued','running'].includes(run.status) && (run.hosts||[]).some(x=>x.status==='changed')) h+='<div class="okbox">Next: rescan the fixed hosts (Tenable confirms a fix only after a scan), then <b>↻ Refresh navi.db</b>.</div>';
+  $(box).innerHTML=h;
+  const rb=$('rbBtn'); if(rb) rb.onclick=()=>rollbackPlan(failed, run.run_id); }
+async function deployPlan(dry){
+  const plan=collectPlan(); const targets=remTargets();
+  if(!targets.length){ flash('flash','select at least one host (▶ Find affected hosts, or 🎯 Targets)','warn'); return; }
+  const body={plan,selector:REM.selector,targets,plan_id:REM.plan_id,source:HANDOFF_SRC||''};
+  if(dry){ let o; try{ o=await API.post('deploy',Object.assign(body,{dry_run:true})); }catch(e){ o={ok:false,error:e.message}; }
+    if(!o.ok&&o.rejected){ Object.assign(REM,{rejected:o.rejected,deployable:false}); renderPlan(); }
+    renderDry(o,'remRun'); return; }
+  const tg=await API.post('targets',{targets}).catch(()=>null); const saved=TGT; if(tg&&tg.ok) TGT=tg;
+  const msg=confirmText('DEPLOY remediation plan ('+(REM.generator==='llm'?'AI-generated':REM.generator)+', sha256 '+(REM.hash||'').slice(0,12)+'…)?',
+    plan.steps.map(s=>'  step '+s.n+': '+s.command).concat(['Canary first · stops on the first error · strict host keys.']));
+  TGT=saved; if(!confirm(msg)) return;
+  $('remRun').innerHTML='<div class="infobox"><span class="spin"></span> deploying…</div>';
+  let o; try{ o=await API.post('deploy',Object.assign(body,{confirm:true,canary:true})); }catch(e){ o={ok:false,error:e.message}; }
+  if(o.rejected){ Object.assign(REM,{rejected:o.rejected,deployable:false}); renderPlan(); }
+  DEPLOYED={plan,targets,run_id:o.run_id}; afterStart(o,'remRun',renderRem); }
+async function rollbackPlan(hosts, runId){
+  let d; try{ d=await API.post('rollback',{plan_id:REM.plan_id,run_id:runId,targets:hosts,dry_run:true}); }catch(e){ d={ok:false,error:e.message}; }
+  if(!d.ok){ flash('flash','✗ '+esc(d.error||'rollback unavailable'),'crit'); return; }
+  if(!confirm('ROLL BACK on '+hosts.length+' host(s): '+hosts.join(', ')+'?\n\nOnly the steps that ran on each host are undone, newest first:\n'+d.sequence.map(x=>'  '+x.what+': '+x.command).join('\n')+'\n\nEvery command is recorded in the C2 log.'+(RCE?'':'\n\nRemote execution is DISABLED on the server — this will be refused.'))) return;
+  let o; try{ o=await API.post('rollback',{plan_id:REM.plan_id,run_id:runId,targets:hosts,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+  afterStart(o,'remRun',renderRem); }
+
+/* ---------------- free-form (single command / file / campaign) ---------------- */
 $('tabs').querySelectorAll('button').forEach(b=>b.onclick=()=>{
   $('tabs').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));
   document.querySelectorAll('.panel').forEach(p=>p.classList.remove('on'));
-  $('p-'+b.dataset.t).classList.add('on');
-  if(b.dataset.t==='log') loadLog();
+  $('p-'+b.dataset.t).classList.add('on'); if(b.dataset.t==='camp') syncCamp();
 });
-
-/* ---- generic arm/confirm box (spells out the LITERAL command) ---- */
 function armBox(boxId, host, literal, opts, onExec){
   const dangers=(opts&&opts.dangers)||[], warns=(opts&&opts.warnings)||[], secret=opts&&opts.secret;
   let h='<div class="arm"><b>⚠ Confirm remote execution</b> on <span class="mono">'+esc(host)+'</span>';
   h+='<pre>'+esc(literal)+'</pre>';
   warns.forEach(w=>h+='<div class="warnbox">⚠ '+esc(w)+'</div>');
-  if(secret) h+='<div class="warnbox">🔑 Looks like a secret is embedded — it will be written verbatim to the push ledger. Consider a file/agent-based secret instead.</div>';
+  if(secret) h+='<div class="warnbox">🔑 Looks like a secret is embedded — it is masked in the C2 log, but it still travels to the host. Consider a file/agent-based secret instead.</div>';
   if(dangers.length){ h+='<div class="critbox">☠ Destructive: '+dangers.map(esc).join('; ')+'<br><label class="swch" style="margin-top:7px"><input type="checkbox" id="'+boxId+'_force"> I understand — run it anyway</label></div>'; }
   h+='<label class="swch" style="margin-top:9px"><input type="checkbox" id="'+boxId+'_ok"> I confirm this runs on '+esc(host)+'</label>';
-  h+='<div style="margin-top:10px;display:flex;gap:8px"><button class="btn run sm" id="'+boxId+'_go">Execute</button><button class="btn ghost sm" id="'+boxId+'_no">Cancel</button></div></div>';
+  h+='<div style="margin-top:10px;display:flex;gap:8px"><button class="btn run sm" id="'+boxId+'_go">⚡ Execute</button><button class="btn ghost sm" id="'+boxId+'_no">Cancel</button></div></div>';
   $(boxId).innerHTML=h;
   $(boxId+'_no').onclick=()=>{ $(boxId).innerHTML=''; };
   $(boxId+'_go').onclick=()=>{
     if(!$(boxId+'_ok').checked){ return; }
     const force=$(boxId+'_force')?$(boxId+'_force').checked:false;
     if(dangers.length && !force){ return; }
+    if(!confirm('Execute on '+host+'?\n\n'+literal+(dangers.length?'\n\nDestructive: '+dangers.join('; '):'')+'\n\nHost keys: '+($('tofu').checked?'accept a NEW key, refuse a changed one':'strict — unknown hosts are refused')+'. Recorded in the C2 log.'+(RCE?'':'\n\nRemote execution is DISABLED on the server — this will be refused.'))) return;   /* the browser confirm every write shows */
     $(boxId).innerHTML=''; onExec(force);
   };
 }
-
-/* ---- single command ---- */
 $('cmdPre').onclick=async()=>{
-  const target=$('cmdHost').value, command=$('cmdText').value.trim();
+  const target=$('cmdHost').value.trim(), command=$('cmdText').value.trim();
   if(!command){ flash('cmdMsg','enter a command','warn'); return; }
   let o; try{ o=await API.post('precheck',{target,command}); }catch(e){ o={ok:false}; }
   let h='';
   if(o.danger) h+='<div class="critbox">☠ Destructive: '+(o.dangers||[]).map(esc).join('; ')+' — will require an extra confirm.</div>';
+  h+='<div class="sub" style="margin-top:4px">The denylist is <b>advisory — a warning, not a guard</b>: a shell can always spell a command it has not seen. The real controls are the server gates + your confirm.</div>';
   (o.warnings||[]).forEach(w=>h+='<div class="warnbox">⚠ '+esc(w)+'</div>');
-  if(o.secret_risk) h+='<div class="warnbox">🔑 Possible secret in the command — it gets logged verbatim.</div>';
-  if(!h) h='<div class="okbox">✓ No denylist hits or warnings. Still your responsibility to review.</div>';
+  if(o.secret_risk) h+='<div class="warnbox">🔑 Possible secret in the command — masked in the C2 log, but sent to the host.</div>';
+  if(!o.danger && !(o.warnings||[]).length && !o.secret_risk) h='<div class="okbox">✓ No denylist hits or warnings. The denylist is advisory (a warning, not a guard) — still your responsibility to review.</div>';
   $('cmdMsg').innerHTML=h;
 };
 $('cmdArm').onclick=async()=>{
-  const target=$('cmdHost').value, command=$('cmdText').value.trim();
+  const target=$('cmdHost').value.trim(), command=$('cmdText').value.trim();
   if(!target){ flash('cmdMsg','pick a host','warn'); return; }
   if(!command){ flash('cmdMsg','enter a command','warn'); return; }
   if(!RCE){ flash('cmdMsg','remote execution is disabled on the server — see the banner','crit'); return; }
   let pc; try{ pc=await API.post('precheck',{target,command}); }catch(e){ pc={}; }
   armBox('cmdArmBox', target, command, {dangers:pc.dangers||[],warnings:pc.warnings||[],secret:pc.secret_risk}, async(force)=>{
     flash('flash','<span class="spin"></span> pushing to '+esc(target)+'…','run');
-    let o; try{ o=await API.post('command',{target,command,confirm:true,force}); }catch(e){ o={ok:false,error:e.message}; }
-    flashClear('flash'); setGate(o);
-    $('cmdOut').innerHTML=resultBox(o);
+    let o; try{ o=await API.post('command',{target,command,confirm:true,force,accept_new_hostkey:$('tofu').checked,source:HANDOFF_SRC||''}); }catch(e){ o={ok:false,error:e.message}; }
+    flashClear('flash'); setGate(o); $('cmdOut').innerHTML=resultBox(o); loadGlance();
   });
 };
-
-/* ---- file push ---- */
-$('fileIn').addEventListener('change',()=>{ UPLOAD=null; $('fileState').textContent=$('fileIn').files[0]?('selected: '+$('fileIn').files[0].name):''; });
+$('fileIn').addEventListener('change',()=>{ UPLOAD=null; $('fileState').textContent=$('fileIn').files[0]?('selected: '+$('fileIn').files[0].name):''; syncCamp(); });
 $('fileUp').onclick=async()=>{
   const f=$('fileIn').files[0]; if(!f){ flash('flash','choose a file first','warn'); return; }
+  if(!RCE){ flash('flash','remote execution is disabled on the server — uploads are refused (see the banner)','crit'); return; }
+  if(!confirm('Upload '+f.name+' ('+f.size+' bytes) to the server for a later remote push?\n\nIt is staged in data/c2_uploads (oldest uploads are pruned past the storage cap). Nothing runs until you push it.')) return;
   flash('flash','<span class="spin"></span> uploading…','run');
   const b64=await new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(String(r.result).split(',')[1]||''); r.onerror=rej; r.readAsDataURL(f); });
-  let o; try{ o=await API.post('upload',{filename:f.name,content_b64:b64}); }catch(e){ o={ok:false,error:e.message}; }
+  let o; try{ o=await API.post('upload',{filename:f.name,content_b64:b64,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
   flashClear('flash');
-  if(!o.ok){ $('fileState').innerHTML='<span style="color:#f43f5e">✗ '+esc(o.error||'upload failed')+'</span>'; return; }
-  UPLOAD=o; $('fileState').innerHTML='✓ on server: <span class="mono">'+esc(o.name)+'</span> ('+o.bytes+' bytes) — ready to scp';
+  if(!o.ok){ $('fileState').innerHTML='<span style="color:var(--crit)">✗ '+esc(o.error||'upload failed')+'</span>'; return; }
+  UPLOAD=o; $('fileState').innerHTML='✓ on server: <span class="mono">'+esc(o.name)+'</span> ('+o.bytes+' bytes) — ready to scp'; syncCamp();
 };
 $('fileArm').onclick=async()=>{
-  const target=$('fileHost').value;
+  const target=$('fileHost').value.trim();
   if(!UPLOAD){ flash('flash','upload the file to the server first','warn'); return; }
   if(!target){ flash('flash','pick a host','warn'); return; }
   if(!RCE){ flash('flash','remote execution is disabled — see the banner','crit'); return; }
   armBox('fileArmBox', target, 'scp  '+UPLOAD.name+'   →   '+target, {}, async()=>{
     flash('flash','<span class="spin"></span> shipping '+esc(UPLOAD.name)+'…','run');
-    let o; try{ o=await API.post('push_file',{target,path:UPLOAD.path,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
-    flashClear('flash'); setGate(o); $('fileOut').innerHTML=resultBox(o);
+    let o; try{ o=await API.post('push_file',{target,path:UPLOAD.path,confirm:true,accept_new_hostkey:$('tofu').checked}); }catch(e){ o={ok:false,error:e.message}; }
+    flashClear('flash'); setGate(o); $('fileOut').innerHTML=resultBox(o); loadGlance();
   });
 };
-
-/* ---- patch a vuln ---- */
-$('planBtn').onclick=async()=>{
-  const selector=$('planSel').value.trim(); if(!selector){ flash('flash','enter a plugin id, CVE, or keyword','warn'); return; }
-  flash('flash','<span class="spin"></span> searching vulns…','run');
-  let o; try{ o=await API.post('plan',{selector}); }catch(e){ o={ok:false,error:e.message}; }
-  flashClear('flash');
-  if(!o.ok){ $('planOut').innerHTML='<div class="critbox">✗ '+esc(o.error||'failed')+'</div>'; return; }
-  PLAN=o;
-  const lh=o.linux_hosts||[];
-  let h='<div class="okbox">Matched <b>'+o.matched_assets+'</b> asset(s) · <b>'+lh.length+'</b> Linux host(s) patchable'+(o.excluded_count?(' · <b>'+o.excluded_count+'</b> non-Linux excluded'):'')+'</div>';
-  if(o.plugin_names&&o.plugin_names.length) h+='<p class="sub">'+o.plugin_names.map(esc).join(' · ')+'</p>';
-  if(o.solutions_available && (o.solutions||[]).length){
-    h+='<label class="lbl">Tenable\'s stated Solution (plugins table)</label>';
-    h+=o.solutions.map(s=>'<div class="okbox" style="margin:6px 0"><b class="mono">'+esc(s.plugin_id)+'</b> '+esc(s.plugin_name||'')+(s.fix_hint?(' <span class="badge">'+esc(s.fix_hint)+'</span>'):'')+'<div style="margin-top:5px;white-space:pre-wrap;font-size:13px">'+esc(s.solution)+'</div></div>').join('');
-  } else if(o.solutions_note){
-    h+='<div class="warnbox">ℹ '+esc(o.solutions_note)+'</div>';
-  }
-  h+='<label class="lbl">Remediation command — applies the Solution above (edit per host)</label>';
-  h+='<div class="row"><div style="flex:0 0 auto"><select id="tmplPick" class="fld">'+((o.templates||[]).map((t,i)=>'<option value="'+i+'">'+esc(t.os)+'</option>').join(''))+'</select></div>'+
-     '<div style="flex:2 1 320px"><input id="planCmd" class="fld" value="'+esc((o.templates&&o.templates[0]?o.templates[0].cmd:''))+'"></div></div>';
-  h+='<div class="warnbox" style="margin-top:8px">⚠ A CVE doesn\'t map 1:1 to a safe command. Confirm the package name per host.</div>';
-  if(lh.length){
-    h+='<div class="hostpick" id="planHosts">'+lh.map((x,i)=>'<label><input type="checkbox" class="ph" data-ip="'+esc(x.ip)+'" checked> <span class="mono">'+esc(x.ip)+'</span> '+esc(x.hostname||'')+(x.crown?' <span class="badge crown">★ ACR '+x.acr+'</span>':'')+'</label>').join('')+'</div>';
-    h+='<button class="btn run sm" id="toCamp" style="margin-top:12px">🎯 Build campaign from selected →</button>';
-  } else { h+='<div class="warnbox">No Linux hosts to patch for this selector.</div>'; }
-  $('planOut').innerHTML=h;
-  if($('tmplPick')) $('tmplPick').onchange=()=>{ $('planCmd').value=(o.templates[+$('tmplPick').value]||{}).cmd||''; };
-  if($('toCamp')) $('toCamp').onclick=()=>{
-    const ips=[...document.querySelectorAll('.ph:checked')].map(c=>c.dataset.ip);
-    if(!ips.length){ flash('flash','select at least one host','warn'); return; }
-    CAMP.hosts=ips; CAMP.command=$('planCmd').value.trim(); CAMP.path=""; CAMP.selector=o.selector;
-    openCampaign();
-  };
-};
-
-/* ---- campaign ---- */
-function openCampaign(){
-  $('tabs').querySelectorAll('button').forEach(x=>x.classList.toggle('on',x.dataset.t==='camp'));
-  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('on')); $('p-camp').classList.add('on');
-  $('campEmpty').style.display='none'; $('campBody').style.display='';
-  $('campCmd').value=CAMP.command; $('campCount').textContent=CAMP.hosts.length;
-  $('campHosts').innerHTML=CAMP.hosts.map(ip=>'<span class="pill">'+esc(ip)+'</span>').join('');
-  $('campFileNote').style.display=CAMP.path?'':'none';
-  if(CAMP.path){ $('campFileNote').innerHTML='File mode: shipping <span class="mono">'+esc(CAMP.path.split(/[\\/]/).pop())+'</span> to each host.'; $('campCmd').style.display='none'; }
-  else { $('campCmd').style.display=''; }
-  $('armSwitch').checked=false; $('campRun').disabled=true;
-}
+function campHosts(){ return (TGT&&TGT.targets||[]).map(t=>t.target); }
+function syncCamp(){ const hs=campHosts(); $('campCount').textContent=hs.length;
+  $('campHosts').innerHTML=hs.length?hs.slice(0,60).map(ip=>'<span class="pill">'+esc(ip)+'</span>').join('')+(hs.length>60?' <span class="sub">+'+(hs.length-60)+' more</span>':''):'<span class="sub">No targets — pick them in 🎯 Targets.</span>';
+  $('campFileNote').innerHTML=UPLOAD?('Uploaded file available: <span class="mono">'+esc(UPLOAD.name)+'</span>'):'';
+  $('armSwitch').checked=false; $('campRun').disabled=true; }
 $('armSwitch').addEventListener('change',()=>{ $('campRun').disabled=!$('armSwitch').checked; });
 $('campRun').onclick=async()=>{
   if(!$('armSwitch').checked) return;
-  const command=CAMP.path?'':$('campCmd').value.trim();
+  const useFile=$('campFile').checked; const command=useFile?'':$('campCmd').value.trim(); const hosts=campHosts();
   if(!RCE){ flash('flash','remote execution is disabled — see the banner','crit'); return; }
-  if(!CAMP.hosts.length){ flash('flash','no hosts','warn'); return; }
-  if(!CAMP.path && !command){ flash('flash','enter a command','warn'); return; }
+  if(!hosts.length){ flash('flash','no hosts — pick them in 🎯 Targets','warn'); return; }
+  if(useFile && !UPLOAD){ flash('flash','upload a file first (📦 File push)','warn'); return; }
+  if(!useFile && !command){ flash('flash','enter a command','warn'); return; }
   const canary=$('optCanary').checked, stop=$('optStop').checked, max=parseInt($('optMax').value||'200',10);
-  const literal=(CAMP.path?('scp '+CAMP.path.split(/[\\/]/).pop()):command)+'\n\non '+CAMP.hosts.length+' host(s)'+(canary?'  · canary first':'')+(stop?'  · stop on failure':'');
+  const literal=(useFile?('scp '+UPLOAD.name):command)+'\n\non '+hosts.length+' host(s)'+(canary?'  · canary first':'')+(stop?'  · stop on failure':'');
   let pc={dangers:[]}; if(command){ try{ pc=await API.post('precheck',{command}); }catch(e){} }
-  armBox('campArmBox', CAMP.hosts.length+' hosts', literal, {dangers:pc.dangers||[]}, async(force)=>{
+  armBox('campArmBox', hosts.length+' hosts', literal, {dangers:pc.dangers||[]}, async(force)=>{
     flash('flash','<span class="spin"></span> arming campaign…','run');
-    const body={hosts:CAMP.hosts,armed:true,confirm:true,force,canary,stop_on_failure:stop,max_hosts:max};
-    if(CAMP.path) body.path=CAMP.path; else body.command=command;
+    const body={hosts,armed:true,confirm:true,force,canary,stop_on_failure:stop,max_hosts:max,accept_new_hostkey:$('tofu').checked};
+    if(useFile) body.path=UPLOAD.path; else body.command=command;
     let o; try{ o=await API.post('campaign',body); }catch(e){ o={ok:false,error:e.message}; }
     flashClear('flash'); setGate(o);
     if(o.blocked){ $('campOut').innerHTML='<div class="critbox">🔴 '+esc(o.reason||'remote execution disabled')+'</div>'; return; }
     if(!o.ok){ $('campOut').innerHTML='<div class="critbox">✗ '+esc(o.error||'failed')+'</div>'; return; }
-    let h='<div class="okbox">🚀 '+esc(o.message||'campaign running')+'</div>';
-    h+='<button class="btn ghost sm" id="campAbort" data-cid="'+esc(o.campaign_id)+'">⛔ Abort campaign</button>';
-    $('campOut').innerHTML=h;
-    $('campAbort').onclick=async()=>{ let a; try{ a=await API.post('abort',{campaign_id:o.campaign_id}); }catch(e){ a={}; } flash('flash',esc((a&&a.message)||'abort requested'),'warn'); };
+    $('campOut').innerHTML='<div class="okbox">🚀 '+esc(o.message||'campaign running')+'</div>';
+    pollRun(o.run_id, run=>{ let h=progress(run)+'<div class="tw"><table class="c2"><thead><tr><th>Host</th><th>Status</th><th>Detail</th></tr></thead><tbody>'+(run.hosts||[]).map(x=>'<tr><td class="mono">'+esc(x.target)+'</td><td>'+ST(x.status)+(x.exit_code!=null?' <span class="mut">exit '+esc(x.exit_code)+'</span>':'')+'</td><td>'+esc(x.message||'')+(x.output?'<details class="o cpbox"><summary>output</summary><pre class="out">'+esc(x.output)+'</pre></details>':'')+'</td></tr>').join('')+'</tbody></table></div>'; $('campOut').innerHTML=h; });
   });
 };
-$('campVerify').onclick=async()=>{
-  if(!CAMP.selector){ flash('flash','verify works after a Patch-a-vuln plan (needs the selector)','warn'); return; }
-  flash('flash','<span class="spin"></span> re-checking vulns…','run');
-  let o; try{ o=await API.post('verify',{selector:CAMP.selector,hosts:CAMP.hosts}); }catch(e){ o={ok:false}; }
-  flashClear('flash');
-  const cls=o.clear?'okbox':'warnbox';
-  $('campOut').innerHTML='<div class="'+cls+'">'+(o.clear?'✓ clear — ':'⚠ ')+esc(o.still_open||0)+' still open across '+esc(o.checked_hosts||0)+' host(s). '+esc(o.note||'')+'</div>';
-};
-
-/* ---- ledger ---- */
-async function loadLog(){
-  let o; try{ o=await API.post('log',{limit:60}); }catch(e){ o={ok:false}; }
-  const e=(o&&o.entries)||[];
-  if(!e.length){ $('logOut').innerHTML='<p class="sub">No pushes yet.</p>'; return; }
-  $('logOut').innerHTML='<table class="c2"><thead><tr><th>#</th><th>host</th><th>kind</th><th>detail</th><th>status</th><th>result</th></tr></thead><tbody>'+
-    e.map(j=>'<tr><td class="mono">'+esc(j.id)+'</td><td class="mono">'+esc(j.value||'')+'</td><td>'+esc(j.selector||'')+'</td><td class="mut">'+esc((j.detail||'').slice(0,80))+'</td><td>'+badge(j)+'</td><td class="mut">'+esc((j.message||'').slice(0,80))+'</td></tr>').join('')+'</tbody></table>';
-}
-function badge(j){ const s=j.status; const c=s==='done'?'#34d399':(s==='error'?'#f43f5e':'#fbbf24'); return '<span class="badge" style="color:'+c+';border-color:'+c+'55">'+esc(s||'')+'</span>'; }
 function resultBox(o){
   if(!o) return '';
-  if(o.blocked) return '<div class="critbox">🔴 '+esc(o.message||'blocked')+'</div>';
+  if(o.blocked) return '<div class="critbox">🔴 '+esc(o.message||o.reason||'blocked')+'</div>';
   if(o.needs_force) return '<div class="critbox">☠ '+esc(o.error||'destructive — needs force')+'</div>';
-  const outPre=(x)=>{ let h=''; const so=(x.stdout||'').trim(), se=(x.stderr||'').trim();
-    if(so) h+='<div class="mut" style="margin-top:6px;font-size:11px">remote stdout</div><pre style="white-space:pre-wrap;font-size:11.5px;margin-top:2px">'+esc(String(so).slice(-4000))+'</pre>';
-    if(se) h+='<div class="mut" style="margin-top:6px;font-size:11px">stderr</div><pre style="white-space:pre-wrap;font-size:11.5px;margin-top:2px">'+esc(String(se).slice(-2000))+'</pre>';
-    return h; };
-  if(o.ok) return '<div class="okbox">✓ '+esc(o.message||'pushed')+(o.returncode!=null?(' (exit '+o.returncode+')'):'')+'</div>'+outPre(o);
-  return '<div class="critbox">✗ '+esc(o.error||o.message||'failed')+(o.returncode!=null?(' (exit '+o.returncode+')'):'')+'</div>'+outPre(o);
+  const out=String(o.output!=null?o.output:(o.stdout||'')).trim();
+  const pre=out?'<div class="cpbox"><div class="mut" style="margin-top:6px;font-size:11px">remote output (not stored) <button class="btn ghost sm copy" data-copy="pre">📋 Copy</button></div><pre class="out">'+esc(out.slice(-8000))+'</pre></div>':'';
+  const head=(o.status?ST(o.status)+' ':'')+esc(o.error||o.message||(o.ok?'pushed':'failed'))+(o.exit_code!=null?(' (exit '+esc(o.exit_code)+')'):'');
+  if(o.status==='hostkey_mismatch') return '<div class="critbox">🚨 '+head+'</div>';
+  return '<div class="'+(o.ok?'okbox':'critbox')+'">'+(o.ok?'✓ ':'✗ ')+head+'</div>'+pre;
 }
-$('logBtn').onclick=loadLog;
+
+/* ---------------- runs list ---------------- */
+async function loadRuns(){
+  let o; try{ o=await API.post('run_status',{}); }catch(e){ o=null; }
+  const rs=(o&&o.runs)||[];
+  setNavCount('secRuns', rs.filter(r=>['queued','running'].includes(r.status)).length||'');
+  $('runsOut').innerHTML=rs.length?rs.slice(0,15).map(progress).join(''):'<p class="sub">No runs since the server started.</p>';
+}
+$('runsBtn').onclick=loadRuns;
 $('refreshBtn').onclick=async()=>{ flash('flash','<span class="spin"></span> syncing assets+vulns…','run'); try{ await API.post('refresh',{}); }catch(e){} flash('flash','sync kicked off in the background','ok'); setTimeout(loadHosts,1200); };
 
-mountAgentHeader({id:'c2',icon:'🐺',name:'Command & Control',sub:'Amarok · the remediation executor'});
+/* ---------------- hand-off from another hound ----------------
+   Another hound calls c2Handoff({intent, targets, path, plugin_id, cve, source}) (console.js):
+   the request travels ONLY through sessionStorage (same origin, this tab) — never the URL —
+   and is read once and cleared here. It PRE-FILLS the page and shows a banner; it never runs
+   anything: every remote action still needs the operator's click + confirm. */
+let HANDOFF_SRC='';
+function takeHandoff(){
+  let raw=null; try{ raw=sessionStorage.getItem('c2_handoff'); sessionStorage.removeItem('c2_handoff'); }catch(e){}
+  if(!raw) return;
+  let h; try{ h=JSON.parse(raw); }catch(e){ return; }
+  if(!h||typeof h!=='object') return;
+  const intent=['validate_path','diagnose','remediate'].includes(h.intent)?h.intent:'';
+  if(!intent) return;
+  const src=String(h.source||'another hound').replace(/[^\w .:()\/-]/g,'').slice(0,60);
+  const ts=(Array.isArray(h.targets)?h.targets:[]).slice(0,256).map(t=>({ip:String((t&&t.ip)||'').trim(),hostname:String((t&&t.hostname)||'').slice(0,120)})).filter(t=>t.ip);
+  const path=typeof h.path==='string'?h.path.slice(0,1024):'';
+  const pid=/^\d{1,7}$/.test(String(h.plugin_id||''))?String(h.plugin_id):'';
+  const cve=/^CVE-\d{4}-\d{3,7}$/i.test(String(h.cve||''))?String(h.cve).toUpperCase():'';
+  HANDOFF_SRC=src;
+  const what=intent==='validate_path'?('validate the path <span class="mono">'+esc(path)+'</span>'):intent==='remediate'?('remediate '+(pid?'plugin <span class="mono">'+esc(pid)+'</span>':'')+(cve?' '+esc(cve):'')):'run diagnostics';
+  $('handoff').style.display='';
+  $('handoff').innerHTML='📨 <b>Request from '+esc(src)+'</b> — '+what+(ts.length?' on <b>'+N(ts.length)+'</b> host(s): '+ts.slice(0,8).map(t=>'<span class="mono">'+esc(t.ip)+'</span>').join(', ')+(ts.length>8?' …':''):'')+'.<br><span class="sub">Pre-filled below. <b>Nothing runs</b> until you review it and press the button (then confirm).</span> <button class="btn ghost sm" id="hoDismiss">✕ Dismiss</button>';
+  $('hoDismiss').onclick=()=>{ $('handoff').style.display='none'; HANDOFF_SRC=''; };
+  if(ts.length && intent!=='remediate'){ $('freeTargets').value=ts.map(t=>t.ip).join('\n'); validateTargets(); }
+  if(intent==='validate_path'){ $('pathIn').value=path; setTimeout(()=>$('secPath').scrollIntoView({behavior:'smooth'}),300); }
+  else if(intent==='remediate'){ $('remSel').value=pid||cve; if(ts.length) renderRemHosts(ts.map(t=>({ip:t.ip,hostname:t.hostname})),'Hosts handed over by '+esc(src)+' — untick any you do not want, or ▶ Find affected hosts for all of them.'); setTimeout(()=>$('secRem').scrollIntoView({behavior:'smooth'}),300); }
+  else { setTimeout(()=>$('secDiag').scrollIntoView({behavior:'smooth'}),300); }
+}
+
+mountAgentHeader({id:'c2',icon:'🐺',name:'Command & Control',sub:'Amarok · troubleshoot & remediate over SSH'});
 try{ hMailAuto(); }catch(e){}
-loadStatus(); loadHosts();
+mountSectionNav();
+loadStatus(); loadHosts(); loadCatalog(); loadGlance(); loadRuns(); takeHandoff();
+validateTargets();
 </script>
 </body></html>

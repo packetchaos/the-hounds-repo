@@ -75,9 +75,35 @@ def _model_default(provider=None) -> str:
     return _MODEL_DEFAULTS.get(provider or PROVIDER, _MODEL_DEFAULTS["anthropic"])
 
 
-# NAVI_LLM_MODEL wins everywhere; ANTHROPIC_MODEL still works (back-compat).
-DEFAULT_MODEL = (os.environ.get("NAVI_LLM_MODEL") or os.environ.get("ANTHROPIC_MODEL")
-                 or _model_default())
+def looks_like_secret(v) -> bool:
+    """True for an API key / cloud credential pasted into a non-secret field (e.g. the
+    model box). Model ids never start like this."""
+    v = (v or "").strip()
+    return v.startswith(("sk-", "AKIA", "ASIA")) or (len(v) > 80 and " " not in v)
+
+
+MODEL_WARNING = ""
+
+
+def resolve_model(provider=None) -> str:
+    """NAVI_LLM_MODEL wins everywhere; ANTHROPIC_MODEL still works (back-compat). A value
+    that looks like an API key is ignored (with a warning) — sending it as the model id
+    makes every call fail."""
+    global MODEL_WARNING
+    MODEL_WARNING = ""
+    for k in ("NAVI_LLM_MODEL", "ANTHROPIC_MODEL"):
+        v = (os.environ.get(k) or "").strip()
+        if not v:
+            continue
+        if looks_like_secret(v):
+            MODEL_WARNING = (f"{k} contains what looks like an API key, not a model id — ignored; "
+                             "using the default model. Clear it on Settings → Environment.")
+            continue
+        return v
+    return _model_default(provider)
+
+
+DEFAULT_MODEL = resolve_model()
 
 
 def base_url(provider=None) -> str:
@@ -91,6 +117,29 @@ def base_url(provider=None) -> str:
         if v and not v.startswith(("http://", "https://")):
             v = "http://" + v
     return (v or _BASE_DEFAULTS.get(p, "")).rstrip("/")
+
+
+def display_url(u) -> str:
+    """An endpoint URL safe to show in the UI: scheme://host[:port]/path — userinfo
+    (user:pass@), query strings and fragments (where some gateways carry keys) are dropped."""
+    import urllib.parse as _up
+    u = (u or "").strip()
+    if not u:
+        return ""
+    try:
+        pu = _up.urlparse(u)
+    except Exception:
+        return ""
+    if not pu.scheme or not pu.hostname:
+        return ""
+    host = pu.hostname
+    if ":" in host:
+        host = "[" + host + "]"
+    try:
+        port = pu.port
+    except ValueError:
+        port = None
+    return f"{pu.scheme}://{host}" + (f":{port}" if port else "") + (pu.path or "").rstrip("/")
 
 
 def api_key(provider=None) -> str:
@@ -188,7 +237,8 @@ def available() -> bool:
 def config() -> dict:
     """What the reasoning layer is pointed at — for the Settings page, /api/health
     and check_llm.py. Never includes the key itself."""
-    return {"provider": PROVIDER, "model": DEFAULT_MODEL, "base_url": base_url(),
+    return {"provider": PROVIDER, "model": DEFAULT_MODEL, "model_warning": MODEL_WARNING,
+            "base_url": display_url(base_url()),
             "available": available(), "max_tokens": MAX_TOKENS_CAP,
             "region": (_aws_region() if PROVIDER == "bedrock" else ""),
             "key_set": bool(api_key()), "providers": list(PROVIDERS)}
@@ -246,8 +296,10 @@ def reset_usage():
 def set_model(m):
     """Change the model live (NAVI_LLM_MODEL is otherwise bound at import)."""
     global DEFAULT_MODEL
-    if m:
+    if m and not looks_like_secret(str(m)):
         DEFAULT_MODEL = str(m).strip()
+    else:
+        DEFAULT_MODEL = resolve_model()
     return DEFAULT_MODEL
 
 
@@ -292,6 +344,8 @@ def _extract_json(text: str) -> dict:
 def _post_json(url: str, body: dict, headers: dict, timeout: int, label: str) -> dict:
     """One HTTP POST + JSON parse, with the error mapping every provider shares.
     Keeps the actionable-message behaviour the pack has always had."""
+    if not str(url or "").lower().startswith(("http://", "https://")):
+        raise RuntimeError(f"{label}: the endpoint must be an http(s) URL (NAVI_LLM_BASE_URL)")
     req = urllib.request.Request(url, data=json.dumps(body).encode(),
                                  headers={"content-type": "application/json", **headers})
     ctx = _SSL_CTX if url.lower().startswith("https") else None
@@ -317,13 +371,13 @@ def _post_json(url: str, body: dict, headers: dict, timeout: int, label: str) ->
         s = str(e)
         if "CERTIFICATE_VERIFY_FAILED" in s:
             raise RuntimeError(
-                f"SSL certificate verification failed reaching {url}. "
+                f"SSL certificate verification failed reaching {display_url(url)}. "
                 "Fix: run  pip install --upgrade certifi  (the app picks it up "
                 "automatically), or on macOS run the 'Install Certificates.command' "
                 "that ships with your python.org Python.") from e
         if PROVIDER == "ollama" and ("refused" in s.lower() or "timed out" in s.lower()):
             raise RuntimeError(
-                f"Can't reach Ollama at {base_url()} ({e.reason}). Start it with "
+                f"Can't reach Ollama at {display_url(base_url())} ({e.reason}). Start it with "
                 "`ollama serve`, pull the model (`ollama pull " + DEFAULT_MODEL + "`), "
                 "or point NAVI_LLM_BASE_URL somewhere else.") from e
         raise
@@ -345,10 +399,10 @@ def _http_hint(code: int, msg: str) -> str:
                     "login or OAuth token).")
     if PROVIDER == "openai":
         if code in (401, 403):
-            return ("  → Key rejected by " + base_url() + ". Check OPENAI_API_KEY / "
+            return ("  → Key rejected by " + display_url(base_url()) + ". Check OPENAI_API_KEY / "
                     "NAVI_LLM_API_KEY, and that the key belongs to THAT endpoint.")
         if code == 404:
-            return (f"  → Not found at {base_url()}/chat/completions. Check "
+            return (f"  → Not found at {display_url(base_url())}/chat/completions. Check "
                     "NAVI_LLM_BASE_URL includes the version path (e.g. .../v1) and that "
                     f"the model '{DEFAULT_MODEL}' exists there.")
         if code == 429:
@@ -488,29 +542,6 @@ def extract_app(prompt: str) -> dict:
                 "model": DEFAULT_MODEL}
     except Exception as e:
         return {"ok": False, "fallback": True, "message": str(e)}
-
-
-def cert_plan(system_prompt: str, certs: list[dict], timeout: int = 40) -> dict:
-    """Certificate triage: the (editable) static system prompt + the failing-cert
-    list → an assessment + per-cert tag/skip decisions. Falls back cleanly with
-    no key (caller then tags everything deterministically)."""
-    if not available():
-        return {"ok": False, "fallback": True,
-                "message": "no ANTHROPIC_API_KEY — tagging all candidates deterministically"}
-    user = ("Certificates failing in the next 12 months (JSON):\n"
-            + json.dumps(certs) + "\n\nReturn ONLY the JSON described in the system prompt.")
-    # One decision per candidate → output grows with the cert count. A fixed cap
-    # (was 1400) truncated the JSON on larger estates, the parse failed, and the
-    # caller wrongly reported "no working model key". Scale to the count, ceiling
-    # at ANTHROPIC_MAX_TOKENS (default 8000).
-    try:
-        data = _extract_json(_messages(system_prompt, user,
-                                       max_tokens=_scaled_budget(len(certs)), timeout=timeout))
-        return {"ok": True, "assessment": data.get("assessment", ""),
-                "tag": data.get("tag", []), "skip": data.get("skip", []),
-                "model": DEFAULT_MODEL}
-    except Exception as e:
-        return {"ok": False, "fallback": True, "message": f"LLM call failed ({e})"}
 
 
 DASH_SYSTEM = (
@@ -939,3 +970,68 @@ def interpret(prompt: str, tags: list[dict], timeout: int = 40) -> dict:
     except Exception as e:
         return {"ok": False, "fallback": True,
                 "message": f"LLM call failed ({e}) — using the deterministic parser"}
+
+
+# =========================================================================== #
+#  Draco — CIS benchmark authoring (grounded by core.benchmarks control index)
+# =========================================================================== #
+BENCHMARK_SYSTEM = (
+    "You are Draco, an expert author of Tenable Nessus .audit compliance checks. "
+    "You are given a named CIS benchmark's CONTROL INDEX (each line: control number, "
+    "a short title, level, topic) and the target platform's available check types and "
+    "keywords. Author one concrete, valid .audit check PER control in the index, in the "
+    "same order, keeping the control number at the front of each description "
+    '(e.g. "5.3 Restrict Linux kernel capabilities within containers"). Return ONLY JSON: '
+    '{"title":"<benchmark file title>","checks":[{"type":"<CHECK_TYPE>","description":'
+    '"<num + concise imperative title>","info":"<why it matters>","fields":{"<keyword>":'
+    '"<value>"},"solution":"<remediation>","references":[{"framework":"<800-53|PCI-DSSv3.2.1|'
+    'HIPAA|CSCv8|ISO/IEC-27001>","control":"<id>"}]}],"notes":"<coverage/assumptions>",'
+    '"applied":["<one line per adjustment you made>"]}. '
+    "Rules: use ONLY the listed check types and keywords; fill EVERY required keyword; keep "
+    "regex valid; map each check to the most relevant framework control(s); never invent "
+    "keywords or check types. HONOR THE USER'S ADJUSTMENTS in their request precisely and "
+    "record each in `applied`: setting a control's expected value, tightening/loosening a "
+    "threshold, DROPPING a control (omit it and note it), or adding a control. If a control "
+    "cannot be expressed with the available check types (a manual/policy control), emit a "
+    "CMD_EXEC best-effort check and say so in `info`. No prose outside the JSON. "
+    "FIELD SEMANTICS — for content/command checks (FILE_CONTENT_CHECK/CMD_EXEC), `regex`/"
+    "`expect` are REGEXES over the file or command text, never a boolean. For a value "
+    "comparison put the required value in `value_data`.")
+
+
+def benchmark_plan(prompt: str, bench: dict, controls: list, vocab: str,
+                   timeout: int = 90) -> dict:
+    """Ground a whole-benchmark draft on a CIS control index (core.benchmarks) and apply
+    any per-control adjustments in the user's prompt. `controls` is the already
+    section-filtered + capped slice to author. Returns {ok,title,checks,notes,applied} or a
+    graceful fallback (the caller then emits a deterministic scaffold from the index)."""
+    if not available():
+        return {"ok": False, "fallback": True,
+                "message": "no ANTHROPIC_API_KEY — benchmark drafting needs the model for the "
+                           "check logic. Returning a structured scaffold from the control index; "
+                           "set ANTHROPIC_API_KEY in Settings for full checks + adjustments."}
+    idx = []
+    for c in (controls or []):
+        refs = ",".join("%s|%s" % (r.get("framework", ""), r.get("control", ""))
+                        for r in (c.get("refs") or [])) or "-"
+        idx.append("%s  %s  [L%s %s]  refs:%s%s" % (
+            c.get("num", ""), c.get("title", ""), c.get("level", 1), c.get("topic", ""),
+            refs, ("  hint:" + c["hint"]) if c.get("hint") else ""))
+    user = ("Benchmark: %s (%s), platform %s\n\n" % (
+                bench.get("name", ""), bench.get("version", ""), bench.get("platform", "Unix"))
+            + "Available check types & keywords:\n" + (vocab or "") + "\n\n"
+            + "CONTROL INDEX (author one check per line, in order):\n" + "\n".join(idx)
+            + "\n\nUser request (apply any adjustments named here):\n" + (prompt or "")
+            + "\n\nReturn ONLY the JSON described in the system prompt.")
+    try:
+        raw = _messages(BENCHMARK_SYSTEM, user, max_tokens=8000, timeout=timeout)
+        obj = _extract_json(raw)
+        checks = obj.get("checks")
+        if not isinstance(checks, list):
+            checks = []
+        applied = obj.get("applied") if isinstance(obj.get("applied"), list) else []
+        return {"ok": True, "title": obj.get("title") or bench.get("name") or "Custom Audit",
+                "checks": checks, "notes": obj.get("notes") or "", "applied": applied,
+                "model": DEFAULT_MODEL}
+    except Exception as e:
+        return {"ok": False, "fallback": True, "message": f"LLM call failed ({e})"}

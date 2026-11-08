@@ -53,7 +53,7 @@
         <button class="btn sm" id="emailBtn" title="Email this report (gated)">📧 Email</button></span></div>
     <div id="emailForm" style="display:none;margin-top:8px;gap:6px;align-items:center;flex-wrap:wrap">
       <input id="emailTo" class="fld" style="min-width:240px;padding:8px 10px" placeholder="recipient email">
-      <button class="btn run sm" id="emailSend">▶ Send (gated)</button>
+      <button class="btn run sm" id="emailSend">📧 Send (gated)</button>
       <button class="btn ghost sm" id="emailCancel">cancel</button><span id="emailRes" class="sub"></span></div>
     <div id="flash" class="flash"></div>
   </section>
@@ -108,7 +108,7 @@ function render(){
   let h='';
   // app header
   h+='<section class="card"><div class="toolbar" style="margin-bottom:6px"><div><h3 style="margin:0">'+esc(a.name)+'</h3>'
-    +'<p class="sub" style="margin:2px 0 0">'+(a.target?'<a class="applink" href="'+esc(a.target)+'" target="_blank" rel="noopener">'+esc(a.target)+' ↗</a>':'(no target)')
+    +'<p class="sub" style="margin:2px 0 0">'+(a.target?(safeUrl(a.target,'')?'<a class="applink" href="'+esc(safeUrl(a.target))+'" target="_blank" rel="noopener noreferrer">'+esc(a.target)+' ↗</a>':'<span class="mono">'+esc(a.target)+'</span>'):'(no target)')
     +' · <a class="applink" href="/agents/was_asset/page.html?app='+encodeURIComponent(a.uuid||'')+'" title="Beagle — web-app recon">🐾 recon</a>'+'</p></div>'
     +'<span class="chip" style="margin-left:auto">'+(age==null?'never scanned':('scanned '+age+'d ago'))+'</span></div>'
     +'<div class="kpi">'+kpiSev(fnum(a.critical),'Critical','var(--crit)','critical')+kpiSev(fnum(a.high),'High','var(--high)','high')+kpiSev(fnum(a.medium),'Medium','var(--med)','medium')
@@ -148,7 +148,7 @@ function render(){
         +`<td title="${esc(x.name)}"><a class="fname" data-pid="${esc(String(x.plugin_id||''))}" data-name="${esc(x.name||'')}">${esc(x.name||'')}</a></td>`
         +`<td title="${esc(x.family)}">${esc(x.family||'')}</td>`
         +`<td><a class="applink" href="/web/vuln.html?plugin=${encodeURIComponent(x.plugin_id||'')}" title="Plugin ${esc(String(x.plugin_id||''))} reference">${esc(String(x.plugin_id||''))}</a></td>`
-        +`<td title="${esc(x.url)}">${x.url?'<a class="applink" href="'+esc(x.url)+'" target="_blank" rel="noopener">'+esc(String(x.url).replace(/^https?:\/\//,''))+'</a>':'—'}</td></tr>`; }).join('')
+        +`<td title="${esc(x.url)}">${x.url?(safeUrl(x.url,'')?'<a class="applink" href="'+esc(safeUrl(x.url))+'" target="_blank" rel="noopener noreferrer">'+esc(String(x.url).replace(/^https?:\/\//,''))+'</a>':esc(x.url)):'—'}</td></tr>`; }).join('')
         +'<tr id="frow-empty" style="display:none"><td colspan="5" class="sub">No findings match this filter.</td></tr>'
       :'<tr><td colspan="5" class="sub">No findings recorded for this app.</td></tr>')+'</tbody></table></div></section>';
   B.innerHTML=h;

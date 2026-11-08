@@ -19,7 +19,7 @@ Three ownership layers, read off tags:
 Crown jewels = ``assets.acr >= CROWN_ACR`` (9) or an explicit crown-jewel business
 tag. All reads are read-only; every write goes through the gated navi tag path.
 """
-from core import db, navi_cli
+from core import db, navi_cli, tagname
 
 CROWN_ACR = 9
 _CROWN_TAG_VALUES = {"crown jewel", "crown-jewel", "mission critical", "mission-critical",
@@ -103,8 +103,11 @@ def assets_with_tags(db_path=None) -> list[dict]:
         k, v = (r.get("tag_key") or "").strip(), (r.get("tag_value") or "").strip()
         if not k:
             continue
-        e["tags"].append({"key": k, "value": v})
+        e["tags"].append({"key": k, "value": v})          # the real name (shown as is)
         e["_tagmap"].setdefault(k.lower(), []).append(v)
+        bk = tagname.base(k)                              # a test-run 'Hounds-Owner' also
+        if bk != k:                                       # counts as 'Owner' (core.tagname)
+            e["_tagmap"].setdefault(bk.lower(), []).append(v)
     return list(by.values())
 
 
@@ -126,6 +129,27 @@ def _path_members(db_path=None) -> dict:
     for r in _q("SELECT DISTINCT asset_uuid au, path FROM vuln_paths WHERE path IS NOT NULL", path=db_path):
         if r.get("au"):
             out.setdefault(r["au"], set()).add(r["path"])
+    return out
+
+
+def _vuln_risk(db_path=None) -> dict:
+    """uuid -> (open critical findings, has an open CISA-KEV finding). Read-only; tolerant
+    of a missing vulns table or columns (navi.db shapes vary). Fixed findings are skipped
+    when navi recorded a state."""
+    if not _has_table("vulns", db_path):
+        return {}
+    vc = {r["name"] for r in _q("PRAGMA table_info(vulns)", path=db_path)}
+    if "asset_uuid" not in vc:
+        return {}
+    sev = "lower(severity) IN ('critical','4')" if "severity" in vc else "0"
+    kev = "xrefs LIKE '%CISA-KNOWN-EXPLOITED%'" if "xrefs" in vc else "0"
+    where = ("WHERE lower(COALESCE(state,'open')) IN ('open','reopened')" if "state" in vc else "")
+    out = {}
+    for r in _q(f"SELECT asset_uuid u, SUM(CASE WHEN {sev} THEN 1 ELSE 0 END) c, "
+                f"MAX(CASE WHEN {kev} THEN 1 ELSE 0 END) k FROM vulns {where} GROUP BY asset_uuid",
+                path=db_path):
+        if r.get("u"):
+            out[r["u"]] = (int(r.get("c") or 0), bool(r.get("k")))
     return out
 
 
@@ -167,10 +191,14 @@ def _asset_ownership(a, routes_on, paths_on):
     owned_names = set()          # route/path names this asset carries an owner tag for
     for v in tm.get("owner", []):
         val = (v or "").strip()
-        if ": " in val:
-            nm, user = val.rsplit(": ", 1)
-        else:
-            nm, user = val, ""
+        if ": " not in val:
+            # a bare ``Owner: <team>`` (navi's classic asset-level owner tag) names an
+            # owner for the asset without claiming any one route/path — it still makes the
+            # asset owned, exactly as Exposure Score (core/fused_score._row_signals) reads it
+            if val and not _disp_of(val):
+                tech.add(val)
+            continue
+        nm, user = val.rsplit(": ", 1)
         nm, user = nm.strip(), user.strip()
         d = _disp_of(user)
         if d:
@@ -186,12 +214,15 @@ def _asset_ownership(a, routes_on, paths_on):
     for nm, d in disp_names:
         disp_map[nm] = d
     dispositioned = sum(1 for _, nm in surface_items if nm in disp_map)
-    # claimed: asset owner closes everything; else owned + dispositioned handled items
+    # claimed: asset owner closes everything; else owned + dispositioned handled items.
+    # An item can carry both an owner tag and a disposition — count it once, so the
+    # claimed share can never exceed 100%.
+    handled_items = sum(1 for _, nm in surface_items if nm in owned_names or nm in disp_map)
     if asset_owner:
         claimed_pct = 100.0
         handled = surface
     elif surface:
-        handled = owned + dispositioned
+        handled = handled_items
         claimed_pct = round(100.0 * handled / surface, 1)
     else:
         handled = 0
@@ -204,7 +235,7 @@ def _asset_ownership(a, routes_on, paths_on):
     return {
         "asset_owner": asset_owner, "asset_owner_mode": ao_mode,
         "business_owners": biz, "tech_owners": sorted(tech),
-        "surface": surface, "owned": owned, "dispositioned": dispositioned,
+        "surface": surface, "owned": owned, "dispositioned": dispositioned, "handled": handled,
         "claimed_pct": claimed_pct, "has_owner": has_any_owner,
         "mitigated": mit, "accepted": acc, "ignored": ign,
         "unclaimed": (surface > 0 and not has_any_owner and handled == 0),
@@ -218,7 +249,7 @@ def _hound_signals(a):
     sig = {}
     for t in a.get("tags", []):
         k = t["key"]
-        if k in _OWNER_KEYS:
+        if tagname.base(k) in _OWNER_KEYS:
             continue
         sig.setdefault(k, [])
         if t["value"] and t["value"] not in sig[k]:
@@ -234,8 +265,11 @@ def overview(db_path=None) -> dict:
     assets = assets_with_tags(db_path)
     routes_by = _route_members(db_path)
     paths_by = _path_members(db_path)
+    risk_by = _vuln_risk(db_path)
 
     rows, crown, blind = [], [], []
+    owners = {}                       # name -> {assets, crown, business, asset, tech}
+    surf_owned = surf_disp = surf_handled = 0
     kev_count = 0
     for a in assets:
         ro = routes_by.get(a["uuid"], set())
@@ -256,8 +290,24 @@ def overview(db_path=None) -> dict:
             "unclaimed": own["unclaimed"], "has_owner": own["has_owner"],
             "mitigated": own["mitigated"], "accepted": own["accepted"], "ignored": own["ignored"],
             "signals": sig, "signal_count": len(sig),
+            "crit": risk_by.get(a["uuid"], (0, False))[0],
+            "kev": risk_by.get(a["uuid"], (0, False))[1],
         }
         rows.append(row)
+        surf_owned += own["owned"]
+        surf_disp += own["dispositioned"]
+        surf_handled += own["handled"]
+        layers = ([("asset", own["asset_owner"])] if own["asset_owner"] else []) \
+            + [("business", b) for b in own["business_owners"]] + [("tech", t) for t in own["tech_owners"]]
+        seen = set()
+        for layer, name in layers:
+            o = owners.setdefault(name, {"name": name, "assets": 0, "crown": 0,
+                                         "business": 0, "asset": 0, "tech": 0})
+            o[layer] += 1
+            if name not in seen:
+                seen.add(name)
+                o["assets"] += 1
+                o["crown"] += 1 if is_crown else 0
         if any(_nk(k) == "cisa kev" or "kev" in _nk(k) for k in sig):
             kev_count += 1
         if is_crown:
@@ -285,6 +335,11 @@ def overview(db_path=None) -> dict:
     def pct(a, b):
         return round(100.0 * a / b, 1) if b else 0.0
 
+    owned_rows = [r for r in rows if r["has_owner"]]
+    _tu = max((r for r in rows if not r["has_owner"]),
+              key=lambda r: (r["acr"] or 0, r["crit"], r["surface"]), default=None)
+    top_unowned = ({"uuid": _tu["uuid"], "hostname": _tu["hostname"], "ip": _tu["ip"],
+                    "acr": _tu["acr"], "crit": _tu["crit"]} if _tu else None)
     crown_owned = [r for r in crown if r["has_owner"]]
     crown_unclaimed = [r for r in crown if r["surface"] > 0 and not r["has_owner"]]
     crown_biz = [r for r in crown if r["business_owners"]]
@@ -310,12 +365,31 @@ def overview(db_path=None) -> dict:
         "kev_assets": kev_count, "blind": len(blind),
         "blind_no_signal": len(blind_no_signal), "cred_fail": len(cred_fail),
         "crown_acr": CROWN_ACR,
+        # --- "At a glance" (build 441) — all derived from the rollup above ---
+        "owned": len(owned_rows), "owned_pct": pct(len(owned_rows), n),
+        "no_owner": n - len(owned_rows), "no_owner_pct": pct(n - len(owned_rows), n),
+        "no_business": n - len(biz_owned), "no_business_pct": pct(n - len(biz_owned), n),
+        "asset_owned_complete": sum(1 for r in asset_owned if r["asset_owner_mode"] != "remainder"),
+        "asset_owned_remainder": sum(1 for r in asset_owned if r["asset_owner_mode"] == "remainder"),
+        "owners_distinct": len(owners),
+        "surface_items": sum(r["surface"] for r in rows), "surface_owned": surf_owned,
+        "surface_dispositioned": surf_disp, "surface_handled": surf_handled,
+        "surface_handled_pct": pct(surf_handled, sum(r["surface"] for r in rows)),
+        "crown_no_owner": len([r for r in crown if not r["has_owner"]]),
+        "has_vulns": bool(risk_by),
+        "crit_assets": sum(1 for r in rows if r["crit"]),
+        "kev_finding_assets": sum(1 for r in rows if r["kev"]),
+        "unowned_crit": sum(1 for r in rows if r["crit"] and not r["has_owner"]),
+        "unowned_crit_findings": sum(r["crit"] for r in rows if not r["has_owner"]),
+        "unowned_kev": sum(1 for r in rows if r["kev"] and not r["has_owner"]),
+        "top_unowned": top_unowned,
     }
     rows.sort(key=lambda r: (-(r["acr"] or 0), r["claimed_pct"] if r["claimed_pct"] is not None else 999))
     crown.sort(key=lambda r: (0 if not r["has_owner"] else 1, -(r["acr"] or 0)))
     blind.sort(key=lambda r: -(r["acr"] or 0))
+    ol = sorted(owners.values(), key=lambda o: (-o["assets"], o["name"].lower()))
     return {"ok": True, "kpi": kpi, "assets": rows, "crown_jewels": crown,
-            "blind_spots": blind[:200]}
+            "blind_spots": blind[:200], "owners": ol[:100], "owners_total": len(ol)}
 
 
 # --------------------------------------------------------------------------- #
@@ -328,7 +402,7 @@ def tag_schema(db_path=None) -> dict:
     for r in _q("SELECT tag_key k, tag_value v, COUNT(DISTINCT asset_uuid) n FROM tags "
                 "GROUP BY tag_key, tag_value", path=db_path):
         k = (r.get("k") or "").strip()
-        if not k or k in _OWNER_KEYS:
+        if not k or tagname.base(k) in _OWNER_KEYS:
             continue
         out.setdefault(k, []).append({"value": (r.get("v") or "").strip(), "assets": r.get("n") or 0})
     return out
@@ -463,7 +537,10 @@ def plan(prompt, db_path=None) -> dict:
         return {"ok": False, "error": "couldn't find an owner in that — try “assign <name> to …”",
                 "llm_available": used_llm}
 
-    filt = parsed.get("filter") or {}
+    filt = parsed.get("filter") if isinstance(parsed.get("filter"), dict) else {}
+    # a model-built filter may be loosely shaped — keep only well-formed conditions
+    filt["tags"] = [c for c in (filt.get("tags") or []) if isinstance(c, dict) and (c.get("key") or "").strip()]
+    filt["host_like"] = [h for h in (filt.get("host_like") or []) if isinstance(h, str) and h.strip()]
     matched = [a for a in assets if _match_asset(a, filt)]
     # resolve owner to a canonical navi user/group when possible (business leaders are
     # often NOT in the directory — accept the literal name, but flag it).
@@ -539,7 +616,8 @@ def assign_asset_owner(uuid, owner, mode="complete", db_path=None) -> dict:
     routes, paths = _asset_routes_paths(uuid, db_path)
     # what's already owned on this asset (route/path names)?
     owned = set()
-    for r in _q("SELECT tag_value FROM tags WHERE asset_uuid=? AND tag_key='Owner' AND tag_value IS NOT NULL",
+    for r in _q("SELECT tag_value FROM tags WHERE asset_uuid=? AND " + tagname.sql_lit("tag_key", "Owner")
+                + " AND tag_value IS NOT NULL",
                 (uuid,), db_path):
         val = (r.get("tag_value") or "").strip()
         if ": " in val:

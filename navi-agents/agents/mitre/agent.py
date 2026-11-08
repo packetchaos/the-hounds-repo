@@ -1,7 +1,7 @@
 """MITRE ATT&CK Tagging agent.
 
 Thin orchestrator over the navi-enrich skill recipe: it fetches the live
-ATT&CK->CVE mapping (core.mitre) and produces a per-CVE tag plan. The actual
+ATT&CK->CVE mapping (core.mitre) and produces the asset-tagging plan (CVE = selector). The actual
 writes use navi's own tag-by-CVE function via core.navi_cli — nothing is baked in.
 """
 from core import mitre
@@ -12,9 +12,9 @@ class MitreAgent(Agent):
     id = "mitre"
     name = "MITRE ATT&CK Tagging"
     icon = "🎯"
-    description = ("Fetches the live ATT&CK->CVE mapping and tags each CVE present "
-                  "in navi.db with its Primary/Secondary Impact + Exploit Technique "
-                  "using navi's tag-by-CVE function.")
+    description = ("Fetches the live ATT&CK->CVE mapping and tags the assets whose "
+                  "findings cite each mapped CVE with its Primary/Secondary Impact + "
+                  "Exploit Technique, using navi's tag-by-CVE selector.")
 
     def summary(self):
         if not self.result:

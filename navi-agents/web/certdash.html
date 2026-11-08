@@ -90,13 +90,13 @@
 
   <!-- 3 · cert plugins + tag by plugin -->
   <section class="card" id="plugCard" style="display:none">
-    <div class="toolbar" style="margin:0 0 4px"><div><h2 style="margin:0;font-size:15px">🏷 Certificate plugins — tag by plugin</h2>
+    <div class="toolbar" style="margin:0 0 4px"><div><h2 style="margin:0;font-size:15px">🏷️ Certificate plugins — tag by plugin</h2>
       <p class="sub" style="margin:2px 0 0">Every certificate-related Nessus plugin and how many assets it fired on. Select plugins and tag their assets <span class="mono">Cert Issue : &lt;plugin name&gt;</span> so every Hound and dashboard can filter to them.</p></div>
       <span class="chip" id="plugChip" style="margin-left:auto"></span></div>
     <div class="toolbar" style="margin:8px 0;gap:8px">
       <button class="btn ghost sm" id="pAll">Select all</button>
       <button class="btn ghost sm" id="pNone">Clear</button>
-      <button class="btn run sm" id="pTag" disabled>🏷 Tag selected assets</button>
+      <button class="btn run sm" id="pTag" disabled>🏷️ Tag selected assets</button>
       <span class="taghint" id="pHint"></span>
     </div>
     <div style="overflow-x:auto"><table class="grid ptbl" id="plugTbl"><thead><tr>
@@ -184,7 +184,7 @@ function certRowsHtml(rows){
 function groupHtml(groups){
   // groups: [{key, sub, rows, href?}]
   return groups.map((g,i)=>'<div class="grp" data-g="'+i+'"><div class="gh"><span class="caret">▶</span>'+
-    '<span><span class="gt">'+esc2(g.key)+'</span>'+(g.href?'<a class="ghlink" href="'+g.href+'" title="Open in Argos">🔦 Argos</a>':'')+' <span class="gs">· '+esc2(g.sub)+'</span></span>'+
+    '<span><span class="gt">'+esc2(g.key)+'</span>'+(g.href?'<a class="ghlink" href="'+esc(safeHref(g.href))+'" title="Open in Argos">🔦 Argos</a>':'')+' <span class="gs">· '+esc2(g.sub)+'</span></span>'+
     '<span class="gc">'+g.rows.length+' cert'+(g.rows.length===1?'':'s')+'</span></div>'+
     '<div class="gb">'+certRowsHtml(g.rows)+'</div></div>').join('')||'<p class="sub">No certificates in this scope.</p>';
 }
@@ -221,14 +221,14 @@ function pickedPlugins(){ return [...document.querySelectorAll('#plugTbl .pck:ch
 function updatePTag(){
   const n=pickedPlugins().length, assets=pickedPlugins().reduce((s,p)=>s+(p.asset_count||0),0);
   const b=document.getElementById('pTag'); b.disabled=!n;
-  b.textContent=n?('🏷 Tag '+n+' plugin'+(n===1?'':'s')+' → '+assets+' asset-hits'):'🏷 Tag selected assets';
+  b.textContent=n?('🏷️ Tag '+n+' plugin'+(n===1?'':'s')+' → '+assets+' asset-hits'):'🏷️ Tag selected assets';
   document.getElementById('pHint').textContent=WRITES?'':'writes gated (NAVI_ALLOW_WRITES not set) — jobs queue but block';
 }
 async function tagPlugins(){
   const picks=pickedPlugins().map(p=>({plugin_id:p.plugin_id,plugin_name:p.plugin_name}));
   if(!picks.length) return;
-  if(!WRITES && !confirm('Writes are gated on the server (NAVI_ALLOW_WRITES not set). The tag jobs will queue but be blocked. Continue?')) return;
-  if(!confirm('Tag the assets of '+picks.length+' certificate plugin(s) as “Cert Issue : <plugin name>”? This is a gated navi write.')) return;
+  await testRunStatus();
+  if(!confirm('Tag the assets of '+picks.length+' certificate plugin(s) as “'+tagCat('Cert Issue')+' : <plugin name>”?'+(WRITES?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.'))) return;
   const b=document.getElementById('pTag'); b.disabled=true; b.textContent='⏳ tagging…';
   let o; try{ o=await API.post('tags_issues',{issues:picks,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
   if(!o.ok){ flash('flash','✗ '+esc2(o.error||'failed'),'crit'); b.disabled=false; updatePTag(); return; }

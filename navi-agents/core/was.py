@@ -17,7 +17,7 @@ scan_completed_time is ISO with a +00:00 offset; normalise for julianday.
 import ast
 import re
 
-from core import db
+from core import db, tagname
 
 SEVERITIES = ("critical", "high", "medium", "low", "info")
 _SEV_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4, "none": 4, "": 4}
@@ -48,15 +48,19 @@ def _int(v):
         return 0
 
 
+# literal_eval on hostile, huge or deeply nested navi.db text can burn CPU / blow the stack
+_LIT_MAX = 200_000
+
+
 def parse_owasp(s):
     """'{'A1': 3, …}' -> {'A1': 3, …} (only non-negative ints kept). Robust to junk."""
-    if not s or not str(s).strip():
+    if not s or not str(s).strip() or len(str(s)) > _LIT_MAX:
         return {}
     try:
         d = ast.literal_eval(str(s))
         if isinstance(d, dict):
             return {str(k): _int(v) for k, v in d.items()}
-    except (ValueError, SyntaxError):
+    except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
         pass
     return {}
 
@@ -67,12 +71,14 @@ def parse_tech(s):
         return []
     out = []
     try:
+        if len(str(s)) > _LIT_MAX:
+            raise ValueError("too long to parse")
         v = ast.literal_eval(str(s))
         if isinstance(v, (list, tuple)):
             out = [str(x).strip() for x in v]
         elif isinstance(v, str):
             out = [v.strip()]
-    except (ValueError, SyntaxError):
+    except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
         out = [p.strip() for p in str(s).split(",")]
     return [t for t in out if t and t.lower() != "nothing found"]
 
@@ -181,7 +187,7 @@ def overview(path=None, stale_days=30):
 
 
 def apps_list(path=None):
-    """Lightweight list for the App Report selector (risk-sorted)."""
+    """Lightweight list for the App Report / Recon selectors (risk-sorted)."""
     st = status(path)
     if not st["ready"]:
         return []
@@ -190,8 +196,11 @@ def apps_list(path=None):
         "config_id, asset_uuid, scan_completed_time, pages_crawled, requests_made, owasp, tech_list, notes "
         "FROM apps", path=path)]
     rows.sort(key=lambda a: (a["critical"], a["high"], a["findings_total"]), reverse=True)
-    return [{"uuid": a["uuid"], "name": a["name"], "target": a["target"],
-             "critical": a["critical"], "high": a["high"], "findings_total": a["findings_total"]}
+    # severity / OWASP / tech / scan time ride along so Beagle can narrow its app list to a
+    # cohort the WAS Overview linked from (?f=owasp:A3, sev:critical, tech:PHP, scan:stale …)
+    return [{"uuid": a["uuid"], "name": a["name"], "target": a["target"], "asset_uuid": a["asset_uuid"],
+             **{k: a[k] for k in SEVERITIES}, "findings_total": a["findings_total"],
+             "owasp": a["owasp"], "tech": a["tech"], "scan_completed_time": a["scan_completed_time"]}
             for a in rows]
 
 
@@ -439,10 +448,11 @@ def _cohort(value, apps, category, present):
     """Shape one taggable cohort: its value, matching apps, and the taggable asset
     UUIDs (apps missing an asset_uuid can't be tagged)."""
     uu = [a["asset_uuid"] for a in apps if a.get("asset_uuid")]
-    return {"value": value, "category": category, "apps": len(apps),
+    # Settings → Test run: show the name that will be written; 'applied' matches either name
+    return {"value": value, "category": tagname.effective(category), "apps": len(apps),
             "taggable": len(uu), "uuids": uu,
             "no_asset": sum(1 for a in apps if not a.get("asset_uuid")),
-            "applied": (category, value) in present}
+            "applied": any((n, value) in present for n in tagname.names(category))}
 
 
 def tag_plan(path=None):

@@ -37,16 +37,18 @@ const API=agentApi('explore');
 const qp=new URLSearchParams(location.search);
 const plugin=(qp.get('plugin')||qp.get('plugin_id')||'').trim();
 /* platform deep-link: assets.url → asset data, vulns.url → plugin/finding data in Tenable */
-const plat=(u,l)=>u?` <a href="${String(u).replace(/&/g,'&amp;').replace(/"/g,'&quot;')}" target="_blank" rel="noopener" class="plink" title="Open in Tenable platform" style="font-weight:600">${l||'↗'}</a>`:'';
+const plat=(u,l)=>safeUrl(u,'')?` <a href="${esc(safeUrl(u))}" target="_blank" rel="noopener noreferrer" class="plink" title="Open in Tenable platform" style="font-weight:600">${l||'↗'}</a>`:'';
 async function load(){
   await mountAgentHeader({icon:'🔎',name:'Plugin detail',sub:'drill-down'});
   if(!plugin){flash('flash','✗ no plugin specified (?plugin=&lt;id&gt;)','crit');return;}
   const o=await API.post('vuln',{plugin});
-  if(!o.ok){flash('flash','✗ '+(o.error||'failed'),'crit');return;}
+  if(!o.ok){flash('flash','✗ '+esc(o.error||'failed'),'crit');return;}
   document.getElementById('title').innerHTML=`Plugin <span class="mono">${esc(o.plugin)}</span> — ${esc(o.plugin_name)}`+plat(o.plugin_url,'Open in Tenable ↗');
   document.getElementById('sub').innerHTML=`Affects <b>${o.count}</b> asset(s). Tenable plugin reference: <a class="plink" href="https://www.tenable.com/plugins/nessus/${encodeURIComponent(o.plugin)}" target="_blank" rel="noopener">plugins/nessus/${esc(o.plugin)} ↗</a>`;
+  const _seen=new Set(); const withIp=(o.assets||[]).filter(a=>a.ip_address&&!_seen.has(a.ip_address)&&_seen.add(a.ip_address));
   document.getElementById('kpi').innerHTML=
-    `<div class="k"><div class="v">${o.count}</div><div class="l">affected assets</div></div>`;
+    `<div class="k"><div class="v">${o.count}</div><div class="l">affected assets</div></div>`
+    +(withIp.length?`<div class="k" style="display:flex;align-items:center">${c2Link('remediate',{plugin_id:o.plugin,targets:withIp.slice(0,256).map(a=>({ip:a.ip_address,uuid:a.asset_uuid,hostname:a.hostname})),source:'Plugin detail'},'🛠 Remediate on '+withIp.length+' host(s)')}</div>`:'');
   const t=document.querySelector('#atbl tbody');
   document.getElementById('acount').textContent=`(${o.assets.length})`;
   t.innerHTML = o.assets.length ? o.assets.map(a=>

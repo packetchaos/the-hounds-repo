@@ -11,6 +11,9 @@ import re
 import shlex
 import shutil
 import subprocess
+import time
+
+from . import tagname
 
 NAVI_BIN = os.environ.get("NAVI_BIN", "navi")
 
@@ -236,18 +239,24 @@ def tag(category: str, value: str, query: str = "", remove: bool = False,
         plugin: str = "", output: str = "", route_id: str = "", group: str = "",
         xrefs: str = "", xid: str = "", cpe: str = "", port: str = "",
         regex: bool = False,
-        agent: str = "", sync: bool = False, op: str = "tag") -> dict:
+        agent: str = "", sync: bool = False, op: str = "tag", business_case: str = "") -> dict:
     # SAFETY: adding a tag is the default. `remove=True` (the '-remove' flag, which
     # DELETES the tag from matching assets) is reserved for the Tag Removal agent
     # (Garmr) and the contract's removal phase — no other agent may remove tags.
     """Enqueue a navi tag write on the background worker (non-blocking) and return
     a job stub immediately. Pass sync=True to run inline and get the real result
     (used by tests / non-web callers). Track progress via core.tagq / the Tagging
-    log page. The `agent` arg is metadata for the log only.
+    log page. The `agent` arg is metadata for the log only; so is `business_case` (the ACR
+    business case behind a NO : UPDATE protection tag — a Tagging-log column).
 
     `regex=True` (only meaningful with plugin+output) adds navi's `-regex` flag,
     telling navi the --output value is a regular expression over the plugin output.
     """
+    # Settings → Test run: an ADD writes '<phrase>-<category>' (core.tagname); a removal
+    # is always exact — the name is used as given. Done here so the Tagging log, Done so
+    # far and the navi command all carry the name that is actually written.
+    if not remove:
+        category = tagname.effective(category)
     kwargs = dict(category=category, value=value, query=query, remove=remove,
                   cve=cve, plugin_name=plugin_name, scanid=scanid, plugin=plugin,
                   output=output, route_id=route_id, group=group, xrefs=xrefs, xid=xid,
@@ -264,7 +273,8 @@ def tag(category: str, value: str, query: str = "", remove: bool = False,
     from core import tagq
     job = tagq.submit(_tag_exec, kwargs,
                       {"agent": agent, "category": category, "value": value,
-                       "selector": sel, "detail": detail, "op": op})
+                       "selector": sel, "detail": detail, "op": op,
+                       "business_case": business_case or ""})
     return {"ok": True, "queued": True, "job_id": job["id"],
             "writes_enabled": writes_enabled(),
             "allow_writes_flag": allow_writes(), "navi_available": navi_available(),
@@ -347,6 +357,8 @@ def _tag_exec(category: str, value: str, query: str = "", remove: bool = False,
         return {"ok": False, "blocked": True,
                 "message": f"navi binary '{NAVI_BIN}' not found on PATH"}
 
+    if not remove:
+        category = tagname.effective(category)     # idempotent — never double-prefixed
     cmd = [(_resolve_navi() or NAVI_BIN), "enrich", "tag", "--c", category, "--v", value]
     if cve:
         cmd += ["--cve", cve]          # navi tag-by-CVE (MITRE / external-CSV recipe)
@@ -549,6 +561,33 @@ def mail_status() -> dict:
             "navi_resolved": _resolve_navi()}
 
 
+_EMAIL_RE = re.compile(r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+                       r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$")
+
+
+def clean_recipients(to):
+    """(normalised 'a@x, b@y', error). Every address must be a plain user@host — no display
+    names, no CR/LF (header injection), no option-looking values."""
+    raw = str(to or "")
+    if "\r" in raw or "\n" in raw:
+        return "", "recipient contains a line break"
+    addrs = [a.strip() for a in re.split(r"[,;]", raw) if a.strip()]
+    if not addrs:
+        return "", "recipient (to) required"
+    bad = [a for a in addrs if len(a) > 254 or not _EMAIL_RE.match(a)]
+    if bad:
+        return "", "invalid recipient address: " + ", ".join(bad[:5])
+    if len(addrs) > 50:
+        return "", "too many recipients (max 50)"
+    return ",".join(addrs), ""
+
+
+def clean_subject(subject):
+    """One-line subject: CR/LF and other control characters become spaces."""
+    s = re.sub(r"[\x00-\x1f\x7f]+", " ", str(subject or "")).strip()
+    return s[:300]
+
+
 def _mail_exec(to: str, subject: str = "navi report", message: str = "",
                file: str = "", html: str = "") -> dict:
     """Run `navi action mail --to <addr> --subject <s> --message <body> [--html <path>] [--file <path>]`.
@@ -563,11 +602,12 @@ def _mail_exec(to: str, subject: str = "navi report", message: str = "",
     if not navi_available():
         return {"ok": False, "blocked": True,
                 "message": f"navi binary '{NAVI_BIN}' not found on PATH"}
-    to = (to or "").strip()
-    if not to:
-        return {"ok": False, "message": "recipient (to) required"}
+    to, err = clean_recipients(to)
+    if err:
+        return {"ok": False, "message": err, "error": err}
+    subject = clean_subject(subject) or "navi report"
     cmd = [(_resolve_navi() or NAVI_BIN), "action", "mail", "--to", to,
-           "--subject", subject or "navi report"]
+           "--subject", subject]
     if message:
         cmd += ["--message", message]
     if html:
@@ -730,17 +770,85 @@ def explore_uuid(target: str, view: str = "") -> dict:
 
 
 def acr(category: str, value: str, score: float, mod: str = "set",
-        note: str | None = None, reasons: list[str] | None = None) -> dict:
-    """Apply an ACR change (synchronous) and record it in the Tagging log so the
-    contract builder captures ACR changes alongside tags."""
-    res = _acr_exec(category, value, score, mod=mod, note=note, reasons=reasons)
+        note: str | None = None, reasons: list[str] | None = None, agent: str = "acr") -> dict:
+    """Apply an ACR change (synchronous) — THE single ACR choke point. Every caller (ACR agent,
+    AI Contract, AI inventory's ACR raise) comes through here, so:
+      • core.acr_protect.preview() mirrors navi's own selection immediately BEFORE the navi
+        call (which assets change, which are protected by NO : UPDATE, which have no ACR);
+      • the change goes to the Tagging log (agent "acr", now with its business case);
+      • every asset — applied, blocked, failed or skipped — goes to the ACR log
+        (core/acrlog.py) attributed to `agent` (acr / contract / ai / mcp).
+    The result carries `acr_log` {batch, counts} and `preview` (counts only)."""
+    from core import acr_protect, acrlog
+    try:
+        pv = acr_protect.preview(category, value, score, mod)
+    except Exception as e:                                   # pragma: no cover
+        pv = {"ok": False, "error": str(e)}
+    # Refused up front (never sent): navi would change nothing (a ' in the tag text breaks navi's
+    # own SQL; a non-integer score) or would crash part-way (inc/dec over an ACR it can't int()).
+    refuse = pv.get("refuse") or acr_protect.refuse_reason(category, value, score, mod)
+    if refuse:
+        res = {"ok": False, "refused": True, "message": "not sent — " + refuse}
+    else:
+        res = _acr_exec(category, value, score, mod=mod, note=note, reasons=reasons)
+        if res.get("ok") and "DB ERROR" in (res.get("stdout") or ""):
+            # navi prints its sqlite error and exits 0 having changed nothing
+            res["ok"] = False
+            res["message"] = "navi's navi.db query failed (DB ERROR) — nothing was changed"
+    bc = acr_protect.business_case(reasons, note)
+    job = {}
     try:
         from core import tagq
-        tagq.record({"agent": "acr", "category": category, "value": value,
-                     "selector": "acr " + mod, "detail": f"score={score} ({mod})"}, res)
+        job = tagq.record({"agent": "acr", "category": category, "value": value,
+                           "selector": "acr " + mod, "detail": f"score={score} ({mod})",
+                           "business_case": bc,
+                           # the replayable navi args (Tagging log → Export .sh/.py) — only for a
+                           # well-formed change; score/mod/reasons are rendered unquoted there
+                           "spec": ({"category": category, "value": value,
+                                     "score": acr_protect.score_arg(score), "mod": mod,
+                                     "reasons": [r for r in (reasons or []) if r in _ACR_REASONS],
+                                     "note": note or "", "_acr": True}
+                                    if (mod in ("set", "inc", "dec")
+                                        and re.fullmatch(r"\d+(\.\d+)?", acr_protect.score_arg(score))
+                                        and any(r in _ACR_REASONS for r in (reasons or [])))
+                                    else {})}, res)
     except Exception:
         pass
+    try:
+        log = acrlog.record_change(pv, res, agent or "acr", category, value, mod,
+                                   acr_protect.score_arg(score), reasons, note, bc,
+                                   tag_job=(job or {}).get("id"))
+        res["acr_log"] = log
+    except Exception as e:                                   # pragma: no cover
+        res["acr_log"] = {"error": str(e)}
+    res["business_case"] = bc
+    res["preview"] = acr_protect.summary(pv)
+    drop_acr_cache()
     return res
+
+
+def drop_acr_cache():
+    """An ACR write (from ANY caller — ACR page, contract cycle, AI raise) or a protection tag
+    changes what the ACR agent's reads and the contract plan would say: drop their cached
+    results in the agent launcher (only if the launcher is loaded — never import it here)."""
+    import sys as _sys
+    m = _sys.modules.get("core.launcher")
+    if m is not None:
+        for a in ("acr", "contract"):
+            try:
+                m._invalidate(a)
+            except Exception:
+                pass
+
+
+_ACR_REASONS = ("business", "compliance", "mitigation", "development")
+
+
+def _score_arg(score) -> str:
+    """navi does int(score) on the --score string, so '9.0' would crash it — pass whole
+    numbers as '9' (core.acr_protect.score_arg)."""
+    from core import acr_protect
+    return acr_protect.score_arg(score)
 
 
 def _acr_exec(category: str, value: str, score: float, mod: str = "set",
@@ -761,7 +869,7 @@ def _acr_exec(category: str, value: str, score: float, mod: str = "set",
                 "(business / compliance / mitigation / development)"}
 
     cmd = [(_resolve_navi() or NAVI_BIN), "enrich", "acr", "--c", category, "--v", value,
-           "--score", str(score), "--mod", mod] + ["-" + r for r in flags]
+           "--score", _score_arg(score), "--mod", mod] + ["-" + r for r in flags]
     if note:
         cmd += ["--note", note]
     pretty = " ".join(shlex.quote(c) for c in cmd)
@@ -859,7 +967,9 @@ def push_status() -> dict:
                         "one-time). push hits ONE Linux host over SSH — there is no --tag."}
 
 
-# Destructive-command denylist. A C2 shell with no denylist is a foot-gun; these
+# Destructive-command denylist — ADVISORY: a warning, not a guard. Any shell can spell a
+# command a pattern list hasn't seen (variables, base64, aliases…); the real controls are the
+# triple gate + per-host confirm. A C2 shell with no denylist is a foot-gun; these
 # patterns do NOT block (an operator may truly need them) but flag a command so the
 # UI demands an extra, explicit confirmation. Matched case-insensitively.
 _DANGER = [
@@ -878,6 +988,11 @@ _DANGER = [
     (r"\b(iptables|nft)\b.*\b(-F|flush)\b", "firewall flush"),
     (r"\bkill(all)?\s+-9\b", "SIGKILL sweep"),
     (r"/etc/(passwd|shadow|sudoers)\b", "touches a critical auth file"),
+    # long-option / substitution spellings a reviewer used to slip past the patterns above
+    (r"\brm\b(?=.*--(recursive|force))(?=.*(--recursive|\s-[a-z]*r))(?=.*(--force|\s-[a-z]*f))", "recursive force delete (rm --recursive --force)"),
+    (r"\b(bash|sh|zsh|dash|ksh)\s+<\(\s*(curl|wget)\b", "process-substitution shell (bash <(curl …))"),
+    (r"\b(curl|wget)\b[^|]*\|\s*(sudo\s+)?(python[0-9.]*|perl|ruby|php|node)\b", "pipe-to-interpreter (wget -qO- | python)"),
+    (r"\b(curl|wget)\b[^|]*\|\s*(sudo\s+)?(\S*/)?(bash|sh|zsh|dash|ksh)\b", "pipe-to-shell (curl | /bin/sh)"),
 ]
 
 
@@ -896,75 +1011,278 @@ def scan_command(cmd: str) -> list:
 
 
 PUSH_TIMEOUT = int(os.environ.get("NAVI_PUSH_TIMEOUT", "300"))
+_PUSH_TIMEOUT_FLAG = os.environ.get("NAVI_PUSH_TIMEOUT_FLAG", "--timeout")
+_PUSH_STRICT_FLAG = os.environ.get("NAVI_PUSH_STRICT_FLAG", "--strict-host-keys")
+
+# Per-host status vocabulary shared by every push (C2 page, C2 log, campaigns, remediation):
+#   ok · changed · failed · unreachable · auth_failed · hostkey_mismatch (security event) ·
+#   hostkey_unknown (strict mode, key not yet known) · port_closed · dns_failed · timeout ·
+#   skipped · not_applicable · cancelled · blocked (a gate is closed) · refused (not sent) ·
+#   no_credentials (`navi config ssh` never run)
+# Only a TRANSPORT failure before the command ran is ever retried (unreachable) — never an
+# auth failure (lockout: pam_faillock / fail2ban), never a host-key problem, never a command
+# that ran and failed (it may have partially applied).
+RETRYABLE = ("unreachable",)
 
 
-def _push_exec(target: str, command: str = "", file: str = "") -> dict:
+def valid_target(host) -> bool:
+    """navi's own target rule (plugins/action.py valid_target): a plain IP or hostname, never
+    something ssh would read as an option. Checked here too, before navi is spawned."""
+    from core import c2_targets
+    return c2_targets.valid_target(host)
+
+
+_PER_HOST = re.compile(r"^\s*\[(OK|FAIL|!|\?)\]\s+(.+?):\s(.*)$")
+
+
+def _conn_status(reason: str) -> str:
+    r = reason or ""
+    low = r.lower()
+    if "host key changed" in low or "remote host identification has changed" in low:
+        return "hostkey_mismatch"
+    if "known_hosts" in low and "strict-host-keys" in low:
+        return "hostkey_unknown"
+    if "host key verification failed" in low:
+        return "hostkey_mismatch"
+    if "connection refused" in low:
+        return "port_closed"
+    if any(k in low for k in ("could not resolve hostname", "name or service not known", "nodename nor servname",
+                              "temporary failure in name resolution", "no address associated")):
+        return "dns_failed"
+    if any(k in low for k in ("permission denied", "password refused", "authentication failed",
+                              "too many authentication failures", "no supported authentication")):
+        return "auth_failed"
+    return "unreachable"
+
+
+_NAVI_FRAME = re.compile(r"^\s*(>>\s+(Running on|Pushing file)|\[(OK|FAIL|!|\?)\]\s|\.\.\.\s+transient failure|"
+                         r"\.\.\.\s+waiting up to|Done\.\s+\d+ succeeded|Run log written)")
+
+
+def classify_push(stdout: str, stderr: str = "", returncode=0, target: str = "") -> dict:
+    """Read navi's per-host result lines (plugins/action.py connect()/push()) into
+    {status, exit_code, reason, output}. navi itself exits 0 even when a host failed, so the
+    exit code of the navi process is NOT the result — these lines are."""
+    text = (stdout or "") + ("\n" + stderr if stderr else "")
+    out_lines, status, exit_code, reason = [], None, None, ""
+    timed_out = False
+    for raw in text.splitlines():
+        line = raw.rstrip("\r")
+        m = _PER_HOST.match(line)
+        if m and target and m.group(2).strip() != target:
+            m = None                       # a result line for some OTHER host is remote output, not navi's verdict
+        if m:
+            kind, msg = m.group(1), m.group(3).strip()
+            if kind == "OK":
+                status = "ok"
+                em = re.search(r"exit (\d+)", msg)
+                exit_code = int(em.group(1)) if em else (0 if "exit" in msg else exit_code)
+                reason = msg
+            elif kind == "FAIL":
+                em = re.search(r"exit(?:ed)? (\d+)", msg)
+                if em:
+                    exit_code = int(em.group(1))
+                    status = "timeout" if exit_code == 124 else "failed"
+                else:
+                    status = "failed"
+                reason = msg
+                if msg.startswith("scp exited"):
+                    # scp prints ssh's own refusal just above navi's result line
+                    low = text.lower()
+                    if "remote host identification has changed" in low:
+                        status, reason = "hostkey_mismatch", "scp refused: HOST KEY CHANGED — " + msg
+                    elif re.search(r"no \S+ host key is known", low):
+                        status, reason = "hostkey_unknown", "scp refused: host key not known (strict) — " + msg
+                    elif "host key verification failed" in low:
+                        status, reason = "hostkey_mismatch", "scp refused: host key verification failed — " + msg
+            elif kind == "!":
+                if msg.startswith("connection failed:"):
+                    reason = msg[len("connection failed:"):].strip()
+                    status = _conn_status(reason)
+                elif "timed out waiting for the command" in msg:
+                    timed_out, status, reason = True, "timeout", msg
+                elif msg.startswith("error connecting"):
+                    status, reason = "unreachable", msg + " (scp could not connect — nothing was copied)"
+                elif msg.startswith("host key is not known"):
+                    status, reason = "hostkey_unknown", msg
+                else:
+                    status, reason = (status if timed_out else "failed"), msg
+            elif kind == "?":
+                if not timed_out:
+                    status, reason = "failed", msg
+            continue
+        if _NAVI_FRAME.match(line):
+            continue
+        out_lines.append(line)
+    if status is None:
+        if "navi config ssh" in text:
+            status, reason = "no_credentials", "no SSH credentials in navi.db — run `navi config ssh`"
+        elif "Refusing to run" in text:
+            status, reason = "refused", "navi refused the target (not an IP address or hostname)"
+        elif "No such option" in text or "no such option" in text:
+            opt = re.search(r"[Nn]o such option:?\s*(\S+)", text)
+            status, reason = "failed", ("this navi build does not support " + (opt.group(1) if opt else "a push option")
+                                        + " — upgrade navi (pip install -U navi-pro)")
+        elif "pexpect" in text or "pseudo-terminal" in text:
+            status, reason = "failed", "navi push cannot run here (pexpect/pty missing) — run navi on Linux/macOS/WSL"
+        else:
+            status = "failed"
+            reason = ("navi printed no per-host result" if returncode == 0
+                      else "navi exited %s" % returncode)
+    output = "\n".join(out_lines).strip("\n")
+    return {"status": status, "exit_code": exit_code, "reason": reason[:500], "output": output}
+
+
+def _push_exec(target: str, command: str = "", file: str = "", timeout=None, strict_host_keys: bool = False,
+               retries: int = 0) -> dict:
     """Run `navi action push` on ONE host over SSH. Triple-gated. Provide EXACTLY one of
-    command / file. Returns navi's exit code + stdout/stderr — a non-zero exit means the
-    change did NOT necessarily apply; the caller must re-verify, never assume."""
+    command / file. Returns the classified per-host status (see classify_push) plus navi's
+    raw output — a non-OK status means the change did NOT necessarily apply; re-verify.
+    timeout → navi --timeout (seconds to wait for the command); strict_host_keys → navi
+    --strict-host-keys (refuse a host whose key isn't already known); retries → re-run ONLY
+    after a transport failure before the command started."""
     if not allow_writes():
-        return {"ok": False, "blocked": True,
+        return {"ok": False, "blocked": True, "status": "blocked",
                 "message": "writes disabled on server (set NAVI_ALLOW_WRITES=1)"}
     if not rce_enabled():
-        return {"ok": False, "blocked": True,
+        return {"ok": False, "blocked": True, "status": "blocked",
                 "message": "remote execution disabled on server — set NAVI_REMOTE_CODE_EXECUTION=1 "
                            "(a separate opt-in stacked on top of writes)"}
     if not navi_available():
-        return {"ok": False, "blocked": True,
+        return {"ok": False, "blocked": True, "status": "blocked",
                 "message": f"navi binary '{NAVI_BIN}' not found on PATH"}
     target = (target or "").strip()
     if not target:
-        return {"ok": False, "message": "target host IP required"}
+        return {"ok": False, "status": "refused", "message": "target host IP required"}
+    if not valid_target(target):
+        return {"ok": False, "status": "refused", "target": target,
+                "message": "refused: target is not a plain IP address or hostname (ssh would read it as an option)"}
     command = command or ""
     file = file or ""
     if bool(command) == bool(file):
-        return {"ok": False, "message": "provide EXACTLY one of command or file"}
+        return {"ok": False, "status": "refused", "message": "provide EXACTLY one of command or file"}
     if file and not os.path.exists(file):
-        return {"ok": False, "message": f"file not found on the server: {file}"}
+        return {"ok": False, "status": "refused", "message": f"file not found on the server: {file}"}
     cmd = [(_resolve_navi() or NAVI_BIN), "action", "push", _PUSH_TARGET_FLAG, target]
     if command:
         cmd += [_PUSH_CMD_FLAG, command]
     else:
         cmd += [_PUSH_FILE_FLAG, file]
+    sub_timeout = PUSH_TIMEOUT
+    if timeout:
+        try:
+            t = max(5, min(3600, int(timeout)))
+            cmd += [_PUSH_TIMEOUT_FLAG, str(t)]
+            sub_timeout = t + 90          # + SSH login + navi's failure probe (explain_ssh_failure)
+        except (TypeError, ValueError):
+            pass
+    if strict_host_keys:
+        cmd += [_PUSH_STRICT_FLAG]
     pretty = " ".join(shlex.quote(c) for c in cmd)
     try:
-        p = subprocess.run(cmd, capture_output=True, text=True, cwd=_navi_cwd(),
-                           timeout=PUSH_TIMEOUT)
-        ok = p.returncode == 0
-        summary = _navi_summary(p.stdout, p.stderr)
-        blob = ((p.stdout or "") + " " + (p.stderr or "")).lower()
-        if not ok and any(k in blob for k in ("ssh", "permission denied", "connection refused",
-                                              "no route to host", "timed out", "authentication")):
-            return {"ok": False, "returncode": p.returncode, "target": target, "cmd": pretty,
-                    "message": "SSH push failed — check the host is Linux + reachable and that "
-                               "`navi config ssh` credentials are set. navi said: "
-                               + (summary or "(no output)"),
-                    "stdout": (p.stdout or "")[-3000:], "stderr": (p.stderr or "")[-2000:]}
-        return {"ok": ok, "returncode": p.returncode, "target": target,
-                "message": summary or ("pushed" if ok else "navi exited %d" % p.returncode),
-                "navi_output": summary, "stdout": (p.stdout or "")[-4000:],
-                "stderr": (p.stderr or "")[-2000:], "cmd": pretty}
-    except subprocess.TimeoutExpired:
-        return {"ok": False, "timed_out": True, "target": target, "cmd": pretty,
-                "message": f"push timed out after {PUSH_TIMEOUT}s — the command may still be "
-                           "running on the host. Use non-interactive flags (e.g. -y, "
-                           "DEBIAN_FRONTEND=noninteractive) and re-verify before retrying."}
-    except Exception as e:  # pragma: no cover
-        return {"ok": False, "target": target, "message": str(e), "cmd": pretty}
+        retries = max(0, min(3, int(retries or 0)))
+    except (TypeError, ValueError):
+        retries = 0
+    attempt = 0
+    t0 = time.time()
+    while True:
+        attempt += 1
+        try:
+            p = subprocess.run(cmd, capture_output=True, text=True, cwd=_navi_cwd(), timeout=sub_timeout)
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "timed_out": True, "target": target, "cmd": pretty, "status": "timeout",
+                    "attempts": attempt, "duration_ms": int((time.time() - t0) * 1000),
+                    "message": f"push timed out after {sub_timeout}s — the command may still be "
+                               "running on the host. Use non-interactive flags (e.g. -y, "
+                               "DEBIAN_FRONTEND=noninteractive) and re-verify before retrying."}
+        except Exception as e:  # pragma: no cover
+            return {"ok": False, "target": target, "message": str(e), "cmd": pretty, "status": "failed",
+                    "attempts": attempt, "duration_ms": int((time.time() - t0) * 1000)}
+        c = classify_push(p.stdout, p.stderr, p.returncode, target)
+        if c["status"] in RETRYABLE and attempt <= retries:
+            time.sleep(min(10, 2 * attempt))
+            continue
+        break
+    ok = c["status"] == "ok"
+    summary = _navi_summary(p.stdout, p.stderr)
+    res = {"ok": ok, "returncode": p.returncode, "target": target, "cmd": pretty,
+           "status": c["status"], "exit_code": c["exit_code"], "reason": c["reason"], "output": c["output"][-16000:],
+           "attempts": attempt, "duration_ms": int((time.time() - t0) * 1000),
+           "hostkey_policy": "strict" if strict_host_keys else "accept-new",
+           "navi_output": summary, "stdout": (p.stdout or "")[-4000:], "stderr": (p.stderr or "")[-2000:]}
+    if ok:
+        res["message"] = "exit 0" if c["exit_code"] == 0 else (c["reason"] or "pushed")
+    elif c["status"] in ("unreachable", "auth_failed", "port_closed", "dns_failed", "no_credentials"):
+        res["message"] = ("SSH push failed (" + c["status"] + ") — check the host is Linux + reachable and that "
+                          "`navi config ssh` credentials are set. navi said: " + (c["reason"] or summary or "(no output)"))
+    elif c["status"] == "hostkey_mismatch":
+        res["message"] = ("HOST KEY CHANGED — possible impersonation or a rebuilt host. Nothing ran. Verify the host "
+                          "out-of-band before clearing the old key. navi said: " + c["reason"])
+    elif c["status"] == "hostkey_unknown":
+        res["message"] = ("host key not yet known and strict host keys are on — run a 🔑 credential test first "
+                          "(it records a new host's key), then retry.")
+    else:
+        res["message"] = c["reason"] or summary or ("navi exited %d" % p.returncode)
+    return res
+
+
+def _mode_for(command, file, catalog_id):
+    if file:
+        return "file"
+    if catalog_id == "cred":
+        return "cred_test"
+    if catalog_id and not str(catalog_id).startswith(("remediation", "rollback")):
+        return "read_only"
+    if str(catalog_id or "").startswith("remediation"):
+        return "remediation"
+    if str(catalog_id or "").startswith("rollback"):
+        return "rollback"
+    return "change"
 
 
 def push(target: str, command: str = "", file: str = "", agent: str = "c2",
-         detail: str = "", sync: bool = True) -> dict:
-    """Execute one push and record it in the Tagging log (op=push) as the accountability
-    ledger — who ran what, where, and the exit. Synchronous: a push is a discrete,
-    operator-confirmed action. Batch fan-out (loop per IP) is done by the C2 agent, which
-    calls this once per host so every host gets its own ledger line."""
-    res = _push_exec(target=target, command=command, file=file)
+         detail: str = "", sync: bool = True, *, source: str = "", run_id: str = "", mode: str = "",
+         catalog_id: str = "", plan_sha256: str = "", timeout=None, strict_host_keys: bool = False,
+         retries: int = 0) -> dict:
+    """Execute one push — the SINGLE choke point for `navi action push` from any hound.
+    Every call (blocked, refused, ok or failed) appends one row to the C2 command log
+    (core/c2log.py: what ran where and when, the status — never the output, secrets masked,
+    hash-chained) and the Tagging log keeps its op=push entry. Batch fan-out (loop per IP) is
+    done by the caller, one call per host, so every host gets its own rows."""
+    res = _push_exec(target=target, command=command, file=file, timeout=timeout,
+                     strict_host_keys=strict_host_keys, retries=retries)
+    asset = {}
+    try:
+        from core import c2_targets
+        asset = c2_targets.lookup(target) or {}
+    except Exception:
+        asset = {}
+    res["in_inventory"] = bool(asset)
+    if asset:
+        res["asset"] = {k: asset.get(k) for k in ("uuid", "hostname", "os")}
+    try:
+        from core import c2log
+        logged_cmd = command if command else ("scp " + os.path.basename(file or ""))
+        res["c2_log"] = c2log.record(
+            target, logged_cmd, res.get("status") or ("ok" if res.get("ok") else "failed"),
+            exit_code=res.get("exit_code"), duration_ms=res.get("duration_ms"), run_id=run_id,
+            source=source or agent, agent=agent, mode=mode or _mode_for(command, file, catalog_id),
+            catalog_id=catalog_id or ("file" if file else "free-form"), plan_sha256=plan_sha256,
+            hostkey_policy=("strict" if strict_host_keys else "accept-new"), attempts=res.get("attempts") or 1,
+            in_inventory=bool(asset), asset_uuid=asset.get("uuid") or "", hostname=asset.get("hostname") or "",
+            sent_bytes=(command if command else file))
+    except Exception as e:  # pragma: no cover — logging never breaks a push
+        res["c2_log"] = {"error": str(e)}
     try:
         from core import tagq
+        st = res.get("status") or ("ok" if res.get("ok") else "failed")
+        from core import c2log as _c2l
         tagq.record({"agent": agent, "category": "C2 · push", "value": target,
                      "selector": ("file" if file else "command"),
-                     "detail": (detail or command or ("scp " + file))[:200], "op": "push"}, res)
+                     "detail": _c2l.mask(detail or command or ("scp " + os.path.basename(file or "")))[:200], "op": "push"},
+                    {"ok": res.get("ok"), "message": (st + (" · exit %s" % res["exit_code"]
+                                                            if res.get("exit_code") is not None else "")
+                                                      + (" · " + res["message"][:160] if res.get("message") and not res.get("ok") else ""))})
     except Exception:
         pass
     return res

@@ -5,6 +5,7 @@ overview — the consolidated dashboard (read-only over the compliance table) + 
 tag      — GATED: assign an 'Audit Owner' to the assets that FAIL one control, via navi
            (same asset-UUID tag path as every VM/WAS tagger).
 """
+from core.gates import confirmed
 AGENT = None
 
 
@@ -25,7 +26,7 @@ def overview(p):
 
 def tag(p):
     from core import compliance as _c, navi_cli
-    if not p.get("confirm"):
+    if not confirmed(p):
         return {"ok": False, "error": "confirm=true required to write tags"}, 400
     owner = (p.get("owner") or p.get("value") or "").strip()
     if not owner:

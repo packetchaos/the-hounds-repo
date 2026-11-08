@@ -10,7 +10,10 @@ import os
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from core import launcher
+from core import security
+security.harden_process()                 # umask 077 before anything creates a file
+
+from core import launcher  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WEB = os.path.join(HERE, "web")
@@ -35,7 +38,33 @@ def _safe_join(base, rel):
 
 
 class Handler(BaseHTTPRequestHandler):
-    def _send(self, code, body, ctype="application/json; charset=utf-8"):
+    timeout = security.SOCKET_TIMEOUT       # a stalled client can't pin a worker thread forever
+
+    def _peer(self):
+        try:
+            return self.client_address[0]
+        except Exception:
+            return None
+
+    def _gate(self, method):
+        """Host allowlist + token + POST guard; True when the request was refused."""
+        u = urllib.parse.urlparse(self.path)
+        if method == "GET" and security.host_ok(self.headers.get("Host")):
+            ex = security.token_exchange(u.path, u.query)
+            if ex:
+                code, hdrs = ex
+                if code == 403:
+                    self._send(403, {"ok": False, "error": "invalid access token"})
+                else:
+                    self._send(code, b"", "text/plain; charset=utf-8", extra=hdrs)
+                return True
+        bad = security.check(method, u.path, self.headers.get, self._peer())
+        if bad:
+            self._send(bad[0], {"ok": False, "error": bad[1]})
+            return True
+        return False
+
+    def _send(self, code, body, ctype="application/json; charset=utf-8", extra=None):
         if isinstance(body, (dict, list)):
             body = json.dumps(body).encode()
         elif isinstance(body, str):
@@ -43,6 +72,12 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
+        # always revalidate — an updated console.js / page must never be shadowed by a stale copy
+        self.send_header("Cache-Control", "no-cache")
+        for k, v in security.SECURITY_HEADERS.items():
+            self.send_header(k, v)
+        for k, v in (extra or {}).items():
+            self.send_header(k, v)
         self.end_headers()
         self.wfile.write(body)
 
@@ -53,7 +88,14 @@ class Handler(BaseHTTPRequestHandler):
         with open(path, "rb") as f:
             self._send(200, f.read(), ctype)
 
+    def _static(self, base, rel):
+        if not security.static_allowed(rel):
+            return self._send(404, {"error": "not found"})
+        return self._file(_safe_join(base, rel))
+
     def do_GET(self):
+        if self._gate("GET"):
+            return
         u = urllib.parse.urlparse(self.path).path
         if u in ("/", "/index.html"):
             return self._file(os.path.join(WEB, "index.html"))
@@ -68,27 +110,39 @@ class Handler(BaseHTTPRequestHandler):
         if u == "/api/profile":
             return self._send(200, launcher.profile())
         if u.startswith("/static/"):
-            return self._file(_safe_join(ASSETS, u[len("/static/"):]))
+            return self._static(ASSETS, u[len("/static/"):])
         if u.startswith("/web/"):
-            return self._file(_safe_join(WEB, u[len("/web/"):]))
+            return self._static(WEB, u[len("/web/"):])
         if u.startswith("/agents/"):
-            return self._file(_safe_join(AGENTS, u[len("/agents/"):]))
+            return self._static(AGENTS, u[len("/agents/"):])
         self._send(404, {"error": "not found"})
 
     def do_POST(self):
         u = urllib.parse.urlparse(self.path).path
+        if self._gate("POST"):
+            return
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            n = -1
+        if n < 0 or n > security.MAX_BODY:
+            self.close_connection = True
+            return self._send(413, {"ok": False, "error": "request body too large (limit %d MB)"
+                                    % (security.MAX_BODY // (1024 * 1024))})
+        if (self.headers.get("Transfer-Encoding") or "").lower() == "chunked":
+            self.close_connection = True
+            return self._send(411, {"ok": False, "error": "Content-Length required"})
         if u == "/api/jobs/clear":
             return self._send(200, launcher.jobs_clear())
         if u == "/api/profile/clear":
             return self._send(200, launcher.profile_clear())
         parts = u.strip("/").split("/")
         if len(parts) == 3 and parts[0] == "api":
-            n = int(self.headers.get("Content-Length") or 0)
             try:
                 payload = json.loads(self.rfile.read(n) or b"{}")
             except Exception:
                 payload = {}
-            body, status = launcher.dispatch(parts[1], parts[2], payload)
+            body, status = launcher.dispatch(parts[1], parts[2], payload, peer=self._peer(), http=True)
             return self._send(status, body)
         self._send(404, {"error": "not found"})
 
@@ -121,9 +175,17 @@ def main():
     # 8000 never leaves the user staring at a dead/blank tab. All frontend links are
     # origin-relative, so any port works — you just open the URL we print below.
     srv = None
+    host = security.bind_host()
+    srv_cls = ThreadingHTTPServer
+    if ":" in host:                                  # IPv6 bind (e.g. HOUNDS_BIND=::1)
+        import socket as _s
+
+        class _V6(ThreadingHTTPServer):
+            address_family = _s.AF_INET6
+        srv_cls = _V6
     for port in range(want, want + 25):
         try:
-            srv = ThreadingHTTPServer(("0.0.0.0", port), Handler)
+            srv = srv_cls((host, port), Handler)
             break
         except OSError:
             if port == want:
@@ -133,9 +195,14 @@ def main():
         raise SystemExit(f"no free port between {want} and {want + 24}. "
                          f"Set PORT to a free one, e.g. PORT=8080 python3 run.py")
     port = srv.server_address[1]
+    warn = security.startup_warning()
+    if warn:
+        print("\n" + warn)
     print("\n" + "=" * 60)
     print(f"  The Hounds is running.  Open this in your browser:")
-    print(f"      →  http://localhost:{port}")
+    print(f"      →  {security.startup_url(port)}")
+    if security.token_required(None):
+        print("  (the URL carries this launch's access token — it is printed only here)")
     print(f"  (open the URL — do NOT double-click web/index.html)")
     print("=" * 60 + "\n")
     _print_write_status()

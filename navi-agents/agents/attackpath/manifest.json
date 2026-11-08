@@ -4,9 +4,14 @@
   "icon": "🕸️",
   "order": 15,
   "category": "Risk",
-  "summary": "Fenrir — chains exploitability × identity × reachability into likely attack paths (foothold → lateral movement → crown-jewel target). Infers reachability from /24 adjacency + credential signals. Gated tagging + CSV export.",
+  "summary": "Fenrir — chains the weaknesses Tenable already found into ranked paths to the crown jewels: remote exploits, local privilege escalation, credentials shared across hosts, NTLM relay, domain-controller flaws and failed compliance controls (LAPS, SMB signing, LLMNR, WDigest, sudo). Interactive attack map, diverse routes per crown jewel, choke points and a remediation bundle that cuts the most exposure. Reachability is inferred (no flow data). Gated tagging: Attack Path : Entry Point | Pivot | Target | Choke Point.",
   "needs_backend": true,
   "page": "page.html",
-  "actions": ["run", "tag_entry", "tag_target", "tag"],
+  "actions": [
+    "run",
+    "tag_entry",
+    "tag_target",
+    "tag"
+  ],
   "codename": "Fenrir Hound"
 }

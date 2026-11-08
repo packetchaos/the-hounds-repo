@@ -6,7 +6,10 @@
 `interpret` — natural-language tagging: turn an instruction + the discovered
               identities into per-identity {category,value} assignments (LLM).
 """
+import re
+
 from core import identity, navi_cli
+from core.gates import confirmed
 
 try:
     from core import llm
@@ -24,11 +27,74 @@ def _agent():
     return AGENT
 
 
+CROWN_ACR = 7
+RISK = ("privileged", "non-expiring pw", "ssh password auth", "weak pw policy", "guest enabled",
+        "default/blank cred", "AD attack path", "default secret", "write (private)")
+
+
+def _enrich(res):
+    """Page metrics: crown-jewel exposure (max ACR of the hosts behind each identity),
+    credential coverage, and per-signal counts. Read-only; best-effort."""
+    from core import db
+    accts = res.get("accounts") or []
+    uu = sorted({u for a in accts for u in (a.get("asset_uuids") or [])})
+    acr = {}
+    if uu:
+        inl = ",".join("'" + u.replace("'", "''") + "'" for u in uu)
+        try:
+            for r in db.query(f"SELECT uuid, acr FROM assets WHERE uuid IN ({inl})"):
+                try:
+                    acr[r["uuid"]] = float(r.get("acr") or 0)
+                except (TypeError, ValueError):
+                    pass
+        except Exception:
+            pass
+    try:
+        total = db.scalar("SELECT COUNT(*) FROM assets") or 0
+    except Exception:
+        total = 0
+    for a in accts:
+        vals = [acr.get(u, 0) for u in a.get("asset_uuids") or []]
+        a["max_acr"] = max(vals) if vals else None
+        a["crown_hosts"] = sum(1 for v in vals if v >= CROWN_ACR)
+        a["reused"] = max([int(re.search(r"×(\d+)", f).group(1)) for f in a.get("flags", [])
+                           if f.startswith("account reuse ×")] or [0])
+        a["risky"] = [f for f in a.get("flags", []) if f != "scan credential"]
+    has = lambda a, f: f in (a.get("flags") or [])
+    people = [a for a in accts if a.get("klass") != "machine"]
+    c = res.get("counts") or {}
+    cred, blind = res.get("credentialed") or 0, res.get("blind") or 0
+    res["metrics"] = {
+        "estate": total,
+        "identity_hosts": res.get("identity_hosts") or 0,
+        "credentialed": cred, "blind": blind,
+        "coverage_pct": round(100.0 * cred / (cred + blind), 1) if (cred + blind) else None,
+        "privileged": sum(1 for a in accts if has(a, "privileged")),
+        "privileged_hosts": len({u for a in accts if has(a, "privileged") for u in a["asset_uuids"]}),
+        "nonexpiring": sum(1 for a in accts if has(a, "non-expiring pw")),
+        "reused": c.get("reused", 0), "reused_hosts": c.get("reused_hosts", 0),
+        "max_reuse": max([a["reused"] for a in accts] or [0]),
+        "on_kev": sum(1 for a in people if has(a, "on KEV host")),
+        "on_crit": sum(1 for a in people if has(a, "on critical host")),
+        "crown_ids": sum(1 for a in people if a["crown_hosts"]),
+        "crown_priv": sum(1 for a in people if a["crown_hosts"] and has(a, "privileged")),
+        "priv_exploitable": sum(1 for a in people if has(a, "privileged")
+                                and (has(a, "on KEV host") or has(a, "on critical host"))),
+        "scan_creds": len(res.get("scan_creds") or []),
+        "signals": {k: len(v) for k, v in (res.get("host_sets") or {}).items()},
+    }
+    return res
+
+
 def run(p):
     try:
         res = identity.scan()
     except Exception as e:
         return {"ok": False, "error": f"identity scan failed: {e}"}, 200
+    try:
+        res = _enrich(res)
+    except Exception as e:
+        res["metrics_error"] = f"metrics failed: {e}"
     return {"ok": True, "agent": _agent().meta(),
             "result": res, "llm_available": bool(llm and llm.available())}, 200
 
@@ -37,11 +103,11 @@ def _tag_one(category, value, asset_uuids):
     q = identity.selector_for(asset_uuids)
     if not q:
         return {"ok": False, "message": "no asset_uuids for this identity"}
-    return navi_cli.tag(category or "Identity", value, query=q, remove=False)
+    return navi_cli.tag(category or "Identity", value, query=q, remove=False, agent="identity")
 
 
 def tag(p):
-    if not p.get("confirm"):
+    if not confirmed(p):
         return {"ok": False, "error": "confirm=true required to write tags"}, 400
     items = p.get("items")
     if items:
@@ -49,14 +115,17 @@ def tag(p):
         for it in items:
             r = _tag_one(it.get("category", "Identity"), it.get("value", ""), it.get("asset_uuids"))
             results.append({"value": it.get("value"), "category": it.get("category", "Identity"), **r})
-        return {"ok": True, "applied": sum(1 for r in results if r.get("ok")),
+        ok = sum(1 for r in results if r.get("ok", r.get("job_id") is not None))
+        return {"ok": ok > 0, "applied": ok, "error": None if ok else "no tags queued",
                 "total": len(results), "results": results,
                 "writes_enabled": navi_cli.writes_enabled()}, 200
     value = (p.get("value") or "").strip()
     if not value:
         return {"ok": False, "error": "value required"}, 400
     r = _tag_one(p.get("category", "Identity"), value, p.get("asset_uuids"))
-    return {"ok": True, "result": r, "writes_enabled": navi_cli.writes_enabled()}, 200
+    return {"ok": r.get("ok", True) is not False, "result": r, "count": len(p.get("asset_uuids") or []),
+            "error": r.get("message") if r.get("ok") is False else None,
+            "writes_enabled": navi_cli.writes_enabled()}, 200
 
 
 def interpret(p):

@@ -3,70 +3,226 @@
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>ACR Calibration · Navi Agents</title>
 <link rel="stylesheet" href="/static/console.css"/>
-<style>.fld{width:100%;padding:8px;border-radius:7px;background:var(--panel2);color:var(--txt);border:1px solid var(--line)}</style>
-</head><body>
+<style>.fld{width:100%;padding:8px;border-radius:7px;background:var(--panel2);color:var(--txt);border:1px solid var(--line)}
+/* metric cards (same pattern as agents/was/page.html) */
+.mkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr));gap:10px;margin-top:10px}
+.mk{display:block;border:1px solid var(--line);border-left:4px solid var(--rc,var(--line));border-radius:12px;padding:10px 12px;background:var(--panel-2);color:inherit;text-decoration:none}
+.mk .v{font-size:22px;font-weight:800;color:var(--ink);line-height:1.1}.mk .l{font-size:11.5px;color:var(--mut);margin-top:2px}
+.mk .u{font-size:11px;color:var(--accent);margin-top:4px}
+a.mk:hover{border-color:var(--accent)} .mk.zero{opacity:.55}
+.mhead{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 0}
+.applink{color:var(--accent);text-decoration:none;font-weight:600}.applink:hover{text-decoration:underline}
+.tseg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;flex-wrap:wrap}
+.tseg button{background:var(--panel);border:0;border-right:1px solid var(--line);padding:7px 12px;font-size:12.5px;color:var(--ink-2);cursor:pointer;font-family:inherit;display:inline-flex;gap:6px;align-items:center;white-space:nowrap}
+.tseg button:last-child{border-right:0}.tseg button.on{background:var(--accent);color:#fff}.tseg button.on b{color:#fff}
+.tseg b{font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+.pst{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700;border:1px solid var(--line);white-space:nowrap}
+.pst.protected{color:var(--ok);background:rgba(52,211,153,.14)}.pst.unprotected{color:var(--cx-e7c66b);background:rgba(251,191,36,.12)}
+.pst.pending{color:var(--cx-7cc4ff);background:rgba(96,165,250,.14)}
+.gatebar{background:var(--panel-2);border:1px solid var(--line);border-left:3px solid var(--cx-e7c66b);border-radius:8px;padding:9px 12px;font-size:12.5px;color:var(--ink-2);margin:8px 0}
+.g2{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(260px,100%),1fr));gap:12px}
+.bcl{font-size:12px;white-space:normal}
+</style>
+</head><body data-page-cache="off">
 <div class="wrap">
   <header class="top" id="app-header"></header>
 
   <section class="card">
     <div class="toolbar"><div><h2 style="margin:0">ACR calibration</h2>
-      <p class="sub" style="margin:2px 0 0">Adjust ACR for assets carrying a tag. <b>Set</b> absolute 1–10, or nudge <b>+N / −N</b>. Justification required. Tags from <span class="mono">navi explore info tags</span>.</p></div>
-      <button class="btn run sm" id="runAcr" style="margin-left:auto">▶ Load tags</button></div>
+      <p class="sub" style="margin:2px 0 0">Adjust ACR for assets carrying a tag. <b>Set</b> absolute 1–10, or nudge <b>+N / −N</b>. Justification required. Tags from <span class="mono">navi explore info tags</span>. navi never changes the ACR of an asset tagged <span class="tagval">NO : UPDATE</span> — <b>protect</b> an ACR here once it is right; every change is recorded per asset in the <a class="applink" href="/web/acr-log.html">ACR log</a>.</p></div>
+      <span style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+        <a class="btn ghost sm" href="/web/acr-log.html" title="Per-asset registry of every ACR change the Hounds made">🎯 ACR log →</a>
+        <button id="runAcr" class="btn ghost sm" title="Re-fetch the tag list and the metrics (both load when the page opens)">↻ Reload</button></span></div>
+    <p class="sub" id="acrTrHint" style="display:none;margin:6px 0 0;color:var(--warn,#fbbf24)"></p>
     <div id="acrFlash" class="flash"></div>
-    <div class="card" style="background:var(--panel2)">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        <div><label class="sub">Tag</label><select id="acrTag" class="fld"></select></div>
-        <div><label class="sub">Change Reason (≥1)</label><div id="acrReasons" style="display:flex;gap:12px;flex-wrap:wrap;padding-top:6px;font-size:12.5px">
-          <label><input type="checkbox" value="business" checked> business</label><label><input type="checkbox" value="compliance"> compliance</label>
-          <label><input type="checkbox" value="mitigation"> mitigation</label><label><input type="checkbox" value="development"> development</label></div></div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px">
-        <div><label class="sub">Action</label><select id="acrMod" class="fld"><option value="set">Set ACR to (1–10)</option><option value="inc">Increase by (+N)</option><option value="dec">Decrease by (−N)</option></select></div>
-        <div><label class="sub" id="acrScoreLbl">Value</label><input id="acrScore" type="number" min="1" max="10" value="8" class="fld"></div>
-      </div>
-      <div style="margin-top:12px"><label class="sub">Business justification</label><textarea id="acrNote" rows="2" class="fld" placeholder="e.g. Lab/test device — low business criticality."></textarea></div>
-      <div class="toolbar" style="margin-top:12px"><button class="btn run sm" id="acrApply">▶ Apply ACR change</button><span class="sub" id="acrPreview"></span></div>
-      <div id="acrResult"></div>
-    </div>
   </section>
 
-  <section class="card">
-    <h2>Bulk ACR — natural language</h2>
+  <section class="card" id="secGlance" data-nav="At a glance" data-nav-icon="📊">
+    <h2 style="margin:0 0 2px;font-size:17px">📊 At a glance</h2>
+    <p class="sub" style="margin:2px 0 0">ACR protection from navi.db (<span class="mono">NO : UPDATE</span>) against what the Hounds changed (the ACR log). Every card opens the matching list.</p>
+    <div id="glance"><p class="sub">loading…</p></div>
+  </section>
+
+  <section class="card" id="secProtect" data-nav="Protection" data-nav-icon="🛡️">
+    <h2 style="margin:0 0 2px">🛡️ Protection <span class="sub" style="font-weight:400">· assets the Hounds changed</span></h2>
+    <p class="sub" style="margin:2px 0 6px">Tagging an asset <span class="tagval">NO : UPDATE</span> locks its ACR: <span class="mono">navi enrich acr</span> skips it on every later change (by any Hound, the AI Contract or a script). navi reads the tag from navi.db, so protection takes effect <b>after the next navi.db sync</b> (<span class="mono">navi update assets</span>; Tenable needs ~30 min to propagate a tag) — until then a row shows <span class="pst pending">pending</span>. The tag is always written exactly <b>NO : UPDATE</b>, even with Settings → Test run on. To <b>remove</b> protection use <a class="applink" href="/agents/tagremoval/page.html">🗑️ Tag Removal (Garmr)</a> — only Garmr removes tags.</p>
+    <div class="toolbar" style="gap:8px;flex-wrap:wrap">
+      <span class="tseg" id="pSeg"></span>
+      <span style="margin-left:auto;display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn sm" id="protSel" disabled>🏷️ Tag NO : UPDATE on selected</button>
+        <button class="btn run sm" id="protAll" disabled>🏷️ Tag NO : UPDATE on all unprotected</button></span>
+    </div>
+    <div id="protFlash" class="flash"></div>
+    <div id="protTbl" style="margin-top:8px"></div>
+  </section>
+
+  <section class="card" id="secAsk" data-nav="Ask (bulk)" data-nav-icon="✨">
+    <h2>✨ Ask — bulk ACR in plain English</h2>
     <p class="sub">Plain English; AI maps it to changes; you preview before any write. Falls back to a deterministic rule parser if no AI key.</p>
     <div id="bulkFlash" class="flash"></div>
     <textarea id="acrRules" rows="4" class="fld" style="font-size:13px" placeholder="e.g. Drop all IoT and lab gear by 5, set anything internet-facing to 9, bump production databases to 10, leave vuln-route tags alone."></textarea>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px">
+    <div class="g2" style="margin-top:10px">
       <div><label class="sub">Change Reason (every change)</label><div id="bulkReasons" style="display:flex;gap:12px;flex-wrap:wrap;padding-top:6px;font-size:12.5px">
         <label><input type="checkbox" value="business" checked> business</label><label><input type="checkbox" value="compliance"> compliance</label>
         <label><input type="checkbox" value="mitigation"> mitigation</label><label><input type="checkbox" value="development"> development</label></div></div>
       <div><label class="sub">Extra justification (optional)</label><input id="bulkNote" class="fld" placeholder="e.g. Q3 rebalance"></div>
     </div>
-    <div class="toolbar" style="margin-top:10px"><button class="btn sm needs-llm" id="acrInterpret">✨ Interpret with AI</button><button class="btn ghost sm" id="acrParse">Parse as rules</button><button class="btn run sm" id="acrBulkApply" disabled>Apply all</button><span class="chip" id="bulkCount"></span></div>
-    <div class="no-llm-note sub" style="display:none;margin-top:8px;color:var(--warn)">✨ AI interpretation needs a language model — set <span class="mono">ANTHROPIC_API_KEY</span> on the server to enable “Interpret with AI”. You can still use <b>Parse as rules</b> with one rule per line, e.g. <span class="mono">if it's IoT reduce 5</span> or <span class="mono">if internet-facing set 9</span>.</div>
+    <div class="toolbar" style="margin-top:10px;flex-wrap:wrap"><button class="btn sm needs-llm" id="acrInterpret" data-run>✨ Ask</button><button class="btn ghost sm" id="acrParse">Parse as rules</button><button class="btn run sm" id="acrBulkApply" disabled>⚖ Apply all</button><span class="chip" id="bulkCount"></span>
+      <label class="sub" title="After the changes apply, tag NO : UPDATE on exactly the assets they changed (applied rows only)"><input type="checkbox" id="bulkProtectAfter"> 🛡️ protect after applying (tag <span class="mono">NO : UPDATE</span>)</label></div>
+    <div class="no-llm-note sub" style="display:none;margin-top:8px;color:var(--warn)">✨ AI interpretation needs a language model — set <span class="mono">ANTHROPIC_API_KEY</span> on the server to enable “✨ Ask”. You can still use <b>Parse as rules</b> with one rule per line, e.g. <span class="mono">if it's IoT reduce 5</span> or <span class="mono">if internet-facing set 9</span>.</div>
     <div id="bulkPreview"></div>
   </section>
 
-  <section class="card">
+  <section class="card" id="secSingle" data-nav="Single change" data-nav-icon="⚖">
+    <h2>Single ACR change</h2>
+    <p class="sub">One tag, one change — pick the tag, the action and a justification. The confirm shows how many assets navi will change, skip as protected and skip for having no ACR.</p>
+    <div>
+      <div class="g2">
+        <div><label class="sub">Tag</label><select id="acrTag" class="fld"></select></div>
+        <div><label class="sub">Change Reason (≥1)</label><div id="acrReasons" style="display:flex;gap:12px;flex-wrap:wrap;padding-top:6px;font-size:12.5px">
+          <label><input type="checkbox" value="business" checked> business</label><label><input type="checkbox" value="compliance"> compliance</label>
+          <label><input type="checkbox" value="mitigation"> mitigation</label><label><input type="checkbox" value="development"> development</label></div></div>
+      </div>
+      <div class="g2" style="margin-top:12px">
+        <div><label class="sub">Action</label><select id="acrMod" class="fld"><option value="set">Set ACR to (1–10)</option><option value="inc">Increase by (+N)</option><option value="dec">Decrease by (−N)</option></select></div>
+        <div><label class="sub" id="acrScoreLbl">Value</label><input id="acrScore" type="number" min="1" max="10" step="1" value="8" class="fld"></div>
+      </div>
+      <div style="margin-top:12px"><label class="sub">Business justification</label><textarea id="acrNote" rows="2" class="fld" placeholder="e.g. Lab/test device — low business criticality."></textarea></div>
+      <div class="toolbar" style="margin-top:12px;flex-wrap:wrap"><button class="btn run sm" id="acrApply">⚖ Apply ACR change</button>
+        <label class="sub" title="After the change applies, tag NO : UPDATE on exactly the assets it changed (applied rows only)"><input type="checkbox" id="acrProtectAfter"> 🛡️ protect after applying (tag <span class="mono">NO : UPDATE</span>)</label>
+        <span class="sub" id="acrPreview"></span></div>
+      <div id="acrResult"></div>
+    </div>
+  </section>
+
+  <section class="card" id="secTags" data-nav="All tags" data-nav-icon="🏷️">
     <h2>All tags <span class="sub" id="acrCount"></span></h2><p class="sub">Live from <span class="mono">navi explore info tags</span>. Grouped by category — click a category to expand.</p>
-    <div class="toolbar" style="margin-bottom:10px;gap:8px;align-items:center"><input id="acrSearch" class="fld" placeholder="filter…" style="flex:1;margin:0"><button class="btn ghost sm" id="acrExpandAll">Expand all</button><button class="btn ghost sm" id="acrCollapseAll">Collapse all</button></div>
+    <div class="toolbar" style="margin-bottom:10px;gap:8px;align-items:center;flex-wrap:wrap"><input id="acrSearch" class="fld" placeholder="filter…" style="flex:1;margin:0;min-width:160px"><button class="btn ghost sm" id="acrExpandAll">Expand all</button><button class="btn ghost sm" id="acrCollapseAll">Collapse all</button></div>
     <div id="acrGroups"><p class="sub">Load tags…</p></div>
   </section>
-  <footer>ACR Calibration Agent · gated <span class="mono">navi enrich acr</span></footer>
+  <footer>ACR Calibration Agent · gated <span class="mono">navi enrich acr</span> · protection <span class="mono">NO : UPDATE</span> · <a class="applink" href="/web/acr-log.html">ACR log</a></footer>
 </div>
 <script src="/static/console.js"></script>
 <script>
 const API=agentApi('acr');
-let ACR=null, BULK={changes:[]};
+const GATED='\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.';
+const N=n=>(n==null?'—':Number(n).toLocaleString());
+let ACR=null, BULK={changes:[]}; let WRITES=false; jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});
+let MET=null, PSHOW='all';
 async function runAcr(){
   document.getElementById('runAcr').disabled=true;
-  try{const o=await API.post('run');ACR=o.result||{tags:[]};renderAcr();}catch(e){flash('acrFlash','✗ '+e.message,'crit');}
+  try{const o=await API.post('run');ACR=o.result||{tags:[]};renderAcr();}catch(e){flash('acrFlash','✗ '+esc(e.message),'crit');}
   document.getElementById('runAcr').disabled=false;
 }
+/* ---------- metrics + protection (reads: navi.db NO : UPDATE × the ACR log) ---------- */
+async function loadMetrics(){
+  let o; try{ o=await API.post('metrics',{show:PSHOW}); }catch(e){ o={ok:false,error:e.message}; }
+  MET=(o&&o.ok)?o:null;
+  if(!MET){ document.getElementById('glance').innerHTML='<p class="sub" style="color:var(--crit)">✗ '+esc((o&&o.error)||'metrics unavailable')+'</p>'; renderProtect(); return; }
+  if(typeof o.writes_enabled==='boolean') WRITES=o.writes_enabled;
+  renderMetrics(); renderProtect();
+}
+const logHref=q=>'/web/acr-log.html'+(q?'?'+new URLSearchParams(q).toString():'');
+function mk(v,l,href,c,where,title,show){ const z=typeof v==='string'?(v==='never'||v==='—'):!(+v);
+  return `<a class="mk${z?' zero':''}" href="${esc(href)}"${show?` data-show="${esc(show)}"`:''} style="--rc:${c||'var(--line)'}" title="${esc(title||'')}"><div class="v">${esc(typeof v==='string'?v:N(v))}</div><div class="l">${esc(l)}</div><div class="u">→ ${esc(where)}</div></a>`; }
+function renderMetrics(){
+  const m=MET, lc=m.last_change?new Date(m.last_change*1000).toLocaleString():'never';
+  const pendCh=Math.max(0,(m.changed_unprotected||0)-(m.changed_unprotected_waiting||0));
+  let h='<div class="mhead">Protection · navi.db</div><div class="mkpi">'
+    +mk(m.protected,'assets ACR-protected (NO : UPDATE)','/agents/ex_tags/page.html?key=NO&value=UPDATE','var(--ok)','Tag Explorer · NO : UPDATE','Assets navi.db shows tagged exactly NO : UPDATE — navi enrich acr never changes them')
+    +mk(m.protected_never_changed,'protected, never changed by the Hounds','/agents/ex_tags/page.html?key=NO&value=UPDATE','var(--line)','Tag Explorer · NO : UPDATE','Protected by someone else (or before the ACR log existed)')
+    +mk(m.pending,'protection requested, awaiting navi.db sync','#secProtect','var(--cx-7cc4ff)','Protection · pending','NO : UPDATE queued by a Hound; counts for navi after navi update assets','pending')
+    +mk(m.respected,'times navi respected NO : UPDATE','/web/acr-log.html?result=skipped_protected','var(--cx-7cc4ff)','ACR log · skipped_protected','ACR-log rows where a change skipped a protected asset')
+    +'</div><div class="mhead">Changed by the Hounds · ACR log</div><div class="mkpi">'
+    +mk(m.changed,'assets whose ACR the Hounds changed'+(m.changed_unchanged?' (incl. '+N(m.changed_unchanged)+' re-sent unchanged)':''),'/web/acr-log.html?result=applied','var(--accent)','ACR log · applied','Distinct assets with an applied ACR change (navi re-stamps an ACR it already had with the Hounds\' reason too)')
+    +mk(m.changed_protected,'changed & protected','#secProtect','var(--ok)','Protection · protected','','protected')
+    +mk(m.changed_unprotected_waiting,'changed & NOT protected','#secProtect','var(--cx-e7c66b)','Protection · protect them','Changed by the Hounds, no NO : UPDATE yet — a later change can move their ACR again','unprotected')
+    +mk(pendCh,'changed, protection pending sync','#secProtect','var(--cx-7cc4ff)','Protection · pending','','pending')
+    +mk(m.last_change?lc:'never','last Hound ACR change','/web/acr-log.html','var(--line)','ACR log · newest first')
+    +'</div><div class="mhead">navi will skip</div><div class="mkpi">'
+    +mk(m.no_acr==null?'—':m.no_acr,'assets with no ACR in navi.db','/web/acr-log.html?result=skipped_no_acr','var(--line)','ACR log · skipped_no_acr','navi enrich acr skips an asset whose ACR is empty in navi.db')
+    +'</div>';
+  const bc=m.by_business_case||[];
+  h+='<div class="mhead">Changes by business case</div>'+(bc.length?'<div class="mkpi">'+bc.slice(0,12).map(b=>
+      mk(b.assets,(b.business_case||'(no business case)')+' · '+N(b.protected)+' protected','/web/acr-log.html?'+new URLSearchParams({result:'applied',business_case:b.business_case||'__none'}).toString(),'var(--accent)','ACR log · this business case')).join('')+'</div>'
+      +(bc.length>12?'<p class="sub" style="margin:6px 0 0">+ '+(bc.length-12)+' more business case(s) in the <a class="applink" href="/web/acr-log.html">ACR log</a>.</p>':'')
+    :'<p class="sub" style="margin:6px 0 0">No Hound ACR changes yet.</p>');
+  document.getElementById('glance').innerHTML=h;
+  document.querySelectorAll('#glance a.mk[data-show]').forEach(a=>a.onclick=e=>{ e.preventDefault(); PSHOW=a.dataset.show; loadMetrics().then(()=>{
+    const s=document.getElementById('secProtect'); s.scrollIntoView({behavior:'smooth',block:'start'}); }); });
+  setNavCount('secProtect', N(m.changed));
+}
+function renderProtect(){
+  const m=MET||{}, pendCh=Math.max(0,(m.changed_unprotected||0)-(m.changed_unprotected_waiting||0));
+  const segs=[['all','all changed',m.changed],['unprotected','not protected',m.changed_unprotected_waiting],['pending','pending sync',pendCh],['protected','protected',m.changed_protected]];
+  document.getElementById('pSeg').innerHTML=segs.map(s=>`<button data-show="${s[0]}" class="${PSHOW===s[0]?'on':''}">${esc(s[1])} <b>${N(s[2]||0)}</b></button>`).join('');
+  document.querySelectorAll('#pSeg button').forEach(b=>b.onclick=()=>{ PSHOW=b.dataset.show; loadMetrics(); });
+  const rows=m.rows||[], box=document.getElementById('protTbl');
+  document.getElementById('protAll').disabled=!(m.changed_unprotected_waiting>0);
+  document.getElementById('protAll').textContent='🏷️ Tag NO : UPDATE on all '+N(m.changed_unprotected_waiting||0)+' unprotected';
+  if(!MET){ box.innerHTML=''; return; }
+  if(!rows.length){ box.innerHTML='<p class="sub">'+(m.changed?'No assets in this view.':'The Hounds have not changed any ACR yet — apply a change below, then protect it here.')+'</p>'; protSync(); return; }
+  box.innerHTML=(!WRITES?'<div class="gatebar">Writes are gated (NAVI_ALLOW_WRITES not set) — a protection tag queues in the <a class="applink" href="/web/tags-log.html">Tagging log</a> but is blocked.</div>':'')
+    +'<div style="overflow-x:auto"><table><thead><tr><th style="width:1%"><input type="checkbox" id="pAll" title="select / deselect all unprotected"></th><th>Host</th><th>Current ACR</th><th>Set by the Hounds</th><th>Last Hound change</th><th>Business case</th><th>Protected</th></tr></thead><tbody>'
+    +rows.map(r=>`<tr><td>${r.protection==='unprotected'?`<input type="checkbox" class="pChk" data-u="${esc(r.uuid)}">`:''}</td>
+      <td><b>${esc(r.hostname||r.ip||'(unknown host)')}</b>${r.ip&&r.hostname?' <span class="sub mono" style="font-size:11px">'+esc(r.ip)+'</span>':''}<div class="sub mono" style="font-size:10.5px;word-break:break-all">${esc(r.uuid)}</div></td>
+      <td class="mono">${r.in_navi_db?esc(r.acr==null||r.acr===''?'— (none)':r.acr):'<span class="sub">not in navi.db</span>'}</td>
+      <td class="mono">${esc(r.acr_set||'—')}${r.unchanged?' <span class="sub" style="font-size:11px" title="navi re-sent the ACR this asset already had">(re-sent, unchanged)</span>':''} <span class="sub" style="font-size:11px">via ${esc(r.selector||'')}</span></td>
+      <td class="sub" style="font-size:11.5px;white-space:nowrap">${esc(r.last_change?new Date(r.last_change*1000).toLocaleString():'—')}<div>${esc(r.agent||'')}${r.changes>1?' · '+N(r.changes)+' changes':''}</div></td>
+      <td class="bcl"><a class="applink" href="${esc(logHref({q:r.uuid}))}" title="This asset's ACR history">${esc(r.business_case||'(none)')}</a></td>
+      <td><span class="pst ${esc(r.protection)}">${r.protection==='protected'?'✓ yes':r.protection==='pending'?'⏳ pending sync':'✗ no'}</span>${r.request_failed?'<div class="sub" style="font-size:11px;color:var(--crit)">an earlier NO : UPDATE request is not in effect (job failed / blocked / cleared, removed, or not in navi.db 24 h later) — see the <a class="applink" href="/web/tags-log.html">Tagging log</a></div>':''}</td></tr>`).join('')
+    +'</tbody></table></div>'+(m.rows_total>rows.length?'<p class="sub" style="margin-top:6px">Showing '+N(rows.length)+' of '+N(m.rows_total)+' — the newest changes first.</p>':'');
+  box.querySelectorAll('.pChk').forEach(c=>c.onchange=protSync);
+  const all=document.getElementById('pAll'); if(all) all.onchange=()=>{ box.querySelectorAll('.pChk').forEach(c=>c.checked=all.checked); protSync(); };
+  protSync();
+}
+function protSelected(){ return [...document.querySelectorAll('#protTbl .pChk')].filter(c=>c.checked).map(c=>c.dataset.u); }
+function protSync(){ const n=protSelected().length, b=document.getElementById('protSel'); b.disabled=!n; b.textContent='🏷️ Tag NO : UPDATE on '+(n?N(n)+' ':'')+'selected'; }
+async function protect(all){
+  const sel=all?[]:protSelected(); const n=all?((MET&&MET.changed_unprotected_waiting)||0):sel.length;
+  if(!n) return flash('protFlash','Nothing to protect — select assets that are not protected yet.','warn');
+  if(!confirm('Tag '+N(n)+' asset'+(n===1?'':'s')+' NO : UPDATE?\n\nThe tag is written exactly as category "NO", value "UPDATE" (never test-run prefixed). '
+    +'navi enrich acr then skips these assets on every later ACR change — after the next navi.db sync (navi update assets; Tenable needs ~30 min to propagate the tag).\n\n'
+    +'Each tag job carries the business case of the asset\'s last Hound ACR change. Removing protection later is a tag removal — only Tag Removal (Garmr) can do it.'+(WRITES?'':GATED))) return;
+  const btn=document.getElementById(all?'protAll':'protSel'); btn.disabled=true;
+  flash('protFlash','<span class="spin"></span> queuing NO : UPDATE…','run');
+  let o; try{ o=await API.post('protect',all?{all_unprotected:true,confirm:true}:{uuids:sel,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o||!o.ok){ flash('protFlash','✗ '+esc((o&&(o.error||o.message))||'failed'),'crit'); btn.disabled=false; return; }
+  flash('protFlash',o.assets?('✓ queued NO : UPDATE on '+N(o.assets)+' asset(s) in '+N(o.queued_jobs)+' tag job(s) — track them in the <a class="applink" href="/web/tags-log.html">Tagging log</a>. '
+      +(o.writes_enabled===false?'Writes are gated, so nothing reaches Tenable until NAVI_ALLOW_WRITES=1.':'Protection counts for navi after the next navi.db sync.'))
+    :esc(o.note||'Nothing to protect.'),o.assets?'ok':'warn');
+  loadMetrics();
+}
+document.getElementById('protSel').onclick=()=>protect(false);
+document.getElementById('protAll').onclick=()=>protect(true);
+/* preview (mirrors navi's selection in navi.db) — used in every apply confirm() */
+let PV_REFUSED=[];   /* changes the Hounds will not send (navi would change nothing / crash part-way) */
+async function previewText(changes){
+  PV_REFUSED=[];
+  let o; try{ o=await API.post('preview',{changes:changes.map(c=>({category:c.category,value:c.value,score:c.score,mod:c.mod})),refresh:true}); }catch(e){ o=null; }
+  if(!o||!o.ok) return '\n\nPreview unavailable (navi.db not readable) — navi decides which assets change when it runs.';
+  PV_REFUSED=(o.previews||[]).filter(p=>p.refuse);
+  const t=o.totals||{}, bad=(o.previews||[]).filter(p=>p.valid_score===false).length, err=(o.previews||[]).filter(p=>p.error).length;
+  return '\n\nPreview from navi.db (navi applies the same rules):\n• '+N(t.change)+' asset'+(t.change===1?'':'s')+' will change'
+    +(t.unchanged?' (+'+N(t.unchanged)+' already at that ACR — re-sent unchanged)':'')
+    +'\n• '+N(t.protected)+' protected by NO : UPDATE — navi skips them'
+    +'\n• '+N(t.no_acr)+' without an ACR in navi.db — navi skips them'
+    +(t.bad_acr?'\n• '+N(t.bad_acr)+' with an ACR navi cannot read — navi errors on them':'')
+    +(t.refused?'\n• '+N(t.refused)+' in a change the Hounds will not send (see below)':'')
+    +(bad?'\n• '+bad+' change(s) with a score navi ignores (not a whole number 1–10)':'')
+    +(err?'\n• '+err+' change(s) could not be previewed (navi.db missing tags/assets)':''); }
+function refusedHtml(){ return PV_REFUSED.map(p=>'<b>'+esc(p.category)+' : '+esc(p.value)+'</b> — '+esc(p.refuse)).join('<br>'); }
+function protectNote(r){ const p=r&&r.protection; if(!p) return ''; return p.assets?' 🛡️ NO : UPDATE queued on '+N(p.assets)+' changed asset(s).':(p.note?' 🛡️ '+p.note:''); }
+function logNote(r){ const l=(r&&r.acr_log)||{}, c=l.counts||{}; if(!l.batch) return '';
+  const parts=[]; if(c.applied) parts.push(N(c.applied)+' applied'); if(c.blocked) parts.push(N(c.blocked)+' blocked'); if(c.failed) parts.push(N(c.failed)+' failed');
+  if(c.skipped_protected) parts.push(N(c.skipped_protected)+' protected (skipped)'); if(c.skipped_no_acr) parts.push(N(c.skipped_no_acr)+' no ACR (skipped)');
+  return ' <a class="applink" href="'+esc(logHref({batch:l.batch}))+'">ACR log'+(parts.length?': '+esc(parts.join(' · ')):'')+' →</a>'; }
 let ACR_OPEN={};   /* category -> expanded? (persists across re-renders in this session) */
 function renderAcr(){
   if(!ACR)return;const sel=document.getElementById('acrTag');
   sel.innerHTML=(ACR.tags||[]).map((t,i)=>`<option value="${i}">${esc(t.category)} : ${esc(t.value)}</option>`).join('')||'<option>(no tags — is navi on PATH?)</option>';
   document.getElementById('acrCount').textContent=`(${(ACR.tags||[]).length})`;
+  setNavCount('secTags', N((ACR.tags||[]).length));
   const q=(document.getElementById('acrSearch').value||'').toLowerCase();
   const groups={};
   (ACR.tags||[]).forEach((t,i)=>{ if(q && !((t.category+' '+t.value).toLowerCase().includes(q)))return; (groups[t.category]=groups[t.category]||[]).push({t,i}); });
@@ -78,8 +234,8 @@ function renderAcr(){
     const items=groups[cat];
     return `<div class="acrgrp" style="border:1px solid var(--line);border-radius:8px;margin-bottom:8px;overflow:hidden">`
       +`<div class="acrgrphdr" data-cat="${esc(cat)}" style="display:flex;align-items:center;gap:8px;padding:9px 12px;cursor:pointer;background:var(--panel2)">`
-      +`<span class="acrchev" style="width:12px;display:inline-block">${open?'▾':'▸'}</span><b>${esc(cat)}</b><span class="chip" style="margin-left:auto">${items.length}</span></div>`
-      +`<div class="acrgrpbody" style="display:${open?'block':'none'}"><table style="margin:0"><tbody>`
+      +`<span class="acrchev" style="width:12px;display:inline-block">${open?'▾':'▸'}</span><b>${esc(cat)}</b>${cat==='NO'?' <span class="sub" style="font-size:11px">ACR protection</span>':''}<span class="chip" style="margin-left:auto">${items.length}</span></div>`
+      +`<div class="acrgrpbody" style="display:${open?'block':'none'};overflow-x:auto"><table style="margin:0"><tbody>`
       +items.map(({t})=>`<tr><td style="width:60%"><span class="tagval">${esc(t.value)}</span></td><td class="mono" style="font-size:11px;color:var(--mut)">${esc(t.uuid||'')}</td><td style="text-align:right"><button class="btn sm" data-cat="${esc(t.category)}" data-val="${esc(t.value)}">Set ACR</button></td></tr>`).join('')
       +`</tbody></table></div></div>`;
   }).join('');
@@ -90,27 +246,38 @@ function renderAcr(){
 function prefillAcr(cat,val){
   if(!ACR)return; const i=(ACR.tags||[]).findIndex(t=>t.category===cat&&t.value===val); if(i<0)return;
   const sel=document.getElementById('acrTag'); sel.value=i; acrPreview();
-  document.querySelector('section.card').scrollIntoView({behavior:'smooth',block:'start'});
+  document.getElementById('secSingle').scrollIntoView({behavior:'smooth',block:'start'});
   const sc=document.getElementById('acrScore'); sc.focus(); sc.select();
-  flash('acrFlash','Editing ACR for '+cat+' : '+val+'. Set the value, pick a Change Reason, add a justification, then Apply.','run');
+  flash('acrFlash','Editing ACR for '+esc(cat)+' : '+esc(val)+'. Set the value, pick a Change Reason, add a justification, then Apply.','run');
 }
 function acrPreview(){if(!ACR)return;const mod=acrMod.value,sc=acrScore.value;document.getElementById('acrScoreLbl').textContent=mod==='set'?'Set to (1–10)':mod==='inc'?'Increase by (N)':'Decrease by (N)';const t=ACR.tags[acrTag.value];if(t)document.getElementById('acrPreview').textContent=mod==='set'?`Set ACR=${sc} on ${t.category}:${t.value}`:`${mod==='inc'?'Add':'Subtract'} ${sc} ${mod==='inc'?'to':'from'} ${t.category}:${t.value}`;}
 async function applyAcr(){
   const btn=document.getElementById('acrApply'); if(btn&&btn.disabled)return;
   if(!ACR||!ACR.tags.length)return;const t=ACR.tags[acrTag.value];const mod=acrMod.value,score=Number(acrScore.value),note=acrNote.value.trim();
   const reasons=[...document.querySelectorAll('#acrReasons input:checked')].map(x=>x.value);
+  const protectAfter=document.getElementById('acrProtectAfter').checked;
   if(!note)return flash('acrFlash','Business justification is required.','crit');
   if(!reasons.length)return flash('acrFlash','Select ≥1 Change Reason.','crit');
+  if(btn){ btn.dataset.label=btn.dataset.label||btn.textContent; btn.disabled=true; btn.textContent='⏳ Previewing…'; }
+  if(!Number.isInteger(score)||score<1||score>10){ if(btn){ btn.disabled=false; btn.textContent=btn.dataset.label; } return flash('acrFlash','The ACR value must be a whole number 1–10 (navi rejects '+esc(acrScore.value)+').','crit'); }
+  const pv=await previewText([{category:t.category,value:t.value,score,mod}]);
+  if(btn){ btn.disabled=false; btn.textContent=btn.dataset.label; }
+  if(PV_REFUSED.length) return flash('acrFlash','✗ Not sent — '+refusedHtml(),'crit');
+  { const how=mod==='set'?'Set ACR to '+score:mod==='inc'?'Raise ACR by '+score:'Lower ACR by '+score;
+    if(!confirm(how+' on every asset tagged '+t.category+' : '+t.value+' (1 tag selector; reason: '+reasons.join(', ')+')?'+pv
+      +(protectAfter?'\n\nThen tag NO : UPDATE on exactly the assets that change (protect after applying) — navi leaves them alone after the next navi.db sync.':'')
+      +(WRITES?'':GATED))) return; }
+  if(btn&&btn.disabled)return;
   const res=document.getElementById('acrResult');
   const scroll=()=>{ if(res)res.scrollIntoView({behavior:'smooth',block:'center'}); };
   const reset=()=>{ if(!btn)return; btn.disabled=false; btn.textContent=btn.dataset.label; btn.style.opacity=''; btn.style.transform=''; btn.style.cursor=''; };
   if(btn){ btn.dataset.label=btn.dataset.label||btn.textContent; btn.disabled=true; btn.textContent='⏳ Sending…'; btn.style.opacity='.6'; btn.style.transform='translateY(1px)'; btn.style.cursor='default'; }
   flash('acrFlash','<span class="spin"></span> applying…','run');
   scroll();
-  const o=await API.post('apply',{category:t.category,value:t.value,score,mod,note,reasons,confirm:true});
-  if(o.ok){flash('acrFlash',`✓ ACR ${mod} ${score} on ${t.category}:${t.value}.`+(o.warning?' '+o.warning:' Allow ~30 min for AES.'),'ok');res.innerHTML='<div class="callbox">'+(o.cmd||'')+'</div>';}
-  else{flash('acrFlash','✗ '+(o.message||o.error||'failed'),'crit');res.innerHTML=o.cmd?'<div class="callbox">'+o.cmd+'</div>':'';}
-  scroll(); reset();
+  const o=await API.post('apply',{category:t.category,value:t.value,score,mod,note,reasons,confirm:true,protect_after:protectAfter});
+  if(o.ok){flash('acrFlash',`✓ ACR ${esc(mod)} ${esc(score)} on ${esc(t.category)}:${esc(t.value)}.`+(o.warning?' '+esc(o.warning):' Allow ~30 min for AES.')+logNote(o)+esc(protectNote(o)),'ok');res.innerHTML='<div class="callbox">'+esc(o.cmd||'')+'</div>';}
+  else{flash('acrFlash','✗ '+esc(o.message||o.error||'failed')+logNote(o),'crit');res.innerHTML=o.cmd?'<div class="callbox">'+esc(o.cmd)+'</div>':'';}
+  scroll(); reset(); loadMetrics();
 }
 /* bulk */
 const RULE_RE=/^\s*if\s+(?:it'?s\s+|it\s+has\s+|it\s+contains\s+|tag\s+has\s+|the\s+)?["']?(.+?)["']?\s+(reduce|decrease|lower|drop|increase|raise|bump|set)\s+(?:it\s+)?(?:by\s+|to\s+)?(\d+)\s*$/i;
@@ -126,53 +293,69 @@ function bulkSync(){const pv=document.getElementById('bulkPreview');if(!pv)retur
   const all=document.getElementById('bulkChkAll');if(all)all.checked=(on===tot&&tot>0);}
 function setBulk(changes,source,meta){BULK={changes};const pv=document.getElementById('bulkPreview');
   const has=changes.length;
-  pv.innerHTML=(meta||'')+`<p class="sub" style="margin:10px 0 4px">${changes.length} change(s) · <b>${esc(source)}</b>`+(has?` · deselect any you don't want, then Apply. <a id="bulkAll" style="color:var(--accent);cursor:pointer">all</a> · <a id="bulkNone" style="color:var(--accent);cursor:pointer">none</a>`:'')+`</p><table><thead><tr><th style="width:1%;white-space:nowrap"><input type="checkbox" id="bulkChkAll" ${has?'checked':''} title="select / deselect all"></th><th>Tag</th><th>Action</th><th>Reason</th><th>Why</th></tr></thead><tbody>`+
-    (has?changes.map((c,i)=>`<tr><td style="text-align:center"><input type="checkbox" class="bulkChk" data-i="${i}" checked></td><td>${esc(c.category)} : <span class="tagval">${esc(c.value)}</span></td><td><b>${c.mod==='set'?'set '+c.score:(c.mod==='inc'?'+':'−')+c.score}</b></td><td class="sub">${esc((c.reasons||[]).join(', '))}</td><td class="sub">${esc(c.why||c.rule||'')}</td></tr>`).join(''):'<tr><td colspan="5" class="sub">No changes.</td></tr>')+'</tbody></table>';
+  pv.innerHTML=(meta||'')+`<p class="sub" style="margin:10px 0 4px">${changes.length} change(s) · <b>${esc(source)}</b>`+(has?` · deselect any you don't want, then Apply. <a id="bulkAll" style="color:var(--accent);cursor:pointer">all</a> · <a id="bulkNone" style="color:var(--accent);cursor:pointer">none</a>`:'')+`</p><div style="overflow-x:auto"><table><thead><tr><th style="width:1%;white-space:nowrap"><input type="checkbox" id="bulkChkAll" ${has?'checked':''} title="select / deselect all"></th><th>Tag</th><th>Action</th><th>Reason</th><th>Why</th></tr></thead><tbody>`+
+    (has?changes.map((c,i)=>`<tr><td style="text-align:center"><input type="checkbox" class="bulkChk" data-i="${i}" checked></td><td>${esc(c.category)} : <span class="tagval">${esc(c.value)}</span></td><td><b>${c.mod==='set'?'set '+esc(c.score):(c.mod==='inc'?'+':'−')+esc(c.score)}</b></td><td class="sub">${esc((c.reasons||[]).join(', '))}</td><td class="sub">${esc(c.why||c.rule||'')}</td></tr>`).join(''):'<tr><td colspan="5" class="sub">No changes.</td></tr>')+'</tbody></table></div>';
   pv.querySelectorAll('.bulkChk').forEach(c=>c.onchange=bulkSync);
   const all=document.getElementById('bulkChkAll');if(all)all.onchange=()=>{pv.querySelectorAll('.bulkChk').forEach(c=>c.checked=all.checked);bulkSync();};
   const aAll=document.getElementById('bulkAll');if(aAll)aAll.onclick=()=>{pv.querySelectorAll('.bulkChk').forEach(c=>c.checked=true);bulkSync();};
   const aNone=document.getElementById('bulkNone');if(aNone)aNone.onclick=()=>{pv.querySelectorAll('.bulkChk').forEach(c=>c.checked=false);bulkSync();};
   bulkSync();}
-async function deterministicBulk(){if(!await ensureTags())return flash('bulkFlash','No tags to work with — is <span class="mono">navi</span> on PATH? Click ▶ Load tags above, then try again.','crit');
+async function deterministicBulk(){if(!await ensureTags())return flash('bulkFlash','No tags to work with — is <span class="mono">navi</span> on PATH? Click ↻ Reload above, then try again.','crit');
   const {rules,bad}=parseRules(acrRules.value);const reasons=bulkReasons(),extra=bulkNote.value.trim(),changes=[];
   (ACR?ACR.tags:[]).forEach(t=>{const hay=(t.category+' '+t.value).toLowerCase();const r=rules.find(x=>hay.includes(x.keyword.toLowerCase()));if(!r)return;if(r.mod==='set'&&(r.score<1||r.score>10))return;changes.push({category:t.category,value:t.value,mod:r.mod,score:r.score,reasons:reasons.length?reasons:['business'],note:`Bulk ACR rule: "${r.raw}"`+(extra?` — ${extra}`:''),rule:r.raw});});
   const warn=[];if(bad.length)warn.push(`${bad.length} line(s) not understood`);if(!reasons.length)warn.push('no reason — defaulting to business');
-  setBulk(changes,'deterministic rules',warn.length?`<div class="flash show" style="background:rgba(251,191,36,.12);color:var(--warn)">${warn.join(' · ')}</div>`:'');}
+  setBulk(changes,'deterministic rules',warn.length?`<div class="flash show" style="background:rgba(251,191,36,.12);color:var(--warn)">${esc(warn.join(' · '))}</div>`:'');}
 async function ensureTags(){ if(ACR&&ACR.tags&&ACR.tags.length)return true;
   flash('bulkFlash','<span class="spin"></span> loading tags (navi explore info tags)…','run');
   try{await runAcr();}catch(e){}
   return !!(ACR&&ACR.tags&&ACR.tags.length); }
 async function interpretAI(){const prompt=acrRules.value.trim();if(!prompt)return flash('bulkFlash','Type an instruction first.','crit');
-  if(!await ensureTags())return flash('bulkFlash','No tags to work with — is <span class="mono">navi</span> on PATH? Click ▶ Load tags above, then try again.','crit');
+  if(!await ensureTags())return flash('bulkFlash','No tags to work with — is <span class="mono">navi</span> on PATH? Click ↻ Reload above, then try again.','crit');
   flash('bulkFlash','<span class="spin"></span> interpreting with AI…','run');const reasons=bulkReasons(),extra=bulkNote.value.trim();
   let o;try{o=await API.post('interpret',{prompt,tags:ACR.tags});}catch(e){o={ok:false,message:e.message};}
   if(o.ok){const changes=(o.changes||[]).map(c=>({category:c.category,value:c.value,mod:c.mod,score:c.score,reasons:reasons.length?reasons:(c.reasons||['business']),note:`AI ACR: "${prompt.slice(0,120)}"`+(c.why?` — ${c.why}`:'')+(extra?` — ${extra}`:''),why:c.why||''}));
     if(!changes.length){flash('bulkFlash','The AI matched none of your '+ACR.tags.length+' tag(s)'+(o.rejected&&o.rejected.length?` (it suggested ${o.rejected.length} that aren’t in your tag list)`:'')+'. Name a tag category or value explicitly, or use Parse as rules.','warn');}
     else flash('bulkFlash',`AI proposed ${changes.length} change(s).`+(o.rejected&&o.rejected.length?` (${o.rejected.length} rejected)`:''),'ok');
     setBulk(changes,'AI ('+(o.model||'llm')+')','');}
-  else{const msg=(o.message||o.error||'AI unavailable');flash('bulkFlash',msg+(o.fallback?' — parsing as rules instead.':''),o.fallback?'warn':'crit');if(o.fallback)deterministicBulk();}}
+  else{const msg=(o.message||o.error||'AI unavailable');flash('bulkFlash',esc(msg)+(o.fallback?' — parsing as rules instead.':''),o.fallback?'warn':'crit');if(o.fallback)deterministicBulk();}}
 async function applyBulk(){
   const btn=document.getElementById('acrBulkApply'); if(btn&&btn.disabled)return;
   const sel=bulkSelected();
   if(!sel.length)return flash('bulkFlash','Nothing selected — check at least one change to apply.','warn');
-  const pv=document.getElementById('bulkPreview');
-  const scroll=()=>{ if(pv)pv.scrollIntoView({behavior:'smooth',block:'center'}); };
+  const protectAfter=document.getElementById('bulkProtectAfter').checked;
+  if(btn){ btn.dataset.label=btn.dataset.label||btn.textContent; btn.disabled=true; btn.textContent='⏳ Previewing…'; }
+  const pv=await previewText(sel);
+  if(btn){ btn.disabled=false; btn.textContent=btn.dataset.label; }
+  if(PV_REFUSED.length) return flash('bulkFlash','✗ Nothing sent — deselect these change(s) first:<br>'+refusedHtml(),'crit');
+  if(!confirm('Apply '+sel.length+' ACR change'+(sel.length===1?'':'s')+' ('+sel.length+' tag selector'+(sel.length===1?'':'s')+')?\n\n'
+    +sel.slice(0,12).map(c=>'• '+c.category+' : '+c.value+' → '+(c.mod==='inc'?'+':c.mod==='dec'?'−':'set ')+c.score).join('\n')+(sel.length>12?'\n• … +'+(sel.length-12)+' more':'')+pv
+    +(protectAfter?'\n\nThen tag NO : UPDATE on exactly the assets that change (protect after applying) — navi leaves them alone after the next navi.db sync.':'')
+    +(WRITES?'':GATED))) return;
+  if(btn&&btn.disabled)return;
+  const pvBox=document.getElementById('bulkPreview');
+  const scroll=()=>{ if(pvBox)pvBox.scrollIntoView({behavior:'smooth',block:'center'}); };
   const reset=()=>{ if(!btn)return; btn.disabled=false; btn.textContent=btn.dataset.label; btn.style.opacity=''; btn.style.transform=''; btn.style.cursor=''; };
   if(btn){ btn.dataset.label=btn.dataset.label||btn.textContent; btn.disabled=true; btn.textContent='⏳ Sending…'; btn.style.opacity='.6'; btn.style.transform='translateY(1px)'; btn.style.cursor='default'; }
   flash('bulkFlash','<span class="spin"></span> applying '+sel.length+' change(s)…','run');
   scroll();
-  const o=await API.post('bulk_apply',{changes:sel,confirm:true});
-  if(!o.ok){flash('bulkFlash','✗ '+(o.error||'failed'),'crit');reset();scroll();return;}
-  flash('bulkFlash',`✓ Applied ${o.applied}/${o.total}.`+(o.writes_enabled?' Allow ~30 min for AES.':' (gated — set NAVI_ALLOW_WRITES=1)'),o.applied?'ok':'crit');
-  document.getElementById('bulkPreview').innerHTML=(o.results||[]).map(r=>`<div class="callbox" style="color:${r.ok?'var(--ok)':'var(--cx-ffb4c6)'}">${r.ok?'✓':'✗'} ${r.category}:${r.value} ${r.mod} ${r.score}${r.ok?(r.warning?' — '+r.warning:''):' — '+(r.message||r.stderr||'failed')}</div>`).join('');
-  scroll(); reset();}
+  const o=await API.post('bulk_apply',{changes:sel,confirm:true,protect_after:protectAfter});
+  if(!o.ok){flash('bulkFlash','✗ '+esc(o.error||'failed'),'crit');reset();scroll();return;}
+  flash('bulkFlash',`✓ Applied ${o.applied}/${o.total}.`+(o.writes_enabled?' Allow ~30 min for AES.':' (gated — set NAVI_ALLOW_WRITES=1)')+(protectAfter?' 🛡️ NO : UPDATE queued on '+N(o.protected_assets||0)+' changed asset(s).':'')+' Per-asset detail in the <a class="applink" href="/web/acr-log.html">ACR log</a>.',o.applied?'ok':'crit');
+  document.getElementById('bulkPreview').innerHTML=(o.results||[]).map(r=>`<div class="callbox" style="color:${r.ok?'var(--ok)':'var(--cx-ffb4c6)'}">${r.ok?'✓':'✗'} ${esc(r.category)}:${esc(r.value)} ${esc(r.mod)} ${esc(r.score)}${r.ok?(r.warning?' — '+esc(r.warning):''):' — '+esc(r.message||r.stderr||'failed')}${logNote(r)}${esc(protectNote(r))}</div>`).join('');
+  scroll(); reset(); loadMetrics();}
 acrMod.onchange=acrPreview;acrScore.oninput=acrPreview;acrTag.onchange=acrPreview;acrSearch.oninput=renderAcr;
-document.getElementById('runAcr').onclick=runAcr;document.getElementById('acrApply').onclick=applyAcr;
+document.getElementById('runAcr').onclick=()=>{ runAcr(); loadMetrics(); };document.getElementById('acrApply').onclick=applyAcr;
 document.getElementById('acrInterpret').onclick=interpretAI;document.getElementById('acrParse').onclick=deterministicBulk;document.getElementById('acrBulkApply').onclick=applyBulk;
 document.getElementById('acrExpandAll').onclick=()=>{ if(!ACR)return; (ACR.tags||[]).forEach(t=>ACR_OPEN[t.category]=true); renderAcr(); };
 document.getElementById('acrCollapseAll').onclick=()=>{ ACR_OPEN={}; renderAcr(); };
-mountAgentHeader({icon:'🎯',name:'ACR Calibration Agent',sub:'set / +N / −N per tag · NL bulk'});
+mountAgentHeader({id:'acr',icon:'🎯',name:'ACR Calibration Agent',sub:'set / +N / −N per tag · NL bulk · NO : UPDATE protection'});
 try{ hMailAuto(); }catch(e){}
-/* explicit-run: nothing loads until ▶ (protects a large navi.db) */
+mountSectionNav();
+/* loads on open: the tag list is live from Tenable (navi explore info tags), and the metrics are two
+   small reads (navi.db NO : UPDATE tags + the ACR log) — not a navi.db crunch */
+runAcr(); loadMetrics();
+// Settings → Test run: ACR targets the tag exactly as listed; say what Hound-created tags are called now
+testRunStatus().then(t=>{ const el=document.getElementById('acrTrHint'); if(!el||!t||!t.enabled) return; el.style.display='';
+  el.innerHTML='🧪 Test run is on — tags the Hounds create now read <span class="mono">'+esc(t.prefix)+'&lt;category&gt;</span>. ACR applies to the category exactly as listed; pick the <span class="mono">'+esc(t.prefix)+'…</span> one to target a test-run tag. The protection tag is always exactly <span class="mono">NO : UPDATE</span>.'; });
 </script>
 </body></html>

@@ -15,6 +15,12 @@
 .st.done{color:var(--ok);background:rgba(52,211,153,.14)}
 .st.error{color:var(--crit);background:rgba(251,113,133,.14)}
 td .mono,.dim{color:var(--mut)}
+#tbl th[data-k]{cursor:pointer;white-space:nowrap;user-select:none}#tbl th[data-k]:hover{color:var(--accent)}
+#tbl th .ar{font-size:10px;color:var(--accent);margin-left:3px}
+.bc{font-size:11.5px;white-space:normal;max-width:260px}
+.flt{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 8px}
+.flt select,.flt input{padding:5px 8px;border-radius:6px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink);max-width:100%}
+.flt select{max-width:min(260px,58vw)}
 </style>
 </head>
 <body>
@@ -22,7 +28,7 @@ td .mono,.dim{color:var(--mut)}
   <header class="top">
     <div class="logo"><span class="hcrest brand" role="img" aria-label="The Hounds"></span></div>
     <h1>Tagging Log <small>THE HOUNDS · BACKGROUND TAG QUEUE</small></h1>
-    <div class="meta"><a class="btn ghost sm" href="/web/index.html">← All agents</a></div>
+    <div class="meta"><a class="btn ghost sm" href="/web/acr-log.html" title="Per-asset registry of every ACR change the Hounds made">🎯 ACR log</a> <a class="btn ghost sm" href="/web/c2-log.html" title="Every command the Hounds ran on any host (navi action push)">🖥 C2 log</a> <a class="btn ghost sm" href="/web/index.html">← All agents</a></div>
   </header>
   <p class="sub" style="margin:14px 0 0">Every tag write runs on a background worker so the agent pages never block. This log shows what's <b>queued</b>, <b>running</b>, and <b>finished</b> this server session. Auto-refreshes every 2s.</p>
   <div class="kpi" id="kpi"></div>
@@ -35,13 +41,21 @@ td .mono,.dim{color:var(--mut)}
     <button class="btn ghost sm" id="exportCsv" title="Download the tagging log as a CSV — import it on the AI Contract page to build a policy from it">⬇ Export CSV</button>
     <button class="btn ghost sm" id="exportSh" title="Download a shell script that re-runs every navi command in this log — drop it in cron">⬇ Export .sh</button>
     <button class="btn ghost sm" id="exportPy" title="Download a python script that re-runs every navi command in this log">⬇ Export .py</button>
+    <label class="sub" title="Off by default. Only APPLIED ACR changes are included; a replayed ACR change is not recorded in the ACR log, and navi skips NO : UPDATE assets"><input type="checkbox" id="exportAcr"> include applied ACR changes in .sh / .py</label>
     <button class="btn ghost sm" id="optimize" title="Build SQL indexes (navi config optimize) — makes tagging seconds instead of minutes on large datasets" style="margin-left:auto">⚡ Optimize navi.db</button>
     <button class="btn ghost sm" id="clear">🧹 Clear finished</button>
   </div>
   <p class="sub" style="margin:0 0 6px">Tags run serially in the background. On large tenants a single tag can take <b>2–3 minutes</b>; if it's consistently slower, click <b>Optimize navi.db</b> (runs <span class="mono">navi config optimize</span>) once — it builds indexes that turn tag ops from minutes into seconds.</p>
   <div id="flash" class="flash"></div>
-  <table id="tbl" class="norsz" style="table-layout:auto;width:100%"><thead><tr><th style="width:1%;white-space:nowrap">#</th><th>Status</th><th title="Cross-checked against navi explore info tags">Landed</th><th>Category</th><th>Value</th><th>Selector</th><th style="min-width:260px">Detail</th><th>Queued</th><th>Duration</th><th>Result</th></tr></thead>
-    <tbody><tr><td colspan="10" class="sub">loading…</td></tr></tbody></table>
+  <div class="flt">
+    <label class="sub">Business case <select id="fBc"><option value="">(any)</option></select></label>
+    <input id="fQ" placeholder="search category / value / detail / business case…" style="flex:1;min-width:200px">
+    <span class="sub" id="fCount"></span>
+  </div>
+  <p class="sub" style="margin:0 0 6px">The <b>Business case</b> is the ACR Change Reasons + justification behind an ACR change (and the <span class="mono">NO : UPDATE</span> protection tags it prompted). Click any column heading to sort. Per-asset ACR history lives in the <a href="/web/acr-log.html">ACR log</a>.</p>
+  <div style="overflow-x:auto">
+  <table id="tbl" class="norsz" style="table-layout:auto;width:100%"><thead><tr><th data-k="id" style="width:1%;white-space:nowrap">#</th><th data-k="status">Status</th><th title="Cross-checked against navi explore info tags">Landed</th><th data-k="category">Category</th><th data-k="value">Value</th><th data-k="selector">Selector</th><th data-k="detail" style="min-width:260px">Detail</th><th data-k="business_case" title="ACR Change Reasons + justification">Business case</th><th data-k="created">Queued</th><th>Duration</th><th data-k="message">Result</th></tr></thead>
+    <tbody><tr><td colspan="11" class="sub">loading…</td></tr></tbody></table></div>
   <footer>Tagging Log · in-memory · session-only (clears on server restart)</footer>
 </div>
 <script src="/static/console.js"></script>
@@ -61,8 +75,43 @@ function landedCell(j){
 }
 function fmtTime(t){ return t?new Date(t*1000).toLocaleTimeString():'—'; }
 function dur(j){ if(!j.started)return '—'; const end=j.finished||(Date.now()/1000); const s=Math.max(0,end-j.started); return s<1?'<1s':(s<60?Math.round(s)+'s':Math.floor(s/60)+'m '+Math.round(s%60)+'s'); }
+let SORT={k:'id',dir:-1}, JOBS=[];
+function sortVal(j,k){ const v=j[k]; return (k==='id'||k==='created')?(+v||0):String(v==null?'':v).toLowerCase(); }
+function fillBc(jobs){ const sel=document.getElementById('fBc'); if(document.activeElement===sel) return;  /* don't rebuild an open dropdown on the 2s refresh */
+  const cur=sel.value; const seen={};
+  jobs.forEach(j=>{ const b=j.business_case||''; if(b) seen[b]=(seen[b]||0)+1; });
+  const opts=['<option value="">(any)</option>','<option value="__none">(none)</option>']
+    .concat(Object.keys(seen).sort((a,b)=>a.localeCompare(b)).map(b=>'<option value="'+esc(b)+'">'+esc(b)+' ('+seen[b]+')</option>'));
+  sel.innerHTML=opts.join(''); sel.value=cur; if(sel.value!==cur) sel.value=''; }
+function viewJobs(){
+  const bc=document.getElementById('fBc').value, q=(document.getElementById('fQ').value||'').toLowerCase().trim();
+  let v=JOBS.filter(j=>{ if(bc==='__none'&&(j.business_case||'')) return false; if(bc&&bc!=='__none'&&(j.business_case||'')!==bc) return false;
+    if(q && !((j.category||'')+' '+(j.value||'')+' '+(j.detail||'')+' '+(j.business_case||'')+' '+(j.selector||'')).toLowerCase().includes(q)) return false; return true; });
+  const k=SORT.k, d=SORT.dir; v=v.slice().sort((a,b)=>{ const x=sortVal(a,k), y=sortVal(b,k); return x<y?-d:x>y?d:(sortVal(b,'id')-sortVal(a,'id')); });
+  document.getElementById('fCount').textContent=(v.length===JOBS.length?'':v.length+' of ')+JOBS.length+' job(s)';
+  document.querySelectorAll('#tbl th[data-k]').forEach(th=>{ const a=th.querySelector('.ar'); if(a) a.remove();
+    if(th.dataset.k===k) th.insertAdjacentHTML('beforeend','<span class="ar">'+(d>0?'▲':'▼')+'</span>'); });
+  return v;
+}
+function renderJobs(){
+  const jobs=viewJobs();
+  document.querySelector('#tbl tbody').innerHTML = jobs.length ? jobs.map(j=>{
+    const ok=j.status==='done', err=j.status==='error';
+    const res=(ok||err)?esc((j.message||'').slice(0,140)):(j.status==='running'?'<span class="spin"></span> running…':'waiting…');
+    return `<tr><td class="mono" style="white-space:nowrap;width:1%">${esc(j.id)}</td><td><span class="st ${esc(j.status)}">${esc(j.status)}</span></td><td>${landedCell(j)}</td>`+
+      `<td>${esc(j.category||'')}</td><td>${j.op==='remove'?'<span class="badge b-err" title="tag removal (navi -remove)">🗑 remove</span> ':''}<b>${esc(j.value||'')}</b></td>`+
+      `<td class="mono" style="font-size:11px">${esc(j.selector||'')}</td>`+
+      `<td class="mono" style="font-size:11px;color:var(--mut);white-space:normal;word-break:break-word">${esc(j.detail||'')}</td>`+
+      `<td class="bc">${j.business_case?esc(j.business_case):'<span class="dim">—</span>'}</td>`+
+      `<td class="dim" style="font-size:11px">${fmtTime(j.created)}</td><td class="dim" style="font-size:11px">${dur(j)}</td>`+
+      `<td style="font-size:11px;color:${err?'var(--crit)':(ok?'var(--ok)':'var(--mut)')}">${res}</td></tr>`;
+  }).join('') : '<tr><td colspan="11" class="sub">'+(JOBS.length?'No jobs match the filter.':'No tag jobs yet. Apply a tag from any agent and it will appear here.')+'</td></tr>';
+}
+document.querySelectorAll('#tbl th[data-k]').forEach(th=>th.onclick=()=>{ const k=th.dataset.k;
+  SORT = SORT.k===k ? {k, dir:-SORT.dir} : {k, dir:(k==='id'||k==='created')?-1:1}; renderJobs(); });
+document.getElementById('fBc').onchange=renderJobs; document.getElementById('fQ').oninput=renderJobs;
 async function load(){
-  let o; try{ o=await EXPLORE.post('tag_jobs'); }catch(e){ flash('flash','✗ '+e.message,'crit'); return; }
+  let o; try{ o=await EXPLORE.post('tag_jobs'); }catch(e){ flash('flash','✗ '+esc(e.message),'crit'); return; }
   flashClear('flash'); const c=o.counts||{}, jobs=o.jobs||[];
   const wf=document.getElementById('workers'); if(wf && document.activeElement!==wf && c.desired_workers) wf.value=c.desired_workers;
   document.getElementById('kpi').innerHTML=
@@ -72,16 +121,7 @@ async function load(){
     `<div class="k"><div class="v" style="color:var(--cx-7cc4ff)">${c.running||0}</div><div class="l">running</div></div>`+
     `<div class="k"><div class="v" style="color:var(--ok)">${c.done||0}</div><div class="l">done</div></div>`+
     `<div class="k"><div class="v" style="color:var(--crit)">${c.error||0}</div><div class="l">error</div></div>`;
-  document.querySelector('#tbl tbody').innerHTML = jobs.length ? jobs.map(j=>{
-    const ok=j.status==='done', err=j.status==='error';
-    const res=(ok||err)?esc((j.message||'').slice(0,140)):(j.status==='running'?'<span class="spin"></span> running…':'waiting…');
-    return `<tr><td class="mono" style="white-space:nowrap;width:1%">${j.id}</td><td><span class="st ${j.status}">${j.status}</span></td><td>${landedCell(j)}</td>`+
-      `<td>${esc(j.category||'')}</td><td>${j.op==='remove'?'<span class="badge b-err" title="tag removal (navi -remove)">🗑 remove</span> ':''}<b>${esc(j.value||'')}</b></td>`+
-      `<td class="mono" style="font-size:11px">${esc(j.selector||'')}</td>`+
-      `<td class="mono" style="font-size:11px;color:var(--mut);white-space:normal;word-break:break-word">${esc(j.detail||'')}</td>`+
-      `<td class="dim" style="font-size:11px">${fmtTime(j.created)}</td><td class="dim" style="font-size:11px">${dur(j)}</td>`+
-      `<td style="font-size:11px;color:${err?'var(--crit)':(ok?'var(--ok)':'var(--mut)')}">${res}</td></tr>`;
-  }).join('') : '<tr><td colspan="10" class="sub">No tag jobs yet. Apply a tag from any agent and it will appear here.</td></tr>';
+  JOBS=jobs; fillBc(jobs); renderJobs();
 }
 document.getElementById('refresh').onclick=load;
 async function verifyLanded(){
@@ -98,12 +138,13 @@ async function verifyLanded(){
 }
 document.getElementById('verify').onclick=verifyLanded;
 async function exportScript(format){
-  let o; try{ o=await EXPLORE.post('tag_export',{format}); }catch(e){ flash('flash','✗ export failed: '+e.message,'crit'); return; }
+  let o; try{ o=await EXPLORE.post('tag_export',{format, include_acr:document.getElementById('exportAcr').checked}); }catch(e){ flash('flash','✗ export failed: '+esc(e.message),'crit'); return; }
   if(!o||!o.ok){ flash('flash','✗ export failed','crit'); return; }
   if(!o.count){ flash('flash','Nothing to export yet — apply a tag from any agent first.','warn'); return; }
   downloadText(o.filename||('navi-tags.'+format), o.script, format==='csv'?'text/csv':'text/plain');
   const tail = format==='csv' ? ' — import it on the AI Contract page to build a policy.' : ' — add it to cron to re-run them.';
-  flash('flash','✓ exported '+o.count+' '+(format==='csv'?'row(s)':'navi command(s)')+' → '+esc(o.filename)+tail,'ok');
+  const acrTxt = format==='csv' ? '' : (o.acr_included ? ' Includes '+o.acr_included+' applied ACR change(s) — replays are not recorded in the ACR log.' : (o.acr_left_out ? ' '+o.acr_left_out+' ACR change(s) left out (tick “include applied ACR changes” to add the applied ones).' : ''));
+  flash('flash','✓ exported '+o.count+' '+(format==='csv'?'row(s)':'navi command(s)')+' → '+esc(o.filename)+tail+acrTxt,'ok');
 }
 document.getElementById('exportCsv').onclick=()=>exportScript('csv');
 document.getElementById('exportSh').onclick=()=>exportScript('sh');

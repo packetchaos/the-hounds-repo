@@ -3,71 +3,95 @@
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Exposure Routes · Navi Agents</title>
 <link rel="stylesheet" href="/static/console.css"/>
-<style>.fld{padding:8px;border-radius:7px;background:var(--bg-2);color:var(--ink);border:1px solid var(--line)}.tagval{color:var(--accent);font-weight:600}</style>
-</head><body>
+<style>.fld{padding:8px;border-radius:7px;background:var(--bg-2);color:var(--ink);border:1px solid var(--line)}.tagval{color:var(--accent);font-weight:600}
+  .mkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-top:10px}
+  .mk{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--panel-2)}
+  .mk .v{font-size:22px;font-weight:800;color:var(--ink);line-height:1.1}.mk .v small{font-size:13px;font-weight:600;color:var(--mut)}
+  .mk .l{font-size:11.5px;color:var(--mut);margin-top:2px}
+  .mk .u{font-size:11.5px;color:var(--ink-2,var(--ink));margin-top:4px}.mk .u b{color:var(--ink)}
+  .mk[data-j]{cursor:pointer;border-left:4px solid var(--rc,var(--line))}.mk[data-j]:hover{border-color:var(--accent)}
+  .mhead{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 0}
+  .glance{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-top:10px}
+  .gl{border:1px solid var(--line);border-radius:12px;padding:10px 12px}.gl h4{margin:0 0 6px;font-size:12.5px}
+  .sbar{display:flex;height:16px;border-radius:6px;overflow:hidden;background:var(--panel-2)}
+  .sbar span{display:block;height:100%}.sbar span+span{border-left:2px solid var(--panel,#fff)}
+  .slg{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11.5px;margin-top:6px;color:var(--ink-2,var(--ink))}
+  .slg i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px}.slg b{font-family:var(--mono)}
+  #omFrame{width:100%;border:0;display:block;min-height:420px;background:transparent}</style>
+</head><body data-page-cache="off">
 <div class="wrap">
   <header class="top" id="app-header"></header>
 
   <section class="card">
-    <div class="toolbar"><div><h2 style="margin:0">🧭 Exposure routes — owner mapping</h2>
-      <p class="sub" style="margin:2px 0 0">Pull users &amp; groups (<b>navi</b> primary · <b>Tenable MCP</b> backup) and map exposure <b>routes</b> &amp; <b>paths</b> to owners in plain English. Each mapping tags every asset on the matched route/path with <span class="tagval">Owner : &lt;group/user&gt;</span> (gated).</p></div>
+    <div class="toolbar"><div><div class="acode">Atlas</div><h2 style="margin:0">🧭 Exposure routes — owner mapping</h2>
+      <p class="sub" style="margin:2px 0 0">Pull users &amp; groups (<b>navi</b> primary · <b>Tenable MCP</b> backup) and map exposure <b>routes</b> &amp; <b>paths</b> to owners in plain English. Each mapping tags every asset on the matched route/path with <span class="tagval">Owner : &lt;group/user&gt;</span> (gated). One <b>▶ Run</b> loads everything below — owners, coverage, the Sankey and the Ownership Map.</p></div>
       <span style="margin-left:auto;display:flex;gap:6px">
-        <a class="btn ghost sm" href="/web/ownermap.html" title="See the full ownership picture — gaps, workload, coverage, reduction">🗺 Ownership Map</a>
-        <button class="btn run sm" id="load">▶ Load owners + routes/paths</button></span></div>
+        <button id="load" class="btn run sm" data-run title="Load owners, routes and paths, ownership coverage, the Sankey and the Ownership Map">▶ Run</button></span></div>
     <div id="flash" class="flash"></div>
-    <div class="kpi" id="kpi"></div>
+    <div id="snapMeta" class="sub" style="font-size:11.5px;margin-top:4px"></div>
+    <div id="kpi"><div class="setupcard"><div class="big">Press ▶ Run</div><p class="sub">Who owns each exposure route and path, where the <b>Ownerless Risk</b> is, how much of it is high-VPR, and how evenly the work is spread — with the Sankey and the Ownership Map built from the same run.</p></div></div>
+    <div id="glance"></div>
+  </section>
+
+  <section class="card" id="mapCard" style="display:none" data-nav="Ask · map owners" data-nav-icon="✨">
+    <h2 style="margin:0">✨ Ask — describe the ownership mapping</h2>
+    <p class="sub" style="margin:2px 0 8px">e.g. <i>"give all payment &amp; billing routes to VM Team, put /opt and nginx paths under Networking Systems, assign the docker routes to Custom Apps."</i><br>
+      Or set a <b>disposition</b> instead of an owner — <i>"ignore the ICMP route, accept the OpenSSL route, all Windows Office routes are mitigated."</i> That tags <span class="tagval">Owner : &lt;route&gt;: Ignored / Accepted / Mitigated</span> so it drops off the gap list. Disposition phrases work even without a model key.</p>
+    <div class="needs-llm">
+      <textarea id="prompt" rows="4" class="fld" style="width:100%;box-sizing:border-box;font-family:ui-monospace,monospace;font-size:12px"></textarea>
+      <div class="toolbar" style="margin-top:8px"><button class="btn run sm" id="interpret" data-run>✨ Ask</button>
+        <button class="btn sm" id="applyAll" style="display:none">🏷️ Tag all</button>
+        <span class="chip" id="mapCount"></span></div>
+    </div>
+    <div class="no-llm-note callbox" style="display:none;color:var(--warn,#e7c66b)">Natural-language mapping needs a language model. Set <span class="mono">ANTHROPIC_API_KEY</span> on the server and reload — owners, routes, and paths above still load without it.</div>
+    <div id="mapFlash" class="flash"></div>
+    <table id="mapTbl"><thead><tr><th>Kind</th><th>Route / path</th><th>Owner</th><th>Scope</th><th>Status</th><th></th></tr></thead><tbody><tr><td colspan="6" class="sub">Ask for a mapping to preview…</td></tr></tbody></table>
   </section>
 
   <section class="card" id="quickCard" style="display:none;border:1px solid var(--accent)">
-    <div class="toolbar" style="margin:0"><div><h2 style="margin:0">✍ Assign owner <span class="sub" id="qaScope"></span></h2>
+    <div class="toolbar" style="margin:0"><div><h2 style="margin:0">🏷️ Tag owner <span class="sub" id="qaScope"></span></h2>
       <p class="sub" style="margin:2px 0 0" id="qaName"></p></div>
-      <a class="btn ghost sm" href="/web/ownermap.html" style="margin-left:auto">← Back to map</a></div>
+      <a class="btn ghost sm" href="#secMap" id="qaBack" style="margin-left:auto">↓ Back to the map</a></div>
     <div id="qaTargets" style="margin-top:8px"></div>
     <div class="toolbar" style="margin-top:8px;gap:8px;flex-wrap:wrap">
       <input id="qaOwner" class="fld" style="min-width:260px" placeholder="owner — username, email, group, or friendly name">
-      <button class="btn run sm" id="qaTag">▶ Tag owner (gated)</button>
+      <button class="btn run sm" id="qaTag">🏷️ Tag owner</button>
       <button class="btn ghost sm" id="qaSkip">Skip</button></div>
     <div id="qaFlash" class="flash"></div>
   </section>
 
-  <section class="card" id="coverCard" style="display:none">
+  <section class="card" id="coverCard" style="display:none" data-nav="Ownership coverage" data-nav-icon="🍩">
     <div class="toolbar" style="margin:0"><div><h2 style="margin:0">Ownership coverage</h2>
       <p class="sub" style="margin:2px 0 0">How much of the attack surface has an owner assigned — from <span class="tagval">Owner</span> tags in navi.db. An asset is <b>closed</b> only when <b>every</b> route it sits on has an owner. Assign owners below, then <b>↻ Refresh navi.db</b> to watch coverage rise.</p></div>
       <button class="btn ghost sm" id="coverRefresh" style="margin-left:auto" title="Kick a background navi update assets so newly-applied Owner tags land in navi.db">↻ Refresh navi.db</button></div>
     <div id="cover" style="margin-top:6px"></div>
   </section>
 
-  <section class="card" id="mapCard" style="display:none">
-    <h2 style="margin:0">Describe the ownership mapping</h2>
-    <p class="sub" style="margin:2px 0 8px">e.g. <i>"give all payment &amp; billing routes to VM Team, put /opt and nginx paths under Networking Systems, assign the docker routes to Custom Apps."</i><br>
-      Or set a <b>disposition</b> instead of an owner — <i>"ignore the ICMP route, accept the OpenSSL route, all Windows Office routes are mitigated."</i> That tags <span class="tagval">Owner : &lt;route&gt;: Ignored / Accepted / Mitigated</span> so it drops off the gap list. Disposition phrases work even without a model key.</p>
-    <div class="needs-llm">
-      <textarea id="prompt" rows="4" class="fld" style="width:100%;box-sizing:border-box;font-family:ui-monospace,monospace;font-size:12px"></textarea>
-      <div class="toolbar" style="margin-top:8px"><button class="btn run sm" id="interpret">▶ Interpret mapping</button>
-        <button class="btn sm" id="applyAll" style="display:none">▶ Apply all (gated)</button>
-        <span class="chip" id="mapCount"></span></div>
-    </div>
-    <div class="no-llm-note callbox" style="display:none;color:var(--warn,#e7c66b)">Natural-language mapping needs a language model. Set <span class="mono">ANTHROPIC_API_KEY</span> on the server and reload — owners, routes, and paths above still load without it.</div>
-    <div id="mapFlash" class="flash"></div>
-    <table id="mapTbl"><thead><tr><th>Kind</th><th>Route / path</th><th>Owner</th><th>Scope</th><th>Status</th><th></th></tr></thead><tbody><tr><td colspan="6" class="sub">Interpret a mapping to preview…</td></tr></tbody></table>
-  </section>
 
-  <section class="card" id="snkCard" style="display:none">
-    <div class="toolbar" style="flex-wrap:wrap;gap:8px"><div><h3 style="margin:0">🔀 Ownership Sankey — routes / paths → owners</h3>
+  <section class="card" id="snkCard" style="display:none" data-nav="Sankey" data-nav-icon="🔀">
+    <div class="toolbar" style="flex-wrap:wrap;gap:8px"><div><h2 style="margin:0;font-size:17px">🔀 Ownership Sankey — routes / paths → owners</h2>
       <p class="sub" style="margin:2px 0 0">Every route/path flows to the owner(s) assigned to it (from <span class="tagval">Owner</span> tags); band thickness ∝ assets. The red <b style="color:var(--crit)">⛔ Unassigned</b> node is <b>Ownerless Risk</b>. Click a route to see it in the mapping below.</p></div>
       <span style="display:flex;gap:6px;margin-left:auto;align-items:center">
         <button class="btn ghost sm snkfilt active" data-g="both">Both</button><button class="btn ghost sm snkfilt" data-g="route">Routes</button><button class="btn ghost sm snkfilt" data-g="path">Paths</button>
         <span class="sub">Top</span><select id="snkTop" class="fld" style="padding:5px 8px;border-radius:7px;font-size:12px"><option>10</option><option selected>15</option><option>20</option><option>25</option><option>30</option><option>40</option><option>50</option></select>
-        <button class="btn run sm" id="snkBuild">▶ Build Sankey</button></span></div>
+        <button class="btn ghost sm" id="snkBuild" title="Rebuild the Sankey and the Ownership Map from navi.db (after tagging + a navi.db refresh)">↻ Rebuild</button></span></div>
     <div id="snkFlash" class="flash"></div>
     <div id="snkGraph" style="width:100%;overflow-x:auto;margin-top:6px"></div>
     <div id="snkUnmatched" style="margin-top:10px"></div>
   </section>
 
-  <section class="card" id="ownersCard" style="display:none">
+  <section class="card" id="secMap" style="display:none" data-nav="Ownership Map" data-nav-icon="🗺">
+    <div class="toolbar" style="margin:0"><div><h2 style="margin:0">🗺 Ownership Map</h2>
+      <p class="sub" style="margin:2px 0 0">The full Atlas map from the same run — the CVE → plugin → app → path reduction, the threads graph, owner workload and the <b style="color:var(--crit)">Ownerless Risk</b> gaps you can assign inline. Ticking several gaps and sending them to Atlas opens the quick-assign card on this page.</p></div>
+      <a class="btn ghost sm" href="/web/ownermap.html" style="margin-left:auto" title="Open the Ownership Map on its own page">Open full page ↗</a></div>
+    <div id="omWrap" style="margin-top:8px"></div>
+  </section>
+
+  <section class="card" id="ownersCard" style="display:none" data-nav="Owners" data-nav-icon="👥">
     <div class="toolbar"><div><h2 style="margin:0">Owners <span class="sub" id="ownersCount"></span></h2>
-      <p class="sub" style="margin:2px 0 0">Users &amp; groups available to assign — source: navi <span class="mono">explore info</span> (users · user_groups · agent_groups).</p></div>
+      <p class="sub" style="margin:2px 0 0">Users &amp; groups available to assign — source: navi <span class="mono">explore info</span> (users · user_groups · agent_groups), cached for 6 hours.</p></div>
       <input id="ownerQ" class="fld" style="margin-left:auto;min-width:200px" placeholder="filter owners…">
+      <button class="btn ghost sm" id="ownersRefresh" title="Re-pull users &amp; groups from Tenable (cached for 6 hours otherwise)">↻ Refresh owners</button>
       <a class="btn ghost sm" href="/agents/email/page.html" title="Hand off to Gabriel — email each owner ONLY their assets, with Tenable deep-links">📧 Email owners → Gabriel</a></div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:18px;align-items:start;margin-top:8px">
       <div>
@@ -86,20 +110,141 @@
 </div>
 <script src="/static/console.js"></script>
 <script>
-const API=agentApi('exproute'); let DATA=null, MAP=[];
-async function load(){ document.getElementById('load').disabled=true; flash('flash','<span class="spin"></span> pulling owners + routes/paths…','run');
-  let o; try{ o=await API.post('load'); }catch(e){ o={ok:false,error:e.message}; }
-  document.getElementById('load').disabled=false;
-  if(!o||!o.ok){ flash('flash','✗ '+((o&&o.error)||'failed'),'crit'); return; }
-  DATA=o.result||{}; flashClear('flash'); try{ loadAppliedTags(); }catch(e){}
+const API=agentApi('exproute'); let DATA=null, MAP=[], COV=null;
+let WRITES=false; jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});
+const GATE_NOTE=()=>WRITES?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.';
+/* assets on a route/path (from the ownership snapshot) — for the confirm() text */
+function _assetsOn(kind,name){ const nm=String(name||'').toLowerCase();
+  const pool=kind==='route'?((SNK&&SNK.routes)||[]):((SNK&&SNK.paths)||[]).concat((DATA&&DATA.paths)||[]);
+  const x=pool.find(y=>String(y.name!=null?y.name:(y.path||'')).toLowerCase()===nm); return (x&&x.assets!=null)?+x.assets:null; }
+function _onWhat(kind,name){ const n=_assetsOn(kind,name); return (n!=null?n+' asset'+(n===1?'':'s'):'every asset')+' on '+kind+' "'+name+'"'; }
+/* ▶ Run — one `snapshot`: owners, routes, paths, coverage and the ownership map from a
+   single server-side pass, cached on disk per navi.db signature. Unchanged navi.db → the
+   cached snapshot renders at once. Otherwise the build runs on the job queue: you can leave
+   the page, and coming back picks it up (peek on open) — nothing is computed on open. */
+let BUILDING=null, SNAP_META=null;
+async function load(opts){ opts=opts||{}; const btn=document.getElementById('load'); btn.disabled=true;
+  flash('flash','<span class="spin"></span> '+(opts.force?'rebuilding the ownership snapshot…':opts.refresh_owners?'re-pulling owners from Tenable…':'loading the ownership snapshot…'),'run');
+  let o; try{ o=await API.post('snapshot',{_nocache:true,force:!!opts.force,refresh_owners:!!opts.refresh_owners}); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o||!o.ok){ btn.disabled=false; flash('flash','✗ '+esc((o&&(o.error||o.message))||'failed'),'crit'); return; }
+  if(o.result){ btn.disabled=false; applySnap(o.result,!!o.cached); return; }
+  if(o.building) await waitBuild(o.building);
+  btn.disabled=false;
+}
+/* Follow a background build to the end, then fetch the cached snapshot. Survives leaving
+   the page: the job keeps running server-side, and peek-on-open re-attaches here. */
+async function waitBuild(b){
+  BUILDING=b; const btn=document.getElementById('load'); btn.disabled=true;
+  const t0=Date.now();
+  const msg=()=>flash('flash',`<span class="spin"></span> building the ownership snapshot in the background${b.started?' (started '+esc(String(b.started).slice(11,19))+')':''} · ${Math.round((Date.now()-t0)/1000)}s — <b>you can leave this page</b>; it keeps running and the result is cached for when you come back. <a href="/web/agent-runs.html">Runs log</a>`,'run');
+  msg();
+  while(true){
+    await new Promise(r=>setTimeout(r,1500)); msg();
+    let j=null; try{ const o=await jget('/api/jobs/'+encodeURIComponent(b.job_id)); j=o&&o.job; }catch(e){}
+    if(j&&j.status==='error'){ BUILDING=null; btn.disabled=false; flash('flash','✗ snapshot build failed: '+esc(j.message||'error')+(SNK?' — still showing the previous snapshot.':''),'crit'); return; }
+    if(!j||j.status==='done') break;                 // done, or the job record aged out — peek
+  }
+  BUILDING=null;
+  let o; try{ o=await API.post('snapshot',{peek:true,_nocache:true}); }catch(e){ o=null; }
+  btn.disabled=false;
+  if(o&&o.result) applySnap(o.result,false);
+  else if(o&&o.building) return waitBuild(o.building);
+  else flash('flash','⚠ the build finished but navi.db changed meanwhile — press ▶ Run again.','warn');
+}
+/* render a snapshot: owners, coverage, Sankey, embedded map, metrics — all from one result */
+function applySnap(s,cached){
+  DATA=s.load||{}; COV=s.coverage||null; SNK=s.map||null; SNAP_META=s.meta||{};
+  try{ loadAppliedTags(); }catch(e){}
+  ['coverCard','ownersCard','mapCard','snkCard','secMap'].forEach(id=>document.getElementById(id).style.display='block');
+  mountSectionNav();
+  renderOwners();
+  if(COV) coverRender(COV);
+  flashClear('snkFlash'); snkRender(); snkUnmatched(); omFeed();
   const c=DATA.counts||{};
-  document.getElementById('kpi').innerHTML=`<div class="k"><div class="v">${c.owners||0}</div><div class="l">owners (users+groups)</div></div><div class="k"><div class="v">${c.routes||0}</div><div class="l">routes</div></div><div class="k"><div class="v">${c.paths||0}</div><div class="l">distinct paths</div></div>`;
-  document.getElementById('coverCard').style.display='block';
-  document.getElementById('ownersCard').style.display='block';
-  document.getElementById('mapCard').style.display='block';
-  document.getElementById('snkCard').style.display='block';
-  renderOwners(); coverRun();
-  if(!(c.routes||c.paths)) flash('flash','⚠ No routes/paths in navi.db. Run navi config update route + paths, then reload.','warn');
+  if(!(c.routes||c.paths)) flash('flash','⚠ No routes/paths in navi.db. Run navi config update route + paths, then ▶ Run again.','warn');
+  else flashClear('flash');
+  renderMetrics(); snapLine(cached);
+}
+function snapLine(cached){ const m=SNAP_META||{}, el=document.getElementById('snapMeta'); if(!el) return;
+  const t=v=>v?esc(String(v).replace('T',' ').slice(0,16)):'—';
+  el.innerHTML=`${cached?'⚡ from cache · ':''}snapshot built <b>${t(m.built_at)}</b>${m.build_sec!=null?` in ${m.build_sec}s`:''} · navi.db unchanged since · owners from Tenable <b>${t(m.owners_at)}</b> · `
+    +`<a href="#" id="snapRebuild">↻ rebuild</a> · <a href="#" id="snapOwners">↻ refresh owners</a>`;
+  document.getElementById('snapRebuild').onclick=e=>{ e.preventDefault(); load({force:true}); };
+  document.getElementById('snapOwners').onclick=e=>{ e.preventDefault(); load({refresh_owners:true}); };
+}
+/* ===== Embedded Ownership Map (web/ownermap.html?embed=1) — fed the same `map` result ===== */
+function omFeed(){
+  const wrap=document.getElementById('omWrap'); if(!wrap||!SNK) return;
+  let f=document.getElementById('omFrame');
+  if(f && f.__ready){ try{ f.contentWindow.omLoad(SNK); }catch(e){} return; }
+  if(f) return;                                   // still loading — onload feeds the latest SNK
+  f=document.createElement('iframe'); f.id='omFrame'; f.title='Ownership Map'; f.src='/web/ownermap.html?embed=1';
+  f.onload=()=>{ const w=f.contentWindow; f.__ready=true;
+    const fit=()=>{ try{ const el=w.document.querySelector('.wrap')||w.document.body; f.style.height=Math.max(420,Math.ceil(el.scrollHeight)+8)+'px'; }catch(e){} };
+    try{ new w.ResizeObserver(fit).observe(w.document.querySelector('.wrap')||w.document.body); }catch(e){ setInterval(fit,1000); }
+    const sync=()=>{ try{ const t=document.documentElement.getAttribute('data-theme'); if(t) w.document.documentElement.setAttribute('data-theme',t); else w.document.documentElement.removeAttribute('data-theme'); }catch(e){} };
+    new MutationObserver(sync).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']}); sync();
+    try{ w.omLoad(SNK); }catch(e){} fit(); };
+  wrap.appendChild(f);
+}
+/* ===== Metrics — from the load counts, coverage and the ownership map ===== */
+const ST_C={owned:'#30a46c',partial:'#e7c66b',unowned:'#f43f5e',mitigated:'#7cc48a',accepted:'#6ea8ff',ignored:'#8a99ad'};
+const VPR_B=[['critical (9–10)',9,99,'var(--crit)'],['high (7–8.9)',7,9,'#e0913a'],['medium (4–6.9)',4,7,'#e7c66b'],['low (< 4)',0,4,'#7cc48a']];
+function renderMetrics(){
+  if(!DATA) return;
+  const N=v=>(v==null?0:v).toLocaleString(), pc=(a,b)=>b?Math.round(100*(a||0)/b):0;
+  const cnt=DATA.counts||{}, v=COV||{}, k=(SNK&&SNK.kpi)||{};
+  const routes=k.routes!=null?k.routes:cnt.routes, paths=k.paths!=null?k.paths:cnt.paths;
+  // Ownerless Risk by threat: routes/paths without a full owner (dispositions excluded), by their highest VPR
+  const gaps=((SNK&&SNK.routes)||[]).concat((SNK&&SNK.paths)||[]).filter(x=>x.status==='unowned'||x.status==='partial');
+  const band=x=>x.vpr==null?null:VPR_B.find(b=>x.vpr>=b[1]&&x.vpr<b[2]);
+  const hi=gaps.filter(x=>x.vpr!=null&&x.vpr>=7), crit=gaps.filter(x=>x.vpr!=null&&x.vpr>=9);
+  const hiAssets=hi.reduce((s,x)=>s+Math.max(0,(x.assets||0)-(x.owned_assets||0)),0);
+  const worst=crit.slice().sort((a,b)=>b.vpr-a.vpr||b.assets-a.assets)[0];
+  const load=((SNK&&SNK.owner_load)||[]).slice().sort((a,b)=>b.assets-a.assets), loadTot=load.reduce((s,x)=>s+(x.assets||0),0);
+  const top=load[0], items=load.reduce((s,x)=>s+(x.routes||0)+(x.paths||0),0);
+  const rf=v.route_findings||0, rr=rf>(v.total_routes||0)?Math.round((1-(v.total_routes||0)/rf)*100):0;
+  const card=(val,l,u,o)=>{o=o||{}; return `<div class="mk"${o.j?` data-j="${o.j}"`:''} style="${o.c?'--rc:'+o.c:''}"${o.t?` title="${esc(o.t)}"`:''}><div class="v">${val}</div><div class="l">${l}</div>${u?`<div class="u">${u}</div>`:''}</div>`;};
+  const S=!!SNK;
+  document.getElementById('kpi').innerHTML=
+    '<div class="mhead">Attack surface — click a card to jump to it</div><div class="mkpi">'+
+    card(N(routes),'exposure routes', S?`<b>${N(k.routes_with_paths)}</b> with paths · <b>${N(k.routes_no_paths)}</b> without`:'', {j:'snkCard',c:'var(--accent)'})+
+    card(N(paths),'distinct paths', S?`<b>${N(k.paths_covered)}</b> under a route · <b>${N(k.paths_orphan)}</b> orphan — need a direct owner`:'', {j:'secMap',c:'var(--accent)'})+
+    card(N(k.asset_scope!=null?k.asset_scope:v.assets_with_routes),'assets in scope', v.avg_routes!=null?`<b>${v.avg_routes}</b> routes per asset on average`:'', {c:'var(--accent)'})+
+    card(rr?rr+'%':'—','fewer items to own', rf?`<b>${N(rf)}</b> route findings → <b>${N(v.total_routes)}</b> routes`:'own routes, not findings', {j:'coverCard',c:'#30a46c',t:'one owner decision per route covers all of its findings'})+
+    '</div><div class="mhead">Ownership</div><div class="mkpi">'+
+    card(S?pc(k.routes_owned,k.routes)+'%':'—','routes fully owned', S?`<b>${N(k.routes_owned)}</b> owned · <b>${N(k.routes_partial)}</b> partial · <b>${N(k.routes_unowned)}</b> none`:'', {j:'snkCard',c:ST_C.owned})+
+    card(S?pc(k.paths_owned,k.paths)+'%':'—','paths owned', S?`<b>${N(k.paths_owned)}</b> owned · <b>${N(k.paths_via_route)}</b> via their route`:'', {j:'secMap',c:ST_C.owned})+
+    card(S?N(k.unowned_assets):'—','Ownerless Risk — assets', S?`no owner on the routes/paths they sit on · of <b>${N(k.asset_scope)}</b>`:'', {j:'snkCard',c:'var(--crit)',t:'the ⛔ Unassigned node on the Sankey'})+
+    card(v.assets_with_routes?pc(v.closed,v.assets_with_routes)+'%':'—','assets closed', `<b>${N(v.closed)}</b> of <b>${N(v.assets_with_routes)}</b> — every route they sit on has an owner`, {j:'coverCard',c:'#a78bfa'})+
+    '</div><div class="mhead">Risk without an owner</div><div class="mkpi">'+
+    card(S?N(hi.length):'—','high-VPR routes / paths without an owner', S?`VPR ≥ 7 · <b>${N(hiAssets)}</b> unowned assets behind them`:'', {j:'secMap',c:'#e0913a',t:'unowned or partially owned; the highest VPR on each route/path counts'})+
+    card(S?N(crit.length):'—','critical (VPR ≥ 9) without an owner', worst?`worst: <b>${esc(worst.name.length>34?worst.name.slice(0,33)+'…':worst.name)}</b> · VPR ${worst.vpr}`:(S&&!(SNK.scores||{}).vpr?'no VPR in navi.db':''), {j:'secMap',c:'var(--crit)'})+
+    card(S?N((k.mitigated||0)+(k.accepted||0)+(k.ignored||0)):'—','routes / paths with a decision', S?`<b>${N(k.mitigated)}</b> mitigated · <b>${N(k.accepted)}</b> accepted · <b>${N(k.ignored)}</b> ignored`:'', {j:'coverCard',c:ST_C.accepted})+
+    card(S?N(k.owners_unmatched):'—','Owner tags that miss every route', 'app name doesn\'t match a route/path — re-tag from the Sankey', {j:'snkCard',c:k.owners_unmatched?'#e7c66b':'var(--line)'})+
+    '</div><div class="mhead">People</div><div class="mkpi">'+
+    card(S?N(k.owners):'—','owners with work', `of <b>${N(cnt.owners)}</b> users &amp; groups available`, {j:'ownersCard',c:'#a78bfa'})+
+    card(top?pc(top.assets,loadTot)+'%':'—','carried by the busiest owner', top?`<b>${esc(top.owner)}</b> · <b>${N(top.routes)}</b> routes · <b>${N(top.paths)}</b> paths · <b>${N(top.assets)}</b> assets`:'no owners assigned yet', {j:'secMap',c:top&&pc(top.assets,loadTot)>=50?'#e0913a':'#a78bfa',t:'share of all owner-assigned assets; one owner on most of the surface is a bottleneck'})+
+    card(load.length?(items/load.length).toFixed(1):'—','routes + paths per owner', load.length?`average across <b>${N(load.length)}</b> owner(s)`:'', {j:'secMap',c:'#a78bfa'})+
+    '</div>';
+  document.querySelectorAll('#kpi .mk[data-j]').forEach(x=>x.onclick=()=>{ const s=document.getElementById(x.dataset.j); if(s) s.scrollIntoView({behavior:'smooth',block:'start'}); });
+  // ---- at a glance
+  const sbar=parts=>{ const tot=parts.reduce((s,p)=>s+p.n,0)||1;
+    return `<div class="sbar">${parts.filter(p=>p.n).map(p=>`<span style="width:${(100*p.n/tot).toFixed(2)}%;background:${p.c}" title="${esc(p.l)}: ${N(p.n)}"></span>`).join('')}</div>`+
+      `<div class="slg">${parts.filter(p=>p.n).map(p=>`<span><i style="background:${p.c}"></i>${esc(p.l)} <b>${N(p.n)}</b></span>`).join('')}</div>`; };
+  const gl=(t,b,s)=>`<div class="gl"><h4>${t}</h4>${b}${s?`<div class="sub" style="font-size:11px;margin-top:4px">${s}</div>`:''}</div>`;
+  const st=kind=>['owned','partial','unowned','mitigated','accepted','ignored'].map(x=>({l:x==='unowned'?'no owner':x,n:x==='owned'||x==='partial'||x==='unowned'?(k[kind+'_'+x]||0):(k[kind+'_'+x]||0),c:ST_C[x]}));
+  const PAL=['#3987e5','#30a46c','#a97fd6','#e0913a','#3fb0c9'];
+  document.getElementById('glance').innerHTML=!S?'':'<div class="mhead">At a glance</div><div class="glance">'+
+    gl('Routes by ownership', sbar(st('routes')), 'Partial = fewer owned assets than the route has.')+
+    gl('Paths by ownership', sbar(st('paths')), 'A path counts as owned when its route is.')+
+    gl('Ownerless Risk by VPR', sbar(VPR_B.map(b=>({l:b[0],n:gaps.filter(x=>band(x)===b).length,c:b[3]})).concat([{l:'no VPR',n:gaps.filter(x=>x.vpr==null).length,c:'#c4c9d4'}])), 'Routes and paths without a full owner, by their highest VPR.')+
+    gl('Owner workload', load.length?sbar(load.slice(0,5).map((x,i)=>({l:x.owner,n:x.assets,c:PAL[i]})).concat(load.length>5?[{l:'other owners',n:load.slice(5).reduce((s,x)=>s+x.assets,0),c:'#8b95a7'}]:[])):'<p class="sub" style="margin:0">No owners assigned yet.</p>', 'Assets each owner carries.')+
+    '</div>';
+  setNavCount('snkCard', S?N(gaps.length)+' gaps':'');
+  setNavCount('secMap', S?N(k.unowned_assets)+' ownerless':'');
+  setNavCount('coverCard', v.assets_with_routes?pc(v.closed,v.assets_with_routes)+'% closed':'');
+  setNavCount('ownersCard', N(cnt.owners));
 }
 /* ===== Ownership coverage (donuts) ===== */
 function donut(val,total,label,color,sub){
@@ -110,16 +255,15 @@ function donut(val,total,label,color,sub){
     <text x="46" y="50" text-anchor="middle" font-size="19" font-weight="800" fill="var(--ink)">${pct}%</text></svg>
     <div style="font-weight:600;font-size:13px">${label}</div><div class="sub" style="font-size:11.5px">${sub!=null?sub:(val+' / '+total)}</div></div>`;
 }
-async function coverRun(){
-  let o; try{ o=await API.post('coverage'); }catch(e){ return; }
-  if(!o||!o.ok||!o.result) return; const v=o.result;
+function coverRender(v){
   // workload reduction — raw findings collapse to the distinct items you actually assign
   const pf=v.path_findings||0, dp=v.total_paths||0, pr=pf>dp?Math.round((1-dp/pf)*100):0;
   const rf=v.route_findings||0, rc=v.total_routes||0, rr=rf>rc?Math.round((1-rc/rf)*100):0;
   const wbar=(a,b,label,color)=>{ const pct=a>0?Math.round(b/a*100):0; return `<div style="min-width:230px;flex:1"><div class="toolbar" style="margin:0 0 4px;justify-content:space-between"><span class="sub">${label}</span><b>${a.toLocaleString()} → ${b.toLocaleString()}</b></div><div style="height:12px;border-radius:99px;background:var(--panel-2);overflow:hidden"><div style="height:100%;width:${Math.max(pct,2)}%;background:${color};border-radius:99px"></div></div></div>`; };
   const st=v.surface_total||0;
   document.getElementById('cover').innerHTML='<div style="display:flex;gap:30px;flex-wrap:wrap;justify-content:center;align-items:center;padding:6px 0">'
-    +donut(v.owners_assigned||0,v.users_total||0,'Owners with a route/path','#a78bfa',`${v.owners_assigned||0} of ${(v.users_total||0).toLocaleString()} users · ${Math.max(0,(v.users_total||0)-(v.owners_assigned||0)).toLocaleString()} with no assigned work`)
+    +(()=>{ const dir=((DATA&&DATA.counts)||{}).owners||0, has=(SNK&&SNK.kpi&&SNK.kpi.owners)||v.owners_assigned||0, den=Math.max(dir,has);
+        return donut(Math.min(has,den),den,'Owners with a route/path','#a78bfa',`${has} of ${den.toLocaleString()} users &amp; groups · ${Math.max(0,den-has).toLocaleString()} with no assigned work`); })()
     +`<div style="text-align:center;min-width:150px"><div style="font-size:32px;font-weight:800;color:var(--accent)">${v.avg_routes||0}</div><div style="font-weight:600;font-size:13px">avg routes / asset</div><div class="sub" style="font-size:11.5px">${v.assets_with_routes} asset(s) · ${v.total_routes} routes</div></div>`
     +donut(v.routes_owned,v.total_routes,'Routes with an owner','#a78bfa')
     +donut(v.owned_paths,v.total_paths,'Distinct paths with an owner','var(--ok)')+'</div>'
@@ -172,20 +316,20 @@ async function interpret(){ const prompt=document.getElementById('prompt').value
   if(!prompt) return flash('mapFlash','Describe the mapping first.','crit');
   flash('mapFlash','<span class="spin"></span> interpreting mapping with AI…','run');
   let o; try{ o=await API.post('interpret',{prompt}); }catch(e){ o={ok:false,message:e.message}; }
-  if(!o.ok){ flash('mapFlash','✗ '+(o.message||'failed'),'crit'); return; }
+  if(!o.ok){ flash('mapFlash','✗ '+esc(o.message||'failed'),'crit'); return; }
   MAP=o.mappings||[];
   if(MAP.length){
     if(o.truncated) flash('mapFlash','⚠ Assigned '+MAP.length+' so far — the batch was large and the model’s reply was cut off. Apply these, then run the same prompt again to assign the rest.','warn');
     else flashClear('mapFlash');
   }
-  else flash('mapFlash','No mappings matched. '+((o.rejected||[]).slice(0,4).join('; ')||'Name routes/paths and owners more explicitly.'),'warn');
+  else flash('mapFlash','No mappings matched. '+esc((o.rejected||[]).slice(0,4).join('; ')||'Name routes/paths and owners more explicitly.'),'warn');
   renderMap();
 }
 function renderMap(){ document.getElementById('applyAll').style.display=MAP.length?'inline-block':'none';
   document.getElementById('mapCount').textContent=MAP.length?MAP.length+' mapping(s)':'';
   hPageReset('mapTbl'); hPaginate('mapTbl', MAP, m=>{const tv=(m.match+': '+m.owner);const B=tagBadge('Owner',tv,m._st);
-    return `<tr><td><span class="chip">${esc(m.kind)}</span></td><td class="mono" style="font-size:11px;word-break:break-word">${esc(m.match)}</td><td><span class="tagval">Owner : ${esc(tv)}</span></td><td>${esc(m.scope||'')}</td><td><span class="badge ${B.cls}">${B.label}</span></td><td>${B.done?'':`<button class="btn sm" data-m="${esc(m.match+'|'+m.owner)}">▶ Tag (gated)</button>`}</td></tr>`;},
-    {cols:6, empty:'<tr><td colspan="6" class="sub">Interpret a mapping to preview…</td></tr>',
+    return `<tr><td><span class="chip">${esc(m.kind)}</span></td><td class="mono" style="font-size:11px;word-break:break-word">${esc(m.match)}</td><td><span class="tagval">Owner : ${esc(tv)}</span></td><td>${esc(m.scope||'')}</td><td><span class="badge ${B.cls}">${B.label}</span></td><td>${B.done?'':`<button class="btn sm" data-m="${esc(m.match+'|'+m.owner)}">🏷️ Tag</button>`}</td></tr>`;},
+    {cols:6, empty:'<tr><td colspan="6" class="sub">Ask for a mapping to preview…</td></tr>',
      wire:tb=>{ tb.querySelectorAll('button[data-m]').forEach(b=>b.onclick=()=>{ const idx=MAP.findIndex(x=>(x.match+'|'+x.owner)===b.dataset.m); if(idx>=0)applyOne(idx); }); }});
 }
 // Wait for the queued Owner-tag jobs (same background worker + Tagging log as every
@@ -201,10 +345,14 @@ async function pollJobs(ids, timeoutMs=25000){
   }
   return map;
 }
-async function applyOne(i){ const m=MAP[i]; if(!m)return;
+async function applyOne(i){ const m=MAP[i]; if(!m||m._st==='queued'||m._st==='applied')return;   // no duplicate jobs
+  await testRunStatus();
+  if(!confirm('Tag '+tagCat('Owner')+' : '+m.match+': '+m.owner+' on '+_onWhat(m.kind,m.match)+'?'+GATE_NOTE())) return;
+  if(m._st==='queued'||m._st==='applied')return;
+  m._st='queued'; renderMap();
   flash('mapFlash','<span class="spin"></span> queueing Owner : '+esc(m.owner)+'…','run');
   let o; try{ o=await API.post('apply',{owner:m.owner,app:m.match,route_id:m.route_id,path:m.path,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
-  if(!(o.ok||o.queued||o.warning)){ flash('mapFlash','✗ '+(o.message||o.error||'rejected'),'crit'); return; }
+  if(!(o.ok||o.queued||o.warning)){ m._st=''; renderMap(); flash('mapFlash','✗ '+esc(o.message||o.error||'rejected'),'crit'); return; }
   m._st='queued'; renderMap();
   const jid=o.job_id||(o.result&&o.result.job_id);
   flash('mapFlash','<span class="spin"></span> queued (job #'+esc(String(jid))+') — waiting on the background worker…','run');
@@ -216,6 +364,11 @@ async function applyOne(i){ const m=MAP[i]; if(!m)return;
   renderMap();
 }
 async function applyAll(){ if(!MAP.length)return;
+  await testRunStatus();
+  { const todo=MAP.filter(m=>!(m._st==='applied'||m._st==='queued'||tagApplied('Owner',m.match+': '+m.owner))); if(!todo.length)return;
+    const ns=todo.map(m=>_assetsOn(m.kind,m.match)), known=ns.every(n=>n!=null), tot=ns.reduce((a,n)=>a+(n||0),0);
+    if(!confirm('Tag '+todo.length+' '+tagCat('Owner')+' tag'+(todo.length===1?'':'s')+' on '+(known?tot+' asset-tag pair'+(tot===1?'':'s'):'every asset')+' across '+todo.length+' route/path selector'+(todo.length===1?'':'s')+'?\n\n'
+      +todo.slice(0,12).map((m,k)=>'• '+tagCat('Owner')+' : '+m.match+': '+m.owner+' ('+(ns[k]!=null?ns[k]+' asset'+(ns[k]===1?'':'s'):m.kind)+')').join('\n')+(todo.length>12?'\n• … +'+(todo.length-12)+' more':'')+GATE_NOTE())) return; }
   const btn=document.getElementById('applyAll'); const lbl=btn&&btn.textContent;
   const mf=document.getElementById('mapFlash');
   const scroll=()=>{ if(mf)mf.scrollIntoView({behavior:'smooth',block:'center'}); };
@@ -238,11 +391,13 @@ async function applyAll(){ if(!MAP.length)return;
   scroll(); reset();
   renderMap();
 }
-document.getElementById('load').onclick=load;
+document.getElementById('load').onclick=()=>load();
+document.getElementById('ownersRefresh').onclick=()=>load({refresh_owners:true});
 document.getElementById('ownerQ').addEventListener('input',()=>{_up=0;_gp=0;renderOwners();});
 document.getElementById('coverRefresh').onclick=async()=>{ const b=document.getElementById('coverRefresh'); b.disabled=true; b.textContent='↻ refreshing…';
   try{ await API.post('refresh'); }catch(e){}
-  setTimeout(async()=>{ await coverRun(); b.disabled=false; b.textContent='↻ Refresh navi.db'; },1500); };
+  b.disabled=false; b.textContent='↻ Refresh navi.db';
+  flash('flash','navi update assets is running — when it finishes, <b>▶ Run</b> rebuilds the snapshot (navi.db will have changed). <a href="/web/agent-runs.html">Runs log</a>','ok'); };
 document.getElementById('interpret').onclick=interpret;
 document.getElementById('applyAll').onclick=applyAll;
 /* ===== Ownership Sankey — routes/paths → owners (from the exproute `map` action) ===== */
@@ -255,11 +410,8 @@ const _SNK_SPECIAL=[SNK_UN,'✅ Mitigated','✔ Accepted','🚫 Ignored'];
 function _snkSpecial(o){ return _SNK_SPECIAL.indexOf(o)>=0; }  // exact match (emoji-safe)
 function _snkColor(o){ return o===SNK_UN?'#f43f5e':o==='✅ Mitigated'?'var(--ok)':o==='✔ Accepted'?'#6ea8ff':o==='🚫 Ignored'?'#8a99ad':'var(--accent)'; }
 async function snkBuild(){ const b=document.getElementById('snkBuild'); b.disabled=true;
-  flash('snkFlash','<span class="spin"></span> building the ownership map…','run');
-  let o; try{ o=await API.post('map'); }catch(e){ o={ok:false,error:e.message}; }
+  await load({force:true});
   b.disabled=false;
-  if(!o||!o.ok||!o.result){ flash('snkFlash','✗ '+esc((o&&(o.error||o.message))||'failed'),'crit'); return; }
-  SNK=o.result; flashClear('snkFlash'); snkRender(); snkUnmatched();
 }
 /* Owner tags that don't map to any route/path — surfaced so they never silently vanish. */
 let UNMATCHED=[];
@@ -270,7 +422,7 @@ function snkUnmatched(){
   const rows=UNMATCHED.map((u,i)=>{
     const owners=(u.owners||[]).join(', ');
     const sug=(u.suggestions&&u.suggestions.length)
-      ? u.suggestions.map(s=>`<button class="btn ghost sm reretag" data-i="${i}" data-app="${esc(s)}" title="Re-tag ${esc(owners)}'s ${u.assets} asset(s) onto the exact route '${esc(s)}' (gated) so they land on the Sankey">🏷 ${esc(s)}</button>`).join(' ')
+      ? u.suggestions.map(s=>`<button class="btn ghost sm reretag" data-i="${i}" data-app="${esc(s)}" title="Re-tag only the ${u.assets} asset(s) carrying '${esc(u.name)}: …' onto the exact name '${esc(s)}', per owner (gated)">🏷️ Tag ${esc(s)}</button>`).join(' ')
       : '<span class="sub">no close route/path — assign directly above</span>';
     return `<tr><td><span class="tagval">${esc(u.name)}</span></td><td>${esc(owners)}</td><td>${u.assets}</td>`
       +`<td>${sug}<div class="sub reres" id="reres-${i}" style="margin-top:3px"></div></td></tr>`;
@@ -285,21 +437,19 @@ function snkUnmatched(){
    land on the Sankey. Same gated Owner-tag path + Tagging log as every other write. */
 async function reretag(i, app){
   const u=UNMATCHED[i]; if(!u)return; const res=document.getElementById('reres-'+i);
-  const owners=(u.owners||[]).filter(Boolean);
-  if(!owners.length){ if(res)res.textContent='no owner to re-tag'; return; }
-  if(res)res.innerHTML='<span class="spin"></span> re-tagging '+esc(owners.join(', '))+' → '+esc(app)+'…';
-  const ids=[];
-  for(const owner of owners){
-    let o; try{ o=await API.post('apply',{owner,app,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
-    if(!(o.ok||o.queued||o.warning)){ if(res)res.innerHTML='<span style="color:var(--crit)">✗ '+esc(o.message||o.error||'rejected')+'</span>'; return; }
-    const jid=o.job_id||(o.result&&o.result.job_id); if(jid!=null)ids.push(jid);
-  }
+  await testRunStatus(); const ow=(u.owners||[]);
+  if(!confirm('Tag '+tagCat('Owner')+' : '+app+': <owner> on the '+N0(u.assets)+' asset'+(u.assets===1?'':'s')+' that carry "'+u.name+': …" ('+ow.length+' owner'+(ow.length===1?'':'s')+(ow.length?': '+ow.slice(0,6).join(', ')+(ow.length>6?', …':''):'')+')? The old tag is kept.'+GATE_NOTE())) return;
+  if(res)res.innerHTML='<span class="spin"></span> moving '+esc(u.name)+' → '+esc(app)+' on the '+N0(u.assets)+' tagged asset(s)…';
+  let o; try{ o=await API.post('retag',{from:u.name,to:app,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o||!o.ok){ if(res)res.innerHTML='<span style="color:var(--crit)">✗ '+esc((o&&(o.message||o.error))||'rejected')+'</span>'; return; }
+  const ids=(o.job_ids||[]).map(String);
   const jm=await pollJobs(ids); let done=0,failed=0;
-  Object.values(jm).forEach(j=>{ if(j.status==='done'&&j.ok!==false&&!(j.result&&j.result.warning))done++; else if(j.status==='error')failed++; });
+  ids.forEach(id=>{ const j=jm[id]; if(!j)return; if(j.status==='done'&&j.ok!==false&&!(j.result&&j.result.warning))done++; else if(j.status==='error')failed++; });
   if(res)res.innerHTML=failed
-    ? '<span style="color:var(--crit)">✗ '+failed+' failed (see <a href="/web/tags-log.html">log</a>)</span>'
-    : '<span style="color:var(--ok)">✓ re-tagged → <b>'+esc(app)+'</b> — click <b>▶ Build Sankey</b> to see it land. <a href="/web/tags-log.html">log</a></span>';
+    ? '<span style="color:var(--crit)">✗ '+failed+' of '+ids.length+' failed (see <a href="/web/tags-log.html">log</a>)</span>'
+    : '<span style="color:var(--ok)">✓ '+N0(o.assets)+' asset(s) re-tagged → <b>'+esc(o.target||app)+'</b> — refresh navi.db, then <b>▶ Run</b> to see it land. <a href="/web/tags-log.html">log</a></span>';
 }
+const N0=v=>(v==null?0:v).toLocaleString();
 function snkRender(){ const wrap=document.getElementById('snkGraph'); if(!SNK){ wrap.innerHTML=''; return; }
   const N=parseInt((document.getElementById('snkTop')||{}).value||'15',10);
   const pool=(SNK.routes||[]).concat(SNK.paths||[]).filter(it=>SNK_GF==='both'||it.type===SNK_GF).filter(it=>it.assets>0||SNK_DNODE[it.status]);
@@ -356,9 +506,16 @@ function showQuickAssign(items){
   const inp=document.getElementById('qaOwner'); inp.value=''; inp.focus();
   document.getElementById('quickCard').scrollIntoView({behavior:'smooth',block:'center'});
 }
-async function qaApply(){
+let QA_BUSY=false;
+async function qaApply(){ if(QA_BUSY)return;            // Enter + click can't queue the same tags twice
+  QA_BUSY=true; try{ await _qaApply(); } finally{ QA_BUSY=false; } }
+async function _qaApply(){
   if(!QA.length)return; const owner=(document.getElementById('qaOwner').value||'').trim();
   if(!owner){ flash('qaFlash','Enter an owner (user or group).','warn'); return; }
+  await testRunStatus();
+  { const ns=QA.map(x=>_assetsOn(x.kind,x.name)), known=ns.every(n=>n!=null), tot=ns.reduce((a,n)=>a+(n||0),0);
+    if(!confirm('Tag '+tagCat('Owner')+' : <name>: '+owner+' on '+(known?tot+' asset'+(tot===1?'':'s'):'every asset')+' across '+QA.length+' route/path selector'+(QA.length===1?'':'s')+'?\n\n'
+      +QA.slice(0,12).map((x,k)=>'• '+tagCat('Owner')+' : '+x.name+': '+owner+' ('+(ns[k]!=null?ns[k]+' asset'+(ns[k]===1?'':'s'):x.kind)+')').join('\n')+(QA.length>12?'\n• … +'+(QA.length-12)+' more':'')+GATE_NOTE())) return; }
   flash('qaFlash','<span class="spin"></span> resolving owner + queueing '+QA.length+'…','run');
   const jobmap={};   // jid -> index
   for(let i=0;i<QA.length;i++){ const x=QA[i]; const st=document.getElementById('qast-'+i);
@@ -376,22 +533,29 @@ async function qaApply(){
     if(j&&j.status==='done'&&j.ok!==false&&!(j.result&&j.result.warning)){ done++; if(st){st.textContent='✓ tagged';st.style.color='var(--ok)';} }
     else if(j&&j.status==='error'){ failed++; if(st){st.textContent='✗ '+(j.message||'failed');st.style.color='var(--crit)';} }
     else if(st){ st.textContent='running…'; } });
-  flash('qaFlash','Tagged '+done+(failed?', '+failed+' failed':'')+' of '+QA.length+' → '+esc(owner)+'. <a href="/web/ownermap.html">🗺 See it on the Ownership Map</a> — Refresh navi.db there to watch the gaps close.', failed?'warn':'ok');
-  try{ coverRun(); }catch(e){}
+  flash('qaFlash','Tagged '+done+(failed?', '+failed+' failed':'')+' of '+QA.length+' → '+esc(owner)+'. <b>↻ Refresh navi.db</b> (Ownership coverage), then <b>↻ Rebuild</b> to watch the gaps close on the Sankey and the map.', failed?'warn':'ok');
 }
 document.getElementById('qaTag').onclick=qaApply;
 document.getElementById('qaOwner').addEventListener('keydown',e=>{ if(e.key==='Enter')qaApply(); });
 document.getElementById('qaSkip').onclick=()=>{ document.getElementById('quickCard').style.display='none'; QA=[]; };
+document.getElementById('qaBack').onclick=e=>{ e.preventDefault(); const m=document.getElementById('secMap'); if(m) m.scrollIntoView({behavior:'smooth',block:'start'}); };
 
-mountAgentHeader({icon:'🧭',name:'Exposure Routes',sub:'owner mapping · navi + Tenable MCP'});
+mountAgentHeader({id:'exproute',icon:'🧭',name:'Exposure Routes',sub:'Atlas · owner mapping · Sankey · Ownership Map'});
 try{ hMailAuto(); }catch(e){}
-/* explicit-run: nothing scans navi.db until ▶ Load — UNLESS we arrived from the map with
-   gap(s) to assign, in which case load, then open the quick-assign for them. */
+/* explicit-run: nothing scans navi.db until ▶ Run — UNLESS we arrived from the standalone map
+   with gap(s) to assign, in which case run, then open the quick-assign for them. */
 (function(){
   let ho=null; try{ ho=JSON.parse(sessionStorage.getItem('atlas_assign')||'null'); }catch(e){}
   if(!ho)return; try{ sessionStorage.removeItem('atlas_assign'); }catch(e){}
   const items=Array.isArray(ho.items)?ho.items:(ho.name?[{kind:ho.kind,name:ho.name}]:[]);
-  if(items.length){ Promise.resolve(load()).then(()=>showQuickAssign(items.map(x=>({kind:x.kind==='path'?'path':'route',name:x.name})))); }
+  if(items.length){ window.__ATLAS_HANDOFF=true; Promise.resolve(load()).then(()=>showQuickAssign(items.map(x=>({kind:x.kind==='path'?'path':'route',name:x.name})))); }
 })();
+/* On open: show the cached snapshot (instant) or re-attach to a build still running from
+   before — peek never computes anything, so the page stays explicit-run. */
+if(!window.__ATLAS_HANDOFF){ (async()=>{
+  let o; try{ o=await API.post('snapshot',{peek:true,_nocache:true}); }catch(e){ return; }
+  if(o&&o.result) applySnap(o.result,true);
+  else if(o&&o.building) waitBuild(o.building);
+})(); }
 </script>
 </body></html>

@@ -1,29 +1,81 @@
 """MITRE ATT&CK tagging — follows the navi-enrich skill recipe.
 
 Recipe (navi skill `tag-by-cve-external-csv`): download the Center for Threat-
-Informed Defense ATT&CK->CVE mapping CSV and, for each CVE, write three `Mitre`
-tags (Primary Impact, Secondary Impact, Exploit Technique) using navi's
-**tag-by-CVE** function. We do NOT bake navi's tagging in — writes go through
-navi's own `navi enrich tag --cve` (core.navi_cli.tag(..., cve=...)); this module
-only fetches the live CSV and builds the per-CVE plan.
+Informed Defense ATT&CK->CVE mapping CSV and tag the ASSETS whose findings cite
+each mapped CVE with up to three `Mitre` values (Primary Impact, Secondary Impact,
+Exploit Technique). The CVE is only the selector: navi's tag-by-CVE function
+(`navi enrich tag --cve`) resolves the affected assets and the tag lands on them.
+We do NOT bake navi's tagging in — writes go through core.navi_cli.tag(..., cve=...);
+this module fetches the CSV and builds the plan (+ metrics and the ATT&CK view).
 
 Default scope is the CVEs actually present in navi.db (bounded, MCP/CLI-friendly).
 The full mapping is thousands of CVEs — per the skill that's a CLI bulk job.
 """
 import csv
 import io
+import json
 import os
 import re
 import urllib.request
 
-from core import db
+from core import db, downloads
 
 CSV_URL = ("https://raw.githubusercontent.com/center-for-threat-informed-defense/"
            "attack_to_cve/master/Att%26ckToCveMappings.csv")
+SOURCE_ID = "mitre"
+downloads.register(SOURCE_ID, "MITRE ATT&CK→CVE mapping", [CSV_URL], agent="mitre",
+                   purpose="Center for Threat-Informed Defense attack_to_cve CSV — drives "
+                           "MITRE ATT&CK tagging and the Insights ATT&CK tile.",
+                   fallback="baked snapshot agents/mitre/attack_to_cve.csv")
 # baked-in snapshot used as a fallback when the live download is unavailable
 BUNDLED_CSV = os.path.normpath(os.path.join(os.path.dirname(__file__), "..",
                                "agents", "mitre", "attack_to_cve.csv"))
 _CVE = re.compile(r"CVE-\d{4}-\d{3,}", re.I)
+# technique ids inside a mapping field ("T1190; T1078", "T1036.", "T1190. T1005") — strict,
+# so the CSV's typos still parse and garbage ("T11190") is dropped
+_TID = re.compile(r"\bT\d{3,4}(?:\.\d{3})?(?!\d)")
+# compact extract of MITRE ATT&CK (enterprise + ics + mobile): technique → name/tactics,
+# enterprise tactic order, and revoked → replacement ids. Rebuilt from mitre/cti.
+ATTACK_JSON = os.path.normpath(os.path.join(os.path.dirname(__file__), "..",
+                               "agents", "mitre", "attack_techniques.json"))
+_ATTACK = None
+ROLES = ("Primary Impact", "Secondary Impact", "Exploit Technique", "Technique")
+
+
+def attack():
+    global _ATTACK
+    if _ATTACK is None:
+        try:
+            with open(ATTACK_JSON, encoding="utf-8") as f:
+                _ATTACK = json.load(f)
+        except Exception:
+            _ATTACK = {"tactics": [], "techniques": {}, "revoked": {}}
+    return _ATTACK
+
+
+def technique_ids(text: str) -> list:
+    """ATT&CK ids in text. ICS-style 3-digit ids in the CSV ('T828') normalise to 'T0828'."""
+    return [("T0" + t[1:]) if re.match(r"T\d{3}(?!\d)", t) else t for t in _TID.findall(text or "")]
+
+
+def resolve_id(tid: str) -> str:
+    """Follow ATT&CK revocations (T1066 → T1027.005) to the current id."""
+    rv = attack().get("revoked", {})
+    for _ in range(5):
+        if tid not in rv:
+            break
+        tid = rv[tid]
+    return tid
+
+
+def technique_info(tid: str) -> dict:
+    T = attack().get("techniques", {})
+    cur = resolve_id(tid)
+    t = T.get(cur) or T.get(cur.split(".")[0]) or {}
+    parent = T.get(cur.split(".")[0]) or {}
+    return {"id": cur, "name": t.get("n", ""), "parent": cur.split(".")[0],
+            "parent_name": parent.get("n", ""), "tactics": t.get("t") or parent.get("t") or [],
+            "domain": t.get("d", "enterprise"), "revoked_from": tid if cur != tid else None}
 
 
 def parse_rows(text: str) -> list[dict]:
@@ -45,11 +97,15 @@ def parse_rows(text: str) -> list[dict]:
     return rows
 
 
-def fetch_mapping(url: str = CSV_URL, timeout: int = 30, csv_text: str = "") -> tuple[list[dict], str]:
-    """Return (rows, source). Priority: user upload → live download → baked snapshot."""
+def fetch_mapping(url: str = CSV_URL, timeout: int = 30, csv_text: str = "",
+                  allow_live: bool = True) -> tuple[list[dict], str]:
+    """Return (rows, source). Priority: user upload → live download → baked snapshot.
+    allow_live=False (download not approved — see core.downloads) skips the network."""
     if csv_text and csv_text.strip():
         return parse_rows(csv_text), "upload"
     try:
+        if not allow_live:
+            raise RuntimeError("live download not approved")
         req = urllib.request.Request(url, headers={"User-Agent": "navi-agents-mitre"})
         raw = urllib.request.urlopen(req, timeout=timeout).read().decode("utf-8", "replace")
         return parse_rows(raw), "live"
@@ -59,6 +115,21 @@ def fetch_mapping(url: str = CSV_URL, timeout: int = 30, csv_text: str = "") -> 
                 return parse_rows(f.read()), "bundled"
         except Exception:
             return [], "unavailable"
+
+
+def cve_assets(db_path=None, only=None) -> dict:
+    """CVE → set(asset_uuid) from navi.db findings (vulns.cves); `only` limits the CVEs kept."""
+    out = {}
+    try:
+        for row in db.query("SELECT asset_uuid, cves FROM vulns WHERE TRIM(COALESCE(cves,''))<>''", path=db_path):
+            for c in _CVE.findall(row.get("cves") or ""):
+                c = c.upper()
+                if only is not None and c not in only:
+                    continue
+                out.setdefault(c, set()).add(row.get("asset_uuid"))
+    except Exception:
+        pass
+    return out
 
 
 def navi_cves(db_path=None) -> set:
@@ -74,11 +145,11 @@ def navi_cves(db_path=None) -> set:
 
 
 def build_plan(db_path=None, scope: str = "navidb", url: str = CSV_URL,
-               csv_text: str = "") -> dict:
+               csv_text: str = "", allow_live: bool = True) -> dict:
     """Build the per-CVE tag plan. Mapping source: user upload (csv_text) →
-    live download → baked snapshot. scope='navidb' (default) keeps only CVEs
-    present in navi.db; scope='all' is the full mapping."""
-    mapping, source = fetch_mapping(url, csv_text=csv_text)
+    live download (only when allow_live) → baked snapshot. scope='navidb' (default)
+    keeps only CVEs present in navi.db; scope='all' is the full mapping."""
+    mapping, source = fetch_mapping(url, csv_text=csv_text, allow_live=allow_live)
     nv = navi_cves(db_path)
     actions, matched = [], set()
     for r in mapping:
@@ -93,7 +164,8 @@ def build_plan(db_path=None, scope: str = "navidb", url: str = CSV_URL,
             labels.append(("Technique", r["uncategorized"]))
         for label, val in labels:
             if val and val.lower() != "nan":
-                actions.append({"cve": r["cve"], "category": "Mitre", "value": f"{label}: {val}"})
+                actions.append({"cve": r["cve"], "category": "Mitre", "value": f"{label}: {val}",
+                                "role": label, "techniques": technique_ids(val)})
     # assets with ACR > 7 that carry ATT&CK-mapped CVEs (aligns w/ the insights tile)
     cset = {r["cve"] for r in mapping}
     high = {}
@@ -114,6 +186,51 @@ def build_plan(db_path=None, scope: str = "navidb", url: str = CSV_URL,
     high_acr = [{**a, "cves": sorted(a["cves"])} for a in high.values()]
     high_acr.sort(key=lambda x: -(float(x["acr"]) if x["acr"] else 0))
 
+    # ---- assets behind each CVE (the tag lands on these) + metrics + ATT&CK view ----
+    ca = cve_assets(db_path, only=matched)
+    for a in actions:
+        a["assets"] = len(ca.get(a["cve"], ()))
+    assets_all = set().union(*ca.values()) if ca else set()
+
+    roles = {}
+    techs = {}
+    for a in actions:
+        rk = roles.setdefault(a["role"], {"role": a["role"], "tags": 0, "values": set(),
+                                         "techniques": set(), "cves": set(), "assets": set()})
+        rk["tags"] += 1; rk["values"].add(a["value"]); rk["cves"].add(a["cve"])
+        rk["assets"].update(ca.get(a["cve"], ()))
+        for raw in a["techniques"]:
+            info = technique_info(raw)
+            tid = info["id"]
+            rk["techniques"].add(tid)
+            t = techs.setdefault(tid, {**info, "roles": {}, "cves": set(), "assets": set(), "raw": set()})
+            t["roles"][a["role"]] = t["roles"].get(a["role"], 0) + 1
+            t["cves"].add(a["cve"]); t["assets"].update(ca.get(a["cve"], ())); t["raw"].add(raw)
+    role_rows = []
+    for r in ROLES:
+        if r in roles:
+            x = roles[r]
+            role_rows.append({"role": r, "tags": x["tags"], "unique_values": len(x["values"]),
+                              "unique_techniques": len(x["techniques"]), "cves": len(x["cves"]),
+                              "assets": len(x["assets"])})
+    tech_rows = sorted(({**{k: v for k, v in t.items() if k not in ("cves", "assets", "raw")},
+                         "cves": len(t["cves"]), "assets": len(t["assets"]),
+                         "raw_ids": sorted(t["raw"])} for t in techs.values()),
+                       key=lambda t: (-t["assets"], -t["cves"], t["id"]))
+    tactics_hit = {tc for t in tech_rows for tc in t["tactics"]}
+    A = attack()
+    metrics = {
+        "cves_mapped": len(matched),
+        "assets_affected": len(assets_all),
+        "tag_pairs": len(actions),
+        "unique_tag_values": len({a["value"] for a in actions}),
+        "unique_techniques": len(tech_rows),
+        "tactics_hit": len(tactics_hit), "tactics_total": len(A.get("tactics", [])),
+        "roles": role_rows,
+    }
+
     return {"csv_rows": len(mapping), "navi_cves": len(nv),
             "matched_cves": len(matched), "actions": actions, "scope": scope,
-            "mapping_source": source, "url": CSV_URL, "high_acr": high_acr}
+            "mapping_source": source, "url": CSV_URL, "high_acr": high_acr,
+            "metrics": metrics, "techniques": tech_rows,
+            "attack": {"tactics": A.get("tactics", []), "modified": A.get("modified")}}

@@ -3,107 +3,452 @@
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Attack Path Analysis · Navi Agents</title>
 <link rel="stylesheet" href="/static/console.css"/>
-<style>.k.crit{border-color:var(--crit)}.k.crit .v{color:var(--crit)}
-.acode{font-family:var(--mono,ui-monospace,monospace);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--amber);font-weight:700}</style>
+<style>
+.acode{font-family:var(--mono,ui-monospace,monospace);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--amber);font-weight:700}
+.plink{color:var(--accent);text-decoration:none}.plink:hover{text-decoration:underline}
+:root{--e-exploit:#eb6834;--e-cred:#2a78d6;--e-net:#1baf7a;--crown:#d03b3b;--priv:#c98500;--node:#fcfcfb;--node-line:#8b95a7}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--e-exploit:#d95926;--e-cred:#3987e5;--e-net:#199e70;--node:#262624;--node-line:#6b6f78}}
+:root[data-theme="dark"]{--e-exploit:#d95926;--e-cred:#3987e5;--e-net:#199e70;--node:#262624;--node-line:#6b6f78}
+.mkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:10px;margin-top:10px}
+.mk{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--panel-2)}
+.mk .v{font-size:22px;font-weight:800;color:var(--ink);line-height:1.1}.mk .v small{font-size:13px;font-weight:600;color:var(--mut)}
+.mk .l{font-size:11.5px;color:var(--mut);margin-top:2px}
+.mk .u{font-size:11.5px;color:var(--ink-2,var(--ink));margin-top:4px}.mk .u b{color:var(--ink)}
+.mk[data-f]{cursor:pointer;border-left:4px solid var(--rc,var(--line))}.mk[data-f]:hover{border-color:var(--accent)}.mk.on{box-shadow:0 0 0 2px var(--accent)}
+.mhead{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 0}
+.fchip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--accent);color:var(--accent);border-radius:999px;padding:3px 10px;font-size:12px}
+.fchip button{border:0;background:transparent;color:inherit;cursor:pointer;font-size:13px;padding:0}
+.pill{font-size:11px;padding:1px 7px;border-radius:999px;border:1px solid currentColor;white-space:nowrap;display:inline-block;margin:1px 2px 1px 0}
+.lbar{display:inline-block;width:70px;height:7px;border-radius:4px;background:var(--panel-2);vertical-align:middle;margin-right:6px;overflow:hidden}.lbar i{display:block;height:100%;border-radius:4px;background:var(--ink-2,var(--mut))}
+/* step chain chips */
+.chain{display:flex;flex-wrap:wrap;align-items:center;gap:3px}
+.st{font-size:11.5px;border:1px solid var(--line);border-radius:6px;padding:1px 6px;white-space:nowrap;background:var(--panel)}
+.st.k-exploit,.st.k-authrce,.st.k-defcred{border-left:3px solid var(--e-exploit)}
+.st.k-harvest,.st.k-login{border-left:3px solid var(--e-cred)}
+.st.k-capture,.st.k-relay,.st.k-dc,.st.k-da,.st.k-domuser,.st.k-owned,.st.k-kerb{border-left:3px solid var(--e-net)}
+.st.k-unauth{border-left:3px solid var(--e-exploit)}
+.st.k-privesc{border-left:3px solid var(--priv)}
+.arr{color:var(--mut);font-size:11px}
+/* map */
+#mapWrap{position:relative;border:1px solid var(--line);border-radius:12px;background:var(--bg-2,var(--panel));overflow:hidden}
+#map{display:block;width:100%;height:560px;cursor:grab;touch-action:none}
+#map.drag{cursor:grabbing}
+#map .edge{fill:none;stroke-width:2;opacity:.85;transition:opacity .15s}
+#map .edge.hit{stroke:transparent;stroke-width:12;opacity:1;cursor:pointer}
+#map .node{cursor:pointer;transition:opacity .15s}
+#map .node text{font-size:11.5px;fill:var(--ink)}
+#map .node .sub{font-size:10px;fill:var(--mut)}
+#map .dim{opacity:.1}
+#map .node.sel circle,#map .node.sel rect,#map .node.sel polygon{stroke:var(--accent);stroke-width:3}
+.mapctl{position:absolute;right:10px;top:10px;display:flex;gap:4px;flex-direction:column}
+.mapctl button{width:30px;height:30px;border-radius:8px;border:1px solid var(--line);background:var(--panel);color:var(--ink);cursor:pointer;font-size:15px}
+#mapInfo{margin-top:10px;background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:10px;padding:10px 12px;font-size:12.5px;display:none}
+#mapTip{position:absolute;pointer-events:none;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:5px 8px;font-size:11.5px;display:none;max-width:320px;box-shadow:0 4px 14px rgba(0,0,0,.15)}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--ink-2,var(--ink));margin:8px 0}
+.legend svg{vertical-align:middle;margin-right:5px}
+.evid{border:1px solid var(--line);border-radius:8px;padding:6px 8px;margin:4px 0;font-size:12px}
+.wf{display:grid;grid-template-columns:28px 1fr 170px 90px;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line);font-size:12.5px}
+.wf .bar{height:12px;border-radius:4px;background:var(--panel-2);overflow:hidden}.wf .bar i{display:block;height:100%;background:var(--crown);border-radius:4px}
+.caveat li{margin:4px 0}
+</style>
 </head><body>
 <div class="wrap">
   <header class="top" id="app-header"></header>
+
   <section class="card" style="background:var(--panel)">
     <div class="toolbar"><div><div class="acode">Fenrir Hound</div><h2 style="margin:0">🕸️ Attack Path Analysis</h2>
-      <p class="sub" style="margin:2px 0 0">Fenrir chains <b>exploitability × identity × reachability</b> into likely attack paths: an attacker's <b>foothold</b> (exploitable or weak-auth asset) → <b>lateral movement</b> (same-subnet reachability + credential pivots) → <b>crown-jewel target</b> (high-ACR asset). Reachability is inferred from /24 subnet adjacency + credential signals, <b>not</b> observed traffic. Gated tagging.</p></div>
-      <button class="btn run sm" id="run" style="margin-left:auto">▶ Map attack paths</button></div>
+      <p class="sub" style="margin:2px 0 0">Fenrir shows how the weaknesses Tenable already found <b>chain together</b> to reach your crown jewels: remotely exploitable vulnerabilities, local privilege escalation, credentials shared across hosts, NTLM relay, domain-controller flaws, and <b>failed compliance controls</b> (LAPS, SMB signing, LLMNR, WDigest, sudo…) that make each step easier. Then it finds the <b>fixes that break the most paths</b>. Everything comes from navi.db; reachability is <b>inferred</b> (no flow data), and every step shows its evidence. Tags <b>the assets</b> <span class="tagval">Attack Path : Entry Point | Pivot | Target | Choke Point</span>; writes are gated and tracked in the <a href="/web/tags-log.html">Tagging log</a>.</p></div>
+      <span style="margin-left:auto;display:flex;gap:6px;align-items:center"><label class="sub" for="crownAcr">Crown jewels</label>
+        <select id="crownAcr" class="fld" style="padding:6px;border-radius:7px"><option value="5">ACR ≥ 5</option><option value="6">ACR ≥ 6</option><option value="7" selected>ACR ≥ 7</option><option value="8">ACR ≥ 8</option><option value="9">ACR ≥ 9</option><option value="10">ACR = 10</option></select>
+        <button class="btn run sm" id="run" data-run>▶ Run</button></span></div>
     <div id="flash" class="flash"></div>
-    <div class="kpi" id="kpi"></div>
-    <div class="toolbar" id="tools" style="margin-top:6px;display:none">
-      <button class="btn ghost sm" id="csv">⬇ Export paths CSV</button>
-      <button class="btn run sm" id="tagEntry">🎯 Tag entry points → Attack Path : Entry Point</button>
-      <button class="btn sm" id="tagTarget">👑 Tag reachable crown jewels → Attack Path : Target</button></div>
+    <div id="metrics"><div class="setupcard"><div class="big">Press ▶ Run</div><p class="sub">Map every route from an attacker's network position to your crown jewels — through exploits, privilege escalation, account reuse, relay and domain compromise — and get the short list of fixes that cuts the most exposure.</p></div></div>
   </section>
-  <section class="card" id="card" style="display:none">
-    <h3 style="margin:0 0 4px">Attack paths <span class="sub" id="count"></span></h3>
-    <p class="sub" style="margin:0 0 8px">Ranked by path risk = target ACR + entry exploitability + credential pivot. Break the chain at the foothold, or harden the target.</p>
-    <div id="tagRes"></div>
-    <div style="overflow-x:auto"><table id="tbl"><thead><tr><th>Foothold (entry)</th><th>Lateral movement</th><th>Crown-jewel target</th><th>Risk</th><th></th></tr></thead><tbody></tbody></table></div>
-    <div class="toolbar" id="pgr" style="margin-top:10px;justify-content:center;gap:10px;flex-wrap:wrap"></div>
+
+  <section class="card" id="secMap" data-nav="Attack map" data-nav-icon="🗺">
+    <div class="toolbar" style="margin:0"><h2 style="margin:0">Attack map <span class="sub" id="mapCount"></span></h2>
+      <span style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap"><label class="sub" for="mapTarget">Show</label>
+        <select id="mapTarget" class="fld" style="padding:6px;border-radius:7px;max-width:260px"><option value="">Top paths, all crown jewels</option></select>
+        <label class="sub" style="display:flex;gap:4px;align-items:center"><input type="checkbox" id="mapBest"> best route only</label></span></div>
+    <p class="sub" style="margin:4px 0 6px">Left to right: attacker → ways in → pivots → crown jewels. Hover to trace, click a host, credential or step for its evidence. Scroll to zoom, drag to pan. Line thickness = how many mapped paths use that step.</p>
+    <div class="legend" id="legend"></div>
+    <div id="mapWrap"><svg id="map" role="img" aria-label="Attack path graph"></svg>
+      <div class="mapctl"><button id="zin" title="Zoom in">+</button><button id="zout" title="Zoom out">−</button><button id="zfit" title="Fit">⤢</button></div>
+      <div id="mapTip"></div></div>
+    <div id="mapInfo"></div>
   </section>
-  <footer>Attack Path Analysis · Fenrir Hound · reads navi.db read-only · gated <span class="mono">navi enrich tag</span></footer>
+
+  <section class="card" id="secPaths" data-nav="Attack paths" data-nav-icon="🎯">
+    <h2>Attack paths <span class="sub" id="pathCount"></span></h2>
+    <p class="sub">Each row is one route to a crown jewel. <b>Likelihood</b> multiplies the step likelihoods (KEV and high EPSS score highest). <b>Risk</b> = likelihood × the target's ACR. Up to five diverse routes per crown jewel: the most likely, then the best that avoids the domain, uses account reuse, uses relay, or uses a failed control. Click <b>🗺</b> to light a path up on the map, or the row to see every step's evidence.</p>
+    <div class="toolbar"><span class="filterbtns" id="scope"><button data-s="all" class="on">All routes</button><button data-s="best">Best route per crown jewel</button></span><span id="filt"></span>
+      <span style="margin-left:auto;display:flex;gap:6px"><button class="btn ghost sm" id="csv">⬇ CSV</button><button class="btn sm" id="tagTargets" disabled>🏷️ Tag targets → Attack Path : Target</button><button class="btn sm" id="tagPivots" disabled>🏷️ Tag pivots → Attack Path : Pivot</button></span></div>
+    <table id="pathTbl"><thead><tr><th>Crown jewel</th><th>Likelihood</th><th>Risk</th><th>Route</th><th>Built from</th><th></th></tr></thead><tbody></tbody></table>
+  </section>
+
+  <section class="card" id="secFix" data-nav="Fix first" data-nav-icon="🛠">
+    <h2>Fix first <span class="sub" id="fixCount"></span></h2>
+    <p class="sub"><b>Remediation bundle</b>: picked one at a time, each fix is the one that removes the most remaining crown-jewel exposure across the <i>whole</i> graph (exposure = Σ likelihood × ACR over reachable crown jewels), with alternative routes recalculated after every pick.</p>
+    <div id="bundle"></div>
+    <h3 style="margin:14px 0 4px;font-size:14px">Choke points — every fix on a mapped path</h3>
+    <p class="sub" style="margin:0 0 6px">Ranked by <b>exposure cut</b> if only this one fix is applied (alternative routes recalculated). <b>On mapped routes</b> = how many of the shown routes use it. <b>Cuts off</b> = crown jewels left with no route at all — often 0, because attackers have alternatives (that's why the bundle matters). Tag the assets that carry a fix <span class="tagval">Attack Path : Choke Point</span>.</p>
+    <table id="fixTbl"><thead><tr><th>Fix</th><th>Type</th><th>Assets</th><th>Exposure cut</th><th>On mapped routes</th><th>Cuts off</th><th></th></tr></thead><tbody></tbody></table>
+  </section>
+
+  <section class="card" id="secEntry" data-nav="Ways in" data-nav-icon="🚪">
+    <h2>Ways in <span class="sub" id="entCount"></span></h2>
+    <p class="sub">Hosts an attacker can take from a network position without credentials (remote exploit, default or empty credentials). <b>Reaches</b> = crown jewels reachable from that host. Internet-exposed = public IP address.</p>
+    <div class="toolbar"><button class="btn sm" id="tagEntry" disabled>🏷️ Tag entry points that reach a crown jewel → Attack Path : Entry Point</button></div>
+    <table id="entTbl"><thead><tr><th>Host</th><th>How</th><th>Likelihood</th><th>Reaches</th><th>Crown jewels</th></tr></thead><tbody></tbody></table>
+  </section>
+
+  <section class="card" id="secCtl" data-nav="Compliance enablers" data-nav-icon="📋">
+    <h2>Compliance controls that enable attack paths <span class="sub" id="ctlCount"></span></h2>
+    <p class="sub">FAILED checks from your audit results (CIS / DISA STIG) that make a step possible or easier — fixing one removes or weakens every step it appears on. Faded rows are failing controls shown for context only; no step is built from them.</p>
+    <table id="ctlTbl"><thead><tr><th>Control</th><th>What it enables</th><th>Failed on</th><th>On mapped paths</th><th>Example check</th></tr></thead><tbody></tbody></table>
+  </section>
+
+  <section class="card" id="secCrown" data-nav="Crown jewels" data-nav-icon="👑">
+    <h2>Crown jewels <span class="sub" id="crownCount"></span></h2>
+    <table id="crownTbl"><thead><tr><th>Host</th><th>ACR</th><th>Best likelihood</th><th>Steps</th><th>Way in</th><th>Level reached</th></tr></thead><tbody></tbody></table>
+    <div id="unreached" class="sub" style="margin-top:8px"></div>
+  </section>
+
+  <section class="card" id="secHow" data-nav="How it's inferred" data-nav-icon="⚠">
+    <h2>How this is inferred</h2>
+    <ul class="sub caveat" id="caveats"></ul>
+  </section>
+
+  <footer>Fenrir · attack paths from navi.db vulns + compliance + identities · read-only analysis · gated navi enrich tag · tracked in the Tagging log</footer>
 </div>
 <script src="/static/console.js"></script>
 <script>
-const API=agentApi('attackpath'); let DATA=null; let AP_PAGE=1, AP_SIZE=50;
-const plink=(u,txt)=>u?`<a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(u)}" style="color:var(--accent);text-decoration:none">${esc(txt)}</a>`:esc(txt);
+const API=agentApi('attackpath');
+let R=null, WRITES=false, FILTER=null, SCOPE='all', HL=null, SEL=null;
+const N=v=>(v==null?0:v).toLocaleString();
+const pct=v=>v==null?'—':Math.round(v*100)+'%';
+const KIND={exploit:['Remote exploit','exploit','💥'],authrce:['Exploit (needs an account)','exploit','💥'],defcred:['Default / empty credentials','exploit','🔓'],
+  unauth:['Service open without authentication','exploit','🔓'],owned:['Domain controller owned','net','🏛'],kerb:['Kerberos / AD weakness','net','🎟'],
+  privesc:['Privilege escalation','priv','⤒'],harvest:['Harvest credential','cred','🔑'],login:['Log in with credential','cred','🔑'],
+  capture:['Capture by name poisoning','net','📡'],relay:['NTLM relay','net','↪'],domuser:['Domain account context','net','🏢'],dc:['Domain controller exploit','net','🏛'],da:['Domain admin','net','🏛']};
+const ECOL={exploit:'var(--e-exploit)',cred:'var(--e-cred)',net:'var(--e-net)',priv:'var(--priv)'};
+const DASH={exploit:'',authrce:'',defcred:'',unauth:'',harvest:'6 4',login:'6 4',capture:'2 4',relay:'2 4',domuser:'10 4',dc:'10 4',da:'10 4',owned:'10 4',kerb:'10 4'};
+const FILTERS={ kev:['Uses a CISA KEV',p=>p.uses.kev], cred:['Uses account reuse',p=>p.uses.cred], relay:['Uses NTLM relay',p=>p.uses.relay],
+  control:['A failed control enables a step',p=>p.uses.control], domain:['Goes through the domain',p=>p.uses.domain], privesc:['Escalates privilege',p=>p.uses.privesc],
+  chain:['Chains of 3+ steps',p=>p.hops>=3], direct:['Direct exposure (1 step)',p=>p.direct] };
+
 async function run(){
   const b=document.getElementById('run'); b.disabled=true;
-  flash('flash','<span class="spin"></span> correlating exploitability · identity · reachability…','run');
-  let o; try{ o=await API.post('run'); }catch(e){ o={ok:false,error:e.message}; }
+  flash('flash','<span class="spin"></span> building the attack graph from vulnerabilities, compliance results and identities…','run');
+  let o; try{ o=await API.post('run',{crown_acr:+document.getElementById('crownAcr').value}); }catch(e){ o={ok:false,error:e.message}; }
   b.disabled=false;
   if(!o||!o.ok||!o.result){ flash('flash','✗ '+esc((o&&(o.error||o.message))||'failed'),'crit'); return; }
-  DATA=o.result; flashClear('flash'); render();
+  R=o.result; FILTER=null; SCOPE='all'; HL=null; SEL=null;
+  ['pathTbl','fixTbl','entTbl','ctlTbl','crownTbl'].forEach(hPageReset);
+  if(R.note) flash('flash','ℹ '+esc(R.note),'warn');
+  else if(!(R.paths||[]).length) flash('flash','No route reaches a crown jewel with the data in navi.db. Check that ACR is set and that credentialed scans and compliance audits are synced.','warn');
+  else flashClear('flash');
+  render();
 }
-function render(){
-  const k=DATA.kpi||{}, paths=DATA.paths||[];
-  document.getElementById('kpi').innerHTML=
-    `<div class="k crit"><div class="v">${k.entries||0}</div><div class="l">exploitable / weak-auth entries</div></div>`+
-    `<div class="k"><div class="v">${k.targets||0}</div><div class="l">crown-jewel targets (ACR≥7 · else high-exposure)</div></div>`+
-    `<div class="k crit"><div class="v">${k.paths||0}</div><div class="l">reachable paths</div></div>`+
-    `<div class="k crit"><div class="v">${k.kev_paths||0}</div><div class="l">KEV-fronted paths</div></div>`;
-  document.getElementById('tools').style.display='flex';
-  document.getElementById('tagEntry').disabled=!(DATA.entries||[]).length;
-  document.getElementById('tagTarget').disabled=!paths.length;
-  const tb=document.querySelector('#tbl tbody');
-  const total=paths.length, pages=Math.max(1,Math.ceil(total/AP_SIZE));
-  if(AP_PAGE>pages)AP_PAGE=pages;
-  const start=(AP_PAGE-1)*AP_SIZE, pageRows=paths.slice(start,start+AP_SIZE);
-  tb.innerHTML=paths.length?pageRows.map(p=>{const e=p.entry,t=p.target;
-    const eb=(e.kev?'<span class="badge" style="color:var(--crit);border-color:var(--crit)">🔥 KEV</span>':(e.crit?'<span class="badge" style="color:var(--cx-ff9a4d);border-color:var(--cx-ff9a4d)">critical</span>':''))+(e.weak?' <span class="badge" style="color:var(--warn)">'+esc(e.weakWhy)+'</span>':'');
-    const piv='→ same subnet <span class="mono">'+esc(p.subnet)+'.0/24</span>'+(p.pivotWeak?' · <span style="color:var(--warn)">credential pivot</span>':'')+(p.altEntries>0?' · <span class="sub">+'+p.altEntries+' entr'+(p.altEntries>1?'ies':'y')+'</span>':'')+' →';
-    const tbadge='ACR <b style="color:var(--crit)">'+t.acr+'</b>'+(t.kev?' <span class="badge" style="color:var(--crit);border-color:var(--crit)">🔥 KEV</span>':'');
-    return `<tr><td><b>${plink(e.uuid,e.host)}</b><div class="sub" style="font-size:12px">${esc(e.entryReason||'exposed')}</div>${eb}</td>`+
-      `<td class="sub" style="font-size:12.5px">${piv}</td>`+
-      `<td><b>${plink(t.uuid,t.host)}</b><div class="sub" style="font-size:12px">${tbadge}</div></td>`+
-      `<td><b>${p.score}</b></td>`+
-      `<td><button class="btn sm" data-u="${esc(String(t.uuid))}">Tag target</button></td></tr>`;
-  }).join(''):'<tr><td colspan="5" class="sub">No attack paths — needs exploitable entry points and crown-jewel targets (ACR≥7) sharing a /24. Set ACR and refresh navi.db.</td></tr>';
-  tb.querySelectorAll('button[data-u]').forEach(b=>b.onclick=()=>tagOne(b.dataset.u,b));
-  document.getElementById('count').textContent='('+paths.length+' path(s))';
-  renderPager(total,pages,start,pageRows.length);
-  document.getElementById('card').style.display='block';
+
+/* ------------------------------------------------------------------ metrics */
+function renderMetrics(){
+  const m=R.metrics||{}, u=m.uses_all||{}, b=m.uses_best||{};
+  const k=(v,l,s,o)=>{o=o||{}; return `<div class="mk${o.f&&FILTER===o.f?' on':''}"${o.f?` data-f="${o.f}"`:''} style="${o.c?'--rc:'+o.c:''}"${o.t?` title="${esc(o.t)}"`:''}><div class="v">${v}</div><div class="l">${l}</div>${s?`<div class="u">${s}</div>`:''}</div>`;};
+  const top=(R.fixes||[])[0];
+  document.getElementById('metrics').innerHTML=
+    '<div class="mhead">Exposure</div><div class="mkpi">'+
+    k(`${N(m.crown_reachable)} <small>/ ${N(m.crown)}</small>`,'crown jewels reachable', m.crown_pct!=null?(m.fallback_targets?`<b>${m.crown_pct}%</b> of fallback targets (no ACR ≥ ${R.crown_acr})`:`<b>${m.crown_pct}%</b> of ACR ≥ ${R.crown_acr} assets`):'', {c:'var(--crown)'})+
+    k(N(m.entries_to_crown),'ways in that reach one', `of <b>${N(m.entries)}</b> hosts exploitable without credentials`+(m.public_entries?` · <b>${N(m.public_entries)}</b> internet-exposed`:''), {c:'var(--e-exploit)'})+
+    k(N(m.direct),'crown jewels exposed directly', 'one step from the network', {f:'direct',c:'var(--crown)'})+
+    k(m.domain_reachable?pct(m.domain_likelihood):'no','domain admin reachable', m.domain_reachable?`in <b>${N(m.domain_steps)}</b> step${m.domain_steps===1?'':'s'} at best`:'no route to a domain controller', {f:'domain',c:'var(--e-net)'})+
+    '</div><div class="mhead">How each crown jewel is reached — best route per crown jewel · click to filter all '+N(m.paths)+' mapped routes</div><div class="mkpi">'+
+    k(N(m.chains),'reached by a multi-step chain', `3+ steps · longest <b>${N(m.max_hops)}</b> · <b>${N(m.chains_all)}</b> of all routes`, {f:'chain',c:'var(--e-exploit)'})+
+    k(N(b.kev),'best route uses a CISA KEV', `<b>${N(u.kev)}</b> of all routes`, {f:'kev',c:'var(--crown)'})+
+    k(N(b.cred),'best route uses an account on several hosts', `<b>${N(u.cred)}</b> of all routes · <b>${N(m.shared_creds)}</b> such accounts · account reuse, not a known shared password`, {f:'cred',c:'var(--e-cred)'})+
+    k(N(b.control),'best route needs a failed control', `<b>${N(u.control)}</b> of all routes · <b>${N(m.controls_on_paths)}</b> control types on routes`, {f:'control',c:'var(--priv)'})+
+    k(N(b.privesc),'best route escalates privilege', `<b>${N(u.privesc)}</b> of all routes`, {f:'privesc',c:'var(--priv)'})+
+    k(N(b.relay),'best route uses NTLM relay', `<b>${N(u.relay)}</b> of all routes`, {f:'relay',c:'var(--e-net)'})+
+    '</div><div class="mhead">Fix first</div><div class="mkpi">'+
+    k(m.bundle_size?`${m.bundle_exposure_cut_pct}%`:'—',`exposure cut by ${N(m.bundle_size)} fixes`, m.bundle_size?`<b>${N(m.bundle_still_reachable)}</b> crown jewels still reachable after`:'', {c:'var(--ok)'})+
+    k(top?`${top.exposure_cut_pct}%`:'—','exposure cut by the single best fix', top?esc(top.label.length>60?top.label.slice(0,58)+'…':top.label):'')+
+    k(m.avg_likelihood!=null?pct(m.avg_likelihood):'—','average best-route likelihood', 'per reachable crown jewel')+
+    k(N(m.uncredentialed),'hosts scanned without credentials', 'their weaknesses are missing from the graph', {c:'var(--mut)'})+
+    '</div>';
+  document.querySelectorAll('#metrics .mk[data-f]').forEach(c=>c.onclick=()=>{ FILTER=FILTER===c.dataset.f?null:c.dataset.f; hPageReset('pathTbl'); renderMetrics(); renderPaths(); renderMap();
+    if(FILTER) document.getElementById('secPaths').scrollIntoView({behavior:'smooth',block:'start'}); });
 }
-function renderPager(total,pages,start,shown){
-  const pgr=document.getElementById('pgr'); if(!pgr)return;
-  if(!total){ pgr.innerHTML=''; return; }
-  const opts=[10,15,25,50].map(n=>'<option value="'+n+'"'+(n===AP_SIZE?' selected':'')+'>'+n+' / page</option>').join('');
-  pgr.innerHTML='<button class="btn ghost sm" id="pgPrev"'+(AP_PAGE<=1?' disabled':'')+'>‹ Prev</button>'+
-    '<span class="sub">'+(total?(start+1):0)+'–'+(start+shown)+' of '+total+' · page '+AP_PAGE+'/'+pages+'</span>'+
-    '<button class="btn ghost sm" id="pgNext"'+(AP_PAGE>=pages?' disabled':'')+'>Next ›</button>'+
-    '<select id="pgSize" class="fld" style="margin-left:8px">'+opts+'</select>';
-  const prev=document.getElementById('pgPrev'); if(prev)prev.onclick=()=>{if(AP_PAGE>1){AP_PAGE--;render();}};
-  const next=document.getElementById('pgNext'); if(next)next.onclick=()=>{AP_PAGE++;render();};
-  const sz=document.getElementById('pgSize'); if(sz)sz.onchange=()=>{AP_SIZE=+sz.value;AP_PAGE=1;render();};
+
+/* ------------------------------------------------------------------ paths */
+function shownPaths(){ let p=R.paths||[]; if(SCOPE==='best') p=p.filter(x=>x.primary); if(FILTER) p=p.filter(FILTERS[FILTER][1]); return p; }
+function chainHtml(p,compact){
+  const out=['<span class="st" title="network position">☠ attacker</span>'];
+  p.steps.forEach(s=>{ const K=KIND[s.kind]||[s.kind,'net','•'];
+    out.push('<span class="arr">→</span><span class="st k-'+esc(s.kind)+'" title="'+esc(K[0]+': '+s.label+' ('+s.tech+') · '+pct(s.p))+'">'+K[2]+' '+esc(s.kind==='privesc'?'root/admin':s.to_host)+'</span>'); });
+  return '<div class="chain">'+out.join('')+'</div>';
 }
-async function tagOne(u,btn){ if(btn.disabled)return; btn.disabled=true; btn.textContent='tagging…'; btn.style.opacity='.6'; btn.style.transform='translateY(1px)'; btn.style.cursor='default';
-  let o; try{ o=await API.post('tag',{value:'Target',uuids:[u],confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
-  btn.textContent=o&&o.ok?'✓ tagged':'✗ failed'; btn.style.opacity=''; btn.style.transform=''; showTagResult(o,'crown-jewel target'); }
-async function tagBulk(action,label,btn){ if(btn.disabled)return; btn.disabled=true; const old=btn.textContent; btn.textContent='tagging…'; btn.style.opacity='.6'; btn.style.transform='translateY(1px)'; btn.style.cursor='default';
-  let o; try{ o=await API.post(action,{confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
-  btn.disabled=false; btn.textContent=old; btn.style.opacity=''; btn.style.transform=''; btn.style.cursor=''; showTagResult(o,label); }
-function showTagResult(o,label){ const r=document.getElementById('tagRes');
-  const scroll=()=>{ if(r)r.scrollIntoView({behavior:'smooth',block:'center'}); };
-  if(!o||!o.ok){ r.innerHTML='<div class="callbox" style="color:var(--crit)">✗ '+esc((o&&(o.error||o.message))||'failed')+'</div>'; scroll(); return; }
-  const res=o.result||{}; const ok=res.ok!==false;
-  r.innerHTML='<div class="callbox" style="color:'+(ok?'var(--ok)':'var(--cx-ffb4c6)')+'">'+(ok
-    ?'✓ tagged '+(o.count||0)+' '+esc(label)+' → Attack Path : '+esc(o.value||'')+(res.warning?' — '+esc(res.warning):'')
-    :'✗ '+esc(res.message||res.stderr||'write rejected'))+'</div>'
-    +(o.writes_enabled?'':'<div class="sub" style="margin-top:6px;color:var(--warn)">Writes are gated — set <span class="mono">NAVI_ALLOW_WRITES=1</span> to apply. Tags show in the <a href="/web/tags-log.html">Tagging log</a> after a navi.db sync.</div>');
-  scroll(); }
-function exportCsv(){ if(!DATA||!DATA.paths.length){alert('Map paths first.');return;}
-  downloadCSV('attack-paths.csv',['risk','entry_host','entry_ip','entry_reason','subnet','pivot','target_host','target_ip','target_acr','target_kev'],
-    DATA.paths.map(p=>({risk:p.score,entry_host:p.entry.host,entry_ip:p.entry.ip,entry_reason:p.entry.entryReason,subnet:p.subnet+'.0/24',pivot:p.pivotWeak?'credential pivot':'lateral',target_host:p.target.host,target_ip:p.target.ip,target_acr:p.target.acr,target_kev:p.target.kev?'yes':''}))); }
+function usesHtml(p){ const u=p.uses, b=[];
+  if(u.kev) b.push('<span class="pill" style="color:var(--crown)">KEV</span>'); if(u.cred) b.push('<span class="pill" style="color:var(--e-cred)">credential</span>');
+  if(u.relay) b.push('<span class="pill" style="color:var(--e-net)">relay</span>'); if(u.domain) b.push('<span class="pill" style="color:var(--e-net)">domain</span>');
+  if(u.defcred) b.push('<span class="pill" style="color:var(--e-exploit)">default creds</span>');
+  if(u.control) b.push('<span class="pill" style="color:var(--priv)">control</span>'); if(u.privesc) b.push('<span class="pill" style="color:var(--priv)">privesc</span>');
+  return b.join(''); }
+function evHtml(ev){
+  if(ev.type==='finding') return `<div class="evid">🧪 <b>${esc(ev.name)}</b> <span class="sub mono">#${esc(ev.pid)}</span> ${ev.kev?'<span class="pill" style="color:var(--crown)">KEV</span>':''}${ev.epss?` <span class="sub">EPSS ${(ev.epss*100).toFixed(0)}%</span>`:''} <span class="sub">${esc(ev.sev||'')}${ev.port?' · port '+esc(ev.port):''}${(ev.cves||[]).length?' · '+esc(ev.cves.join(', ')):''}</span></div>`;
+  if(ev.type==='control') return `<div class="evid">📋 FAILED control: <b>${esc(ev.label||'')}</b><div class="sub">${esc(ev.check)} · ${esc(ev.audit||'')}</div></div>`;
+  if(ev.type==='credential') return `<div class="evid">🔑 Account <b>${esc(ev.account)}</b>${ev.hosts?` exists on <b>${N(ev.hosts)}</b> hosts`:''}${ev.service?` · login via ${esc(ev.service)}`:''}${ev.verified===false?' <span class="sub">— account reuse: same name only, password/key reuse not known</span>':''}</div>`;
+  return `<div class="evid">ℹ ${esc(ev.text||'')}</div>`;
+}
+function stepsDetail(p){
+  return '<ol style="margin:6px 0 4px 18px;padding:0">'+p.steps.map(s=>{ const K=KIND[s.kind]||[s.kind];
+    return `<li style="margin:6px 0"><b>${esc(K[0])}</b> — ${esc(s.from_host)} → <b>${esc(s.to_host)}</b> <span class="sub">${esc(s.tech)} ${esc(s.tech_name)} · step likelihood ${pct(s.p)}</span><div class="sub">${esc(s.label)}</div>${(s.evidence||[]).map(evHtml).join('')}</li>`; }).join('')+'</ol>';
+}
+function renderPaths(){
+  const all=R.paths||[], rows=shownPaths();
+  document.querySelectorAll('#scope button').forEach(b=>b.classList.toggle('on',b.dataset.s===SCOPE));
+  const fe=document.getElementById('filt');
+  fe.innerHTML=FILTER?`<span class="fchip">${esc(FILTERS[FILTER][0])}<button id="clrF" title="Clear">✕</button></span>`:'';
+  const c=document.getElementById('clrF'); if(c) c.onclick=()=>{ FILTER=null; hPageReset('pathTbl'); renderMetrics(); renderPaths(); renderMap(); };
+  const m=R.metrics||{};
+  document.getElementById('pathCount').textContent=(rows.length===all.length?`(${N(all.length)})`:`(${N(rows.length)} of ${N(all.length)})`)+(m.paths>m.paths_shown?` · ${N(m.paths_shown)} of ${N(m.paths)} shown`:'');
+  setNavCount('secPaths', N(m.paths));
+  document.getElementById('tagTargets').disabled=!all.length; document.getElementById('tagPivots').disabled=!all.length;
+  hPaginate('pathTbl', rows, p=>`<tr data-pid="${esc(p.id)}" style="cursor:pointer"><td><b>${p.target.uuid?`<a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(p.target.uuid)}" data-stopprop>${esc(p.target.host)}</a>`:esc(p.target.host)}</b> ${p.primary?'<span class="pill" style="color:var(--accent)" title="most likely route to this crown jewel">best</span>':''}<div class="sub">ACR ${p.target.acr} · ${esc(p.level)}</div></td>`+
+      `<td><span class="lbar"><i style="width:${Math.round(p.likelihood*100)}%"></i></span>${pct(p.likelihood)}</td><td><b>${p.risk}</b></td><td>${chainHtml(p)}</td><td>${usesHtml(p)}</td>`+
+      `<td style="white-space:nowrap"><button class="btn ghost sm" data-show="${esc(p.id)}" title="Highlight on the map">🗺</button></td></tr>`,
+    {cols:6, empty:'<tr><td colspan="6" class="sub">'+(all.length?'Nothing matches this filter.':'No routes reach a crown jewel.')+'</td></tr>',
+     wire:tb=>{ tb.querySelectorAll('button[data-show]').forEach(b=>b.onclick=e=>{ e.stopPropagation(); showPath(+b.dataset.show); });
+       tb.querySelectorAll('a[data-stopprop]').forEach(a=>a.addEventListener('click',e=>e.stopPropagation()));
+       tb.querySelectorAll('tr[data-pid]').forEach(tr=>tr.onclick=()=>{ const nx=tr.nextElementSibling;
+         if(nx&&nx.classList.contains('pdet')){ nx.remove(); return; }
+         const p=(R.paths||[]).find(x=>x.id===+tr.dataset.pid); if(!p) return;
+         tr.insertAdjacentHTML('afterend','<tr class="pdet"><td colspan="6">'+stepsDetail(p)+'</td></tr>'); }); }});
+}
+function showPath(id){ const p=(R.paths||[]).find(x=>x.id===id);
+  if(p && !mapNodes().keep.has(id)){   // not in the current map view: switch the map to this path's crown jewel
+    document.getElementById('mapTarget').value=p.target.uuid; document.getElementById('mapBest').checked=false; VB.x=0;VB.y=0;VB.k=1; }
+  HL=new Set([id]); SEL=null; renderMap();
+  if(p) info('<b>Path to '+esc(p.target.host)+'</b> · likelihood '+pct(p.likelihood)+' · risk '+p.risk+stepsDetail(p));
+  document.getElementById('secMap').scrollIntoView({behavior:'smooth',block:'start'}); }
+
+/* ------------------------------------------------------------------ map */
+const VB={x:0,y:0,k:1}; let MAPSIZE={w:1000,h:560}; const MAP_CAP=40;
+function mapNodes(){
+  const g=R.graph||{nodes:[],edges:[]}, sel=document.getElementById('mapTarget').value, best=document.getElementById('mapBest').checked;
+  let paths=(R.paths||[]).filter(p=>(!sel||p.target.uuid===sel)&&(!best||p.primary)&&(!FILTER||FILTERS[FILTER][1](p)));
+  if(!sel) paths=paths.slice(0,MAP_CAP);     // the "all crown jewels" view draws the top routes by risk
+  const keep=new Set(paths.map(p=>p.id));
+  const nodes=g.nodes.filter(n=>n.paths.some(i=>keep.has(i))), edges=g.edges.filter(e=>e.paths.some(i=>keep.has(i)));
+  return {nodes,edges,keep};
+}
+function layout(nodes,keep){
+  // column = deepest position a node takes across the shown paths; ways in = 1, crown jewels = last
+  const depth={}, nid=n=>(/:/.test(n)&&!/^(cred|relay):/.test(n))?n.split(':')[0]:n;
+  (R.paths||[]).filter(p=>keep.has(p.id)).forEach(p=>{ ['ATTACKER'].concat(p.steps.map(s=>s.to)).forEach((n,i)=>{ const v=nid(n); depth[v]=Math.max(depth[v]||0,i); }); });
+  const pivot=new Set(); (R.paths||[]).filter(p=>keep.has(p.id)).forEach(p=>p.steps.slice(0,-1).forEach(s=>pivot.add(nid(s.to))));
+  const cols={}; nodes.forEach(n=>{ const term=n.crown&&n.kind==='asset'&&!pivot.has(n.id);
+    let c=n.kind==='attacker'?0:(term?99:(n.entry&&n.kind==='asset'?1:Math.max(n.crown?1:2,depth[n.id]||1))); (cols[c]=cols[c]||[]).push(n); });
+  const keys=Object.keys(cols).map(Number).sort((a,b)=>a-b); const maxN=Math.max(1,...keys.map(k=>cols[k].length));
+  const W=Math.max(900,keys.length*210), H=Math.max(420,maxN*58+80);
+  const ord={attacker:0,asset:1,cred:2,relay:3,domain:4};
+  keys.forEach((k,ci)=>{ const list=cols[k].sort((a,b)=>(ord[a.kind]-ord[b.kind])||((b.acr||0)-(a.acr||0))||a.label.localeCompare(b.label));
+    const x=60+ci*((W-200)/Math.max(1,keys.length-1)); const gap=(H-60)/(list.length+1);
+    list.forEach((n,i)=>{ n.x=x; n.y=30+gap*(i+1); }); });
+  return {W,H};
+}
+function shape(n){
+  const r=n.kind==='asset'?(9+Math.min(7,(n.acr||0)*0.7)):12;
+  const ring=n.crown?' stroke="var(--crown)" stroke-width="3"':' stroke="var(--node-line)" stroke-width="1.5"';
+  if(n.kind==='attacker') return `<circle r="14" fill="var(--ink)"/><text text-anchor="middle" dy="5" style="font-size:14px;fill:var(--panel)">☠</text>`;
+  if(n.kind==='cred') return `<rect x="-11" y="-11" width="22" height="22" transform="rotate(45)" fill="var(--node)" stroke="var(--e-cred)" stroke-width="2"/><text text-anchor="middle" dy="4" style="font-size:11px">🔑</text>`;
+  if(n.kind==='relay') return `<polygon points="-13,0 -6,-11 6,-11 13,0 6,11 -6,11" fill="var(--node)" stroke="var(--e-net)" stroke-width="2"/><text text-anchor="middle" dy="4" style="font-size:11px">📡</text>`;
+  if(n.kind==='domain') return `<rect x="-14" y="-12" width="28" height="24" rx="5" fill="var(--node)" stroke="var(--e-net)" stroke-width="2"/><text text-anchor="middle" dy="4" style="font-size:12px">🏛</text>`;
+  return `<circle r="${r.toFixed(1)}" fill="var(--node)"${ring}/>`+(n.entry?`<circle r="${(r+4).toFixed(1)}" fill="none" stroke="var(--e-exploit)" stroke-width="1.5" stroke-dasharray="3 2"/>`:'')+
+    (n.privesc?`<text x="${(r*0.6).toFixed(1)}" y="${(-r*0.6).toFixed(1)}" style="font-size:11px;fill:var(--priv);font-weight:700">⤒</text>`:'')+
+    (n.dc?`<text text-anchor="middle" dy="4" style="font-size:10px">🏛</text>`:'')+(n.crown?`<text text-anchor="middle" dy="${(-r-6).toFixed(1)}" style="font-size:11px">👑</text>`:'');
+}
+function renderMap(){
+  const svg=document.getElementById('map'); if(!R){ svg.innerHTML=''; return; }
+  const {nodes,edges,keep}=mapNodes();
+  const selT=document.getElementById('mapTarget').value;
+  document.getElementById('mapCount').textContent=`(${N(nodes.filter(n=>n.kind==='asset').length)} hosts · ${N(keep.size)} paths${!selT&&(R.paths||[]).length>MAP_CAP?' — top '+MAP_CAP+' by risk; pick a crown jewel to see all of its routes':''})`;
+  setNavCount('secMap', N(keep.size));
+  if(!nodes.length){ svg.innerHTML='<text x="20" y="40" style="fill:var(--mut);font-size:13px">No paths to draw for this selection.</text>'; return; }
+  const {W,H}=layout(nodes,keep); MAPSIZE={w:W,h:H};
+  const pos={}; nodes.forEach(n=>pos[n.id]=n);
+  const maxP=Math.max(1,...edges.map(e=>e.paths.filter(i=>keep.has(i)).length));
+  const hlOn=HL&&HL.size;
+  const inHL=arr=>!hlOn||arr.some(i=>HL.has(i));
+  let html='<defs>'+['exploit','cred','net'].map(g=>`<marker id="ar-${g}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0L10,5L0,10z" fill="${ECOL[g]}"/></marker>`).join('')+'</defs><g id="vp">';
+  edges.forEach((e,i)=>{ const a=pos[e.frm], b=pos[e.to]; if(!a||!b) return; const K=KIND[e.kind]||['', 'net']; const grp=K[1]==='priv'?'exploit':K[1];
+    const n=e.paths.filter(x=>keep.has(x)).length, w=(1.5+3*n/maxP).toFixed(1);
+    const dx=Math.max(40,Math.abs(b.x-a.x)/2); const back=b.x<=a.x;
+    const d=back?`M${a.x},${a.y} C${a.x+60},${a.y+90} ${b.x-60},${b.y+90} ${b.x},${b.y}`:`M${a.x+14},${a.y} C${a.x+dx},${a.y} ${b.x-dx},${b.y} ${b.x-16},${b.y}`;
+    const dim=!inHL(e.paths);
+    html+=`<path class="edge${dim?' dim':''}" d="${d}" stroke="${ECOL[grp]}" stroke-width="${w}" ${DASH[e.kind]?`stroke-dasharray="${DASH[e.kind]}"`:''} marker-end="url(#ar-${grp})"/>`+
+      `<path class="edge hit" d="${d}" data-e="${i}"/>`; });
+  nodes.forEach(n=>{ const dim=!inHL(n.paths);
+    const lbl=n.label.length>24?n.label.slice(0,23)+'…':n.label;
+    html+=`<g class="node${dim?' dim':''}${SEL===n.id?' sel':''}" data-n="${esc(n.id)}" transform="translate(${n.x.toFixed(1)},${n.y.toFixed(1)})">${shape(n)}`+
+      `<text x="18" y="4">${esc(lbl)}</text>`+(n.kind==='asset'?`<text class="sub" x="18" y="17">${esc(n.ip||'')}${n.acr?' · ACR '+n.acr:''}</text>`:'')+`</g>`; });
+  html+='</g>';
+  svg.setAttribute('viewBox',`0 0 ${W} ${H}`); svg.innerHTML=html; applyVB();
+  const tip=document.getElementById('mapTip'), wrap=document.getElementById('mapWrap');
+  const showTip=(ev,t)=>{ const r=wrap.getBoundingClientRect(); tip.innerHTML=t; tip.style.display='block'; tip.style.left=(ev.clientX-r.left+12)+'px'; tip.style.top=(ev.clientY-r.top+12)+'px'; };
+  svg.querySelectorAll('.node').forEach(el=>{ const n=pos[el.dataset.n];
+    el.onmouseenter=ev=>{ if(!SEL&&!(HL&&HL.size)) hover(n.paths,true); showTip(ev,`<b>${esc(n.label)}</b>${n.ip?'<br>'+esc(n.ip)+' · '+esc(n.os||''):''}${n.acr?'<br>ACR '+n.acr:''}<br><span class="sub">${n.paths.filter(i=>keep.has(i)).length} mapped path(s) · click for evidence</span>`); };
+    el.onmousemove=ev=>showTip(ev,tip.innerHTML); el.onmouseleave=()=>{ tip.style.display='none'; if(!SEL&&!(HL&&HL.size)) hover(null); };
+    el.onclick=ev=>{ ev.stopPropagation(); SEL=n.id; HL=new Set(n.paths.filter(i=>keep.has(i))); renderMap(); nodeInfo(n,keep); }; });
+  svg.querySelectorAll('.edge.hit').forEach(el=>{ const e=edges[+el.dataset.e]; const K=KIND[e.kind]||[e.kind];
+    el.onmouseenter=ev=>showTip(ev,`<b>${esc(K[0])}</b><br>${esc(e.label)}<br><span class="sub">${esc(e.tech)} · step likelihood ${pct(e.p)} · ${e.paths.filter(i=>keep.has(i)).length} path(s)</span>`);
+    el.onmousemove=ev=>showTip(ev,tip.innerHTML); el.onmouseleave=()=>tip.style.display='none';
+    el.onclick=ev=>{ ev.stopPropagation(); SEL=null; HL=new Set(e.paths.filter(i=>keep.has(i))); renderMap(); edgeInfo(e,keep); }; });
+}
+function hover(paths,on){ const svg=document.getElementById('map'); const S=paths?new Set(paths):null;
+  svg.querySelectorAll('.node').forEach(el=>{ const n=(R.graph.nodes||[]).find(x=>x.id===el.dataset.n); el.classList.toggle('dim',!!S&&!n.paths.some(i=>S.has(i))); });
+  const {edges}=mapNodes();
+  svg.querySelectorAll('path.edge:not(.hit)').forEach((el,i)=>{ const e=edges[i]; if(e) el.classList.toggle('dim',!!S&&!e.paths.some(x=>S.has(x))); }); }
+function info(html){ const b=document.getElementById('mapInfo'); b.innerHTML='<div style="text-align:right;margin:-4px -4px 4px 0"><button class="btn ghost sm" id="infoX">✕</button></div>'+html; b.style.display='block';
+  document.getElementById('infoX').onclick=()=>{ b.style.display='none'; HL=null; SEL=null; renderMap(); }; }
+function nodeInfo(n,keep){
+  const ps=(R.paths||[]).filter(p=>n.paths.includes(p.id)&&keep.has(p.id));
+  let h=`<b style="font-size:14px">${esc(n.label)}</b>`;
+  if(n.kind==='asset'){
+    h+=`<div class="sub">${esc(n.ip)} · ${esc(n.os||'')} · ${esc(n.subnet||'')}${n.acr?' · ACR <b>'+n.acr+'</b>':''}</div><div style="margin:4px 0">${n.entry?'<span class="pill" style="color:var(--e-exploit)">way in</span>':''}${n.crown?'<span class="pill" style="color:var(--crown)">crown jewel</span>':''}${n.dc?'<span class="pill" style="color:var(--e-net)">domain controller</span>':''}${n.public?'<span class="pill" style="color:var(--crown)">public IP</span>':''}</div>`;
+    if((n.findings||[]).length) h+='<div style="margin-top:6px"><b>Findings used</b></div>'+n.findings.map(f=>`<div class="evid">${f.kev?'<span class="pill" style="color:var(--crown)">KEV</span>':''}<b>${esc(f.name)}</b> <span class="sub">#${esc(f.pid)} · ${esc(f.sev)}${f.port?' · port '+esc(f.port):''}</span></div>`).join('');
+    if((n.privesc||[]).length) h+='<div style="margin-top:6px"><b>⤒ Privilege escalation</b></div>'+n.privesc.map(x=>`<div class="evid">${esc(x)}</div>`).join('');
+    if((n.controls||[]).length) h+='<div style="margin-top:6px"><b>📋 Failed controls</b></div>'+n.controls.map(c=>`<div class="evid"><b>${esc(c.label)}</b> — ${esc(c.why)}<div class="sub">${esc(c.check)}</div></div>`).join('');
+    h+=`<div style="margin-top:6px"><a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(n.id)}">Open asset profile →</a></div>`;
+  }
+  h+=`<div style="margin-top:8px"><b>${ps.length} mapped path(s) through here</b></div>`+ps.slice(0,8).map(p=>`<div class="evid" style="cursor:pointer" data-goto="${esc(p.id)}">→ ${esc(p.target.host)} · ${pct(p.likelihood)} · ${p.hops} steps</div>`).join('');
+  info(h); document.querySelectorAll('#mapInfo [data-goto]').forEach(d=>d.onclick=()=>showPath(+d.dataset.goto));
+}
+function edgeInfo(e,keep){
+  const K=KIND[e.kind]||[e.kind]; const ps=(R.paths||[]).filter(p=>e.paths.includes(p.id)&&keep.has(p.id));
+  const st=ps.length?ps[0].steps.find(s=>(s.kind===e.kind)&&s.label===e.label):null;
+  info(`<b style="font-size:14px">${esc(K[0])}</b><div class="sub">${esc(e.tech)} · step likelihood ${pct(e.p)}</div><div style="margin:4px 0">${esc(e.label)}</div>`+
+    (st?((st.evidence||[]).map(evHtml).join('')+((st.fixes||[]).length?'<div class="sub">Removed by: '+esc(st.fixes.join(', '))+'</div>':'')):'')+
+    `<div style="margin-top:8px"><b>${ps.length} mapped path(s) use this step</b></div>`+ps.slice(0,8).map(p=>`<div class="evid" style="cursor:pointer" data-goto="${esc(p.id)}">→ ${esc(p.target.host)} · ${pct(p.likelihood)}</div>`).join(''));
+  document.querySelectorAll('#mapInfo [data-goto]').forEach(d=>d.onclick=()=>showPath(+d.dataset.goto));
+}
+function applyVB(){ const svg=document.getElementById('map'); const w=MAPSIZE.w/VB.k, h=MAPSIZE.h/VB.k; svg.setAttribute('viewBox',`${VB.x} ${VB.y} ${w} ${h}`); }
+function svgPt(ev){ const svg=document.getElementById('map'); const pt=svg.createSVGPoint(); pt.x=ev.clientX; pt.y=ev.clientY;
+  const m=svg.getScreenCTM(); return m?pt.matrixTransform(m.inverse()):{x:VB.x,y:VB.y}; }
+function zoom(f,cx,cy){ const w=MAPSIZE.w/VB.k, h=MAPSIZE.h/VB.k; cx=cx==null?VB.x+w/2:cx; cy=cy==null?VB.y+h/2:cy;
+  VB.k=Math.min(6,Math.max(0.4,VB.k*f)); const w2=MAPSIZE.w/VB.k, h2=MAPSIZE.h/VB.k; VB.x=cx-(cx-VB.x)*(w2/w); VB.y=cy-(cy-VB.y)*(h2/h); applyVB(); }
+(function wireMap(){
+  const svg=document.getElementById('map'); let drag=null;
+  svg.addEventListener('wheel',ev=>{ ev.preventDefault(); const p=svgPt(ev); zoom(ev.deltaY<0?1.15:1/1.15, p.x, p.y); },{passive:false});
+  svg.addEventListener('pointerdown',ev=>{ if(ev.target.closest('.node')||ev.target.classList.contains('hit')) return; const p=svgPt(ev); drag={x:p.x,y:p.y}; svg.classList.add('drag'); svg.setPointerCapture(ev.pointerId); });
+  svg.addEventListener('pointermove',ev=>{ if(!drag) return; const p=svgPt(ev);   // keep the grabbed map point under the cursor
+    VB.x-=p.x-drag.x; VB.y-=p.y-drag.y; applyVB(); });
+  svg.addEventListener('pointerup',()=>{ drag=null; svg.classList.remove('drag'); });
+  svg.addEventListener('click',ev=>{ if(ev.target===svg){ HL=null; SEL=null; document.getElementById('mapInfo').style.display='none'; renderMap(); } });
+  document.getElementById('zin').onclick=()=>zoom(1.25); document.getElementById('zout').onclick=()=>zoom(0.8);
+  document.getElementById('zfit').onclick=()=>{ VB.x=0; VB.y=0; VB.k=1; applyVB(); };
+})();
+function renderLegend(){
+  const ln=(col,dash,lbl)=>`<span><svg width="34" height="10"><line x1="0" y1="5" x2="34" y2="5" stroke="${col}" stroke-width="2.5" ${dash?`stroke-dasharray="${dash}"`:''}/></svg>${lbl}</span>`;
+  document.getElementById('legend').innerHTML=ln('var(--e-exploit)','','Exploit / default creds')+ln('var(--e-cred)','6 4','Account reuse')+ln('var(--e-net)','2 4','NTLM relay')+ln('var(--e-net)','10 4','Domain')+
+    '<span>⤒ privilege escalation on host</span><span>👑 crown jewel (red ring)</span><span><svg width="16" height="16"><circle cx="8" cy="8" r="6" fill="none" stroke="var(--e-exploit)" stroke-dasharray="3 2"/></svg>way in</span><span>🏛 domain controller</span>';
+}
+function renderTargets(){
+  const sel=document.getElementById('mapTarget'), cur=sel.value; const seen=new Set();
+  sel.innerHTML='<option value="">Top paths, all crown jewels</option>'+(R.paths||[]).filter(p=>p.primary&&!seen.has(p.target.uuid)&&seen.add(p.target.uuid)).map(p=>`<option value="${esc(p.target.uuid)}">${esc(p.target.host)} · ACR ${p.target.acr} · ${pct(p.likelihood)}</option>`).join('');
+  if([...sel.options].some(o=>o.value===cur)) sel.value=cur;
+}
+
+/* ------------------------------------------------------------------ other sections */
+function renderFix(){
+  const b=R.bundle||[], f=R.fixes||[], m=R.metrics||{};
+  document.getElementById('fixCount').textContent=`(${N(f.length)} choke points)`; setNavCount('secFix', b.length?m.bundle_exposure_cut_pct+'%':N(f.length));
+  document.getElementById('bundle').innerHTML=b.length?('<div class="wf" style="font-weight:700;color:var(--mut);font-size:11px"><span>#</span><span>Fix</span><span>Exposure left after it</span><span>Still reachable</span></div>'+
+    b.map((x,i)=>`<div class="wf"><span><b>${i+1}</b></span><span><b>${esc(x.label)}</b> <span class="pill" style="color:var(--ink-2,var(--mut))">${esc(x.type)}</span>${x.kev?'<span class="pill" style="color:var(--crown)">KEV</span>':''}<div class="sub">${esc(x.detail||'')} · ${N(x.assets)} asset(s)</div></span>`+
+      `<span><span class="bar" style="display:inline-block;width:110px;vertical-align:middle"><i style="width:${x.exposure_left_pct}%"></i></span> ${x.exposure_left_pct}%</span><span>${N(x.still_reachable)} of ${N(m.crown_reachable)}</span></div>`).join('')+
+    `<p class="sub" style="margin:6px 0 0">These ${b.length} fixes cut crown-jewel exposure by <b>${m.bundle_exposure_cut_pct}%</b>.${m.bundle_still_reachable?` ${N(m.bundle_still_reachable)} crown jewel(s) stay reachable through other, less likely routes.`:''}</p>`):'<div class="sub">No routes to fix.</div>';
+  hPaginate('fixTbl', f, x=>`<tr><td><b>${esc(x.label)}</b>${x.kev?' <span class="pill" style="color:var(--crown)">KEV</span>':''}<div class="sub">${esc(x.detail||'')}</div></td><td>${esc(x.type)}</td><td>${N(x.assets)}</td><td><span class="lbar"><i style="width:${Math.min(100,x.exposure_cut_pct)}%"></i></span><b>${x.exposure_cut_pct}%</b></td><td>${N(x.paths)}</td><td>${x.cuts?`<b style="color:var(--ok)">${N(x.cuts)}</b>`:'0'}</td>`+
+      `<td><button class="btn ghost sm" data-fx="${esc(x.fix)}" ${(x.uuids||[]).length?'':'disabled'} title="Tag the ${N(x.assets)} asset(s) carrying this">🏷️ Tag</button></td></tr>`,
+    {cols:7, empty:'<tr><td colspan="7" class="sub">No choke points.</td></tr>',
+     wire:tb=>tb.querySelectorAll('button[data-fx]').forEach(bt=>bt.onclick=()=>{ const x=f.find(o=>o.fix===bt.dataset.fx); if(x) tagUuids('Choke Point',x.uuids,bt); })});
+}
+function renderEntries(){
+  const e=R.entries||[]; const reach=e.filter(x=>x.reaches_any);
+  document.getElementById('entCount').textContent=`(${N(reach.length)} of ${N(e.length)} reach a crown jewel)`; setNavCount('secEntry', N(reach.length));
+  document.getElementById('tagEntry').disabled=!reach.length;
+  hPaginate('entTbl', e, x=>`<tr><td><b>${x.uuid?`<a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(x.uuid)}">${esc(x.host)}</a>`:esc(x.host)}</b>${x.public?' <span class="pill" style="color:var(--crown)">public IP</span>':''}<div class="sub">${esc(x.ip||'')} · ACR ${x.acr||'—'}</div></td>`+
+      `<td>${(x.how||[]).map(h=>`<div style="font-size:12px">${x.kev?'':''}${esc(h)}</div>`).join('')}${x.kev?'<span class="pill" style="color:var(--crown)">KEV</span>':''}</td><td>${pct(x.p)}</td>`+
+      `<td><b>${x.searched?N(x.crown_reached):(x.reaches_any?'≥ 1':'0')}</b></td><td class="sub" style="font-size:12px">${esc((x.crown_hosts||[]).join(', '))}${!x.searched&&x.reaches_any?' (not searched individually — large estate)':''}</td></tr>`,
+    {cols:5, empty:'<tr><td colspan="5" class="sub">No host is exploitable without credentials.</td></tr>'});
+}
+function renderControls(){
+  const c=R.controls||[]; const on=c.filter(x=>x.paths);
+  document.getElementById('ctlCount').textContent=`(${N(on.length)} on routes · ${N(c.filter(x=>x.effect==='step').length)} that build steps · ${N(c.length)} failing)`; setNavCount('secCtl', N(on.length));
+  const KN={lateral:'lateral movement',capture:'credential capture',harvest:'credential theft',reach:'reachability',login:'remote login',entry:'initial access',privesc:'privilege escalation',evasion:'evading detection'};
+  hPaginate('ctlTbl', c, x=>`<tr${x.effect==='step'?'':' style="opacity:.6"'}><td><b>${esc(x.label)}</b>${x.effect==='step'?'':'<div class="sub">context only — no step relies on it</div>'}</td><td><span class="pill" style="color:var(--priv)">${esc(KN[x.kind]||x.kind)}</span><div class="sub">${esc(x.why)}</div></td><td>${N(x.assets)} asset(s)</td><td><b>${N(x.paths)}</b></td><td class="sub" style="font-size:11.5px">${esc(x.check)}<br>${esc(x.audit)}</td></tr>`,
+    {cols:5, empty:'<tr><td colspan="5" class="sub">No failed compliance checks match an attack enabler (or no compliance data is synced — navi config update compliance).</td></tr>'});
+}
+function renderCrown(){
+  const prim=(R.paths||[]).filter(p=>p.primary), un=R.unreached||[], m=R.metrics||{};
+  document.getElementById('crownCount').textContent=`(${N(m.crown_reachable)} reachable of ${N(m.crown)})`; setNavCount('secCrown', N(m.crown_reachable)+'/'+N(m.crown));
+  hPaginate('crownTbl', prim, p=>`<tr><td><b><a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(p.target.uuid)}">${esc(p.target.host)}</a></b><div class="sub">${esc(p.target.ip)}</div></td><td><b>${p.target.acr}</b></td><td><span class="lbar"><i style="width:${Math.round(p.likelihood*100)}%"></i></span>${pct(p.likelihood)}</td><td>${p.hops}</td><td>${esc(p.entry.host||'')}</td><td>${esc(p.level)}</td></tr>`,
+    {cols:6, empty:'<tr><td colspan="6" class="sub">No crown jewel is reachable.</td></tr>'});
+  document.getElementById('unreached').innerHTML=un.length?`<b>Not reachable with current data (${N(un.length)}):</b> `+un.slice(0,40).map(a=>esc(a.host)).join(', ')+(un.length>40?' …':''):'';
+}
+function renderCaveats(){
+  const m=R.metrics||{};
+  document.getElementById('caveats').innerHTML=[
+    '<b>Assumed internal breach.</b> The attacker starts with a network position and can reach any service navi saw open. There is no firewall or flow data in navi.db, so reachability is inferred. Hosts with a public IP are flagged as internet-exposed.',
+    '<b>Same account name ≠ same password.</b> navi.db shows which accounts exist, not their passwords or keys. A custom account on several hosts is <i>account reuse</i>: a step with a low likelihood, labelled "password/key reuse not known". It is never treated as password reuse. Local Administrator is treated as shared only where the LAPS control FAILED on both hosts. Built-in, distro and service accounts (root, postgres, ec2-user…) never are.',
+    '<b>Remote exploits need evidence.</b> A finding counts as a network exploit only with explicit code-execution wording, found on a port, rated high/critical or KEV, and not client-side (documents, browsers, ssh-agent). Windows cumulative rollups are never treated as a single exploit, and domain-controller flaws are matched on the plugin name only.',
+    '<b>Domain membership is inferred from the OS.</b> Windows hosts are assumed domain-joined, which makes "domain admin → host" steps possible. Verify for workgroup or isolated systems.',
+    '<b>NTLM relay</b> needs an LLMNR/NBT-NS capture position (control FAILED on that segment) and a target that does not require SMB signing. Cross-segment relay is only drawn toward crown jewels and domain controllers.',
+    '<b>Likelihoods are relative, not probabilities of breach.</b> They come from KEV, EPSS, severity and whether credentials are needed, so routes can be compared and ranked.',
+    `<b>Coverage.</b> ${N(m.uncredentialed)} host(s) were scanned without credentials, so their local vulnerabilities, accounts and compliance results are missing and real routes may be longer than shown. Large estates search the ${N(m.entries_searched)} strongest of ${N(m.entry_states)} ways in for alternatives (every crown jewel still gets its single best route).`,
+    'Read-only analysis of existing findings — nothing here touches a host. Only the Tag Removal hound removes tags.'
+  ].map(x=>'<li>'+x+'</li>').join('');
+}
+function render(){ if(!R) return; renderMetrics(); renderTargets(); renderLegend(); renderMap(); renderPaths(); renderFix(); renderEntries(); renderControls(); renderCrown(); renderCaveats(); }
+
+/* ------------------------------------------------------------------ gated writes */
+async function gated(btn,label,call,okMsg,ask){   /* ask: plain-text question naming the exact tag + count */
+  if(btn&&btn.disabled) return null;
+  await testRunStatus();
+  if(!confirm((typeof ask==='function'?ask():ask)+(WRITES?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.'))) return null;
+  if(btn&&btn.disabled) return null;
+  const fb=document.getElementById('flash'); const scroll=()=>{ if(fb) fb.scrollIntoView({behavior:'smooth',block:'center'}); };
+  if(btn){ btn.dataset.label=btn.dataset.label||btn.textContent; btn.disabled=true; btn.textContent='⏳'; }
+  flash('flash','<span class="spin"></span> '+label+'…','run'); scroll();
+  let o; try{ o=await call(); }catch(e){ o={ok:false,error:e.message}; }
+  if(btn){ btn.disabled=false; btn.textContent=btn.dataset.label; }
+  if(!o||!o.ok){ flash('flash','✗ '+esc((o&&(o.error||(o.result&&o.result.message)))||'failed'),'crit'); scroll(); return o; }
+  flash('flash','✓ '+okMsg(o)+' — sent to the <a href="/web/tags-log.html">Tagging log</a>.'+(o.writes_enabled===false?' Writes are gated, so nothing reaches Tenable until NAVI_ALLOW_WRITES=1.':' Tags take ~30 min to land in Tenable.'),'ok'); scroll();
+  return o;
+}
+function tagUuids(value,uuids,btn){
+  const uu=[...new Set((uuids||[]).filter(Boolean))]; if(!uu.length){ flash('flash','Nothing to tag.','warn'); return; }
+  return gated(btn,'queuing Attack Path : '+esc(value),()=>API.post('tag',{value,uuids:uu,confirm:true}),o=>`queued <span class="tagval">Attack Path : ${esc(value)}</span> on ${N(o.count)} asset(s)`,
+    ()=>`Tag ${tagCat('Attack Path')} : ${value} on ${uu.length} asset${uu.length===1?'':'s'}?`);
+}
+document.getElementById('tagTargets').onclick=function(){ tagUuids('Target',R.reachable||(R.paths||[]).map(p=>p.target.uuid),this); };
+document.getElementById('tagPivots').onclick=function(){
+  const piv=new Set();
+  (R.paths||[]).forEach(p=>p.steps.slice(0,-1).forEach(s=>{ const u=s.to.split(':')[0];
+    if(/^[0-9a-f-]{20,}$/i.test(u)&&u!==p.target.uuid&&u!==p.entry.uuid) piv.add(u); }));
+  tagUuids('Pivot',[...piv],this); };
+document.getElementById('tagEntry').onclick=function(){ tagUuids('Entry Point',(R.entries||[]).filter(e=>e.reaches_any).map(e=>e.uuid),this); };
+document.getElementById('csv').onclick=()=>{ const rows=shownPaths(); downloadCSV('attack-paths.csv',
+  ['risk','likelihood','crown_jewel','acr','level','hops','entry','route','techniques','kev','credential','relay','domain','control'],
+  rows.map(p=>({risk:p.risk,likelihood:p.likelihood,crown_jewel:p.target.host,acr:p.target.acr,level:p.level,hops:p.hops,entry:p.entry.host||'',
+    route:p.steps.map(s=>(KIND[s.kind]||[s.kind])[0]+': '+s.to_host).join(' > '),techniques:[...new Set(p.steps.map(s=>s.tech))].join(' '),
+    kev:p.uses.kev?'yes':'',credential:p.uses.cred?'yes':'',relay:p.uses.relay?'yes':'',domain:p.uses.domain?'yes':'',control:p.uses.control?'yes':''}))); };
+document.querySelectorAll('#scope button').forEach(b=>b.onclick=()=>{ SCOPE=b.dataset.s; hPageReset('pathTbl'); renderPaths(); });
+document.getElementById('mapTarget').onchange=()=>{ HL=null; SEL=null; document.getElementById('mapInfo').style.display='none'; VB.x=0;VB.y=0;VB.k=1; renderMap(); };
+document.getElementById('mapBest').onchange=()=>{ HL=null; SEL=null; renderMap(); };
 document.getElementById('run').onclick=run;
-document.getElementById('csv').onclick=exportCsv;
-document.getElementById('tagEntry').onclick=function(){tagBulk('tag_entry','exploitable / weak-auth entry point(s)',this);};
-document.getElementById('tagTarget').onclick=function(){tagBulk('tag_target','reachable crown-jewel target(s)',this);};
-mountAgentHeader({icon:'🕸️',name:'Attack Path Analysis',sub:'Fenrir · foothold → lateral → crown jewel'});
+mountAgentHeader({id:'attackpath',icon:'🕸️',name:'Attack Path Analysis',sub:'Fenrir · exploit chains · credentials · relay · compliance enablers'});
+mountSectionNav();
 try{ hMailAuto(); }catch(e){}
+jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});
+/* no auto-run — user clicks ▶ Run */
 </script>
 </body></html>

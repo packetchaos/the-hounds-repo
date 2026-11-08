@@ -27,6 +27,19 @@
 .gatebar{background:var(--panel-2);border:1px solid var(--line);border-left:3px solid var(--cx-e7c66b);border-radius:8px;padding:9px 12px;font-size:12.5px;color:var(--ink-2);margin:2px 0 12px}
 .tagdone{color:var(--ok);font-size:12px;font-weight:600;white-space:nowrap}
 .tres{font-size:12px;margin-left:auto;text-align:right}
+/* metric cards + widget links into Web App Recon (Beagle) */
+.mkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:10px}
+.mk{display:block;border:1px solid var(--line);border-left:4px solid var(--rc,var(--line));border-radius:12px;padding:10px 12px;background:var(--panel-2);color:inherit;text-decoration:none}
+.mk .v{font-size:22px;font-weight:800;color:var(--ink);line-height:1.1}.mk .l{font-size:11.5px;color:var(--mut);margin-top:2px}
+.mk .u{font-size:11px;color:var(--accent);margin-top:4px}
+a.mk:hover{border-color:var(--accent)} .mk.zero{opacity:.55}
+.mhead{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 0}
+a.barlink{display:block;color:inherit;text-decoration:none;border-radius:7px;padding:0 4px;margin:0 -4px}
+a.barlink:hover{background:var(--panel-2)} a.barlink:hover .bl{color:var(--accent)}
+.barrow{grid-template-columns:200px 1fr 150px}
+a.tchip{text-decoration:none;cursor:pointer} a.tchip:hover{border-color:var(--accent);color:var(--ink)}
+.rlink{font-size:11.5px;color:var(--accent);text-decoration:none;white-space:nowrap}.rlink:hover{text-decoration:underline}
+.covl{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px}
 </style>
 </head><body>
 <div class="wrap">
@@ -36,11 +49,11 @@
       <p class="sub" style="margin:2px 0 0">Every web app navi has scanned, consolidated: severity, the OWASP Top-10 profile, technology inventory, and scan coverage. Click an app for its full <b>App Report</b>.</p></div>
       <span style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <a class="btn ghost sm" href="/agents/was/report.html" title="Per-app deep-dive">🔬 App Report →</a>
-        <button class="btn run sm" id="refresh">↻ Refresh</button>
+        <button class="btn run sm" id="refresh" data-run>▶ Run</button>
         <button class="btn sm" id="emailBtn" title="Email this dashboard (gated)">📧 Email</button></span></div>
     <div id="emailForm" style="display:none;margin-top:8px;gap:6px;align-items:center;flex-wrap:wrap">
       <input id="emailTo" class="fld" style="min-width:240px;padding:8px 10px" placeholder="recipient email">
-      <button class="btn run sm" id="emailSend">▶ Send (gated)</button>
+      <button class="btn run sm" id="emailSend">📧 Send (gated)</button>
       <button class="btn ghost sm" id="emailCancel">cancel</button><span id="emailRes" class="sub"></span></div>
     <div id="flash" class="flash"></div>
   </section>
@@ -56,6 +69,8 @@ const fnum=n=>(n==null?'—':Number(n).toLocaleString());
 function ageDays(iso){ if(!iso)return null; const t=Date.parse(iso); if(isNaN(t))return null; return Math.max(0,Math.round((Date.now()-t)/86400000)); }
 function bar(label,val,max,color,right){ const w=Math.max(2,Math.round((val/(max||1))*100));
   return `<div class="barrow"><div class="bl" title="${esc(label)}">${esc(label)}</div><div class="track"><div class="bar" style="width:${w}%;background:${color}"></div></div><div class="bv">${right!=null?right:fnum(val)}</div></div>`; }
+/* link into Web App Recon (Beagle) for a cohort and/or one app — see wasReconHref in console.js */
+function reconFor(f,app){ return wasReconHref(f,(OV&&OV.coverage&&OV.coverage.stale_days)||30,app); }
 function kpi(v,l,sub){ return `<div class="k"><div class="v">${v}</div><div class="l">${esc(l)}${sub?' · '+esc(sub):''}</div></div>`; }
 
 async function run(){
@@ -78,75 +93,92 @@ function render(){
       <a class="btn run sm" href="/web/settings.html" style="margin-top:8px;display:inline-block">Open Settings →</a></div></section>`;
     return;
   }
-  const sv=OV.severity||{}, cov=OV.coverage||{};
+  const sv=OV.severity||{}, cov=OV.coverage||{}, rows=OV.apps_rows||[], SD=cov.stale_days||30;
+  const nApps=f=>rows.filter(a=>wasAppMatch(a,f,SD)).length;
+  const appsTxt=n=>n+' app'+(n===1?'':'s');
+  // a metric card that opens the matching apps in Web App Recon (Beagle)
+  const mk=(v,l,f,c,t)=>{ const n=f?nApps(f):rows.length;
+    return `<a class="mk${n?'':' zero'}" href="${esc(reconFor(f))}" style="--rc:${c||'var(--line)'}" title="${esc(t||('Open '+appsTxt(n)+' in Web App Recon'))}"><div class="v">${v}</div><div class="l">${esc(l)}</div><div class="u">🐾 ${appsTxt(n)} in Recon →</div></a>`; };
   let h='';
-  h+='<section class="card"><div class="kpi">'
-    +kpi(fnum(OV.apps),'Web apps scanned')
-    +kpi(fnum(OV.assets),'Assets','with a WAS scan')
-    +kpi(fnum(sv.critical),'Critical','findings')
-    +kpi(fnum(sv.high),'High','findings')
-    +kpi(fnum(OV.total_findings),'Total findings')
-    +kpi(fnum(OV.apps_with_crit),'Apps with criticals')
-    +kpi(fnum(OV.clean_apps),'Clean apps','no crit/high/med/low')
-    +kpi(fnum(cov.stale),'Stale scans','>'+cov.stale_days+'d old')
+  h+='<section class="card" id="secMetrics" data-nav="At a glance" data-nav-icon="📊"><h2 style="margin:0 0 2px;font-size:17px">📊 At a glance</h2>'
+    +'<p class="sub" style="margin:2px 0 0">Every card, bar and chip below opens the matching apps in <b>🐾 Web App Recon</b> — the app list there is narrowed to that group.</p>'
+    +'<div class="mhead">Apps</div><div class="mkpi">'
+    +mk(fnum(OV.apps),'web apps scanned','', 'var(--accent)')
+    +mk(fnum(OV.assets),'Tenable assets','asset','var(--accent)','Apps linked to a Tenable asset (taggable)')
+    +mk(fnum(OV.apps_with_crit),'apps with criticals','sev:critical','var(--crit)')
+    +mk(fnum(OV.apps_with_high),'apps with highs','sev:high','var(--high)')
+    +mk(fnum(OV.clean_apps),'clean apps','clean','var(--ok)','No critical, high, medium or low findings')
+    +'</div><div class="mhead">Findings</div><div class="mkpi">'
+    +mk(fnum(sv.critical),'critical findings','sev:critical','var(--crit)')
+    +mk(fnum(sv.high),'high findings','sev:high','var(--high)')
+    +mk(fnum(sv.medium),'medium findings','sev:medium','var(--med)')
+    +mk(fnum(OV.total_findings),'total findings','','var(--line)')
+    +'</div><div class="mhead">Scan coverage</div><div class="mkpi">'
+    +mk(fnum(cov.scanned_recent),'fresh scans','scan:fresh','var(--ok)','Scanned within '+SD+' days')
+    +mk(fnum(cov.stale),'stale scans','scan:stale','var(--cx-e7c66b)','Not scanned within '+SD+' days')
+    +mk(fnum(cov.total_pages),'pages crawled','','var(--line)')
     +'</div></section>';
 
   // ---- bulk tagging tool (top: under the numbers, above findings) ----
   h+=tagCardHTML();
 
-  // severity distribution
+  // severity distribution — each bar opens the apps with that severity in Recon
   const smax=Math.max(1,...SEV.map(([k])=>sv[k]||0));
-  h+='<section class="card"><h3 style="margin:0 0 2px">Findings by severity</h3><p class="seclbl">summed across all apps</p>';
-  SEV.forEach(([k,lbl,c])=>{ h+=bar(lbl,sv[k]||0,smax,c,fnum(sv[k]||0)); });
+  h+='<section class="card" id="secSev" data-nav="Severity" data-nav-icon="🚦"><h2 style="margin:0 0 2px;font-size:17px">🚦 Findings by severity</h2><p class="seclbl">summed across all apps · click a bar to open those apps in Recon</p>';
+  SEV.forEach(([k,lbl,c])=>{ const f='sev:'+k, n=nApps(f);
+    h+=`<a class="barlink" href="${esc(reconFor(f))}" title="Open ${appsTxt(n)} with ${lbl.toLowerCase()} findings in Web App Recon">`+bar(lbl,sv[k]||0,smax,c,fnum(sv[k]||0)+' · '+appsTxt(n))+'</a>'; });
   h+='</section>';
 
   // OWASP Top-10
   const ow=OV.owasp||[]; const omax=Math.max(1,...ow.map(o=>o.count||0));
-  h+='<section class="card"><h3 style="margin:0 0 2px">OWASP Top-10 profile</h3><p class="seclbl">category counts summed across apps</p>';
-  ow.forEach(o=>{ h+=bar(o.code+' · '+o.label, o.count, omax, 'var(--accent)', fnum(o.count)); });
+  h+='<section class="card" id="secOwasp" data-nav="OWASP Top-10" data-nav-icon="🛡"><h2 style="margin:0 0 2px;font-size:17px">🛡 OWASP Top-10 profile</h2><p class="seclbl">category counts summed across apps · click a category to open those apps in Recon</p>';
+  ow.forEach(o=>{ const f='owasp:'+o.code, n=nApps(f), line=bar(o.code+' · '+o.label, o.count, omax, 'var(--accent)', fnum(o.count)+' · '+appsTxt(n));
+    h+=n?`<a class="barlink" href="${esc(reconFor(f))}" title="Open ${appsTxt(n)} with ${esc(o.code)} findings in Web App Recon">${line}</a>`:line; });
   h+='</section>';
 
   // technology inventory + scan coverage (two cards side by side via grid)
   h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px">';
   const tech=OV.tech||[];
-  h+='<section class="card" style="margin:0"><h3 style="margin:0 0 2px">Technology inventory</h3><p class="seclbl">apps per detected technology</p>'
-    +(tech.length?'<div class="chips">'+tech.map(t=>`<span class="tchip">${esc(t.tech)}<b>${t.apps}</b></span>`).join('')+'</div>':'<p class="sub">No technologies detected in the scanned apps.</p>')+'</section>';
-  h+='<section class="card" style="margin:0"><h3 style="margin:0 0 2px">Scan coverage</h3><p class="seclbl">crawl depth &amp; recency</p>'
-    +'<div class="kpi">'+kpi(fnum(cov.total_pages),'Pages crawled','total')+kpi(fnum(cov.total_requests),'Requests','total')
-    +kpi(fnum(cov.scanned_recent),'Fresh','≤'+cov.stale_days+'d')+kpi(fnum(cov.stale),'Stale','>'+cov.stale_days+'d')+'</div>'
+  h+='<section class="card" id="secTech" data-nav="Technology" data-nav-icon="🧩" style="margin:0"><h2 style="margin:0 0 2px;font-size:17px">🧩 Technology inventory</h2><p class="seclbl">apps per detected technology · click to open them in Recon</p>'
+    +(tech.length?'<div class="chips">'+tech.map(t=>`<a class="tchip" href="${esc(reconFor('tech:'+t.tech))}" title="Open the ${t.apps} app(s) running ${esc(t.tech)} in Web App Recon">${esc(t.tech)}<b>${t.apps}</b></a>`).join('')+'</div>':'<p class="sub">No technologies detected in the scanned apps.</p>')+'</section>';
+  h+='<section class="card" id="secCov" data-nav="Scan coverage" data-nav-icon="📡" style="margin:0"><h2 style="margin:0 0 2px;font-size:17px">📡 Scan coverage</h2><p class="seclbl">crawl depth &amp; recency</p>'
+    +'<div class="covl">'+mk(fnum(cov.scanned_recent),'fresh ≤ '+SD+'d','scan:fresh','var(--ok)')+mk(fnum(cov.stale),'stale > '+SD+'d','scan:stale','var(--cx-e7c66b)')
+    +mk(fnum(cov.total_pages),'pages crawled','','var(--line)')+mk(fnum(cov.total_requests),'requests','','var(--line)')+'</div>'
     +'<p class="sub" style="margin:8px 0 0">Newest scan '+(cov.newest?esc(String(cov.newest).slice(0,10)):'—')+' · oldest '+(cov.oldest?esc(String(cov.oldest).slice(0,10)):'—')+'</p></section>';
   h+='</div>';
 
   // per-app table
-  const rows=OV.apps_rows||[];
-  h+='<section class="card" style="margin-top:16px"><div class="toolbar"><h3 style="margin:0">Apps by risk</h3><span class="chip" style="margin-left:auto">'+rows.length+' app'+(rows.length===1?'':'s')+'</span></div>'
+  h+='<section class="card" id="secApps" data-nav="Apps by risk" data-nav-icon="🗂" style="margin-top:16px"><div class="toolbar"><h2 style="margin:0;font-size:17px">🗂 Apps by risk</h2><span class="chip" style="margin-left:auto">'+rows.length+' app'+(rows.length===1?'':'s')+'</span></div>'
     +'<div style="overflow-x:auto"><table class="nocsv"><thead><tr><th>App</th><th>Target</th><th>Crit</th><th>High</th><th>Med</th><th>Low</th><th>Info</th><th>Findings</th><th>Pages</th><th>Last scan</th><th>Recon</th></tr></thead><tbody>'
-    +rows.map(a=>{ const age=ageDays(a.scan_completed_time); const stale=age!=null&&age>cov.stale_days;
+    +rows.map(a=>{ const age=ageDays(a.scan_completed_time); const stale=age==null||age>SD;
       const href='/agents/was/report.html?app='+encodeURIComponent(a.uuid||'');
-      const aHref='/agents/was_asset/page.html?app='+encodeURIComponent(a.uuid||'');
+      const aHref=reconFor('',a.uuid);
       const techTip=(a.tech&&a.tech.length)?('tech: '+a.tech.join(', ')):'no technologies detected';
-      return `<tr><td title="${esc(techTip)}"><a class="applink" href="${href}" title="Open the App Report">${esc(a.name)}</a></td>`
+      return `<tr><td title="${esc(techTip)}"><a class="applink" href="${esc(href)}" title="Open the App Report">${esc(a.name)}</a></td>`
         +`<td title="${esc(a.target)}" style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(String(a.target||'').replace(/^https?:\/\//,''))}</td>`
-        +`<td class="mono"${a.critical?' style="color:var(--crit);font-weight:700"':''}>${a.critical}</td>`
-        +`<td class="mono"${a.high?' style="color:var(--high)"':''}>${a.high}</td><td class="mono">${a.medium}</td><td class="mono">${a.low}</td><td class="mono">${a.info}</td>`
+        +`<td class="mono"${a.critical?' style="color:var(--crit);font-weight:700"':''}>${fnum(a.critical)}</td>`
+        +`<td class="mono"${a.high?' style="color:var(--high)"':''}>${fnum(a.high)}</td><td class="mono">${fnum(a.medium)}</td><td class="mono">${fnum(a.low)}</td><td class="mono">${fnum(a.info)}</td>`
         +`<td class="mono">${fnum(a.findings_total)}</td><td class="mono">${fnum(a.pages_crawled)}</td>`
         +`<td class="mono"${stale?' style="color:var(--cx-e7c66b)"':''}>${age==null?'—':age+'d'}</td>`
-        +`<td><a class="applink" href="${aHref}" title="Beagle — web-app recon (sitemap, target, screenshot, plugin output)">🐾 recon</a></td></tr>`;
+        +`<td><a class="applink" href="${esc(aHref)}" title="Beagle — web-app recon (sitemap, target, screenshot, plugin output)">🐾 recon</a></td></tr>`;
     }).join('')+'</tbody></table></div></section>';
 
   B.innerHTML=h;
   wireTagCard();
+  mountSectionNav();
+  setNavCount('secApps', (OV.apps_rows||[]).length);
 }
 
 /* ---- bulk tagging (tag web-app assets by OWASP / severity / technology) ---- */
 const TAGDIMS=[['owasp','OWASP'],['severity','Severity'],['technology','Technology']];
+const TAGF={owasp:'owasp',severity:'sev',technology:'tech'};   // tag dimension → Recon cohort kind
 function tagCardHTML(){
   if(!TAGS){ return ''; }
   const gate=(TAGW&&TAGW.reason)?('<div class="gatebar">🔒 Writes are gated — tags won\'t apply until fixed: '+esc(TAGW.reason)+'</div>'):'';
   const counts={owasp:(TAGS.owasp||[]).length,severity:(TAGS.severity||[]).length,technology:(TAGS.technology||[]).length};
   const seg='<div class="tseg" id="tseg">'+TAGDIMS.map(([k,l])=>`<button data-dim="${k}"${k===TAGDIM?' class="on"':''}>${l} <b>${counts[k]||0}</b></button>`).join('')+'</div>';
   const untag=TAGS.untaggable_apps?(' · <span class="sub">'+TAGS.untaggable_apps+' app(s) have no asset UUID and can\'t be tagged</span>'):'';
-  return '<section class="card" id="tagcard" style="margin-top:16px"><div class="toolbar"><div><h3 style="margin:0">🏷️ Tag web apps</h3>'
+  return '<section class="card" id="tagcard" data-nav="Tag web apps" data-nav-icon="🏷️" style="margin-top:16px"><div class="toolbar"><div><h2 style="margin:0;font-size:17px">🏷️ Tag web apps</h2>'
     +'<p class="sub" style="margin:2px 0 0">Apply a Tenable asset tag to every web app that matches — on its asset UUID, exactly like a VM asset (via navi, gated). Pick a dimension, then tag a cohort.</p></div></div>'
     +gate+seg+'<div id="taglist" style="margin-top:10px"></div>'
     +'<p class="sub" style="margin:10px 0 0">'+TAGS.taggable_apps+' of '+TAGS.apps+' apps are taggable'+untag+' · applied tags land in the <a class="applink" href="/web/tags-log.html">Tagging log</a>.</p></section>';
@@ -160,7 +192,8 @@ function tagRows(dim){
     const right=c.applied?'<span class="tagdone">✓ tag exists</span>'
       :`<button class="btn sm tagbtn" data-dim="${dim}" data-key="${esc(String(c.key))}"${dis?' disabled title="no taggable asset UUID"':''}>🏷️ Tag ${c.taggable}</button>`;
     return `<div class="tagrow"><div class="tl"><b>${esc(c.label||c.value)}</b> <span class="sub">${esc(meta)}</span></div>`
-      +`<span class="tagcat">→ ${esc(c.category)} : ${esc(c.value)}</span>${right}</div>`;
+      +`<span class="tagcat">→ ${esc(c.category)} : ${esc(c.value)}</span>`
+      +`<a class="rlink" href="${esc(reconFor(TAGF[dim]+':'+c.key))}" title="Open these apps in Web App Recon">🐾 recon</a>${right}</div>`;
   }).join('');
 }
 function wireTagCard(){
@@ -177,14 +210,19 @@ async function applyTag(btn){
   const row=btn.closest('.tagrow');
   let res=row.querySelector('.tres'); if(!res){ res=document.createElement('span'); res.className='tres'; row.appendChild(res); }
   if(TAGW&&TAGW.reason){ res.innerHTML='<span style="color:var(--cx-e7c66b)">🔒 '+esc(TAGW.reason)+'</span>'; return; }
-  btn.disabled=true; btn.textContent='⏳ tagging…'; res.innerHTML='';
+  if(btn.disabled) return;
+  await testRunStatus();
+  const c=((TAGS&&TAGS[dim])||[]).find(x=>String(x.key)===key)||{}, n=c.taggable||0;
+  if(!confirm('Tag '+tagCat(c.category||'')+' : '+(c.value!=null?c.value:key)+' on '+n+' web-app asset'+(n===1?'':'s')+' ('+(c.label||c.value||key)+')?'
+    +((TAGW&&TAGW.enabled)?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.'))) return;
+  btn.dataset.label=btn.dataset.label||btn.textContent; btn.disabled=true; btn.textContent='⏳ tagging…'; res.innerHTML='';
   let o; try{ o=await API.post('tag',{confirm:true,dimension:dim,key:key}); }catch(e){ o={ok:false,error:e.message}; }
   if(o&&o.ok&&o.queued){
     res.innerHTML='<span style="color:var(--ok)">✓ queued — '+o.asset_count+' asset(s) · '+esc(o.value)+(o.write_gate_reason?'':' · track in Tagging log')+'</span>';
     btn.textContent='✓ queued';
     if(o.write_gate_reason) res.innerHTML='<span style="color:var(--cx-e7c66b)">queued but gated — '+esc(o.write_gate_reason)+'</span>';
-  } else if(o&&o.blocked){ res.innerHTML='<span style="color:var(--cx-e7c66b)">🔒 '+esc(o.message||o.write_gate_reason||'writes disabled')+'</span>'; btn.disabled=false; btn.textContent='🏷️ Tag '+key;
-  } else { res.innerHTML='<span style="color:var(--crit)">✗ '+esc((o&&(o.error||o.message))||'failed')+'</span>'; btn.disabled=false; btn.textContent='🏷️ retry'; }
+  } else if(o&&o.blocked){ res.innerHTML='<span style="color:var(--cx-e7c66b)">🔒 '+esc(o.message||o.write_gate_reason||'writes disabled')+'</span>'; btn.disabled=false; btn.textContent=btn.dataset.label;
+  } else { res.innerHTML='<span style="color:var(--crit)">✗ '+esc((o&&(o.error||o.message))||'failed')+'</span>'; btn.disabled=false; btn.textContent='🏷️ Tag again'; }
 }
 
 /* ---- email (reuse Gabriel's email-safe dashboard renderer) ---- */
@@ -207,6 +245,8 @@ async function sendEmail(){
   const to=(document.getElementById('emailTo').value||'').trim(), res=document.getElementById('emailRes');
   if(!to){ res.innerHTML='<span style="color:var(--crit)">enter a recipient</span>'; return; }
   if(!OV||!OV.available){ res.innerHTML='<span style="color:var(--crit)">no data to send</span>'; return; }
+  if(!confirm('Email the WAS Overview (4 components) to '+to+'? This is a real send.'
+    +((TAGW&&TAGW.enabled)?'':'\n\nEmail is gated (NAVI_ALLOW_WRITES / NAVI_EMAIL not set) — the send will be refused.'))) return;
   res.innerHTML='<span class="spin"></span> sending…';
   let o; try{ o=await EMAIL.post('dashboard',{to,title:'WAS Overview — Arachne',subject:'[Tenable] WAS Overview (Arachne)',components:emailComponents(),confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
   if(o&&o.ok) res.innerHTML='<span style="color:var(--ok)">✓ sent to '+esc(to)+'</span>';
@@ -218,6 +258,7 @@ document.getElementById('emailTo').addEventListener('keydown',e=>{ if(e.key==='E
 document.getElementById('refresh').onclick=run;
 mountAgentHeader({id:'was',icon:'🕸',name:'WAS Overview',sub:'Arachne · web-app scanning, consolidated'});
 try{ hMailAuto({noDash:true}); }catch(e){}
-run();
+/* explicit-run like every hound — returning visits are restored by the shared page cache */
+document.getElementById('body').innerHTML='<section class="card"><div class="setupcard"><div class="big">Press ▶ Run</div><p class="sub">Summarises Tenable WAS findings in navi.db — apps, severities, OWASP categories and taggable assets. Your last run is kept on the server, so coming back restores it instantly (and 🐾 Release the Hounds can run it for you).</p></div></section>';
 </script>
 </body></html>

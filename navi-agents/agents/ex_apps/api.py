@@ -46,6 +46,10 @@ def search(p):
         return {"ok": True, "result": {"missing": True, "rows": [], "kpi": {}}}, 200
     where, args = _where(p)
     off = max(0, int(p.get("offset") or 0))
+    try:
+        _n = max(1, min(_PAGE, int(p.get("limit") or _PAGE)))   # UI asks 10–50
+    except (TypeError, ValueError):
+        _n = _PAGE
     kpi = db.query(
         "SELECT COUNT(*) AS total,"
         " SUM(CASE WHEN CAST(critical_count AS INT)>0 THEN 1 ELSE 0 END) AS with_crit,"
@@ -59,17 +63,17 @@ def search(p):
     raw = db.query(
         "SELECT %s FROM apps%s ORDER BY CAST(critical_count AS INT) DESC,"
         " CAST(high_count AS INT) DESC LIMIT ? OFFSET ?" % (was._APP_COLS, where),
-        args + (_PAGE + 1, off))
+        args + (_n + 1, off))
     rows = [was._row_view(r) for r in raw]
-    has_next = len(rows) > _PAGE
-    for a in rows[:_PAGE]:
+    has_next = len(rows) > _n
+    for a in rows[:_n]:
         ow = a.get("owasp") or {}
         top = max(ow.items(), key=lambda kv: kv[1]) if ow else None
         a["top_owasp"] = (top[0] + " " + was.OWASP_LABELS.get(top[0], top[0])) if (top and top[1] > 0) else ""
         a["tech_count"] = len(a.get("tech") or [])
         a["tech_str"] = ", ".join((a.get("tech") or [])[:6])
-    return {"ok": True, "result": {"rows": rows[:_PAGE], "kpi": k, "offset": off,
-            "page": off // _PAGE + 1, "has_next": has_next, "count": min(len(rows), _PAGE)}}, 200
+    return {"ok": True, "result": {"rows": rows[:_n], "kpi": k, "offset": off,
+            "page": off // _n + 1, "has_next": has_next, "count": min(len(rows), _n)}}, 200
 
 
 ACTIONS = {"search": search}

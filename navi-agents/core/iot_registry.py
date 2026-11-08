@@ -7,6 +7,7 @@ are remembered so they are not re-proposed.
 """
 import json
 import os
+from core.security import private_open as _popen
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_PATH = os.path.join(os.path.dirname(HERE), "data", "iot_detections.json")
@@ -29,8 +30,8 @@ def load() -> dict:
 
 def save(data: dict) -> None:
     p = registry_path()
-    os.makedirs(os.path.dirname(p), exist_ok=True)
-    with open(p, "w", encoding="utf-8") as f:
+    os.makedirs(os.path.dirname(p), mode=0o700, exist_ok=True)
+    with _popen(p, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
 
 
@@ -145,8 +146,8 @@ def export_base(proposals: list[dict], merge: bool = False) -> dict:
            "replace iot_detections.json with this file to adopt it.",
            "detections": list(base.values()), "rejected": []}
     path = os.path.join(os.path.dirname(registry_path()), "iot_detections.learned.json")
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
+    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+    with _popen(path, "w", encoding="utf-8") as f:
         json.dump(out, f, indent=2)
     return {"path": path, "detections": len(out["detections"]),
             "merged_seeds": bool(merge)}

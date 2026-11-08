@@ -8,6 +8,7 @@
                     contract removes them first, pauses, runs navi update, then re-tags).
 """
 from core import navi_cli
+from core.gates import confirmed
 
 AGENT = None
 
@@ -25,7 +26,7 @@ def run(p):
 
 
 def remove(p):
-    if not p.get("confirm"):
+    if not confirmed(p):
         return {"ok": False, "error": "confirm=true required to remove tags"}, 400
     tags = p.get("tags") or []
     if not tags:

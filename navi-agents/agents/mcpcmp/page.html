@@ -4,14 +4,14 @@
 <title>MCP Compare · Navi Agents</title>
 <link rel="stylesheet" href="/static/console.css"/>
 <style>.card{overflow-x:auto}</style>
-</head><body>
+</head><body data-page-cache="off">
 <div class="wrap">
   <header class="top" id="app-header"></header>
 
   <section class="card">
     <div class="toolbar"><div><h2 style="margin:0">⚖ Tenable MCP vs navi MCP</h2>
       <p class="sub" style="margin:2px 0 0">Two tools, one platform. What each surface is for, where they overlap, the limits that force a handoff — plus a navi-side snapshot.</p></div>
-      <button class="btn run sm" id="snap" style="margin-left:auto">▶ navi snapshot</button></div>
+      <button id="snap" style="margin-left:auto" class="btn ghost sm" title="Re-fetch the list (it loads automatically when the page opens)">↻ Reload</button></div>
     <div id="flash" class="flash"></div>
     <div class="kpi" id="kpi"></div>
     <div id="ident"></div>
@@ -66,7 +66,7 @@ function renderMatrix(){
 async function snap(){ document.getElementById('snap').disabled=true; flash('flash','<span class="spin"></span> reading navi snapshot…','run');
   let o; try{ o=await API.post('snapshot'); }catch(e){ o={ok:false,error:e.message}; }
   document.getElementById('snap').disabled=false;
-  if(!o||!o.ok){ flash('flash','✗ '+((o&&o.error)||'failed'),'crit'); return; }
+  if(!o||!o.ok){ flash('flash','✗ '+esc((o&&o.error)||'failed'),'crit'); return; }
   const r=o.result||{}; flashClear('flash');
   let freshTxt='unknown', col='var(--ink-2)';
   if(r.db_fresh){ const d=new Date(r.db_fresh); if(!isNaN(d)){ const days=Math.floor((Date.now()-d.getTime())/86400000); freshTxt=String(r.db_fresh).slice(0,10)+(days>=0?(' ('+days+'d)'):''); col=days<=1?'var(--ok,var(--ok))':(days<=7?'var(--warn,var(--cx-e7c66b))':'var(--crit)'); } }
@@ -81,5 +81,6 @@ document.getElementById('snap').onclick=snap;
 mountAgentHeader({icon:'⚖',name:'MCP Compare',sub:'Tenable MCP vs navi MCP'});
 try{ hMailAuto(); }catch(e){}
 renderMatrix();
+snap();   // the navi-side snapshot loads on open
 </script>
 </body></html>

@@ -35,7 +35,7 @@
 <script src="/static/console.js"></script>
 <script>
 function crestHtml(id,name,page){
-  const img='<img class="crest" src="/static/crests/'+id+'.png?v=2" alt="'+esc(name)+'" onerror="this.outerHTML=\'<div class=&quot;crestph&quot;>🐾</div>\'">';
+  const img='<img class="crest" src="'+esc(crestSrc(id))+'?v=2" alt="'+esc(name)+'" data-fb="ph">';
   return page?('<a href="'+page+'">'+img+'</a>'):img;
 }
 function card(a){
@@ -57,11 +57,11 @@ async function askAgent(){
   out.innerHTML='<div class="callbox"><span class="spin"></span> matching your task to the right Hound…</div>';
   let o; try{ o=await jpost('/api/explore/which_agent',{prompt,agents:AGENTS.map(withCode)}); }catch(e){ o={ok:false,message:e.message}; }
   if(!o||!o.ok){ out.innerHTML='<div class="callbox" style="color:var(--crit)">✗ '+esc((o&&(o.message||o.error))||'failed')+'</div>'; return; }
-  const picks=o.picks||[]; if(!picks.length){ out.innerHTML='<div class="callbox">No clear match — try describing the task differently.</div>'; return; }
+  const byId0={}; AGENTS.forEach(a=>byId0[a.id]=a); const picks=(Array.isArray(o.picks)?o.picks:[]).filter(p=>p&&typeof p.id==='string'&&byId0[p.id]); if(!picks.length){ out.innerHTML='<div class="callbox">No clear match — try describing the task differently.</div>'; return; }
   const byId={}; AGENTS.forEach(a=>byId[a.id]=a);
   out.innerHTML='<div class="callbox"><b>Recommended Hounds</b>'+picks.map(p=>{ const a=byId[p.id]||{}; const cn=(typeof CODENAMES!=='undefined'&&CODENAMES[p.id]); const nm=(cn&&cn.name)||a.name||p.id;
-    const img='<img src="/static/crests/'+p.id+'.png?v=2" style="width:34px;height:34px;border-radius:8px;object-fit:cover;vertical-align:middle;margin-right:8px" onerror="this.replaceWith(document.createTextNode(\'🐾 \'))">';
-    const open=(a.deployed&&a.page)?(' <a class="btn ghost sm" href="'+a.page+'" style="margin-left:6px">Open →</a>'):'';
+    const img='<img src="'+esc(crestSrc(p.id))+'?v=2" style="width:34px;height:34px;border-radius:8px;object-fit:cover;vertical-align:middle;margin-right:8px" data-fb="🐾 ">';
+    const open=(a.deployed&&a.page)?(' <a class="btn ghost sm" href="'+esc(safeHref(a.page))+'" style="margin-left:6px">Open →</a>'):'';
     return '<div style="display:flex;align-items:center;gap:6px;margin-top:8px">'+img+'<div style="flex:1"><b>'+esc(nm)+'</b> — '+esc(p.why||'')+open+'</div></div>'; }).join('')+
     (o.note?'<div class="sub" style="margin-top:8px">'+esc(o.note)+'</div>':'')+'</div>';
 }

@@ -1,15 +1,14 @@
 {
   "id": "certificate",
   "name": "Certificate Agent",
-  "icon": "\ud83d\udd10",
+  "icon": "🔐",
   "order": 1,
   "category": "Tagging",
-  "summary": "Reasons over certificates failing in 12 months (editable agent prompt), triages & explains the risk, builds two heat maps, and caches IoT/app devices.",
+  "summary": "Certania — finds expired certificates month by month over the last 12 months (plus everything older) and those failing in the next 12 months, and tags their assets Cert failure : <Mon>-<DD>-<YYYY>. Expiry timeline, crown jewels, weak crypto and self-signed metrics, Cert Issue tagging by plugin, and an IoT/app cache fingerprinted from certs. Deterministic — no free-form LLM reasoning.",
   "needs_backend": true,
   "page": "page.html",
   "actions": [
     "run",
-    "reason",
     "tags_apply",
     "tags_issues"
   ],
