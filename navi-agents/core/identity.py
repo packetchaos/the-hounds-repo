@@ -168,9 +168,9 @@ _USER_RE = re.compile(r"(?:User(?:name)?\s*[:=]\s*|^\s*-\s+)([A-Za-z_][A-Za-z0-9
 _PASSWD_RE = re.compile(r"^([a-z_][a-z0-9_.\-]{1,31}):[^:]*:(\d+):\d+:[^:]*:([^:]*):(\S*)")
 
 
-def _cols(table):
+def _cols(table, path=None):
     try:
-        return {r["name"] for r in db.query(f'PRAGMA table_info("{table}");')}
+        return {r["name"] for r in db.query(f'PRAGMA table_info("{table}");', path=path)}
     except Exception:
         return set()
 
@@ -202,7 +202,7 @@ def scan(db_path=None):
     critHostN, dcHosts, adHosts}. Each account: {user, klass, hosts[],
     asset_uuids[], url, flags[], plugins[]}.
     """
-    has_url = "url" in _cols("assets")
+    has_url = "url" in _cols("assets", db_path)
     amap = {}
     for a in db.query("SELECT uuid, hostname, ip_address" + (", url" if has_url else "") +
                       " FROM assets", path=db_path):
@@ -401,8 +401,11 @@ def scan(db_path=None):
                 "AND lower(output) NOT LIKE '%disabled%'", db_path) and "guest" in acct:
         _flag(acct["guest"], "guest enabled")
 
+    host_sets = {}                       # flag -> host uuids (the page tags these directly)
+
     def _host_flag(sql, flag, klasses):
         s = _uset(sql, db_path)
+        host_sets[flag] = sorted(s)
         if s:
             for a in acct.values():
                 if a["klass"] in klasses and any(u in s for u in a["asset_uuids"]):
@@ -448,22 +451,30 @@ def scan(db_path=None):
                 scan_hosts_by_user.setdefault(key, set()).add(au)
             scan_via_by_user.setdefault(key, set()).add(m.group(2).strip().lower())
 
-    # account reuse across many hosts (lateral-movement risk), minus the scan-credential footprint
+    # account reuse across many hosts (lateral-movement risk), minus the scan-credential footprint.
+    # The same account NAME on many hosts is all navi.db can show — it never says the password
+    # is the same, so nothing here infers password reuse.
+    def _no_login(a):   # nologin / false shells can't be used to log in, so they are not a lateral path
+        sh = (a.get("shell") or "").strip().lower()
+        return bool(sh) and ("nologin" in sh or sh.endswith("/false"))
     for a in acct.values():
         if a["klass"] == "machine":
             continue
         key = a["user"].split("\\")[-1].strip().lower()
         sset = scan_hosts_by_user.get(key)
         if sset:
-            eff = len([u for u in a["asset_uuids"] if u not in sset])   # hosts NOT explained by scanning
-            a["scan_credential"] = {"hosts": len(sset & set(a["asset_uuids"])) or len(sset),
+            effu = [u for u in a["asset_uuids"] if u not in sset]   # hosts NOT explained by scanning
+            eff = len(effu)
+            a["scan_credential"] = {"hosts": len(sset & set(a["asset_uuids"])),
                                     "via": sorted(scan_via_by_user.get(key, []))}
             if "scan credential" not in a["flags"]:
                 _flag(a, "scan credential")
         else:
-            eff = len(a["asset_uuids"])
-        if eff >= 5 and not any(x.startswith("reused") for x in a["flags"]):
-            _flag(a, "reused ×" + str(eff))
+            effu = list(a["asset_uuids"])
+            eff = len(effu)
+        if eff >= 5 and not _no_login(a) and not any(x.startswith("account reuse") for x in a["flags"]):
+            _flag(a, "account reuse ×" + str(eff))
+            a["reuse_uuids"] = effu
 
     scan_creds = sorted(
         ({"user": next((x["user"] for x in acct.values()
@@ -475,6 +486,7 @@ def scan(db_path=None):
     # correlate identities to exploitable hosts (KEV / critical = crown jewels)
     def _corr(sql, flag):
         s = _uset(sql, db_path)
+        host_sets[flag] = sorted(s)
         if s:
             for a in acct.values():
                 if a["klass"] != "machine" and any(u in s for u in a["asset_uuids"]):
@@ -501,16 +513,20 @@ def scan(db_path=None):
         _flag(acct["__41028"], "write (private)")
 
     # coverage gap — reachable hosts scanned WITHOUT credentials
-    blind = _scalar0("SELECT COUNT(DISTINCT asset_uuid) FROM vulns WHERE plugin_id IN ('110723','104410')", db_path)
+    blind_set = _uset("SELECT DISTINCT asset_uuid FROM vulns WHERE plugin_id IN ('110723','104410')", db_path)
+    blind = len(blind_set)
+    cred_set = _uset("SELECT DISTINCT asset_uuid FROM vulns WHERE plugin_id='19506' "
+                     "AND lower(output) LIKE '%credentialed checks : yes%'", db_path)
+    host_sets["uncredentialed"] = sorted(blind_set)
 
     order = {"machine": 0, "nhi": 1, "human": 2, "service": 3}
     accounts = sorted(acct.values(), key=lambda x: (order.get(x["klass"], 9), x["user"]))
     def _risky(a):   # flags that actually indicate risk — a bare scan credential is expected
         return [f for f in a["flags"] if f != "scan credential"]
 
-    def _is_reused(a):   # reuse across ≥5 hosts, scanner footprint already subtracted
-        return any(f.startswith("reused") for f in a["flags"])
-    reused_hosts = {u for a in accounts if _is_reused(a) for u in a["asset_uuids"]}
+    def _is_reused(a):   # account reuse across ≥5 hosts (scanner footprint subtracted)
+        return any(f.startswith("account reuse") for f in a["flags"])
+    reused_hosts = {u for a in accounts for u in (a.get("reuse_uuids") or [])}
     counts = {"total": len(accounts),
               "nhi": sum(1 for a in accounts if a["klass"] == "nhi"),
               "human": sum(1 for a in accounts if a["klass"] == "human"),
@@ -523,7 +539,9 @@ def scan(db_path=None):
     return {"accounts": accounts, "counts": counts, "blind": blind, "fresh": fresh,
             "sshHosts": sshHosts, "weakHosts": weakHosts, "kevHostN": kevHostN,
             "critHostN": critHostN, "dcHosts": dcHosts, "adHosts": adHosts,
-            "scan_creds": scan_creds}
+            "scan_creds": scan_creds, "host_sets": host_sets,
+            "credentialed": len(cred_set - blind_set),
+            "identity_hosts": len({u for a in accounts for u in a["asset_uuids"]})}
 
 
 _HI_USER = re.compile(r"^\s*User(?:name)?\s*[:=]\s*([A-Za-z_][A-Za-z0-9_.\-\$]{1,31})", re.I)
@@ -611,4 +629,4 @@ def selector_for(asset_uuids):
     if not ids:
         return ""
     inlist = ",".join("'" + str(u).replace("'", "''") + "'" for u in ids)
-    return f"SELECT asset_uuid FROM vulns WHERE asset_uuid IN ({inlist})"
+    return f"SELECT uuid AS asset_uuid FROM assets WHERE uuid IN ({inlist})"

@@ -1,17 +1,27 @@
 """Software Analyzer agent — self-contained HTTP actions."""
 import re
 
-from core import db, llm, navi_cli, software
+from core import activity, db, downloads, llm, navi_cli, software
 from .agent import SoftwareAgent
+from core.gates import confirmed
 
 AGENT = SoftwareAgent()
+
+# endoflife.date is fetched by the BROWSER (page.html eolCycles) only when the user presses
+# ▶ Run lifecycle check / ▶ Run all — no separate approval card, so the Auto-approve setting
+# doesn't change it; registered so Settings lists every external source the pack uses.
+downloads.register("endoflife", "endoflife.date lifecycle API", ["https://endoflife.date/api/<product>.json"],
+                   agent="software", approval=False,
+                   purpose="Per-product end-of-life / latest-release data for Mimir's lifecycle check "
+                           "(one GET per matched product, cached 7 days in the browser).",
+                   fallback="none — products without data show n/a")
 
 _SQL_BANNED = re.compile(
     r"\b(insert|update|delete|drop|alter|create|attach|detach|pragma|replace|"
     r"vacuum|reindex|truncate|grant|revoke|load_extension|readfile|writefile)\b", re.I)
 
 
-def _safe_select(sql):
+def _safe_select(sql, add_limit=True):
     s = (sql or "").strip().rstrip(";").strip()
     if not s:
         return None, "no SQL produced"
@@ -21,7 +31,7 @@ def _safe_select(sql):
         return None, "only a single statement is allowed"
     if _SQL_BANNED.search(s):
         return None, "read-only queries only (no writes / DDL / file access)"
-    if not re.search(r"\blimit\b", s, re.I):
+    if add_limit and not re.search(r"\blimit\b", s, re.I):
         s += " LIMIT 500"
     return s, None
 
@@ -53,9 +63,11 @@ def _software_fallbacks(name):
 
 
 def tag(p):
-    if not p.get("confirm"):
+    if not confirmed(p):
         return {"ok": False, "error": "confirm=true required to tag"}, 400
     category = (p.get("category") or "Software").strip() or "Software"
+    if not activity.allowed_category("software", category):
+        return {"ok": False, "error": f"category '{category}' is not one this agent writes"}, 400
     value = (p.get("value") or "").strip()
     uuids = [u for u in (p.get("uuids") or []) if u]
     name = (p.get("name") or "").strip()
@@ -98,12 +110,14 @@ def nl_translate(p):
 
 
 def run_sql(p):
-    """Execute a user-reviewed read-only SELECT (re-validated) and return rows."""
-    sql, err = _safe_select(p.get("sql", ""))
+    """Execute a user-reviewed read-only SELECT (re-validated) and return rows.
+    No LIMIT is added here: the page's own inventory / EOL / leaderboard queries need every row
+    (a silent LIMIT 500 truncated them). NL-generated SQL already carries LIMIT 500 from nl_translate."""
+    sql, err = _safe_select(p.get("sql", ""), add_limit=False)
     if err:
         return {"ok": False, "message": err}, 200
     try:
-        rows = db.query(sql)
+        rows = db.user_query(sql)          # engine-level guard: navi's credential tables are unreadable
     except Exception as e:
         return {"ok": False, "message": str(e), "sql": sql}, 200
     return {"ok": True, "sql": sql, "rows": rows, "count": len(rows),

@@ -1,13 +1,14 @@
 {
   "id": "insights",
   "name": "On the Scent",
-  "icon": "\ud83d\udc1d",
+  "icon": "🐝",
   "order": 0,
   "category": "Overview",
-  "summary": "Sphinx \u2014 the estate brain. Rolls the same fusion Nemesis scores per asset up to the whole estate: a posture board across every Hound (KEV, crown jewels, certs, EOL/crypto, identity, attack paths, AI, IoT, ownership coverage, compliance, SLA, WAS), a blind-spots panel (the unknown-unknowns \u2014 assets with no Hound signal, uncredentialed, unclassified, unowned), the cross-Hound surprises no single agent sees (crown jewels unowned/blind, KEV+exposed, EOL on a crown jewel), and a hand-off to Nemesis to act.",
+  "summary": "Sphinx — the estate brain, built from Release the Hounds. Summarises every hound's released result (page cache + the Nemesis / Atlas / Sköll snapshots) into one story: how exposed the estate is and what the risk is made of, where it concentrates (by hound, on assets, in time), the cross-hound overlaps no single hound sees, blind spots, ranked next moves and which hounds the picture was built from. Every number links to the hound that owns it. Needs a release; reads caches only, never navi.db.",
   "needs_backend": true,
   "page": "page.html",
   "actions": [
+    "scent",
     "board",
     "run"
   ],

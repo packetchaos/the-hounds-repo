@@ -17,9 +17,9 @@ class C2Agent(Agent):
     id = "c2"
     name = "Command & Control"
     icon = "🐺"
-    description = ("Amarok — the pack's remediation executor. Runs a command, ships a file, or "
-                   "applies a vuln-derived patch to a Linux host via navi action push. Triple-gated "
-                   "remote code execution, Linux-only, canary-first armed campaigns, full ledger.")
+    description = ("Amarok — troubleshoot and remediate Linux hosts (navi.db assets or any IP) via navi "
+                   "action push: built-in read-only checks, credential tests, path checks, AI-assisted "
+                   "remediation plans, free-form commands. Triple-gated; every command in the C2 log.")
 
     def summary(self):
         if not self.result:

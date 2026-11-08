@@ -4,9 +4,9 @@
   "icon": "🎯",
   "order": 24,
   "category": "Views",
-  "summary": "The pack's convergence page (Nemesis). Fuses every Hound's signal into ONE exposure score per asset — KEV+EPSS+VPR+ACR direct, plus attack path (Fenrir), identity (Janus), AI (Pythia), EOL (Charon), weak/expiring crypto (Certania+Heimdall), ATT&CK (Orthrus) and ownership (Terminus) from tags. Surfaces the worst finding from each Hound and where they converge on the same assets, ranks the estate worst-first, and turns a remediation play into a projected reduction justified by the signals it clears. High-level 'act now' actions; Priority tagging is gated.",
+  "summary": "The pack's convergence page (Nemesis). Fuses every Hound's signal into ONE exposure score per asset — KEV+EPSS+VPR+ACR+AES and open-finding SLA aging direct, plus attack path (Fenrir), identity (Janus: account reuse > other NHI / identity risk), AI (Pythia), EOL (Charon), weak/expiring crypto (Certania+Heimdall), ATT&CK (Orthrus) and ownership (Terminus) from tags. Grouped estate / convergence / confidence metrics, an at-a-glance strip and a jump nav; ranks the estate worst-first, surfaces the worst finding from each Hound and where they converge, and turns a remediation play into a projected reduction. Cached on disk per navi.db + weighting and built in the background. Priority tagging is gated and recomputed server-side.",
   "needs_backend": true,
   "page": "page.html",
-  "actions": ["load", "run", "overview", "tag", "refresh"],
+  "actions": ["load", "run", "overview", "snapshot", "tag", "refresh"],
   "codename": "Nemesis"
 }

@@ -1,6 +1,7 @@
 """Asset Ownership (Terminus) — self-contained HTTP actions."""
-from core import asset_ownership as engine, navi_cli
+from core import asset_ownership as engine, navi_cli, tagname
 from .agent import AssetOwnershipAgent
+from core.gates import confirmed
 
 AGENT = AssetOwnershipAgent()
 
@@ -24,10 +25,32 @@ def refresh(p):
 def plan(p):
     """Plain-English → preview of who owns which assets (reads each asset's tags).
     Nothing is written."""
-    prompt = (p.get("prompt") or "").strip()
+    prompt = _s(p.get("prompt"))
     if not prompt:
         return {"ok": False, "error": "describe who owns which assets"}, 400
     return engine.plan(prompt), 200
+
+
+def _s(v):
+    """A request field as a stripped string (non-strings → '')."""
+    return v.strip() if isinstance(v, str) else ""
+
+
+def _mode(v):
+    return "remainder" if _s(v).lower().startswith("rem") else "complete"
+
+
+def _uuids(v):
+    """The request's asset list — a list of non-empty strings, de-duplicated in order."""
+    if not isinstance(v, list):
+        return []
+    out, seen = [], set()
+    for u in v:
+        u = _s(u)
+        if u and u not in seen:
+            seen.add(u)
+            out.append(u)
+    return out
 
 
 def _bulk_asset_apply(owner="", uuids=None, mode="complete"):
@@ -53,12 +76,12 @@ def apply(p):
     runs as a single BACKGROUND job on the tag queue: this returns a job stub
     immediately and the user can navigate away while it drains — track it in the
     Tagging log. The business layer is already a single non-blocking tag write."""
-    if not p.get("confirm"):
+    if not confirmed(p):
         return {"ok": False, "error": "confirm=true required to write tags"}, 400
-    owner = (p.get("owner") or "").strip()
-    uuids = p.get("uuids") or []
-    layer = (p.get("layer") or "business").strip().lower()
-    mode = (p.get("mode") or "complete").strip().lower()
+    owner = _s(p.get("owner"))
+    uuids = _uuids(p.get("uuids"))
+    layer = "asset" if _s(p.get("layer")).lower() == "asset" else "business"
+    mode = _mode(p.get("mode"))
     if not owner or not uuids:
         return {"ok": False, "error": "owner and matched assets required"}, 400
     if layer == "asset":
@@ -66,7 +89,7 @@ def apply(p):
         batch = uuids[:2000]
         job = tagq.submit(
             _bulk_asset_apply, {"owner": owner, "uuids": batch, "mode": mode},
-            {"agent": "asset_ownership", "category": engine.ASSET_OWNER_KEY,
+            {"agent": "asset_ownership", "category": tagname.effective(engine.ASSET_OWNER_KEY),
              "value": f"{owner} · {mode}", "op": "tag",
              "selector": f"{len(batch)} asset(s)",
              "detail": "bulk asset-owner assign — cascades each asset's routes & paths"})
@@ -83,11 +106,11 @@ def apply(p):
 def assign(p):
     """The single-asset 'one owner owns everything / the rest' toggle. Writes an
     Asset Owner tag and cascades Owner tags for that asset's routes & paths (gated)."""
-    if not p.get("confirm"):
+    if not confirmed(p):
         return {"ok": False, "error": "confirm=true required to write tags"}, 400
-    uuid = (p.get("uuid") or "").strip()
-    owner = (p.get("owner") or "").strip()
-    mode = (p.get("mode") or "complete").strip().lower()
+    uuid = _s(p.get("uuid"))
+    owner = _s(p.get("owner"))
+    mode = _mode(p.get("mode"))
     if not uuid or not owner:
         return {"ok": False, "error": "asset uuid and owner required"}, 400
     r = engine.assign_asset_owner(uuid, owner, mode=mode)

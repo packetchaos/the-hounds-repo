@@ -21,7 +21,7 @@
 <div class="wrap">
   <header class="top" id="app-header"></header>
   <section class="card" style="background:var(--panel)">
-    <div class="toolbar"><div><h2 style="margin:0">🏷 Tags — Tenable ⇄ navi.db</h2>
+    <div class="toolbar"><div><h2 style="margin:0">🏷️ Tags — Tenable ⇄ navi.db</h2>
       <p class="sub" style="margin:2px 0 0">Every tag in the <b>Tenable platform</b> (live <span class="mono">navi explore info tags</span>) and in <span class="mono">navi.db</span>'s <span class="mono">tags</span> table, side by side. The <b>delta</b> shows what's in one but not the other — i.e. what hasn't synced.</p></div>
       <span style="margin-left:auto;display:flex;gap:6px"><button class="btn ghost sm" id="csv" style="display:none">⤓ CSV</button><button class="btn run sm" id="cmp">▶ Compare</button></span></div>
     <div id="flash" class="flash"></div>
@@ -126,6 +126,6 @@ document.getElementById('expand').onclick=()=>document.querySelectorAll('#groups
 document.getElementById('collapse').onclick=()=>document.querySelectorAll('#groups details').forEach(d=>d.open=false);
 document.getElementById('csv').onclick=()=>{ if(!DATA)return; downloadCSV('tags-compare.csv',['category','value','in_tenable','in_navidb','navidb_assets'],
   DATA.rows.map(r=>({category:r.cat,value:r.val,in_tenable:r.ten?'yes':'no',in_navidb:r.navi?'yes':'no',navidb_assets:r.c}))); };
-mountAgentHeader({icon:'🏷',name:'Tags — Tenable ⇄ navi.db',sub:'sync delta'});
+mountAgentHeader({icon:'🏷️',name:'Tags — Tenable ⇄ navi.db',sub:'sync delta'});
 </script>
 </body></html>

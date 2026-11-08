@@ -9,5 +9,17 @@
   "hidden": true,
   "needs_backend": true,
   "page": "",
-  "actions": ["roster", "run_all", "trust"]
+  "actions": [
+    "roster",
+    "run_all",
+    "trust",
+    "pc_get",
+    "pc_put",
+    "pc_del",
+    "pc_list",
+    "release_plan",
+    "release_start",
+    "release_status",
+    "release_cancel"
+  ]
 }

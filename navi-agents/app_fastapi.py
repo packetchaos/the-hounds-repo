@@ -9,13 +9,57 @@ from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
-from core import launcher
+from core import security
+security.harden_process()                 # umask 077 before anything creates a file
+
+from core import launcher  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WEB = os.path.join(HERE, "web")
 AGENTS = os.path.join(HERE, "agents")
 
 app = FastAPI(title="Navi Agents", version="2.0.0")
+
+
+def _harden(resp):
+    # always revalidate — an updated console.js / page must never be shadowed by a stale copy
+    resp.headers["Cache-Control"] = "no-cache"
+    for k, v in security.SECURITY_HEADERS.items():
+        resp.headers[k] = v
+    return resp
+
+
+@app.middleware("http")
+async def _gate(request: Request, call_next):
+    """Host allowlist + access token + POST guard + body cap on EVERY request, and the
+    security headers on every response (core.security)."""
+    path = request.url.path
+    hget = request.headers.get
+    if request.method == "GET" and security.host_ok(hget("host")):
+        ex = security.token_exchange(path, request.url.query)
+        if ex:
+            code, hdrs = ex
+            if code == 403:
+                return _harden(JSONResponse({"ok": False, "error": "invalid access token"}, status_code=403))
+            r = PlainTextResponse("", status_code=code)
+            for k, v in hdrs.items():
+                r.headers[k] = v
+            return _harden(r)
+    peer = request.client.host if request.client else None
+    bad = security.check(request.method, path, hget, peer)
+    if bad:
+        return _harden(JSONResponse({"ok": False, "error": bad[1]}, status_code=bad[0]))
+    if request.method in ("GET", "HEAD") and path.startswith(("/agents/", "/static/", "/web/")):
+        rel = path.split("/", 2)[2] if path.count("/") >= 2 else ""
+        if not security.static_allowed(rel):
+            return _harden(JSONResponse({"error": "not found"}, status_code=404))
+    try:
+        n = int(hget("content-length") or 0)
+    except ValueError:
+        n = -1
+    if n < 0 or n > security.MAX_BODY:
+        return _harden(JSONResponse({"ok": False, "error": "request body too large"}, status_code=413))
+    return _harden(await call_next(request))
 
 
 def _resp(payload_status):
@@ -58,13 +102,29 @@ def profile_clear():
     return launcher.profile_clear()
 
 
+async def _read_capped(request: Request) -> bytes:
+    """Read the body, refusing (None) anything past MAX_BODY — covers chunked uploads that
+    carry no Content-Length."""
+    buf = bytearray()
+    async for chunk in request.stream():
+        buf += chunk
+        if len(buf) > security.MAX_BODY:
+            return None
+    return bytes(buf)
+
+
 @app.post("/api/{agent_id}/{action}")
 async def act(agent_id: str, action: str, request: Request):
+    raw = await _read_capped(request)
+    if raw is None:
+        return JSONResponse({"ok": False, "error": "request body too large"}, status_code=413)
     try:
-        payload = await request.json()
+        import json as _json
+        payload = _json.loads(raw or b"{}")
     except Exception:
         payload = {}
-    return _resp(launcher.dispatch(agent_id, action, payload))
+    peer = request.client.host if request.client else None
+    return _resp(launcher.dispatch(agent_id, action, payload, peer=peer, http=True))
 
 
 @app.get("/")
@@ -82,5 +142,10 @@ if os.path.isdir(WEB):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("app_fastapi:app", host="0.0.0.0",
-                port=int(os.environ.get("PORT", "8000")), reload=False)
+    _port = int(os.environ.get("PORT", "8000"))
+    _warn = security.startup_warning()
+    if _warn:
+        print(_warn)
+    print("  The Hounds (FastAPI) →  " + security.startup_url(_port))
+    uvicorn.run("app_fastapi:app", host=security.bind_host(), port=_port, reload=False,
+                timeout_keep_alive=int(min(security.SOCKET_TIMEOUT, 30)))

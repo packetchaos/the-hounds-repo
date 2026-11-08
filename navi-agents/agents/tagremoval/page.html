@@ -3,7 +3,7 @@
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Tag Removal · Navi Agents</title>
 <link rel="stylesheet" href="/static/console.css"/>
-</head><body>
+</head><body data-page-cache="off">
 <div class="wrap">
   <header class="top" id="app-header"></header>
 
@@ -20,9 +20,10 @@
     </div>
 
     <div class="toolbar" style="margin-top:8px">
-      <button class="btn run sm" id="loadBtn">▶ Load all tags</button>
+      <button id="loadBtn" class="btn ghost sm" title="Re-fetch the list (it loads automatically when the page opens)">↻ Reload</button>
       <input id="filter" class="fld" placeholder="filter…" style="padding:6px 9px;border-radius:7px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink)">
       <span class="chip" id="count"></span>
+      <button class="btn ghost sm" id="trFilter" type="button" aria-pressed="false" style="display:none" title="Show only the tags a Settings → Test run created (category starts with the prefix). Selecting and removing them works exactly like any other removal."></button>
       <span style="margin-left:auto;display:flex;gap:6px">
         <button class="btn ghost sm" id="selAll">Select all</button>
         <button class="btn ghost sm" id="selNone">Clear</button>
@@ -39,7 +40,7 @@
   <section class="card" id="out" style="display:none">
     <div class="toolbar" style="margin:0 0 8px"><h2 style="margin:0;font-size:15px">Tags — select the ones to remove</h2>
       <span class="chip" id="pageInfo" style="margin-left:auto;display:none"></span></div>
-    <div style="overflow-x:auto"><table id="tbl"><thead><tr>
+    <div style="overflow-x:auto"><table id="tbl" class="nopage"><thead><tr>
       <th style="width:34px"></th><th>Category</th><th>Value</th><th style="width:90px">Assets</th>
     </tr></thead><tbody></tbody></table></div>
     <div id="pager" class="toolbar" style="margin-top:10px;display:none;align-items:center;gap:8px"></div>
@@ -61,7 +62,7 @@ let TAGS=[], WRITES=false;
 // selection lives in a Map (not the DOM) so it survives pagination + filtering —
 // "Select all" selects the ENTIRE filtered set, not just the 100 rows on screen.
 const SELECTED=new Map();     // keyOf -> {category,value}
-let PAGE=0; const PAGE_SIZE=100;
+let PAGE=0; let PAGE_SIZE=hPageSize('tbl');   // 20/page by default, Rows selector up to 50
 let CMP=null;                 // {naviMap:{key:count}, tenSet:Set, ghosts:[], stale:bool}
 const keyOf=(c,v)=>((c||'')+''+(v||''));
 
@@ -92,8 +93,8 @@ async function compare(){
   if(ghosts.length){
     html+='<p style="margin:10px 0 4px"><b>Live in Tenable, but navi.db can\'t see the assets yet</b> — a removal on these will no-op until you update assets:</p>'+
       '<div style="overflow-x:auto"><table><thead><tr><th>Category</th><th>Value</th><th style="width:110px">navi.db assets</th></tr></thead><tbody>'+
-      ghosts.slice(0,50).map(g=>'<tr><td>'+esc(g.cat||'')+'</td><td><b>'+esc(g.val||'')+'</b></td><td class="mono">'+(g.c===null?'<span class="crit">missing</span>':'<span class="crit">0</span>')+'</td></tr>').join('')+
-      '</tbody></table></div>'+(ghosts.length>50?'<p class="sub" style="margin:4px 0 0">…and '+(ghosts.length-50)+' more.</p>':'');
+      ghosts.map(g=>'<tr><td>'+esc(g.cat||'')+'</td><td><b>'+esc(g.val||'')+'</b></td><td class="mono">'+(g.c===null?'<span class="crit">missing</span>':'<span class="crit">0</span>')+'</td></tr>').join('')+
+      '</tbody></table></div>';
   }
   body.innerHTML=html;
   return CMP;
@@ -114,13 +115,25 @@ async function updateAssets(){
 function selected(){ return [...SELECTED.values()]; }
 function syncButtons(){ const n=SELECTED.size; document.getElementById('selCount').textContent=n+' selected';
   document.getElementById('removeBtn').disabled=!n; document.getElementById('contractBtn').disabled=!n; }
+// Settings → Test run cleanup: a filter for '<phrase>-*' categories. It only narrows the
+// LIST — selection, the compare, the confirm() and the exact-name removal are unchanged.
+let TRF=false;
+const trPrefix=()=>String((typeof _TR!=='undefined'&&_TR&&_TR.configured_prefix)||'').toLowerCase();
+const isTrTag=t=>{ const p=trPrefix(); return !!p&&String(t.category||'').toLowerCase().startsWith(p)&&String(t.category||'').length>p.length; };
+function renderTrFilter(){
+  const b=document.getElementById('trFilter'); if(!b) return;
+  const n=TAGS.filter(isTrTag).length, p=(typeof _TR!=='undefined'&&_TR&&_TR.configured_prefix)||'';
+  if(!p||(!n&&!TRF&&!(typeof testRunOn==='function'&&testRunOn()))){ b.style.display='none'; return; }
+  b.style.display=''; b.textContent='🧪 test-run tags ('+p+'*) · '+n; b.setAttribute('aria-pressed',TRF?'true':'false');
+  b.classList.toggle('run',TRF); b.classList.toggle('ghost',!TRF);
+}
 function filteredRows(){
   const f=(document.getElementById('filter').value||'').toLowerCase();
-  return TAGS.filter(t=>!f||((t.category||'')+' '+(t.value||'')).toLowerCase().includes(f));
+  return TAGS.filter(t=>(!f||((t.category||'')+' '+(t.value||'')).toLowerCase().includes(f))&&(!TRF||isTrTag(t)));
 }
 function renderPager(total,pages){
   const pg=document.getElementById('pager'), info=document.getElementById('pageInfo');
-  if(total<=PAGE_SIZE){ if(pg)pg.style.display='none'; if(info)info.style.display='none'; return; }
+  if(total<=10){ if(pg)pg.style.display='none'; if(info)info.style.display='none'; return; }
   const start=PAGE*PAGE_SIZE+1, end=Math.min(total,(PAGE+1)*PAGE_SIZE);
   if(info){ info.style.display=''; info.textContent=`${start}–${end} of ${total}`; }
   pg.style.display='flex';
@@ -131,12 +144,14 @@ function renderPager(total,pages){
   const pv=document.getElementById('pgPrev'), nx=document.getElementById('pgNext');
   if(pv) pv.onclick=()=>{ if(PAGE>0){ PAGE--; renderTags(); } };
   if(nx) nx.onclick=()=>{ if(PAGE<pages-1){ PAGE++; renderTags(); } };
+  hSizeControl(pg,'tbl',v=>{ PAGE_SIZE=v; PAGE=0; renderTags(); });
 }
 function renderTags(){
   const rows=filteredRows(), total=rows.length, pages=Math.max(1,Math.ceil(total/PAGE_SIZE));
   if(PAGE>pages-1) PAGE=pages-1; if(PAGE<0) PAGE=0;
   const pageRows=rows.slice(PAGE*PAGE_SIZE,(PAGE+1)*PAGE_SIZE);
   document.getElementById('count').textContent=`(${total} of ${TAGS.length})`;
+  renderTrFilter();
   const tbody=document.querySelector('#tbl tbody');
   tbody.innerHTML = pageRows.length ? pageRows.map(t=>{
     const k=keyOf(t.category,t.value);
@@ -199,6 +214,8 @@ async function toContract(){
   flash('flash','✓ added '+o.added+' tag(s) to the contract ('+o.total+' total in the removal list). Open the <a href="/agents/contract/page.html">AI Contract</a> → Tag removal to review. When armed, the contract removes these first, pauses, runs navi update, then re-tags.','ok');
 }
 document.getElementById('loadBtn').onclick=load;
+document.getElementById('trFilter').onclick=()=>{ TRF=!TRF; PAGE=0; if(TAGS.length) renderTags(); else renderTrFilter(); };
+testRunStatus().then(()=>{ renderTrFilter(); if(TAGS.length) renderTags(); });
 document.getElementById('filter').addEventListener('input',()=>{ if(TAGS.length){ PAGE=0; renderTags(); } });
 // Select all = the ENTIRE filtered set (every page), not just the 100 rows on screen.
 document.getElementById('selAll').onclick=()=>{ filteredRows().forEach(t=>SELECTED.set(keyOf(t.category,t.value),{category:t.category,value:t.value})); renderTags(); };
@@ -211,5 +228,6 @@ mountAgentHeader({id:'tagremoval',icon:'🗑️',name:'Tag Removal',sub:'Garmr �
 try{ hMailAuto(); }catch(e){}
 jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});
 compare();   // force the compare on load
+load();   // the tag list loads on open — always live, so removed tags never linger
 </script>
 </body></html>

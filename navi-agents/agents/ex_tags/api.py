@@ -10,7 +10,7 @@ from core import search
 
 def run(p):
     try:
-        res = search.tags((p.get("q") or "").strip(), int(p.get("offset") or 0))
+        res = search.tags((p.get("q") or "").strip(), int(p.get("offset") or 0), p.get("limit"))
     except Exception as e:
         return {"ok": False, "error": str(e)}, 200
     return {"ok": True, "result": res}, 200
@@ -23,7 +23,7 @@ def assets(p):
         return {"ok": False, "error": "key (tag category) required"}, 400
     try:
         res = search.tag_assets(key, value, (p.get("q") or "").strip(),
-                                int(p.get("offset") or 0))
+                                int(p.get("offset") or 0), p.get("limit"))
     except Exception as e:
         return {"ok": False, "error": str(e)}, 200
     return {"ok": True, "result": res}, 200

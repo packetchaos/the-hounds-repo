@@ -108,6 +108,61 @@ def connect(path: str | None = None) -> sqlite3.Connection:
     return con
 
 
+# --------------------------------------------------------------------------- #
+#  User / LLM SQL — the engine-level guard
+# --------------------------------------------------------------------------- #
+# navi keeps credentials in navi.db: `keys` (Tenable access/secret keys), `smtp` (mail
+# password), `ssh` (push credentials), `resend` (mail API key). No user- or model-written
+# query may read them. The regex checks in each agent are a first filter; this authorizer is
+# the backstop SQLite itself enforces, whatever the SQL looks like (aliases, sub-selects,
+# CTEs, views…). Use user_query() / harden() for ANY SQL that a person or a model wrote.
+SECRET_TABLES = frozenset({"keys", "smtp", "ssh", "resend"})
+_SQLITE_OK, _SQLITE_DENY = 0, 1
+_A_PRAGMA, _A_READ, _A_ATTACH, _A_DETACH, _A_FUNCTION = 19, 20, 24, 25, 31
+_BAD_FUNCS = frozenset({"load_extension", "readfile", "writefile", "edit", "fts3_tokenizer",
+                        "zipfile", "unzip", "sqlite_compileoption_used", "sqlite_offset"})
+# internal tables a query may read: schema introspection only
+_SQLITE_INTERNAL_OK = frozenset({"sqlite_master", "sqlite_schema", "sqlite_temp_master",
+                                 "sqlite_temp_schema", "sqlite_sequence"})
+
+
+def user_sql_authorizer(action, arg1, arg2, dbname, trigger):
+    """sqlite3 authorizer for user/LLM SQL: deny reads of navi's secret tables and of
+    sqlite internals beyond the schema, ATTACH/DETACH, PRAGMA, file/host functions, and
+    reads of any database other than navi.db (main/temp)."""
+    if action == _A_READ:
+        t = (arg1 or "").lower()
+        if t in SECRET_TABLES:
+            return _SQLITE_DENY
+        if t.startswith("sqlite_") and t not in _SQLITE_INTERNAL_OK:
+            return _SQLITE_DENY
+        if dbname not in (None, "", "main", "temp"):
+            return _SQLITE_DENY
+    elif action in (_A_ATTACH, _A_DETACH, _A_PRAGMA):
+        return _SQLITE_DENY
+    elif action == _A_FUNCTION and arg2 and arg2.lower() in _BAD_FUNCS:
+        return _SQLITE_DENY
+    return _SQLITE_OK
+
+
+def harden(con):
+    """Install the user-SQL guard on an open connection (and disable extension loading)."""
+    try:
+        con.enable_load_extension(False)
+    except Exception:
+        pass
+    con.set_authorizer(user_sql_authorizer)
+    return con
+
+
+def user_query(sql: str, params: tuple = (), path: str | None = None,
+               budget: float | None = -1) -> list[dict]:
+    """db.query() for SQL a person or a model wrote — runs under user_sql_authorizer, so
+    navi's credential tables (keys / smtp / ssh / resend) are unreadable. Raises
+    sqlite3.DatabaseError ('not authorized') when the query touches one."""
+    return query(sql, params, path, budget, _guard=True)
+
+
 def _arm_budget(con, budget):
     """Abort a query after `budget` seconds so a full scan can't hang the app."""
     if not budget or budget <= 0:
@@ -117,8 +172,10 @@ def _arm_budget(con, budget):
 
 
 def query(sql: str, params: tuple = (), path: str | None = None,
-          budget: float | None = -1) -> list[dict]:
+          budget: float | None = -1, _guard: bool = False) -> list[dict]:
     con = connect(path)
+    if _guard:
+        harden(con)
     _arm_budget(con, _BUDGET_S if budget == -1 else budget)
     _t0 = time.monotonic()
     try:

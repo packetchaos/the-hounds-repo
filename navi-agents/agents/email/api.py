@@ -22,7 +22,8 @@ Read-only composition, double-gated send:
 import datetime
 import re
 
-from core import db
+from core import db, tagname
+from core.gates import confirmed
 
 AGENT = None
 
@@ -103,8 +104,9 @@ def _owner_index():
     if not key_col or not val_col:
         return {}
     try:
-        rows = db.query(f"SELECT asset_uuid, {val_col} AS v FROM tags "
-                        f"WHERE lower({key_col})='owner' AND {val_col} IS NOT NULL;")
+        # Owner and its Settings → Test run name (Hounds-Owner) — core.tagname
+        rows = db.query(f"SELECT asset_uuid, {val_col} AS v, {key_col} AS k FROM tags "
+                        f"WHERE lower({tagname.sql_base(key_col)})='owner' AND {val_col} IS NOT NULL;")
     except Exception:
         return {}
     idx = {}
@@ -118,7 +120,7 @@ def _owner_index():
         else:
             app, owner = "", v
         owner = owner or "(unassigned)"
-        e = idx.setdefault(owner, {"assets": set(), "apps": set(), "tag_values": set()})
+        e = idx.setdefault(owner, {"assets": set(), "apps": set(), "tag_values": set(), "tag_key": r.get("k") or "Owner"})
         if r.get("asset_uuid"):
             e["assets"].add(r["asset_uuid"])
         if app:
@@ -353,7 +355,7 @@ def _owner_message(owner, entry, template, domain, min_rank):
     # tag filter deep-link so they can see the whole set in-platform
     tv = sorted(entry["tag_values"])[0] if entry["tag_values"] else ""
     if tv:
-        furl = _tag_filter_url("Owner", tv)
+        furl = _tag_filter_url(entry.get("tag_key") or "Owner", tv)
         lines += ["", f"See all your tagged assets in Tenable: {furl}"]
     lines.append(_SIGN)
 
@@ -1049,7 +1051,7 @@ def send(p):
     """DOUBLE-gated send. Requires confirm=True (UI approval) AND the server email gate
     (NAVI_ALLOW_WRITES=1 + NAVI_EMAIL=1). Sends the exact messages previewed."""
     from core import navi_cli
-    if not p.get("confirm"):
+    if not confirmed(p):
         return {"ok": False, "error": "confirm=true required to send email"}, 400
     if not navi_cli.email_enabled():
         return {"ok": False, "blocked": True, "reason": navi_cli.email_gate_reason(),
@@ -1103,7 +1105,7 @@ def graph(p):
     short light-theme note pointing at it."""
     from core import navi_cli
     import tempfile, os, base64, re as _re
-    if not p.get("confirm"):
+    if not confirmed(p):
         return {"ok": False, "error": "confirm=true required to send email"}, 400
     if not navi_cli.email_enabled():
         return {"ok": False, "blocked": True, "reason": navi_cli.email_gate_reason(), **_gate()}, 200
@@ -1249,7 +1251,7 @@ def dashboard(p):
     components (title / note / viz / columns / rows)."""
     from core import navi_cli
     import tempfile, os
-    if not p.get("confirm"):
+    if not confirmed(p):
         return {"ok": False, "error": "confirm=true required to send email"}, 400
     if not navi_cli.email_enabled():
         return {"ok": False, "blocked": True, "reason": navi_cli.email_gate_reason(), **_gate()}, 200
@@ -1290,7 +1292,7 @@ def data(p):
     gate as the other sends (confirm=True AND NAVI_ALLOW_WRITES=1 + NAVI_EMAIL=1)."""
     from core import navi_cli
     import tempfile, os, csv, re as _re
-    if not p.get("confirm"):
+    if not confirmed(p):
         return {"ok": False, "error": "confirm=true required to send email"}, 400
     if not navi_cli.email_enabled():
         return {"ok": False, "blocked": True, "reason": navi_cli.email_gate_reason(), **_gate()}, 200

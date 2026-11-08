@@ -4,15 +4,31 @@
 <title>Identity Inventory · Navi Agents</title>
 <link rel="stylesheet" href="/static/console.css"/>
 <style>
-  /* Keep the identity table inside the card — fixed layout + wrapping Flags so the
-     Tag / ↗ action column stays on-screen instead of forcing horizontal scroll.
-     table-layout:fixed is set inline on the <table> so it actually wins. */
+  .plink{color:var(--accent);text-decoration:none}.plink:hover{text-decoration:underline}
+  :root{--k-human:#8b8fe6;--k-svc:#3fb0c9;--k-mach:#a97fd6;--k-blind:#e5484d;--k-cred:#30a46c}
+  .mkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-top:10px}
+  .mk{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--panel-2)}
+  .mk .v{font-size:22px;font-weight:800;color:var(--ink);line-height:1.1}.mk .v small{font-size:13px;font-weight:600;color:var(--mut)}
+  .mk .l{font-size:11.5px;color:var(--mut);margin-top:2px}
+  .mk .u{font-size:11.5px;color:var(--ink-2,var(--ink));margin-top:4px}.mk .u b{color:var(--ink)}
+  .mk[data-f]{cursor:pointer;border-left:4px solid var(--rc,var(--line))}.mk[data-f]:hover{border-color:var(--accent)}.mk.on{box-shadow:0 0 0 2px var(--accent)}
+  .mhead{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 0}
+  .glance{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin-top:10px}
+  .gl{border:1px solid var(--line);border-radius:12px;padding:10px 12px}.gl h4{margin:0 0 6px;font-size:12.5px}
+  .sbar{display:flex;height:16px;border-radius:6px;overflow:hidden;background:var(--panel-2)}
+  .sbar span{display:block;height:100%}.sbar span+span{border-left:2px solid var(--panel,#fff)}
+  .slg{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11.5px;margin-top:6px;color:var(--ink-2,var(--ink))}
+  .slg i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px}.slg b{font-family:var(--mono)}
+  .hb{display:grid;grid-template-columns:150px 1fr 40px;gap:6px;align-items:center;font-size:11.5px;margin:3px 0}
+  .hb .t{height:10px;border-radius:4px;background:var(--panel-2);overflow:hidden}.hb .t i{display:block;height:100%;background:var(--crit);border-radius:4px}
+  .hb b{font-family:var(--mono);text-align:right}
+  .fchip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--accent);color:var(--accent);border-radius:999px;padding:3px 10px;font-size:12px}
+  .fchip button{border:0;background:transparent;color:inherit;cursor:pointer;font-size:13px;padding:0}
   #tbl th,#tbl td{vertical-align:top;overflow:hidden;text-overflow:ellipsis}
   #tbl td.c-nw{white-space:nowrap}
   #tbl td.c-wrap{white-space:normal}
   #tbl .flagwrap{display:flex;flex-wrap:wrap;gap:4px;align-items:center}
   #tbl .flagwrap .chip{margin:0;white-space:nowrap}
-  /* the Tag action column stays pinned on-screen even when the table scrolls */
   #tbl td:last-child,#tbl th:last-child{position:sticky;right:0;background:var(--panel);box-shadow:-8px 0 10px -8px rgba(0,0,0,.45)}
   #colPick .atagchip{font-size:11px}
 </style>
@@ -22,57 +38,79 @@
 
   <section class="card" style="background:var(--panel)">
     <div class="toolbar"><div><div class="acode" style="font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--amber);font-weight:700">Janus</div><h2 style="margin:0">🆔 Identity inventory</h2>
-      <p class="sub" style="margin:2px 0 0">Discovers identities by <b>content, not a memorized plugin list</b> — sweeps plugin <b>names</b> and raw <b>output</b>, then the high-value enumerators (passwd <span class="mono">95928</span>, SMB users <span class="mono">10860</span>, non-expiring <span class="mono">83303</span>, host SID <span class="mono">10859</span>, SNMP <span class="mono">41028</span>). Classifies <b>Human / Service-NHI / Machine</b> — built-ins are labelled by <b>external authority</b> (Microsoft well-known SIDs/RIDs, AD machine <span class="mono">$</span> accounts, the Linux <span class="mono">login.defs</span> UID convention), not just our guess lists — flags the risky ones (non-expiring, privileged, guest, default-secret), and headlines the <b>coverage gap</b> — hosts scanned without credentials. Tagged via navi <span class="mono">tag --query</span>; <b>gated writes.</b></p></div>
-      <button class="btn run sm" id="run" style="margin-left:auto">▶ Run</button></div>
+      <p class="sub" style="margin:2px 0 0">Discovers identities by <b>content, not a memorized plugin list</b>: plugin <b>names</b> and raw <b>output</b>, then the high-value enumerators (passwd <span class="mono">95928</span>, SMB users <span class="mono">10860</span>, non-expiring <span class="mono">83303</span>, host SID <span class="mono">10859</span>, SNMP <span class="mono">41028</span>). Classifies <b>Human / Service-NHI / Machine</b> using external authorities (Microsoft well-known SIDs/RIDs, AD machine <span class="mono">$</span> accounts, the Linux <span class="mono">login.defs</span> UID convention), flags the risky ones, and shows the <b>coverage gap</b> (hosts scanned without credentials). Tags <b>the assets</b> each identity lives on via navi <span class="mono">tag --query</span>; writes are gated and tracked in the <a href="/web/tags-log.html">Tagging log</a>.</p></div>
+      <button class="btn run sm" id="run" data-run style="margin-left:auto">▶ Run</button></div>
     <div id="flash" class="flash"></div>
-    <div class="kpi" id="kpi"></div>
-    <div class="toolbar" id="identClass" style="display:none"><span class="sub">Tag by class:</span>
-      <button class="btn sm" data-cls="nhi" data-cat="NHI">Tag all NHI</button>
-      <button class="btn sm" data-cls="human" data-cat="Owner">Tag all Human → Owner:&lt;name&gt;</button>
-      <button class="btn sm" data-cls="service" data-cat="Identity">Tag all Service</button>
-      <button class="btn sm" data-cls="machine" data-cat="Machine ID">Tag all Machine</button>
-      <button class="btn sm" id="tagReused" title="Tag every host touched by a reused credential — Identity Risk : Credential Reuse (gated)" style="border-color:var(--crit)">🔁 Tag reused hosts</button></div>
-    <div id="identCov" class="callbox" style="display:none;margin-top:10px"></div>
-    <div id="tagRes"></div>
+    <div id="metrics"><div class="setupcard"><div class="big">Press ▶ Run</div><p class="sub">See every human, service and machine identity on your credentialed hosts, which ones are privileged, reused or never expire, which sit on exploitable or crown-jewel hosts, and how much of the estate you can't see.</p></div></div>
+    <div id="glance"></div>
   </section>
 
   <section class="card" id="nlCard" style="display:none">
-    <h3 style="margin:0 0 4px">Tag with a sentence <span class="sub">— natural language</span></h3>
+    <h3 style="margin:0 0 4px">✨ Ask — tag identities with a sentence</h3>
     <p class="sub" style="margin:0 0 8px">e.g. <i>"tag every non-human identity as NHI : automation, and tag root/admin as Identity : privileged"</i>. The model proposes per-identity tags; approve before any gated write.</p>
     <textarea id="nl" rows="2" placeholder="Describe how to tag these identities…" style="width:100%;box-sizing:border-box;font-size:15px;padding:10px;border-radius:8px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink)"></textarea>
-    <div class="toolbar" style="margin-top:8px"><button class="btn sm" id="nlGo">Interpret</button><span class="chip" id="nlHint"></span></div>
+    <div class="toolbar" style="margin-top:8px"><button class="btn sm" id="nlGo">✨ Ask</button><span class="chip" id="nlHint"></span></div>
     <div id="nlPrev"></div>
   </section>
 
-  <section class="card">
-    <div class="toolbar" style="margin:0"><h3 style="margin:0">Identities <span class="sub" id="count"></span></h3>
+  <section class="card" id="secIds" data-nav="Identities" data-nav-icon="🆔">
+    <div class="toolbar" style="margin:0"><h2 style="margin:0">Identities <span class="sub" id="count"></span></h2>
       <span id="idFilter" style="margin-left:auto;display:flex;gap:5px;flex-wrap:wrap">
         <button class="atagchip on" data-if="all">All</button>
         <button class="atagchip" data-if="human">👤 Human</button>
         <button class="atagchip" data-if="service">⚙ Service / NHI</button>
         <button class="atagchip" data-if="machine">🖥 Machine</button>
-        <button class="atagchip" data-if="reused">🔁 Reused</button>
+        <button class="atagchip" data-if="reused">🔁 Account reuse</button>
         <button class="atagchip" data-if="flagged">⚠ Risk-flagged</button></span></div>
-    <p class="sub" style="margin:4px 0 8px">Each identity maps to the asset(s) it was enumerated on. <b>Tag</b> labels those assets (pinned to the right, always visible); ↗ opens the asset in Tenable One.</p>
-    <div class="toolbar" id="colPick" style="margin:0 0 8px;gap:5px;flex-wrap:wrap"></div>
+    <p class="sub" style="margin:4px 0 8px">Each identity maps to the asset(s) it was enumerated on. <b>🏷️ Tag</b> tags those assets (pinned right); ↗ opens the asset in Tenable One. Click a metric card above to filter.</p>
+    <div class="toolbar" style="flex-wrap:wrap;gap:6px"><span id="filt"></span><span class="sub">By class:</span>
+      <button class="btn ghost sm" data-cls="nhi" data-cat="NHI">🏷️ Tag NHI</button>
+      <button class="btn ghost sm" data-cls="human" data-cat="Owner">🏷️ Tag Human → Owner : &lt;name&gt;</button>
+      <button class="btn ghost sm" data-cls="service" data-cat="Identity">🏷️ Tag Service</button>
+      <button class="btn ghost sm" data-cls="machine" data-cat="Machine ID">🏷️ Tag Machine</button>
+      <button class="btn sm" id="tagShown">🏷️ Tag shown → Identity : &lt;name&gt;</button></div>
+    <div class="toolbar" id="colPick" style="margin:6px 0 8px;gap:5px;flex-wrap:wrap"></div>
     <div style="overflow-x:auto"><table id="tbl" style="table-layout:fixed;width:100%"></table></div>
   </section>
-  <footer>Janus · Identity inventory · reads navi.db read-only · gated <span class="mono">navi enrich tag --query</span></footer>
+
+  <section class="card" id="secReuse" data-nav="Account reuse" data-nav-icon="🔁">
+    <h2>Account reuse <span class="sub" id="reuseCount"></span></h2>
+    <p class="sub">The same account <b>name</b> on five or more hosts. That is <b>account reuse</b>, not proof of a shared password: navi.db shows which accounts exist, not their passwords. Treat it as a lateral-movement path to check, not as a known shared password. The scan account (Nessus plugin 19506) is excluded, because its host count comes from scanning.</p>
+    <div class="toolbar"><button class="btn sm" id="tagReused" disabled>🏷️ Tag account-reuse hosts → Identity Risk : Account Reuse</button></div>
+    <table id="reuseTbl"><thead><tr><th>Account</th><th>Class</th><th>Hosts</th><th>Crown-jewel hosts</th><th>Also</th><th></th></tr></thead><tbody></tbody></table>
+  </section>
+
+  <section class="card" id="secAuth" data-nav="Auth weaknesses" data-nav-icon="🛡">
+    <h2>Authentication weaknesses by host <span class="sub" id="authCount"></span></h2>
+    <p class="sub">Host-level signals that make the identities on them easier to abuse. Tag the hosts <span class="tagval">Identity Risk : &lt;signal&gt;</span>.</p>
+    <table id="authTbl" class="nopage"><thead><tr><th>Signal</th><th>What it means</th><th>Hosts</th><th>Identities affected</th><th></th></tr></thead><tbody></tbody></table>
+  </section>
+
+  <section class="card" id="secCov" data-nav="Coverage gap" data-nav-icon="🕳">
+    <h2>Coverage gap <span class="sub" id="covCount"></span></h2>
+    <div id="covBody" class="sub"></div>
+    <div class="toolbar" style="margin-top:8px"><button class="btn sm" id="tagBlind" disabled>🏷️ Tag uncredentialed hosts → Identity Coverage : No Credentials</button></div>
+    <h3 style="margin:14px 0 4px;font-size:14px">Scan credentials</h3>
+    <p class="sub" style="margin:0 0 6px">Accounts Nessus logged in with (plugin 19506). Excluded from reuse because their host count comes from scanning.</p>
+    <table id="scanTbl" class="nopage"><thead><tr><th>Account</th><th>Hosts</th><th>Via</th></tr></thead><tbody></tbody></table>
+  </section>
+
+  <footer>Janus · Identity inventory · reads navi.db read-only · gated navi enrich tag --query · tracked in the Tagging log</footer>
 </div>
 <script src="/static/console.js"></script>
 <script>
-const API=agentApi('identity'); let IDENT=null, WRITES=false, IDENT_FILTER='all';
-/* ---- column model: tighter widths + hide/show (persisted). 'always' columns can't hide;
-   the Tag action column is sticky-right so tagging never scrolls out of view. ---- */
+const API=agentApi('identity'); let IDENT=null, WRITES=false, IDENT_FILTER='all', FILTER=null;
+const N=v=>(v==null?0:v).toLocaleString();
 const COLS=[
   {k:'identity',label:'Identity',w:150,always:true},
   {k:'class',   label:'Class',   w:92},
   {k:'flags',   label:'Flags'},
   {k:'hosts',   label:'Hosts',   w:100},
-  {k:'assets',  label:'Assets',  w:46},
+  {k:'assets',  label:'Assets',  w:52},
+  {k:'acr',     label:'Max ACR', w:66},
   {k:'plugins', label:'Plugins', w:86},
   {k:'plat',    label:'↗',       w:52},
-  {k:'act',     label:'',        w:58, always:true}];
+  {k:'act',     label:'',        w:48, always:true}];
 function colHidden(){ try{const v=JSON.parse(localStorage.getItem('janusCols')); if(Array.isArray(v))return new Set(v);}catch(e){} return new Set(['plugins']); }
 function colSaveHidden(s){ try{localStorage.setItem('janusCols',JSON.stringify([...s]));}catch(e){} }
 function visCols(){ const h=colHidden(); return COLS.filter(c=>c.always||!h.has(c.k)); }
@@ -85,18 +123,31 @@ function buildHead(msg){
 function mountColPick(){
   const el=document.getElementById('colPick'); if(!el)return; const h=colHidden();
   el.innerHTML='<span class="sub">Columns:</span>'+COLS.filter(c=>!c.always).map(c=>
-    '<button class="atagchip'+(h.has(c.k)?'':' on')+'" data-col="'+c.k+'">'+(c.label||c.k)+'</button>').join('')
-    +'<span class="sub" style="font-size:11px">· Tag stays pinned right</span>';
+    '<button class="atagchip'+(h.has(c.k)?'':' on')+'" data-col="'+c.k+'">'+(c.label||c.k)+'</button>').join('');
   el.querySelectorAll('button[data-col]').forEach(b=>b.onclick=()=>{
-    const s=colHidden(); const k=b.dataset.col;
-    if(s.has(k))s.delete(k); else s.add(k);
-    colSaveHidden(s); mountColPick();
-    if(IDENT){ hPageReset('tbl'); render(); } else buildHead('Press ▶ Run to load…');
-  });
+    const s=colHidden(); const k=b.dataset.col; if(s.has(k))s.delete(k); else s.add(k);
+    colSaveHidden(s); mountColPick(); if(IDENT){ hPageReset('tbl'); renderTable(); } else buildHead('Press ▶ Run to load…'); });
 }
 const idCat=k=>k==='nhi'?'NHI':k==='machine'?'Machine ID':'Identity';
-const KC={human:'var(--cx-8b8fe6)',service:'var(--cx-3fb0c9)',nhi:'var(--cx-3fb0c9)',machine:'var(--cx-a97fd6)'};
-const plat=u=>u?`<a href="${esc(u)}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none">Open ↗</a>`:'<span class="sub">—</span>';
+const KC={human:'var(--k-human)',service:'var(--k-svc)',nhi:'var(--k-svc)',machine:'var(--k-mach)'};
+const plat=u=>safeUrl(u,'')?`<a href="${esc(safeUrl(u))}" target="_blank" rel="noopener noreferrer" class="plink">Open ↗</a>`:'<span class="sub">—</span>';
+const has=(x,f)=>(x.flags||[]).indexOf(f)>=0;
+const isReused=x=>(x.flags||[]).some(f=>/^account reuse/.test(f));
+const grp=k=>k==='human'?'human':(k==='machine'?'machine':'service');
+const FILTERS={
+  privileged:['Privileged accounts',x=>has(x,'privileged')], nonexp:['Passwords never expire',x=>has(x,'non-expiring pw')],
+  reused:['Account reuse (≥ 5 hosts)',isReused], kev:['On a CISA KEV host',x=>x.klass!=='machine'&&has(x,'on KEV host')],
+  crit:['On a host with critical findings',x=>x.klass!=='machine'&&has(x,'on critical host')],
+  crown:['On a crown-jewel host (ACR ≥ 7)',x=>x.klass!=='machine'&&x.crown_hosts>0],
+  privexp:['Privileged on an exploitable host',x=>x.klass!=='machine'&&has(x,'privileged')&&(has(x,'on KEV host')||has(x,'on critical host'))],
+  ssh:['On hosts accepting SSH passwords',x=>has(x,'ssh password auth')], dflt:['Default / blank credentials',x=>has(x,'default/blank cred')||has(x,'default secret')],
+  ad:['AD attack path',x=>has(x,'AD attack path')] };
+const SIGNALS=[
+  ['ssh password auth','SSH password authentication','Host accepts SSH passwords (plugin 149334) — brute-forceable, no key required.','SSH Password Auth'],
+  ['weak pw policy','Weak password policy','No complexity, zero minimum length or never-expiring passwords (plugin 17651).','Weak Password Policy'],
+  ['default/blank cred','Default / blank credentials','Default, blank or anonymous login found on the host.','Default Credentials'],
+  ['AD attack path','AD attack path','Kerberoastable, AS-REP roastable or delegation exposure.','AD Attack Path'],
+  ['on KEV host','CISA KEV on the host','An actively exploited vulnerability gives an attacker the accounts on this host.','KEV Host'] ];
 
 async function run(){
   const b=document.getElementById('run'); b.disabled=true;
@@ -105,41 +156,76 @@ async function run(){
   let o; try{ o=await API.post('run'); }catch(e){ o={ok:false,error:e.message}; }
   b.disabled=false;
   if(!o||!o.ok||!o.result){ flash('flash','✗ '+esc((o&&(o.error||o.message))||'failed'),'crit'); buildHead('Run failed — see message above.'); return; }
-  IDENT=o.result; window.__LLM=!!o.llm_available; flashClear('flash'); hPageReset('tbl'); render();
+  IDENT=o.result; window.__LLM=!!o.llm_available; FILTER=null; IDENT_FILTER='all';
+  ['tbl','reuseTbl'].forEach(hPageReset);
+  if(IDENT.metrics_error) flash('flash','⚠ '+esc(IDENT.metrics_error),'warn');
+  else if(!(IDENT.accounts||[]).length) flash('flash','No identities enumerated. Identities only come from credentialed scans — see the coverage gap below.','warn');
+  else flashClear('flash');
+  render();
 }
-function render(){
-  const a=IDENT.accounts||[], c=IDENT.counts||{}; const svc=(c.nhi||0)+(c.service||0);
-  const hasF=(x,fl)=>x.flags&&x.flags.indexOf(fl)>=0;
-  const crown=a.filter(x=>x.klass!=='machine'&&hasF(x,'privileged')&&(hasF(x,'on KEV host')||hasF(x,'on critical host'))).length;
-  const reused=a.filter(x=>x.flags&&x.flags.some(fl=>fl.indexOf('reused')===0)).length;
-  document.getElementById('kpi').innerHTML=
-    `<div class="k"><div class="v">${c.total||0}</div><div class="l">identities</div></div>`+
-    `<div class="k"><div class="v" style="color:var(--cx-8b8fe6)">${c.human||0}</div><div class="l">human / interactive</div></div>`+
-    `<div class="k"><div class="v" style="color:var(--cx-3fb0c9)">${svc}</div><div class="l">service / NHI</div></div>`+
-    `<div class="k"><div class="v" style="color:var(--cx-a97fd6)">${c.machine||0}</div><div class="l">machine identity</div></div>`+
-    `<div class="k"><div class="v" style="color:var(--crit)">${IDENT.blind||0}</div><div class="l">blind hosts (no creds)</div></div>`+
-    (c.flagged?`<div class="k"><div class="v" style="color:var(--crit)">${c.flagged}</div><div class="l">risk-flagged</div></div>`:'')+
-    `<div class="k"${reused?' style="border-color:var(--crit)"':''}><div class="v" style="color:${reused?'var(--crit)':'var(--ink)'}">${reused}</div><div class="l">🔁 credential reuse${c.reused_hosts?` <span class="sub">· ${c.reused_hosts} host(s)</span>`:''}</div></div>`+
-    (crown?`<div class="k" style="border-color:var(--crit)"><div class="v" style="color:var(--crit)">${crown}</div><div class="l">👑 crown-jewel ids</div></div>`:'');
-  const cov=document.getElementById('identCov'); const fr=IDENT.fresh?String(IDENT.fresh).slice(0,10):'unknown';
-  cov.style.display='block';
-  cov.innerHTML='<b>Coverage gap:</b> only credentialed hosts yield accounts. <b style="color:var(--crit)">'+(IDENT.blind||0)+'</b> host(s) were reachable but scanned <b>without credentials</b> (plugins 104410 / 110723) — their identities stay invisible until you enable credentialed checks and re-run, so treat this inventory as a floor. <span class="sub">navi.db snapshot: '+esc(fr)+' — a point-in-time view; hosts that aged out of the last sync won\'t appear.</span>';
-  if(IDENT.sshHosts||IDENT.weakHosts){ cov.innerHTML+='<div style="margin-top:6px"><b>Auth weaknesses:</b> '+(IDENT.sshHosts?('<b style="color:var(--cx-ffb4c6)">'+IDENT.sshHosts+'</b> host(s) accept SSH password auth'):'')+((IDENT.sshHosts&&IDENT.weakHosts)?' · ':'')+(IDENT.weakHosts?('<b style="color:var(--cx-ffb4c6)">'+IDENT.weakHosts+'</b> host(s) run a weak password policy (no complexity / never-expire)'):'')+'.</div>'; }
-  const bits=[]; if(reused)bits.push('<b>'+reused+'</b> account(s) reused across ≥5 hosts (lateral movement)'); if(IDENT.dcHosts)bits.push('<b style="color:var(--cx-ffb4c6)">'+IDENT.dcHosts+'</b> host(s) with default/blank/anonymous creds'); if(IDENT.adHosts)bits.push('<b>'+IDENT.adHosts+'</b> host(s) with AD attack-path exposure'); if(IDENT.kevHostN)bits.push('<b style="color:var(--cx-ffb4c6)">'+IDENT.kevHostN+'</b> host(s) carry a CISA-KEV finding');
-  if(bits.length)cov.innerHTML+='<div style="margin-top:6px"><b>Correlated signals:</b> '+bits.join(' · ')+'.</div>';
-  const sc=IDENT.scan_creds||[];
-  if(sc.length)cov.innerHTML+='<div style="margin-top:6px"><b style="color:var(--ok)">Scan credentials (excluded from reuse):</b> '+sc.slice(0,5).map(s=>'<b>'+esc(s.user)+'</b> ×'+s.hosts+(s.via&&s.via.length?' <span class="sub">via '+esc(s.via.join('/'))+'</span>':'')).join(' · ')+(sc.length>5?' · +'+(sc.length-5)+' more':'')+'. <span class="sub">Identified from Nessus Scan Information (plugin 19506) — their high host-count is scanning, not lateral movement.</span></div>';
-  document.getElementById('count').textContent='('+a.length+')';
-  document.getElementById('identClass').style.display=a.length?'flex':'none';
-  const nlc=document.getElementById('nlCard'); nlc.style.display=a.length?'block':'none';
-  document.getElementById('nlHint').textContent=window.__LLM?'model ready':'no model — use the Tag buttons';
-  const _grp=k=>k==='human'?'human':(k==='machine'?'machine':'service');
-  const _risky=x=>!!(x.flags&&x.flags.some(fl=>fl!=='scan credential'));
-  const _reused=x=>!!(x.flags&&x.flags.some(fl=>fl.indexOf('reused')===0));
-  const _im=x=> IDENT_FILTER==='all' ? true : (IDENT_FILTER==='flagged' ? _risky(x) : (IDENT_FILTER==='reused' ? _reused(x) : _grp(x.klass)===IDENT_FILTER));
-  // paginated — 484 identities is a long screen, so slice to 50/page with a Prev/Next bar.
-  // Keep each identity's ORIGINAL index (i) so the Tag button still resolves across pages.
-  const rows=a.map((x,i)=>({x,i})).filter(o=>_im(o.x));
+
+function renderMetrics(){
+  const c=IDENT.counts||{}, m=IDENT.metrics||{}, svc=(c.nhi||0)+(c.service||0);
+  const k=(v,l,u,o)=>{o=o||{}; return `<div class="mk${o.f&&FILTER===o.f?' on':''}${o.g&&IDENT_FILTER===o.g?' on':''}"${o.f?` data-f="${o.f}"`:''}${o.g?` data-g="${o.g}" data-f="g"`:''} style="${o.c?'--rc:'+o.c:''}"${o.t?` title="${esc(o.t)}"`:''}><div class="v">${v}</div><div class="l">${l}</div>${u?`<div class="u">${u}</div>`:''}</div>`;};
+  document.getElementById('metrics').innerHTML=
+    '<div class="mhead">Inventory — click a card to filter the identity list</div><div class="mkpi">'+
+    k(N(c.total),'identities', `on <b>${N(m.identity_hosts)}</b> hosts`)+
+    k(N(c.human),'human / interactive', 'positively identified people and admins', {g:'human',c:'var(--k-human)'})+
+    k(N(svc),'service / non-human', `<b>${N(c.nhi)}</b> known NHI (CI, web, DB daemons)`, {g:'service',c:'var(--k-svc)'})+
+    k(N(c.machine),'machine identities', 'host SIDs, SNMP communities', {g:'machine',c:'var(--k-mach)'})+
+    '</div><div class="mhead">Visibility</div><div class="mkpi">'+
+    k(m.coverage_pct!=null?m.coverage_pct+'%':'—','credential coverage', `<b>${N(m.credentialed)}</b> credentialed · <b>${N(m.blind)}</b> uncredentialed`, {c:'var(--k-cred)',t:'credentialed hosts ÷ (credentialed + uncredentialed). Only credentialed scans can enumerate accounts.'})+
+    k(N(m.blind),'hosts you can\'t see into', 'scanned without credentials (104410 / 110723)', {c:'var(--k-blind)'})+
+    k(N(m.scan_creds),'scan credentials', 'Nessus login accounts, excluded from reuse')+
+    k(N(c.flagged),'risk-flagged identities', 'at least one risk signal', {g:'flagged',c:'var(--crit)'})+
+    '</div><div class="mhead">Account hygiene</div><div class="mkpi">'+
+    k(N(m.privileged),'privileged accounts', `root / Administrator on <b>${N(m.privileged_hosts)}</b> hosts`, {f:'privileged',c:'var(--crit)'})+
+    k(N(m.reused),'accounts reused across hosts', `on <b>${N(m.reused_hosts)}</b> hosts · widest <b>${N(m.max_reuse)}</b> · same account name, not a known shared password`, {f:'reused',c:'#e0913a'})+
+    k(N(m.nonexpiring),'passwords never expire', 'plugin 83303', {f:'nonexp',c:'#e0913a'})+
+    k(N((m.signals||{})['ssh password auth']),'hosts accept SSH passwords', '', {f:'ssh',c:'#e0913a'})+
+    '</div><div class="mhead">Priority</div><div class="mkpi">'+
+    k(N(m.priv_exploitable),'privileged on an exploitable host', 'KEV or critical finding on the same host', {f:'privexp',c:'var(--crit)'})+
+    k(N(m.on_kev),'identities on a CISA KEV host', `<b>${N((m.signals||{})['on KEV host'])}</b> KEV hosts`, {f:'kev',c:'var(--crit)'})+
+    k(N(m.crown_ids),'identities on crown jewels', `ACR ≥ 7 · <b>${N(m.crown_priv)}</b> privileged`, {f:'crown',c:'var(--crit)'})+
+    k(N(m.on_crit),'identities on a critical host', '', {f:'crit',c:'#e0913a'})+
+    '</div>';
+  document.querySelectorAll('#metrics .mk[data-f]').forEach(el=>el.onclick=()=>{
+    if(el.dataset.g){ IDENT_FILTER=IDENT_FILTER===el.dataset.g?'all':el.dataset.g; FILTER=null; }
+    else { FILTER=FILTER===el.dataset.f?null:el.dataset.f; }
+    hPageReset('tbl'); renderMetrics(); renderTable();
+    document.getElementById('secIds').scrollIntoView({behavior:'smooth',block:'start'}); });
+}
+
+function sbar(parts){ const tot=parts.reduce((s,p)=>s+p.n,0)||1;
+  return `<div class="sbar">${parts.filter(p=>p.n).map(p=>`<span style="width:${(100*p.n/tot).toFixed(2)}%;background:${p.c}" title="${esc(p.l)}: ${N(p.n)}"></span>`).join('')}</div>`+
+    `<div class="slg">${parts.map(p=>`<span><i style="background:${p.c}"></i>${esc(p.l)} <b>${N(p.n)}</b></span>`).join('')}</div>`; }
+function renderGlance(){
+  const c=IDENT.counts||{}, m=IDENT.metrics||{}, a=IDENT.accounts||[];
+  const fl={}; a.forEach(x=>(x.risky||[]).forEach(f=>{ const key=f.indexOf('account reuse')===0?'account reuse ≥ 5 hosts':f; fl[key]=(fl[key]||0)+1; }));
+  const top=Object.entries(fl).sort((p,q)=>q[1]-p[1]).slice(0,6), mx=Math.max(1,...top.map(t=>t[1]));
+  const gl=(t,b,s)=>`<div class="gl"><h4>${t}</h4>${b}${s?`<div class="sub" style="font-size:11px;margin-top:4px">${s}</div>`:''}</div>`;
+  document.getElementById('glance').innerHTML='<div class="mhead">At a glance</div><div class="glance">'+
+    gl('Identities by class', sbar([{l:'Human',n:c.human||0,c:'var(--k-human)'},{l:'Service / NHI',n:(c.service||0)+(c.nhi||0),c:'var(--k-svc)'},{l:'Machine',n:c.machine||0,c:'var(--k-mach)'}]), 'Built-ins classified by Microsoft SIDs/RIDs and the Linux UID convention.')+
+    gl('Credential coverage', sbar([{l:'Credentialed',n:m.credentialed||0,c:'var(--k-cred)'},{l:'Uncredentialed (blind)',n:m.blind||0,c:'var(--k-blind)'}]), 'Identities on blind hosts are invisible — treat the inventory as a floor.')+
+    gl('Most common risk flags', top.length?top.map(([f,n])=>`<div class="hb"><span>${esc(f)}</span><span class="t"><i style="width:${(100*n/mx).toFixed(0)}%"></i></span><b>${N(n)}</b></div>`).join(''):'<div class="sub">No risk flags.</div>', 'Identities carrying each flag.')+
+    '</div>';
+}
+
+function shown(){ const a=IDENT.accounts||[];
+  return a.map((x,i)=>({x,i})).filter(o=>{ const x=o.x;
+    if(IDENT_FILTER==='flagged'&&!(x.risky||[]).length) return false;
+    if(IDENT_FILTER==='reused'&&!isReused(x)) return false;
+    if(['human','service','machine'].includes(IDENT_FILTER)&&grp(x.klass)!==IDENT_FILTER) return false;
+    if(FILTER&&!FILTERS[FILTER][1](x)) return false; return true; }); }
+function renderTable(){
+  const a=IDENT.accounts||[], rows=shown();
+  document.querySelectorAll('#idFilter button').forEach(x=>x.classList.toggle('on',x.dataset.if===IDENT_FILTER));
+  const fe=document.getElementById('filt');
+  fe.innerHTML=FILTER?`<span class="fchip">${esc(FILTERS[FILTER][0])}<button id="clrF" title="Clear">✕</button></span>`:'';
+  const cf=document.getElementById('clrF'); if(cf) cf.onclick=()=>{ FILTER=null; hPageReset('tbl'); renderMetrics(); renderTable(); };
+  document.getElementById('count').textContent=rows.length===a.length?`(${N(a.length)})`:`(${N(rows.length)} of ${N(a.length)})`;
+  setNavCount('secIds', N(a.length));
+  document.getElementById('tagShown').disabled=!rows.length;
   buildHead('');
   const vc=visCols();
   const rowHtml=o=>{ const x=o.x, i=o.i;
@@ -149,44 +235,95 @@ function render(){
        (x.authority?'<div class="sub" style="font-size:10px;margin-top:2px" title="'+esc(x.authority)+'">📖 '+esc(x.authority.length>44?x.authority.slice(0,42)+'…':x.authority)+'</div>':'')+'</td>',
       flags:'<td class="c-wrap"><div class="flagwrap">'+((x.flags&&x.flags.length)?x.flags.map(fl=>{const benign=fl==='scan credential';const lbl=(benign&&x.scan_credential)?('scan credential ×'+x.scan_credential.hosts+((x.scan_credential.via||[]).length?' ('+x.scan_credential.via.join('/')+')':'')):fl;return '<span class="chip"'+(benign?' title="Nessus scan account (plugin 19506) — high host-count is scanning, not reuse"':'')+' style="'+(benign?'color:var(--ok);border-color:rgba(52,211,153,.4)':'color:var(--cx-ffb4c6);border-color:rgba(255,80,120,.4)')+'">'+esc(lbl)+'</span>';}).join(''):'<span class="sub">—</span>')+'</div></td>',
       hosts:'<td class="sub c-nw" title="'+esc((x.hosts||[]).join(', '))+'">'+esc((x.hosts||[]).slice(0,4).join(', '))+((x.hosts||[]).length>4?' +'+(x.hosts.length-4):'')+'</td>',
-      assets:'<td>'+((x.asset_uuids||[]).length)+'</td>',
+      assets:'<td>'+N((x.asset_uuids||[]).length)+'</td>',
+      acr:'<td>'+(x.max_acr==null||!x.max_acr?'<span class="sub">—</span>':(x.max_acr>=7?'<b style="color:var(--crit)">'+x.max_acr+'</b>':x.max_acr))+'</td>',
       plugins:'<td class="mono sub c-nw" style="font-size:11px" title="'+esc((x.plugins||[]).join(', '))+'">'+esc((x.plugins||[]).join(', '))+'</td>',
       plat:'<td>'+plat(x.url)+'</td>',
-      act:'<td><button class="btn sm" data-ii="'+i+'">Tag</button></td>'};
+      act:'<td><button class="btn ghost sm" data-ii="'+i+'" title="Tag '+esc(idCat(x.klass))+' : '+esc(x.user)+'">🏷️ Tag</button></td>'};
     return '<tr>'+vc.map(c=>CELL[c.k]).join('')+'</tr>'; };
-  const emptyMsg=a.length?'<tr><td colspan="'+vc.length+'" class="sub">No identities of this type in the current view — clear the filter.</td></tr>':'<tr><td colspan="'+vc.length+'" class="sub">No identities enumerated — are these hosts credentialed?</td></tr>';
-  hPaginate('tbl', rows, rowHtml, {cols:vc.length, empty:emptyMsg, wire:tb=>{ tb.querySelectorAll('button[data-ii]').forEach(b=>b.onclick=()=>{const x=a[+b.dataset.ii];tagOne(idCat(x.klass),x.user,x.asset_uuids,b);}); }});
-  document.querySelectorAll('#idFilter button[data-if]').forEach(b=>b.onclick=()=>{ IDENT_FILTER=b.dataset.if; document.querySelectorAll('#idFilter button').forEach(x=>x.classList.toggle('on',x===b)); hPageReset('tbl'); render(); });
+  const emptyMsg=a.length?'<tr><td colspan="'+vc.length+'" class="sub">Nothing matches this filter.</td></tr>':'<tr><td colspan="'+vc.length+'" class="sub">No identities enumerated — are these hosts credentialed?</td></tr>';
+  hPaginate('tbl', rows, rowHtml, {cols:vc.length, empty:emptyMsg, wire:tb=>{ tb.querySelectorAll('button[data-ii]').forEach(b=>b.onclick=()=>{const x=a[+b.dataset.ii]; tagOne(idCat(x.klass),x.user,x.asset_uuids,b);}); }});
 }
-function showRes(o,label){ const r=document.getElementById('tagRes');
-  const scroll=()=>{ if(r)r.scrollIntoView({behavior:'smooth',block:'center'}); };
-  if(!o||!o.ok){ r.innerHTML='<div class="callbox" style="color:var(--crit)">✗ '+esc((o&&(o.error||o.message))||'failed')+'</div>'; scroll(); return; }
-  const applied=(o.applied!=null)?o.applied:((o.result&&o.result.ok!==false)?1:0);
-  const tot=(o.total!=null)?o.total:1;
-  r.innerHTML='<div class="callbox" style="color:'+(applied?'var(--ok)':'var(--cx-ffb4c6)')+'">'+(applied?('✓ tagged '+applied+'/'+tot+' '+esc(label)):('✗ '+esc((o.result&&(o.result.message||o.result.stderr))||'write rejected')))+'</div>'
-    +(o.writes_enabled?'':'<div class="sub" style="margin-top:6px;color:var(--warn)">Writes are gated — set <span class="mono">NAVI_ALLOW_WRITES=1</span> to apply. Tags show in the <a href="/web/tags-log.html">Tagging log</a> after a navi.db sync.</div>');
-  scroll(); }
-async function tagOne(category,value,uuids,btn){ if(btn){if(btn.disabled)return;btn.disabled=true;btn.textContent='tagging…';btn.style.opacity='.6';btn.style.transform='translateY(1px)';btn.style.cursor='default';}
-  let o; try{ o=await API.post('tag',{category,value,asset_uuids:uuids,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
-  if(btn){btn.textContent=o&&o.ok?'✓ tagged':'✗ failed';btn.style.opacity='';btn.style.transform='';}
-  showRes(o,'"'+value+'" → '+category); }
-async function tagClass(cls,cat,btn){ if(!IDENT)return; if(btn&&btn.disabled)return; const set=(IDENT.accounts||[]).filter(x=>x.klass===cls);
-  if(!set.length){ flash('flash','No '+cls+' identities to tag.','warn'); return; }
-  btn.disabled=true; const old=btn.textContent; btn.textContent='tagging…'; btn.style.opacity='.6'; btn.style.transform='translateY(1px)'; btn.style.cursor='default';
-  let o;
-  try{
-    if(cls==='human'){ // each human → Owner : <name>
-      const items=set.filter(x=>(x.asset_uuids||[]).length).map(x=>({category:cat,value:x.user,asset_uuids:x.asset_uuids}));
-      o=await API.post('tag',{items,confirm:true});
-    } else {
-      const uuids=[...new Set(set.flatMap(x=>x.asset_uuids||[]))];
-      const value=cls==='nhi'?'Non-human identity':(cls.charAt(0).toUpperCase()+cls.slice(1));
-      o=await API.post('tag',{category:cat,value,asset_uuids:uuids,confirm:true});
-    }
-  }catch(e){ o={ok:false,error:e.message}; }
-  btn.disabled=false; btn.textContent=old; btn.style.opacity=''; btn.style.transform=''; btn.style.cursor='';
-  showRes(o,cls==='human'?(set.length+' human → '+cat+':<name>'):('all '+cls));
+
+function renderReuse(){
+  const r=(IDENT.accounts||[]).filter(isReused).sort((p,q)=>q.reused-p.reused);
+  document.getElementById('reuseCount').textContent=`(${N(r.length)} account${r.length===1?'':'s'} · ${N((IDENT.counts||{}).reused_hosts)} hosts)`; setNavCount('secReuse', N(r.length));
+  document.getElementById('tagReused').disabled=!r.length;
+  hPaginate('reuseTbl', r, x=>`<tr><td class="mono"><b>${esc(x.user)}</b></td><td><span class="tagval" style="color:${KC[x.klass]||'var(--accent)'}">${esc(x.klass)}</span></td>`+
+      `<td><b>${N(x.reused||(x.asset_uuids||[]).length)}</b></td>`+
+      `<td>${x.crown_hosts?`<b style="color:var(--crit)">${N(x.crown_hosts)}</b>`:'0'}</td>`+
+      `<td><div class="flagwrap" style="display:flex;flex-wrap:wrap;gap:4px">${(x.risky||[]).filter(f=>!/^account reuse/.test(f)).map(f=>`<span class="chip" style="margin:0;color:var(--cx-ffb4c6)">${esc(f)}</span>`).join('')}</div></td>`+
+      `<td><button class="btn ghost sm" data-ru="${esc(x.user)}" title="Tag these hosts Identity Risk : Account Reuse : ${esc(x.user)}">🏷️ Tag</button></td></tr>`,
+    {cols:6, empty:'<tr><td colspan="6" class="sub">No account appears on five or more hosts (scan credentials excluded).</td></tr>',
+     wire:tb=>tb.querySelectorAll('button[data-ru]').forEach(b=>b.onclick=()=>{ const x=r.find(o=>o.user===b.dataset.ru); if(x) tagOne('Identity Risk','Account Reuse : '+x.user,x.reuse_uuids||x.asset_uuids,b); })});
 }
+
+function renderAuth(){
+  const hs=IDENT.host_sets||{}, a=IDENT.accounts||[];
+  const rows=SIGNALS.map(([key,label,note,val])=>({key,label,note,val,hosts:(hs[key]||[]).length,ids:a.filter(x=>x.klass!=='machine'&&has(x,key)).length}));
+  const live=rows.filter(r=>r.hosts);
+  document.getElementById('authCount').textContent=`(${N(live.length)} signal${live.length===1?'':'s'})`; setNavCount('secAuth', N(live.length));
+  document.querySelector('#authTbl tbody').innerHTML=rows.map(r=>`<tr${r.hosts?'':' style="opacity:.55"'}><td><b>${esc(r.label)}</b></td><td class="sub">${esc(r.note)}</td><td><b>${N(r.hosts)}</b></td><td>${N(r.ids)}</td>`+
+    `<td>${r.hosts?`<button class="btn ghost sm" data-sig="${esc(r.key)}">🏷️ Tag</button>`:''}</td></tr>`).join('');
+  document.querySelectorAll('#authTbl button[data-sig]').forEach(b=>b.onclick=()=>{ const r=rows.find(x=>x.key===b.dataset.sig); tagOne('Identity Risk',r.val,hs[r.key]||[],b); });
+}
+
+function renderCov(){
+  const m=IDENT.metrics||{}, fr=IDENT.fresh?String(IDENT.fresh).slice(0,10):'unknown', sc=IDENT.scan_creds||[];
+  document.getElementById('covCount').textContent=`(${N(m.blind)} uncredentialed host${m.blind===1?'':'s'})`; setNavCount('secCov', N(m.blind));
+  document.getElementById('tagBlind').disabled=!m.blind;
+  document.getElementById('covBody').innerHTML='Only credentialed hosts yield accounts. <b style="color:var(--crit)">'+N(m.blind)+'</b> host(s) were reachable but scanned <b>without credentials</b> (plugins 104410 / 110723); their identities stay invisible until you enable credentialed checks and re-run. '+
+    (m.coverage_pct!=null?'Credential coverage is <b>'+m.coverage_pct+'%</b> ('+N(m.credentialed)+' credentialed). ':'')+'<span class="sub">navi.db snapshot: '+esc(fr)+'.</span>';
+  document.querySelector('#scanTbl tbody').innerHTML=sc.length?sc.map(s=>`<tr><td class="mono"><b>${esc(s.user)}</b></td><td>${N(s.hosts)}</td><td>${esc((s.via||[]).join(', ')||'—')}</td></tr>`).join(''):'<tr><td colspan="3" class="sub">No credentialed scan accounts found in plugin 19506.</td></tr>';
+}
+
+function render(){
+  if(!IDENT) return; const a=IDENT.accounts||[];
+  document.getElementById('nlCard').style.display=a.length?'block':'none';
+  document.getElementById('nlHint').textContent=window.__LLM?'model ready':'no model — use the Tag buttons';
+  renderMetrics(); renderGlance(); renderTable(); renderReuse(); renderAuth(); renderCov();
+}
+
+/* ---- gated writes: one line of feedback; detail lives in the Tagging log ---- */
+async function gated(btn,label,call,okMsg){
+  if(btn&&btn.disabled) return null;
+  if(!confirm(label.charAt(0).toUpperCase()+label.slice(1)+'?'+(WRITES?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — jobs queue but are blocked.'))) return null;
+  const fb=document.getElementById('flash'); const scroll=()=>{ if(fb) fb.scrollIntoView({behavior:'smooth',block:'center'}); };
+  if(btn){ btn.dataset.label=btn.dataset.label||btn.textContent; btn.disabled=true; btn.textContent='⏳'; }
+  flash('flash','<span class="spin"></span> '+esc(label)+'…','run'); scroll();
+  let o; try{ o=await call(); }catch(e){ o={ok:false,error:e.message}; }
+  if(btn){ btn.disabled=false; btn.textContent=btn.dataset.label; }
+  if(!o||!o.ok){ flash('flash','✗ '+esc((o&&(o.error||(o.result&&o.result.message)))||'failed'),'crit'); scroll(); return o; }
+  flash('flash','✓ '+okMsg(o)+' — sent to the <a href="/web/tags-log.html">Tagging log</a>.'+(o.writes_enabled===false?' Writes are gated, so nothing reaches Tenable until NAVI_ALLOW_WRITES=1.':' Tags take ~30 min to land in Tenable.'),'ok'); scroll();
+  return o;
+}
+async function tagOne(category,value,uuids,btn){
+  const uu=[...new Set((uuids||[]).filter(Boolean))]; if(!uu.length){ flash('flash','Nothing to tag.','warn'); return; }
+  try{ await testRunStatus(); }catch(e){}
+  return gated(btn,`queue ${esc(tagCat(category))} : ${esc(value)} on ${uu.length} asset(s)`,()=>API.post('tag',{category,value,asset_uuids:uu,confirm:true}),
+    ()=>`queued <span class="tagval">${esc(category)} : ${esc(value)}</span> on ${N(uu.length)} asset(s)`);
+}
+async function tagItems(items,btn,label){
+  items=items.filter(x=>(x.asset_uuids||[]).length); if(!items.length){ flash('flash','Nothing to tag.','warn'); return; }
+  try{ await testRunStatus(); }catch(e){}
+  // name exactly what is written: the categories (test-run prefix included), how many tags, how many assets
+  const cats=[...new Set(items.map(x=>tagCat(x.category)))];
+  const nAssets=new Set(items.flatMap(x=>x.asset_uuids||[])).size;
+  const sample=items.slice(0,3).map(x=>tagCat(x.category)+' : '+x.value).join(', ')+(items.length>3?', …':'');
+  return gated(btn,`queue ${items.length} ${esc(cats.join(' / '))} tag(s) (${esc(sample)}) on ${nAssets} asset(s)`,()=>API.post('tag',{items,confirm:true}),o=>`queued ${N(o.applied)} of ${N(o.total)} ${label}`);
+}
+document.querySelectorAll('#secIds button[data-cls]').forEach(b=>b.onclick=()=>{
+  if(!IDENT) return; const cls=b.dataset.cls, cat=b.dataset.cat, set=(IDENT.accounts||[]).filter(x=>x.klass===cls);
+  if(!set.length){ flash('flash','No '+esc(cls)+' identities to tag.','warn'); return; }
+  if(cls==='human') return tagItems(set.map(x=>({category:cat,value:x.user,asset_uuids:x.asset_uuids})),b,'Owner tag(s)');
+  tagOne(cat,cls==='nhi'?'Non-human identity':(cls.charAt(0).toUpperCase()+cls.slice(1)),set.flatMap(x=>x.asset_uuids||[]),b);
+});
+document.getElementById('tagShown').onclick=function(){ const rows=shown().map(o=>o.x);
+  tagItems(rows.map(x=>({category:idCat(x.klass),value:x.user,asset_uuids:x.asset_uuids})),this,'identity tag(s)'); };
+document.getElementById('tagReused').onclick=function(){ const set=(IDENT.accounts||[]).filter(isReused);
+  tagOne('Identity Risk','Account Reuse',[...new Set(set.flatMap(x=>x.reuse_uuids||[]))],this); };
+document.getElementById('tagBlind').onclick=function(){ tagOne('Identity Coverage','No Credentials',(IDENT.host_sets||{}).uncredentialed||[],this); };
+
 async function nlInterpret(){
   if(!IDENT)return; const q=document.getElementById('nl').value.trim(); const prev=document.getElementById('nlPrev');
   if(!q){ prev.innerHTML='<div class="callbox" style="color:var(--crit)">Type an instruction first.</div>'; return; }
@@ -196,29 +333,19 @@ async function nlInterpret(){
   const asg=(o.assignments||[]).filter(x=>x&&(x.value||x.category));
   if(!asg.length){ prev.innerHTML='<div class="callbox">No assignments proposed — rephrase the instruction.</div>'; return; }
   const byUser={}; (IDENT.accounts||[]).forEach(x=>byUser[x.user]=x);
-  window.__ASG=asg.map(x=>{const acc=byUser[x.user]||{}; return {category:x.category||idCat(acc.klass),value:x.value||x.user,asset_uuids:acc.asset_uuids||x.asset_uuids||[]};}).filter(x=>x.asset_uuids.length);
+  const items=asg.map(x=>{const acc=byUser[x.user]||{}; return {category:x.category||idCat(acc.klass),value:x.value||x.user,asset_uuids:acc.asset_uuids||x.asset_uuids||[]};}).filter(x=>x.asset_uuids.length);
   prev.innerHTML='<div class="callbox"><b>Proposed tags</b>'+asg.map(x=>'<div style="margin-top:6px">'+esc(x.user||'')+' → <span class="tagval">'+esc((x.category||''))+' : '+esc((x.value||''))+'</span></div>').join('')+
-    '<div class="toolbar" style="margin-top:10px"><button class="btn run sm" id="asgApply">▶ Apply '+window.__ASG.length+' tag(s) (gated)</button></div></div>';
-  const ab=document.getElementById('asgApply'); if(ab) ab.onclick=async()=>{ if(ab.disabled)return; ab.disabled=true; ab.textContent='tagging…'; ab.style.opacity='.6'; ab.style.transform='translateY(1px)'; ab.style.cursor='default';
-    let r; try{ r=await API.post('tag',{items:window.__ASG,confirm:true}); }catch(e){ r={ok:false,error:e.message}; }
-    ab.textContent=r&&r.ok?'✓ applied':'✗ failed'; ab.style.opacity=''; ab.style.transform=''; showRes(r,window.__ASG.length+' proposed tag(s)'); };
+    '<div class="toolbar" style="margin-top:10px"><button class="btn sm" id="asgApply">🏷️ Tag all '+items.length+' proposed</button></div></div>';
+  const ab=document.getElementById('asgApply'); if(ab) ab.onclick=()=>tagItems(items,ab,'proposed tag(s)');
 }
+document.querySelectorAll('#idFilter button[data-if]').forEach(b=>b.onclick=()=>{ IDENT_FILTER=b.dataset.if; if(IDENT){ hPageReset('tbl'); renderMetrics(); renderTable(); } });
 document.getElementById('run').onclick=run;
-document.querySelectorAll('#identClass button[data-cls]').forEach(b=>b.onclick=()=>tagClass(b.dataset.cls,b.dataset.cat,b));
-async function tagReused(btn){ if(!IDENT)return; if(btn&&btn.disabled)return;
-  const set=(IDENT.accounts||[]).filter(x=>x.flags&&x.flags.some(fl=>fl.indexOf('reused')===0));
-  const uuids=[...new Set(set.flatMap(x=>x.asset_uuids||[]))];
-  if(!uuids.length){ flash('flash','No reused credentials to tag — nothing appears on ≥5 hosts (scanner creds are excluded).','warn'); return; }
-  btn.disabled=true; const old=btn.textContent; btn.textContent='tagging…'; btn.style.opacity='.6'; btn.style.transform='translateY(1px)'; btn.style.cursor='default';
-  let o; try{ o=await API.post('tag',{category:'Identity Risk',value:'Credential Reuse',asset_uuids:uuids,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
-  btn.disabled=false; btn.textContent=old; btn.style.opacity=''; btn.style.transform=''; btn.style.cursor='';
-  showRes(o,set.length+' reused credential(s) → Identity Risk : Credential Reuse ('+uuids.length+' host(s))');
-}
-document.getElementById('tagReused').onclick=()=>tagReused(document.getElementById('tagReused'));
 document.getElementById('nlGo').onclick=nlInterpret;
-mountAgentHeader({icon:'🆔',name:'Identity Inventory',sub:'Janus · NHI + human + machine identities'});
+mountAgentHeader({id:'identity',icon:'🆔',name:'Identity Inventory',sub:'Janus · NHI + human + machine identities'});
 mountColPick(); buildHead('Press ▶ Run to load…');
-try{ hMailAuto(); }catch(e){}   /* pack-wide widget + dashboard email (Gabriel) */
+mountSectionNav();
+try{ hMailAuto(); }catch(e){}
 jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});
+/* no auto-run — user clicks ▶ Run */
 </script>
 </body></html>

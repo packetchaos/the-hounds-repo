@@ -52,6 +52,17 @@
   .pieLegend{display:flex;flex-wrap:wrap;gap:6px 14px;justify-content:center;margin-top:12px}
   .pieLegend span{font-size:13.5px;color:var(--ink);display:inline-flex;align-items:center;gap:6px}
   .pieLegend i{width:13px;height:13px;border-radius:3px;display:inline-block}
+  /* ---- 📊 At a glance (same metric cards as WAS / Compliance) ---- */
+  .seclbl{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
+  .mkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(160px,100%),1fr));gap:10px;margin-top:10px}
+  .mk{display:block;border:1px solid var(--line);border-left:4px solid var(--rc,var(--line));border-radius:12px;padding:10px 12px;background:var(--panel-2);color:inherit;text-decoration:none;min-width:0}
+  .mk .v{font-size:22px;font-weight:800;color:var(--ink);line-height:1.1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mk .l{font-size:11.5px;color:var(--mut);margin-top:2px}
+  .mk .u{font-size:11px;color:var(--accent);margin-top:4px}
+  a.mk:hover{border-color:var(--accent)} .mk.zero{opacity:.55}
+  .mhead{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 0}
+  .covleg{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:6px;font-size:11.5px;color:var(--mut)}
+  .covleg i{width:10px;height:10px;border-radius:3px;display:inline-block;margin-right:5px;vertical-align:middle}
+  @media(max-width:600px){ #osPrompt{min-width:0!important;width:100%} #osExplorer .piePanel{flex-basis:100%!important} #osExplorer > div > div:last-child{flex:1 1 100%!important} }
 </style>
 </head><body>
 <div class="wrap">
@@ -61,12 +72,31 @@
     <div class="toolbar"><div><div class="acode">Linnaeus</div><h2 style="margin:0">📇 Asset Classification</h2>
       <p class="sub" style="margin:2px 0 0">Every asset, classified by <b>what it is</b> — so nothing is unknown. Unknown assets are what stall ownership, so the <b>Unclassified</b> bucket is a reason-tagged worklist that should shrink over time. IoT and OT are separate. Rule: <i>you can't pull a software inventory off an IoT device</i>, so software enum ⇒ general-purpose host.</p></div>
       <span style="margin-left:auto;display:flex;gap:6px"><a class="btn ghost sm" href="/web/ownermap.html" title="Hand classified assets to Atlas for ownership">🗺 Ownership Map</a>
-      <button class="btn run sm" id="run">▶ Classify assets</button></span></div>
+      <button class="btn run sm" id="run" data-run>▶ Run</button></span></div>
     <div id="flash" class="flash"></div>
     <div class="cov" id="cov"></div>
   </section>
 
-  <section class="card" id="sunCard" style="display:none">
+  <section class="card" id="secMetrics" data-nav-label="At a glance" data-nav-icon="📊" style="display:none">
+    <h2 style="margin:0 0 2px;font-size:17px">📊 At a glance</h2>
+    <p class="sub" style="margin:2px 0 0">Every card opens the matching place — a class's asset list on this page, the OS Signals / Ask sections, or the hound that acts on it (Argos, IoT Discovery, EOL, Exposure Score, Atlas).</p>
+    <div id="glance"></div>
+  </section>
+
+  <!-- ===== AI prompt: tag by OS gated on a confidence % (mirrors Atlas' Describe ownership) ===== -->
+  <section class="card" id="osAsk" data-nav="Ask" data-nav-icon="✨">
+      <h2 style="margin:0 0 2px;font-size:17px">✨ Ask — tag by OS in plain English</h2>
+      <p class="sub" style="margin:2px 0 8px">Plain English over the OS-ID plugin output (11936), which carries an <b>OS type</b> and a <b>confidence %</b>. Filter by confidence and OS, then write <span class="mono">Asset Inventory : OS: &lt;value&gt;</span> tags (gated). e.g. <i>"tag all my assets by OS that has a confidence of over 75%"</i> · <i>"tag windows assets by OS with confidence ≥ 90"</i> · <i>"tag by OS family, high confidence"</i>. Works without a model key.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start">
+        <input id="osPrompt" class="fld" style="flex:1;min-width:300px;padding:9px 12px" placeholder="tag all my assets by OS that has a confidence of over 75%">
+        <button class="btn run sm" id="osInterpret" data-run>✨ Ask</button>
+        <button class="btn sm" id="osApplyAll" style="display:none">🏷️ Tag all</button>
+      </div>
+      <div id="osAskFlash" class="flash"></div>
+      <div id="osPlanBox"></div>
+  </section>
+
+  <section class="card" id="sunCard" data-nav-label="Explorer" data-nav-icon="🌐" style="display:none">
     <div class="toolbar" style="margin:0 0 8px"><div><h2 style="margin:0">🌐 Environment Explorer</h2>
       <p class="sub" style="margin:2px 0 0">Two coordinated views — overall <b>classification</b> and, for a selected class, its <b>sub-types</b>. Click a sub-type slice to list its assets → jump into <b>Argos</b>.</p></div>
       <span style="margin-left:auto;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
@@ -91,24 +121,12 @@
   </section>
   <div id="sunTip"></div>
 
-  <section class="card" id="signalsCard" style="display:none">
+  <section class="card" id="signalsCard" data-nav-label="OS Signals" data-nav-icon="📡" style="display:none">
     <div class="toolbar" style="margin:0 0 6px"><div><h2 style="margin:0">📡 OS Signals</h2>
       <p class="sub" style="margin:2px 0 0">Two connected pies over the <b>OS-ID plugin output</b> (11936) — click an OS (Windows / Linux / macOS) to drill into its versions, then click a version to <b>tag by that OS</b>. Tagging auto-populates the classification pies above. Edit the tag name before writing if you like; writes are gated.</p></div>
       <button class="btn ghost sm" id="sigRefresh" style="margin-left:auto">↻ Re-detect</button></div>
     <div id="sigFlash" class="flash"></div>
 
-    <!-- ===== AI prompt: tag by OS gated on a confidence % (mirrors Atlas' Describe ownership) ===== -->
-    <div id="osAsk" class="callbox" style="border-left:3px solid var(--accent);margin:0 0 16px">
-      <h3 style="margin:0 0 2px">🤖 Describe the OS tagging</h3>
-      <p class="sub" style="margin:2px 0 8px">Plain English over the OS-ID plugin output (11936), which carries an <b>OS type</b> and a <b>confidence %</b>. Filter by confidence and OS, then write <span class="mono">Asset Inventory : OS: &lt;value&gt;</span> tags (gated). e.g. <i>"tag all my assets by OS that has a confidence of over 75%"</i> · <i>"tag windows assets by OS with confidence ≥ 90"</i> · <i>"tag by OS family, high confidence"</i>. Works without a model key.</p>
-      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start">
-        <input id="osPrompt" class="fld" style="flex:1;min-width:300px;padding:9px 12px" placeholder="tag all my assets by OS that has a confidence of over 75%">
-        <button class="btn run sm" id="osInterpret">▶ Interpret</button>
-        <button class="btn sm" id="osApplyAll" style="display:none">▶ Apply all (gated)</button>
-      </div>
-      <div id="osAskFlash" class="flash"></div>
-      <div id="osPlanBox"></div>
-    </div>
 
     <!-- ===== OS explorer: family → version, click to focus the tag ===== -->
     <div id="osExplorer">
@@ -117,8 +135,8 @@
         <div class="piePanel" style="flex:1 1 300px"><div class="pieTitle" id="osTitleB">Version / type</div><div id="osPieB" class="pieHost"></div></div>
         <div style="flex:0 0 230px;display:flex;flex-direction:column;gap:8px;padding-top:22px">
           <div class="sub" style="font-weight:700;text-transform:uppercase;letter-spacing:.04em">Tag everything</div>
-          <button class="btn sm" id="tagAllOs">🏷 Tag all by OS<br><span class="sub">Windows / Linux / macOS</span></button>
-          <button class="btn sm" id="tagAllOsType">🏷 Tag all by OS type<br><span class="sub">specific version</span></button>
+          <button class="btn sm" id="tagAllOs">🏷️ Tag all by OS<br><span class="sub">Windows / Linux / macOS</span></button>
+          <button class="btn sm" id="tagAllOsType">🏷️ Tag all by OS type<br><span class="sub">specific version</span></button>
           <div id="bulkRes" class="sub" style="margin-top:2px"></div>
         </div>
       </div>
@@ -131,12 +149,12 @@
     <div id="sigBody"></div>
   </section>
 
-  <section class="card" id="classCard" style="display:none">
+  <section class="card" id="classCard" data-nav-label="Classes" data-nav-icon="🗂" style="display:none">
     <h2 style="margin:0 0 6px">Classes <span class="sub" id="clsMeta"></span></h2>
     <div id="classes"></div>
   </section>
 
-  <section class="card" id="drillCard" style="display:none">
+  <section class="card" id="drillCard" data-nav-label="Assets" data-nav-icon="🖥" style="display:none">
     <div class="toolbar" style="margin:0"><div><h2 style="margin:0" id="drillTitle">Assets</h2>
       <p class="sub" id="drillSub" style="margin:2px 0 0"></p></div>
       <span style="margin-left:auto;display:flex;gap:6px" id="drillActions"></span></div>
@@ -154,7 +172,13 @@ let DATA=null, CUR=null;
 const COL={"Windows":"var(--cx-6ea8ff)","Linux":"var(--cx-e7c66b)","macOS":"#9aa7b8","IoT":"var(--cx-a78bfa)","OT":"var(--cx-f43f5e)","Network":"var(--cx-3fb0c9)","Virtual Infrastructure":"var(--ok)","Cloud":"#38bdf8","Unclassified":"var(--cx-f43f5e)"};
 const col=c=>COL[c]||"#8a99ad";
 
+const fnum=n=>(n==null?'—':Number(n).toLocaleString());
+let SIGRES=null, OSBRES=null;   // the ▶ Run's signals + os_breakdown reads (fill At a glance as they land)
+/* sections stay out of the jump nav until they are shown (no chip that scrolls to nothing) */
+function showSec(id, label){ const s=document.getElementById(id); if(!s) return;
+  s.style.display=''; s.dataset.nav=label||s.dataset.navLabel||id; mountSectionNav(); }
 async function run(){
+  SIGRES=null; OSBRES=null;
   document.getElementById('run').disabled=true; flash('flash','<span class="spin"></span> classifying every asset from navi.db…','run');
   let o; try{ o=await API.post('run'); }catch(e){ o={ok:false,error:e.message}; }
   document.getElementById('run').disabled=false;
@@ -163,50 +187,93 @@ async function run(){
   flashClear('flash'); render(); explore();
 }
 function render(){
-  const s=DATA.stats||{};
-  const stat=(v,l,c)=>`<div style="text-align:center;min-width:90px"><div style="font-size:27px;font-weight:800;color:${c||'var(--ink)'}">${v}</div><div class="sub">${l}</div></div>`;
+  const tot=DATA.total||0;
   document.getElementById('cov').innerHTML=
-    `<div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center;width:100%">`
-    +stat((s.total||0).toLocaleString(),'total assets')
-    +stat((s.servers||0).toLocaleString(),'servers','var(--cx-6ea8ff)')
-    +stat((s.workstations||0).toLocaleString(),'workstations','var(--cx-e7c66b)')
-    +stat((s.iot||0).toLocaleString(),'IoT','var(--cx-a78bfa)')
-    +(s.ot?stat((s.ot||0).toLocaleString(),'OT','var(--cx-f43f5e)'):'')
-    +stat((s.unclassified||0).toLocaleString(),'unclassified','var(--cx-f43f5e)')
-    +stat((s.unclassified_pct||0)+'%','unclassified','var(--cx-f43f5e)')
-    +`</div>`
-    +`<div style="width:100%;margin-top:8px"><div class="cbar">${(DATA.classes||[]).map(c=>`<i style="width:${(c.count/DATA.total*100).toFixed(2)}%;background:${col(c.cls)}" title="${esc(c.cls)}: ${c.count}"></i>`).join('')}</div></div>`
+    `<div style="width:100%;margin-top:4px"><div class="sub" style="margin-bottom:4px"><b style="color:var(--ink)">${fnum(DATA.classified)}</b> of ${fnum(tot)} assets classified · <b style="color:var(--ink)">${esc(String(DATA.coverage_pct||0))}%</b> coverage</div>`
+    +`<div class="cbar">${(DATA.classes||[]).map(c=>`<i style="width:${tot?(c.count/tot*100).toFixed(2):0}%;background:${col(c.cls)}" title="${esc(c.cls)}: ${fnum(c.count)}"></i>`).join('')}</div>`
+    +`<div class="covleg">${(DATA.classes||[]).map(c=>`<span><i style="background:${col(c.cls)}"></i>${esc(c.cls)} · ${fnum(c.count)}</span>`).join('')}</div></div>`
     +(!DATA.tagged_any?`<div class="callbox" style="width:100%;border-left:3px solid var(--warn,var(--cx-e7c66b));margin-top:10px"><b style="color:var(--warn,var(--cx-e7c66b))">No classification tags yet.</b> Classification is driven only by tags. Use <b>📡 OS Signals</b> below to detect and tag your environment — everything fills in as you tag.</div>`:'');
+  renderGlance();
   renderSignals();
-  document.getElementById('signalsCard').style.display='';   // OS Signals + "Describe the OS tagging" prompt
-  document.getElementById('classCard').style.display='';
+  ['secMetrics','signalsCard','classCard'].forEach(id=>showSec(id));   // OS Signals + the class list
   document.getElementById('clsMeta').textContent='('+(DATA.classes||[]).length+')';
+  setNavCount('classCard', (DATA.classes||[]).length);
   document.getElementById('classes').innerHTML=(DATA.classes||[]).map(c=>{
     const ownPct=c.count?Math.round(c.owned/c.count*100):0;
     const subs=(c.subs||[]).slice(0,8).map(s=>`<span class="chip2">${esc(s.name)} · ${s.count}</span>`).join('');
-    const risk=(c.kev?`<span class="pill p-kev">${c.kev} KEV</span> `:'')+(c.critical?`<span class="pill p-crit">${c.critical} crit</span> `:'')+(c.cloud?`<span class="pill p-cloud">${c.cloud} cloud</span>`:'');
+    const risk=(c.kev?`<span class="pill p-kev">${fnum(c.kev)} KEV</span> `:'')+(c.critical?`<span class="pill p-crit">${fnum(c.critical)} crit</span> `:'')+(c.eol_os?`<span class="pill p-crit" title="assets on an unsupported / end-of-life OS">${fnum(c.eol_os)} EOL OS</span> `:'')+(c.cloud?`<span class="pill p-cloud">${fnum(c.cloud)} cloud</span>`:'');
     return `<div class="clsrow" data-c="${esc(c.cls)}"><div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">`
       +`<span class="dot" style="background:${col(c.cls)}"></span><b style="font-size:15px">${esc(c.cls)}</b>`
       +`<span class="mono" style="font-size:18px;font-weight:700">${c.count.toLocaleString()}</span>`
       +`<span style="margin-left:auto;display:flex;gap:6px;align-items:center">${risk}</span></div>`
       +`<div style="display:flex;align-items:center;gap:10px;margin-top:8px"><div class="cbar" style="flex:1"><i style="width:${ownPct}%;background:var(--ok)"></i><i style="width:${100-ownPct}%;background:var(--panel-2)"></i></div>`
-      +`<span class="sub" style="white-space:nowrap">${c.owned}/${c.count} owned</span></div>`
+      +`<span class="sub" style="white-space:nowrap">${fnum(c.owned)}/${fnum(c.count)} owned</span></div>`
       +`<div style="margin-top:6px">${subs}</div></div>`;
   }).join('');
   document.querySelectorAll('#classes .clsrow').forEach(el=>el.onclick=()=>drill(el.dataset.c));
 }
+/* ---------- 📊 At a glance — every card links somewhere useful ---------- */
+function renderGlance(){
+  const host=document.getElementById('glance'); if(!host||!DATA) return;
+  const s=DATA.stats||{}, g=DATA.glance||{}, cls=n=>((DATA.classes||[]).find(c=>c.cls===n)||{}).count||0;
+  // o: {n, c (rail colour), t (title), u (where it goes), j (#section), cls (drill a class), href, prompt}
+  const mk=(v,l,o)=>{ o=o||{};
+    const href=o.href||('#'+(o.cls?'drillCard':(o.j||'secMetrics')));
+    const u=o.u||(o.cls?('🖥 '+o.cls+' assets ↓'):o.j?'↓':'→');
+    return `<a class="mk${o.n===0?' zero':''}" href="${esc(href)}"${o.j?` data-j="${esc(o.j)}"`:''}${o.cls?` data-cls="${esc(o.cls)}"`:''}${o.prompt?` data-prompt="${esc(o.prompt)}"`:''} style="--rc:${o.c||'var(--line)'}"${o.t?` title="${esc(o.t)}"`:''}><div class="v">${v}</div><div class="l">${esc(l)}</div><div class="u">${esc(u)}</div></a>`; };
+  const pend='<span class="spin"></span>';
+  const sig=SIGRES&&SIGRES.ok?SIGRES:null, osb=OSBRES&&OSBRES.ok?OSBRES:null;
+  const lead=(x,what,c)=>x?mk(fnum(x.n),what+' in '+x.cls+' — the most of any class ('+fnum(x.of)+' assets)',{cls:x.cls,n:x.n,c:c})
+                          :mk('0',what+' on classified assets',{j:'classCard',n:0,c:c,u:'classes ↓'});
+  const ru=g.riskiest_unclassified;
+  let h='<div class="mhead">Classification</div><div class="mkpi">'
+    +mk(fnum(DATA.total),'assets in navi.db',{j:'classCard',n:DATA.total,c:'var(--accent)',u:'🗂 classes ↓'})
+    +mk(fnum(DATA.classified),'classified · '+(DATA.coverage_pct||0)+'% coverage',{j:'sunCard',n:DATA.classified,c:'var(--ok)',u:'🌐 Environment Explorer ↓',t:'Assets carrying a classification tag (or cloud metadata)'})
+    +mk(fnum(DATA.unclassified),'unclassified · '+(s.unclassified_pct||0)+'% — the worklist',{cls:'Unclassified',n:DATA.unclassified,c:'var(--crit)',u:'🖥 classify them by hand ↓'})
+    +mk(sig?fnum(sig.assets_with_signal):pend,'untagged assets with an OS / device signal',{j:'signalsCard',n:sig?sig.assets_with_signal:undefined,c:'var(--cx-a78bfa)',u:'📡 tag them in OS Signals ↓'})
+    +mk(fnum(g.cloud_detected),'cloud assets from navi metadata',{cls:'Cloud',n:g.cloud_detected||0,c:'#38bdf8',t:'AWS / Azure / GCP provenance columns — no tag needed'})
+    +'</div><div class="mhead">Class breakdown</div><div class="mkpi">'
+    +mk(fnum(s.servers),'servers',{j:'classCard',n:s.servers||0,c:'var(--cx-6ea8ff)',u:'🗂 classes ↓',t:'Windows Server, Linux, Network, Cloud, Virtual Infrastructure'})
+    +mk(fnum(s.workstations),'workstations',{j:'classCard',n:s.workstations||0,c:'var(--cx-e7c66b)',u:'🗂 classes ↓',t:'Windows (non-server) and macOS'})
+    +mk(fnum(s.network),'network devices',{cls:'Network',n:s.network||0,c:'var(--cx-3fb0c9)'})
+    +mk(fnum(s.iot),'IoT devices',{href:'/agents/iot_squad/page.html',n:s.iot||0,c:'var(--cx-a78bfa)',u:'🐾 IoT Discovery →',t:'Classified IoT — discover more with the IoT Discovery Squad'})
+    +mk(fnum(s.ot),'OT devices',{cls:'OT',n:s.ot||0,c:'var(--cx-f43f5e)'})
+    +mk(fnum(s.virtual),'hypervisors',{cls:'Virtual Infrastructure',n:s.virtual||0,c:'var(--ok)'})
+    +'</div><div class="mhead">Operating systems</div><div class="mkpi">'
+    +['Windows','Linux','macOS'].map(f=>mk(fnum(cls(f)),f+' (classified)',{cls:f,n:cls(f),c:col(f)})).join('')
+    +mk(osb?fnum(osb.total_detected):pend,'untagged OS hosts detected'+(osb&&osb.families&&osb.families.length?' · '+osb.families.map(f=>f.family).join(' / '):''),{j:'signalsCard',n:osb?osb.total_detected:undefined,c:'var(--accent)',u:'📡 OS pies ↓'})
+    +mk(fnum(g.eol_os),'on an unsupported / EOL OS · '+(g.eol_os_pct||0)+'% of assets',{href:'/agents/eol/page.html',n:g.eol_os||0,c:'var(--crit)',u:'🐾 EOL / Unsupported →',t:'Open unsupported / end-of-life operating-system findings (same selector as Charon)'})
+    +mk(fnum(g.low_conf),'low-confidence OS fingerprints (< '+(g.low_conf_threshold||70)+'%) · '+fnum(g.os_fingerprinted)+' fingerprinted',{j:'osAsk',n:g.low_conf||0,c:'var(--cx-e7c66b)',prompt:'tag all my assets by OS with a confidence of at least '+(g.low_conf_threshold||70)+'%',u:'✨ Ask with a '+(g.low_conf_threshold||70)+'% floor ↓',t:'Plugin 11936 confidence — tag only the confident ones'})
+    +'</div><div class="mhead">Risk &amp; ownership</div><div class="mkpi">'
+    +lead(g.top_kev_class,'KEV assets','var(--crit)')
+    +lead(g.top_crit_class,'assets with criticals','var(--high,var(--cx-fb923c))')
+    +mk(fnum(g.unclassified_kev),'unclassified assets with a CISA KEV',{cls:'Unclassified',n:g.unclassified_kev||0,c:'var(--crit)',t:'Exploited-in-the-wild exposure on assets nobody has named'})
+    +(ru?mk(esc(ru.hostname||ru.uuid),'riskiest unclassified asset · '+(ru.kev?'KEV':'critical'),{href:'/agents/argos/page.html?target='+encodeURIComponent(ru.uuid),c:'var(--crit)',u:'🐾 Argos deep-dive →'})
+        :mk('—','no unclassified asset with KEV / critical',{n:0,j:'classCard',u:'classes ↓'}))
+    +mk(fnum(g.critical_assets),'assets with open critical findings',{href:'/agents/fused_score/page.html',n:g.critical_assets||0,c:'var(--high,var(--cx-fb923c))',u:'🐾 Exposure Score →'})
+    +mk(fnum(g.unowned_classified),'classified assets without an Owner',{href:'/web/ownermap.html',n:g.unowned_classified||0,c:'var(--cx-e7c66b)',u:'🗺 Ownership Map →',t:'Classified → now assign owners in Atlas'})
+    +'</div>';
+  host.innerHTML=h;
+}
+document.getElementById('glance').addEventListener('click',e=>{
+  const a=e.target.closest&&e.target.closest('a.mk'); if(!a) return;
+  if(a.dataset.cls){ e.preventDefault(); drill(a.dataset.cls); return; }
+  if(a.dataset.j){ e.preventDefault(); const t=document.getElementById(a.dataset.j);
+    if(a.dataset.prompt){ const ip=document.getElementById('osPrompt'); if(ip){ ip.value=a.dataset.prompt; } }   // pre-fill only — ✨ Ask stays explicit
+    if(t&&t.style.display!=='none') t.scrollIntoView({behavior:'smooth',block:'start'}); }
+});
 function drill(cls){
   CUR=cls;
   const c=(DATA.classes||[]).find(x=>x.cls===cls)||{};
   const rows=(DATA.assets||[]).filter(r=>r.cls===cls);
-  document.getElementById('drillCard').style.display='';
+  showSec('drillCard', cls); setNavCount('drillCard', fnum(rows.length));
   document.getElementById('drillTitle').innerHTML=`<span class="dot" style="background:${col(cls)}"></span> ${esc(cls)} <span class="sub">(${rows.length})</span>`;
   document.getElementById('drillSub').textContent=(c.subs||[]).map(s=>`${s.name}: ${s.count}`).join(' · ');
   // actions: tag (gated) + hand to Atlas — OR manual classification for the unknowns
   const acts=document.getElementById('drillActions'); acts.innerHTML='';
   const isU=cls==='Unclassified';
   if(!isU){
-    acts.innerHTML=`<button class="btn sm" id="tagCls">🏷 Tag <span class="tagval">Class : ${esc(cls)}</span> (gated)</button>`
+    acts.innerHTML=`<button class="btn sm" id="tagCls">🏷️ Tag <span class="tagval">Class : ${esc(cls)}</span></button>`
       +`<a class="btn ghost sm" href="/web/ownermap.html" title="Assign owners to this class in Atlas">🗺 Own in Atlas →</a>`;
     document.getElementById('tagCls').onclick=()=>tagClass(cls);
   } else {
@@ -216,7 +283,7 @@ function drill(cls){
       +`<select id="ucFacet" class="fld" title="Classification category">${fopt('Device Type')}<option value="__custom">＋ Custom category…</option></select>`
       +`<input id="ucFacetCustom" class="fld" placeholder="your category — e.g. Kiosk, POS" style="display:none;min-width:150px">`
       +`<input id="ucVal" class="fld" placeholder="value — e.g. Printer, Firewall, Payment terminal" style="min-width:210px">`
-      +`<button class="btn sm" id="ucTag">🏷 Tag <span id="ucN">0</span> selected (gated)</button>`
+      +`<button class="btn sm" id="ucTag">🏷️ Tag <span id="ucN">0</span> selected</button>`
       +`<button class="btn ghost sm" id="ucAll">Select all ${rows.length}</button>`
       +`<span id="ucRes" class="sub"></span></div>`
       +`<div class="sub" style="margin-top:5px;font-size:11px">Your own classification becomes a top-level class — it writes <span class="mono">Asset Inventory : &lt;category&gt;: &lt;value&gt;</span> and the taxonomy accounts for it.</div>`;
@@ -226,7 +293,7 @@ function drill(cls){
     document.getElementById('ucAll').onclick=()=>{ const pick=UNSEL.size<rows.length; UNSEL.clear();
       if(pick)rows.forEach(r=>r.uuid&&UNSEL.add(r.uuid)); syncUcSel();
       document.getElementById('ucAll').textContent=pick?'Clear selection':('Select all '+rows.length); };
-    document.getElementById('drillSub').innerHTML='Tick the unknowns you recognize, set a <b>category + value</b>, and tag them (gated) — they move out of Unclassified. '+(c.subs||[]).map(s=>`${s.name}: ${s.count}`).join(' · ');
+    document.getElementById('drillSub').innerHTML='Tick the unknowns you recognize, set a <b>category + value</b>, and tag them (gated) — they move out of Unclassified. '+esc((c.subs||[]).map(s=>`${s.name}: ${s.count}`).join(' · '));
   }
   hPaginate('dtbl', rows, r=>{
     const own=r.owned?'<span class="badge b-applied">owned</span>':'<span class="badge b-pending">—</span>';
@@ -269,6 +336,8 @@ async function pollJobs(ids, timeoutMs=25000){
   return map;
 }
 async function tagClass(cls){
+  const n=((DATA&&DATA.classes||[]).find(x=>x.cls===cls)||{}).count;
+  if(!confirm('Write the tag "'+tagCat('Asset Inventory')+' : Class: '+cls+'" to '+(n!=null?fnum(n)+' ':'')+'asset(s) in Tenable?\n\nWrites go through the gated tag queue — if NAVI_ALLOW_WRITES is not set, the job queues but is blocked.')) return;
   flash('tagFlash','<span class="spin"></span> queueing gated tag for '+esc(cls)+'…','run');
   let o; try{ o=await API.post('tag',{cls,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
   if(!(o.ok||o.queued||o.warning)){ flash('tagFlash','✗ '+esc(o.error||o.message||'rejected')+(o.write_gate_reason?(' — '+esc(o.write_gate_reason)):''),'crit'); return; }
@@ -302,7 +371,7 @@ async function explore(){
   let o; try{ o=await API.post('tree',{by:GROUPBY}); }catch(e){ return; }
   if(!o||!o.ok||!o.result||!o.result.root){ return; }
   TREE=o.result.root; VIRT=o.result.virt; annotate(TREE,{},0); FOCUS=[TREE]; SELA=null; SELB=null;
-  document.getElementById('sunCard').style.display=''; renderView();   // virtualization widget removed for now
+  showSec('sunCard'); setNavCount('sunCard', fnum(o.result.total)); renderView();   // virtualization widget removed for now
 }
 /* ===== view switch: three coordinated pies (default) or sunburst ===== */
 let VIEW='pies', SELA=null, SELB=null;
@@ -374,12 +443,14 @@ function paintB(cnode){
 function _facetB(){ return ['Windows','Linux','macOS'].includes(SELA&&SELA.name)?'OS':(['IoT','OT'].includes(SELA&&SELA.name)?'Device Type':'Sub'); }
 function renderTagBar(){
   const bar=document.getElementById('tagBar'); if(!bar)return; let h='';
-  if(SELA){ const fa=(GROUPBY==='subnet'?'Subnet':'Class'); h+=`<button class="btn ghost sm invtag" data-f="${fa}" data-v="${esc(SELA.name)}" data-lvl="a">🏷 ${fa}: ${esc(short(SELA.name,16))}</button>`; }
-  if(SELA&&SELB){ const fb=_facetB(); h+=`<button class="btn ghost sm invtag" data-f="${fb}" data-v="${esc(SELB.name)}" data-lvl="b">🏷 ${fb}: ${esc(short(SELB.name,16))}</button>`; }
+  if(SELA){ const fa=(GROUPBY==='subnet'?'Subnet':'Class'); h+=`<button class="btn ghost sm invtag" data-f="${fa}" data-v="${esc(SELA.name)}" data-lvl="a">🏷️ Tag ${fa}: ${esc(short(SELA.name,16))}</button>`; }
+  if(SELA&&SELB){ const fb=_facetB(); h+=`<button class="btn ghost sm invtag" data-f="${fb}" data-v="${esc(SELB.name)}" data-lvl="b">🏷️ Tag ${fb}: ${esc(short(SELB.name,16))}</button>`; }
   bar.innerHTML=(h?'<span class="sub">Tag inventory (gated):</span> '+h:'<span class="sub">Click a slice to select a cohort to tag.</span>')+' <span id="tagRes" class="sub"></span>';
   bar.querySelectorAll('.invtag').forEach(b=>b.onclick=()=>invTag(b.dataset.f,b.dataset.v,b.dataset.lvl));
 }
 async function invTag(facet,value,lvl){
+  const n=(lvl==='a'?SELA:SELB||SELA); 
+  if(!confirm('Write the tag "'+tagCat('Asset Inventory')+' : '+facet+': '+value+'" to '+(n&&n.value!=null?fnum(n.value)+' ':'')+'asset(s) in Tenable?\n\nWrites go through the gated tag queue — if NAVI_ALLOW_WRITES is not set, the job queues but is blocked.')) return;
   const res=document.getElementById('tagRes'); res.innerHTML='<span class="spin"></span> queueing…';
   const path={}; if(GROUPBY==='class'){ if(SELA)path.cls=SELA.name; if(lvl!=='a'&&SELB)path.sub=SELB.name; }
   else { if(SELA)path.subnet=SELA.name; if(lvl!=='a'&&SELB)path.cls=SELB.name; }
@@ -482,7 +553,7 @@ async function osInterpret(){
   flash('osAskFlash','<span class="spin"></span> reading OS-ID plugin output (11936)…','run');
   let o; try{ o=await API.post('os_plan',{prompt}); }catch(e){ o={ok:false,error:e.message}; }
   if(!o||!o.ok){ flash('osAskFlash','✗ '+esc((o&&(o.error||o.message))||'failed'),'crit'); return; }
-  OSPLAN=o; flashClear('osAskFlash'); renderOsPlan(o);
+  OSPLAN=o; flashClear('osAskFlash'); renderOsPlan(o); setNavCount('osAsk', fnum(o.matched||0));
 }
 function renderOsPlan(o){
   const box=document.getElementById('osPlanBox'), apply=document.getElementById('osApplyAll');
@@ -498,7 +569,7 @@ function renderOsPlan(o){
     <td><b class="mono">Asset Inventory : OS: ${esc(c.value)}</b></td>
     <td class="mono">${c.count}</td>
     <td class="mono">${c.conf_min}–${c.conf_max}%</td>
-    <td><button class="btn ghost sm osApplyOne" data-i="${i}">🏷 Tag</button> <span class="sub osres" id="osres-${i}"></span></td></tr>`).join('');
+    <td><button class="btn ghost sm osApplyOne" data-i="${i}">🏷️ Tag</button> <span class="sub osres" id="osres-${i}"></span></td></tr>`).join('');
   box.innerHTML=head+'<div style="overflow:auto"><table style="width:100%"><thead><tr><th>Family</th><th>Tag to write</th><th>Assets</th><th>Confidence</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>';
   box.querySelectorAll('.osApplyOne').forEach(b=>b.onclick=()=>osApplyOne(+b.dataset.i));
   apply.style.display='inline-block';
@@ -512,6 +583,8 @@ async function osApplyOne(i){
 }
 async function osApplyAll(){
   if(!OSPLAN||!OSPLAN.cohorts||!OSPLAN.cohorts.length) return;
+  const nA=OSPLAN.cohorts.reduce((t,c)=>t+(c.count||0),0);
+  if(!confirm('Write '+OSPLAN.cohorts.length+' "'+tagCat('Asset Inventory')+' : OS: …" tag(s) to '+fnum(nA)+' asset(s) in Tenable?\n\nWrites go through the gated tag queue — if NAVI_ALLOW_WRITES is not set, the job queues but is blocked.')) return;
   const btn=document.getElementById('osApplyAll'); btn.disabled=true;
   // fire every tag at once — each queues immediately, so all land in the Tagging log
   // together instead of waiting for the previous one's job to finish.
@@ -523,6 +596,7 @@ async function osApplyAll(){
 async function writeTag(facet,value,uuids,resEl,count){
   value=(value||'').trim();
   if(!value){ if(resEl)resEl.innerHTML='<span style="color:var(--crit)">✗ tag name can\'t be empty</span>'; return false; }
+  if(!confirm('Write the tag "'+tagCat('Asset Inventory')+' : '+facet+': '+value+'" to '+fnum(count||uuids.length)+' asset(s) in Tenable?\n\nWrites are gated (NAVI_ALLOW_WRITES).')) return false;
   if(resEl)resEl.innerHTML='<span class="spin"></span> queueing '+(count||uuids.length)+'…';
   let o; try{ o=await API.post('tag',{facet,value,uuids,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
   if(!(o.ok||o.queued||o.warning)){ if(resEl)resEl.innerHTML='<span style="color:var(--crit)">✗ '+esc(o.error||o.message||'rejected')+'</span>'; return false; }
@@ -557,6 +631,7 @@ async function loadOsBreakdown(){
   a.innerHTML='<div class="pieGrey">detecting…</div>';
   let o; try{ o=await API.post('os_breakdown'); }catch(e){ o={ok:false}; }
   OSFAM=(o&&o.ok&&o.result&&o.result.families)||[]; OSSEL=null;
+  OSBRES=(o&&o.ok&&o.result)||{ok:false}; renderGlance();
   const exp=document.getElementById('osExplorer');
   if(!OSFAM.length){ exp.querySelector('#osPieA').innerHTML='<div class="pieGrey" style="opacity:.9">No OS fingerprints on the untagged set.<br><span class="sub">Reads OS-ID plugin output (11936), credentialed software-enum, and the OS field. Run <span class="mono">navi update</span> if this looks empty.</span></div>';
     document.getElementById('osPieB').innerHTML=''; document.getElementById('osFocus').innerHTML=''; document.getElementById('osTitleB').textContent='Version / type'; return; }
@@ -590,7 +665,7 @@ function focusFrom(level, vnode){
     +`<div><div class="sub">Tag category</div><select id="osFacet" class="fld">${fopt(facet)}</select></div>`
     +`<div style="flex:1;min-width:200px"><div class="sub">Tag name (editable)</div><input id="osVal" class="fld" style="width:100%" value="${esc(value)}"/></div>`
     +`<div style="text-align:center"><div class="sub">Assets</div><div style="font-size:24px;font-weight:800;line-height:1">${count.toLocaleString()}</div></div>`
-    +`<button class="btn" id="osTagBtn">🏷 Tag (gated)</button>`
+    +`<button class="btn" id="osTagBtn">🏷️ Tag</button>`
     +`</div><div id="osFocusRes" class="sub" style="margin-top:6px"></div>`;
   document.getElementById('osTagBtn').onclick=async()=>{
     const ok=await writeTag(document.getElementById('osFacet').value, document.getElementById('osVal').value, uuids,
@@ -609,6 +684,8 @@ async function bulkTag(level){
   const jobs=[]; OSFAM.forEach(f=>{ if(level==='family') jobs.push({facet:'OS',value:f.family,uuids:f.uuids,count:f.count});
     else (f.versions||[]).forEach(v=>jobs.push({facet:'OS',value:v.name,uuids:v.uuids,count:v.count})); });
   if(!jobs.length){ res.textContent='nothing to tag'; return; }
+  const nB=jobs.reduce((t,j)=>t+(j.count||0),0);
+  if(!confirm('Write '+jobs.length+' "'+tagCat('Asset Inventory')+' : OS: …" tag(s) to '+fnum(nB)+' asset(s) in Tenable?\n\nWrites go through the gated tag queue — if NAVI_ALLOW_WRITES is not set, the job queues but is blocked.')) return;
   if(btn){ btn.disabled=true; btn.innerHTML='⏳ Sending…'; btn.style.opacity='.6'; btn.style.transform='translateY(1px)'; btn.style.cursor='default'; }
   res.innerHTML=`<span style="color:var(--ok);font-weight:600"><span class="spin"></span> Sending ${jobs.length} OS tag(s) to the Tagging log…</span>`; scroll();
   // fire all at once so they queue together and appear in the log immediately
@@ -626,7 +703,8 @@ let COHORTS=[];
 async function renderOtherSignals(){
   const body=document.getElementById('sigBody'); body.innerHTML='<span class="spin"></span> detecting…';
   let o; try{ o=await API.post('signals'); }catch(e){ o={ok:false}; }
-  if(!o||!o.ok||!o.result){ body.innerHTML='<span class="sub">detection failed</span>'; return; }
+  if(!o||!o.ok||!o.result||o.result.ok===false){ body.innerHTML='<span class="sub">detection failed'+(o&&o.result&&o.result.error?' — '+esc(o.result.error):'')+'</span>'; SIGRES={ok:false}; renderGlance(); return; }
+  SIGRES=o.result; renderGlance(); setNavCount('signalsCard', fnum(o.result.assets_with_signal||0));
   COHORTS=(o.result.cohorts||[]).filter(c=>c.facet!=='OS');   // OS handled by the pies above
   document.getElementById('otherMeta').textContent='('+COHORTS.length+')';
   if(!COHORTS.length){ body.innerHTML='<p class="sub">No non-OS device signals on the untagged set.</p>'; return; }
@@ -635,8 +713,8 @@ async function renderOtherSignals(){
     +COHORTS.map((c,i)=>`<tr><td><select class="fld sigfacet" id="sigfacet-${i}" style="width:100%">${fopt(c.facet)}</select></td>`
       +`<td><input class="fld sigval" id="sigval-${i}" value="${esc(c.value)}" style="width:100%" title="detected: ${esc(c.value)}"/>`
       +`<div class="sub" style="margin-top:2px">${esc((c.sample||[]).slice(0,2).join(', '))}</div></td>`
-      +`<td class="mono">${c.count}</td>`
-      +`<td><button class="btn sm sigtag" data-i="${i}">🏷 Tag (gated)</button></td></tr>`).join('')
+      +`<td class="mono">${fnum(c.count)}</td>`
+      +`<td><button class="btn sm sigtag" data-i="${i}">🏷️ Tag</button></td></tr>`).join('')
     +'</tbody></table><div id="sigRes" class="sub" style="margin-top:8px"></div>';
   body.querySelectorAll('.sigtag').forEach(b=>b.onclick=async()=>{ const i=+b.dataset.i, c=COHORTS[i];
     const ok=await writeTag((document.getElementById('sigfacet-'+i)||{}).value||c.facet,
@@ -653,6 +731,6 @@ document.querySelectorAll('.grpby').forEach(b=>b.onclick=()=>{ document.querySel
 document.getElementById('run').onclick=run;
 mountAgentHeader({id:'classify',icon:'📇',name:'Asset Classification',sub:'Linnaeus · close the detection loop'});
 try{ hMailAuto(); }catch(e){}
-/* explicit-run: nothing scans navi.db until ▶ Classify assets */
+/* explicit-run: nothing scans navi.db until ▶ Run */
 </script>
 </body></html>

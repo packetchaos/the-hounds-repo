@@ -3,7 +3,17 @@
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Ownership Map · Navi Agents</title>
 <link rel="stylesheet" href="/static/console.css"/>
+<script>/* ?embed=1 — rendered inside the Exposure Routes page, which makes the single `map` call and
+  hands the result over with omLoad(); the map's own chrome (header, sidebar, top card) is hidden. */
+(function(){ if(new URLSearchParams(location.search).get('embed')!=='1') return;
+  document.documentElement.classList.add('embed');
+  var b=document.createElement('base'); b.target='_top'; document.head.appendChild(b); })();</script>
 <style>
+  html.embed #topnav, html.embed header.top, html.embed #app-header, html.embed footer, html.embed #naviTheme,
+  html.embed .side-collapse, html.embed #omTop, html.embed #secNav, html.embed #actv, html.embed #dashsub,
+  html.embed #searchsub, html.embed #toolssub, html.embed #agent-codename, html.embed #gabrielFab{display:none!important}
+  html.embed .wrap{padding:0!important;margin:0!important;max-width:none!important}
+  html.embed body{background:transparent!important;margin:0;padding:0!important}
   .kpi{display:flex;gap:12px;flex-wrap:wrap;margin-top:10px}
   .k{border:1px solid var(--line);border-radius:10px;padding:9px 13px;min-width:104px}
   .k .v{font-size:24px;font-weight:800} .k .l{color:var(--mut);font-size:11.5px}
@@ -11,20 +21,21 @@
   .legend span{display:inline-flex;align-items:center;gap:5px;margin-right:14px;font-size:12px;color:var(--ink-2)}
   .dot{width:11px;height:11px;border-radius:3px;display:inline-block}
   #graph{width:100%;overflow-x:auto}
-  .gapgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px}
+  .gapgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(400px,1fr));gap:16px}
   .loadbar .track{height:11px;border-radius:99px;background:var(--panel-2);overflow:hidden;flex:1}
   .loadbar .fill{height:100%;border-radius:99px}
   table.ownt td,table.ownt th{font-size:13px}
   .gaprow:hover{background:var(--panel-2)}
 </style>
 </head><body>
+<script>if(document.documentElement.classList.contains("embed")) document.body.dataset.pageCache="off";  /* the parent page owns the data */</script>
 <div class="wrap">
   <header class="top" id="app-header"></header>
-  <section class="card" style="background:var(--panel)">
+  <section class="card" id="omTop" style="background:var(--panel)">
     <div class="toolbar"><div><div class="acode">Atlas</div><h2 style="margin:0">🗺 Ownership Map</h2>
       <p class="sub" style="margin:2px 0 0">Who owns what across the attack surface — every <b>route</b> and <b>path</b> threaded to the <b>owners</b> assigned to it, with the gaps called out: what has <b>no owner</b>, what's only <b>partially</b> owned (too few owners for all its assets), and which <b>assets have no owner</b> at all. Reads <span class="mono">Owner</span> tags in navi.db.</p></div>
       <span style="margin-left:auto;display:flex;gap:6px">
-        <a class="btn sm" href="/agents/exproute/page.html" title="Open Atlas to assign owners to the gaps below">✍ Assign owners</a>
+        <a class="btn sm" href="/agents/exproute/page.html" title="Open Atlas to assign owners to the gaps below">🏷️ Tag owners →</a>
         <button class="btn run sm" id="run">↻ Refresh</button></span></div>
     <div id="flash" class="flash"></div>
     <div class="kpi" id="kpi"></div>
@@ -68,7 +79,7 @@
       <button class="btn ghost sm" id="thrReset" title="Clear the VPR / CVSS3 focus (show all)">Reset</button></div>
     <div id="emGraphForm" style="display:none;margin:8px 0 0;gap:6px;align-items:center;flex-wrap:wrap">
       <input id="emGraphTo" class="fld" style="min-width:240px" placeholder="recipient email">
-      <button class="btn run sm" id="emGraphSend">▶ Send graph (gated)</button>
+      <button class="btn run sm" id="emGraphSend">📧 Send graph (gated)</button>
       <button class="btn ghost sm" id="emGraphCancel">cancel</button>
       <span id="emGraphRes" class="sub"></span></div>
     <div id="legendT" class="legend" style="margin:8px 0 4px"><span><i class="dot" style="background:var(--ok)"></i> fully owned</span><span><i class="dot" style="background:var(--cx-e7c66b)"></i> partial (too few owners)</span><span><i class="dot" style="background:var(--cx-f43f5e)"></i> no owner</span><span><i class="dot" style="background:var(--accent)"></i> owner</span><span>✅ mitigated</span><span><i class="dot" style="background:var(--cx-6ea8ff)"></i> ✔ accepted</span><span><i class="dot" style="background:#8a99ad"></i> 🚫 ignored</span></div>
@@ -95,6 +106,16 @@
 <script src="/static/console.js"></script>
 <script>
 const API=agentApi('exproute');
+let WRITES=false; jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});
+const GATE_NOTE=()=>WRITES?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.';
+/* the confirm() every gap write shows first — plain text, names the exact tag + asset count */
+async function confirmGapTag(gs, owner){ await testRunStatus();
+  const tot=gs.reduce((a,g)=>a+(+g.assets||0),0), one=gs.length===1;
+  return confirm(one
+    ? 'Tag '+tagCat('Owner')+' : '+gs[0].name+': '+owner+' on '+tot+' asset'+(tot===1?'':'s')+' on '+gs[0].kind+' "'+gs[0].name+'"?'+GATE_NOTE()
+    : 'Tag '+tagCat('Owner')+' : <name>: '+owner+' on '+tot+' asset'+(tot===1?'':'s')+' across '+gs.length+' route/path selectors?\n\n'
+      +gs.slice(0,12).map(g=>'• '+tagCat('Owner')+' : '+g.name+': '+owner+' ('+(+g.assets||0)+' asset'+(+g.assets===1?'':'s')+')').join('\n')+(gs.length>12?'\n• … +'+(gs.length-12)+' more':'')+GATE_NOTE()); }
+const REFRESH_HINT=document.documentElement.classList.contains('embed')?'▶ Run (top of the page)':'↻ Refresh';
 let DATA=null, GF='both', MODE='threads';
 /* ===== Threat focus: filter routes/paths by their per-route MAX VPR / CVSS3 (highest wins) ===== */
 const THR={vpr:[0,10], cvss3:[0,10]};
@@ -238,7 +259,7 @@ async function pathDetail(path,app){ const el=document.getElementById('pathDetai
   let o; try{ o=await API.post('path_detail',{path}); }catch(e){ o={ok:false,error:e.message}; }
   if(!o||!o.ok||!o.result){ el.innerHTML='<div class="callbox" style="border-left:3px solid var(--crit)">Lookup failed: '+esc((o&&(o.error||o.message))||'?')+'</div>'; return; }
   const d=o.result; window.__GAP=Object.assign({app},d);
-  const rowsH=(d.assets||[]).map(a=>'<tr><td><b>'+esc(a.hostname||a.ip||a.uuid)+'</b> <span class="sub">'+esc(a.ip||'')+'</span></td><td class="mono">'+(a.acr||'—')+'</td><td class="mono">'+(a.plugins||0)+'</td><td>'+(a.url?'<a href="'+esc(a.url)+'" target="_blank">open ↗</a>':'<span class="sub">—</span>')+'</td></tr>').join('');
+  const rowsH=(d.assets||[]).map(a=>'<tr><td><b>'+esc(a.hostname||a.ip||a.uuid)+'</b> <span class="sub">'+esc(a.ip||'')+'</span></td><td class="mono">'+(a.acr||'—')+'</td><td class="mono">'+(a.plugins||0)+'</td><td>'+(safeUrl(a.url,'')?'<a href="'+esc(safeUrl(a.url))+'" target="_blank">open ↗</a>':'<span class="sub">—</span>')+'</td></tr>').join('');
   el.innerHTML='<div class="card" style="margin:0;border:1px solid var(--accent)">'
     +'<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap"><div><b>🕳 Newly-found gap:</b> <span class="mono">'+esc(d.path)+'</span><div class="sub">under <b>'+esc(app.trim())+'</b> · '+(d.asset_count||0)+' asset(s) · '+(d.plugins||[]).length+' plugin(s) · '+(d.findings||[]).length+' finding(s)'+((d.owners||[]).length?(' · owner: '+esc(d.owners.join(', '))):'')+'</div></div>'
     +'<button class="btn" id="gapEmail" style="white-space:nowrap">📧 Email this gap → Gabriel</button></div>'
@@ -251,7 +272,7 @@ function emailGap(){ const g=window.__GAP; if(!g)return;
   const uuids=(g.assets||[]).map(a=>a.uuid).filter(Boolean);
   const ho={report:'agent_findings',source_hound:'Atlas — Ownership Map',headline:'Newly-found gap: '+g.path+' ('+String(g.app||'').trim()+')',asset_uuids:uuids,finding_ids:g.findings||[],owner:(g.owners||[])[0]||''};
   try{ sessionStorage.setItem('gabriel_handoff',JSON.stringify(ho)); }catch(e){}
-  location.href='/agents/email/page.html';
+  (window.top||window).location.href='/agents/email/page.html';   // embedded: leave the frame too
 }
 function drawOrphan(){ const el=document.getElementById('orphanBox'), o=DATA.orphan_paths||[];
   el.innerHTML='<div class="callbox" style="border-left:3px solid '+(o.length?'var(--cx-f43f5e)':'var(--ok)')+'"><b>Orphan paths — no covering app</b> <span class="chip">'+o.length+'</span>'
@@ -330,7 +351,7 @@ function omFlow(){
   items.forEach(it=>{ const y1=ly[it.name+'|'+it.type], y2=ry[it.name+'|'+it.type], mx=(leftX+rightX)/2;
     paths+='<path d="M'+leftX+' '+y1+' C '+mx+' '+y1+', '+mx+' '+y2+', '+rightX+' '+y2+'" fill="none" stroke="'+it._c+'" stroke-opacity="0.8" stroke-width="'+sw(it.assets).toFixed(1)+'" stroke-linecap="round" data-k="'+esc(it.name+'|'+it.type)+'"/>'; });
   left.forEach(it=>{ const y=ly[it.name+'|'+it.type]; labels+='<g class="omrow" data-k="'+esc(it.name+'|'+it.type)+'" style="cursor:pointer"><text x="6" y="'+(y+4)+'" font-size="12.5" fill="var(--ink)">'+esc(short(it.name))+'</text><text x="'+(leftX-10)+'" y="'+(y+4)+'" text-anchor="end" font-size="12" fill="var(--mut)" class="mono">'+it.assets+'</text></g>'; });
-  right.forEach(it=>{ const y=ry[it.name+'|'+it.type]; labels+='<g class="omrow" data-k="'+esc(it.name+'|'+it.type)+'" style="cursor:pointer"><text x="'+(rightX+10)+'" y="'+(y+4)+'" font-size="12" fill="var(--mut)" class="mono">'+it[rightKey]+'</text><text x="'+(W-6)+'" y="'+(y+4)+'" text-anchor="end" font-size="12.5" fill="var(--ink)">'+esc(short(it.name))+'</text></g>'; });
+  right.forEach(it=>{ const y=ry[it.name+'|'+it.type]; labels+='<g class="omrow" data-k="'+esc(it.name+'|'+it.type)+'" style="cursor:pointer"><text x="'+(rightX+10)+'" y="'+(y+4)+'" font-size="12" fill="var(--mut)" class="mono">'+esc(it[rightKey])+'</text><text x="'+(W-6)+'" y="'+(y+4)+'" text-anchor="end" font-size="12.5" fill="var(--ink)">'+esc(short(it.name))+'</text></g>'; });
   wrap.innerHTML='<svg viewBox="0 0 '+W+' '+H+'" width="100%" style="min-width:680px"><text x="'+(leftX/2)+'" y="16" text-anchor="middle" font-size="11" fill="var(--mut)">EXPOSURE (assets) ↓</text><text x="'+((rightX+W)/2)+'" y="16" text-anchor="middle" font-size="11" fill="var(--mut)">COVERAGE ('+rlabel+') ↓</text>'+paths+labels+'</svg>';
   const svg=wrap.querySelector('svg');
   const hi=k=>svg.querySelectorAll('path').forEach(p=>{const on=p.dataset.k===k;p.setAttribute('stroke-opacity',on?1:0.12);});
@@ -410,7 +431,7 @@ function gapRow(i){ const x=GAPS[i]; const nm=x.name.length>40?('…'+x.name.sli
   return `<div class="gaprow" data-i="${i}" style="padding:4px 6px;border-bottom:1px solid var(--line);font-size:12.5px;border-radius:6px">`
     +`<div style="display:flex;align-items:center;gap:8px"><input type="checkbox" class="gsel" data-i="${i}">`
     +`<span style="flex:1"><span class="mono">${esc(nm)}</span> <span class="sub">· ${x.assets} asset(s)${x.status==='partial'?(' · '+x.owned_assets+'/'+x.assets+' owned'):''}</span></span>`
-    +`<button class="btn ghost sm gassign" data-i="${i}">Assign ▾</button>`
+    +`<button class="btn ghost sm gassign" data-i="${i}">🏷️ Tag owner ▾</button>`
     +`<button class="btn ghost sm gdisp" data-i="${i}" data-d="Mitigated" title="Mitigated — being / already fixed">✅</button>`
     +`<button class="btn ghost sm gdisp" data-i="${i}" data-d="Accepted" title="Accept the risk — tracked, not assigned">✔</button>`
     +`<button class="btn ghost sm gdisp" data-i="${i}" data-d="Ignored" title="Ignore — noise, no owner needed">🚫</button></div>`
@@ -424,17 +445,19 @@ function wireGaps(){
 }
 const DISP_C={Mitigated:'var(--ok)',Accepted:'var(--cx-6ea8ff)',Ignored:'#8a99ad'};
 async function disposeGap(i, disp){ const g=GAPS[i]; const res=document.getElementById('gdres-'+i);
+  if(!g||!(await confirmGapTag([g],disp)))return;
   if(res)res.innerHTML='<span class="spin"></span> marking '+disp.toLowerCase()+'…';
   const r=await tagGap(g, disp);   // apply bypasses owner-resolution for a disposition
-  if(res)res.innerHTML=r.ok?('<span style="color:'+(DISP_C[disp]||'#8a99ad')+'">'+disp+' ✓ — ↻ Refresh to move it to Handled</span>'):r.html;
+  if(res)res.innerHTML=r.ok?('<span style="color:'+(DISP_C[disp]||'#8a99ad')+'">'+disp+' ✓ — refresh navi.db, then '+REFRESH_HINT+' to move it to Handled</span>'):r.html;
   if(r.ok){ const row=document.querySelector('.gaprow[data-i="'+i+'"]'); if(row)row.style.opacity='0.5'; }
 }
 function toggleInline(i){ const el=document.getElementById('ginline-'+i); if(!el)return;
   if(el.style.display!=='none'){ el.style.display='none'; el.innerHTML=''; return; }
   el.style.display='';
-  el.innerHTML='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input class="fld ginp" style="min-width:200px" placeholder="owner — user, email, or group"><button class="btn run sm gtag">▶ Tag (gated)</button><span class="gres sub"></span></div>';
+  el.innerHTML='<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><input class="fld ginp" style="min-width:200px" placeholder="owner — user, email, or group"><button class="btn run sm gtag">🏷️ Tag</button><span class="gres sub"></span></div>';
   const inp=el.querySelector('.ginp'), btn=el.querySelector('.gtag'), res=el.querySelector('.gres');
-  const go=async()=>{ const owner=(inp.value||'').trim(); if(!owner){ res.textContent='enter an owner'; return; } btn.disabled=true; res.innerHTML='<span class="spin"></span> queueing…';
+  const go=async()=>{ const owner=(inp.value||'').trim(); if(!owner){ res.textContent='enter an owner'; return; } if(btn.disabled)return;
+    if(!(await confirmGapTag([GAPS[i]],owner)))return; btn.disabled=true; res.innerHTML='<span class="spin"></span> queueing…';
     const r=await tagGap(GAPS[i],owner); res.innerHTML=r.html; btn.disabled=false;
     if(r.ok){ const row=document.querySelector('.gaprow[data-i="'+i+'"]'); if(row)row.style.opacity='0.55'; } };
   btn.onclick=go; inp.addEventListener('keydown',e=>{ if(e.key==='Enter')go(); }); inp.focus();
@@ -455,7 +478,7 @@ function updateSelBar(){ const bar=document.getElementById('gapSelBar'); if(!bar
   bar.innerHTML='<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:8px 10px;border:1px solid var(--accent);border-radius:8px;background:var(--panel-2)">'
     +'<b>'+SEL.size+' selected</b>'
     +'<input id="selOwner" class="fld" style="min-width:210px" placeholder="one owner for all selected">'
-    +'<button class="btn run sm" id="selTagHere">▶ Tag selected here (gated)</button>'
+    +'<button class="btn run sm" id="selTagHere">🏷️ Tag selected here</button>'
     +'<button class="btn sm" id="selSend">Send '+SEL.size+' to Atlas →</button>'
     +'<button class="btn ghost sm" id="selClear">clear</button>'
     +'<span id="selRes" class="sub"></span></div>';
@@ -465,18 +488,21 @@ function updateSelBar(){ const bar=document.getElementById('gapSelBar'); if(!bar
 }
 async function tagSelectedHere(){ const owner=(document.getElementById('selOwner').value||'').trim(); const res=document.getElementById('selRes');
   if(!owner){ res.textContent='enter an owner'; return; }
-  const btn=document.getElementById('selTagHere'); const lbl=btn&&btn.textContent;
+  const btn=document.getElementById('selTagHere'); const lbl=btn&&btn.textContent; if(btn&&btn.disabled)return;
+  if(!SEL.size||!(await confirmGapTag([...SEL].map(i=>GAPS[i]),owner)))return;
   if(btn){ btn.disabled=true; btn.textContent='⏳ Sending…'; btn.style.opacity='.6'; btn.style.transform='translateY(1px)'; btn.style.cursor='default'; }
   const scroll=()=>{ if(res)res.scrollIntoView({behavior:'smooth',block:'center'}); };
   const items=[...SEL].map(i=>GAPS[i]); let done=0,failed=0;
   res.innerHTML='<span style="color:var(--ok);font-weight:600"><span class="spin"></span> Tags being sent to the Tagging log…</span>'; scroll();
   for(const g of items){ const r=await tagGap(g,owner); r.ok?done++:failed++; }
-  res.innerHTML='<span style="color:'+(failed?'var(--cx-e7c66b)':'var(--ok)')+';font-weight:600">✓ Tags sent to the Tagging log — '+done+(failed?', '+failed+' failed':'')+'. Click ↻ Refresh to see the map update.</span>'; scroll();
+  res.innerHTML='<span style="color:'+(failed?'var(--cx-e7c66b)':'var(--ok)')+';font-weight:600">✓ Tags sent to the Tagging log — '+done+(failed?', '+failed+' failed':'')+'. Refresh navi.db, then '+REFRESH_HINT+' to see the map update.</span>'; scroll();
   if(btn){ btn.disabled=false; btn.textContent=lbl; btn.style.opacity=''; btn.style.transform=''; btn.style.cursor=''; }
 }
 /* hand the selected gaps to Atlas' batch quick-assign and jump there — the shared loop */
 function sendSelectedToAtlas(){ const items=[...SEL].map(i=>({kind:GAPS[i].kind,name:GAPS[i].name}));
   if(!items.length)return;
+  // embedded in the Exposure Routes page → open its quick-assign card instead of navigating away
+  try{ if(window.parent!==window && typeof window.parent.showQuickAssign==='function'){ window.parent.showQuickAssign(items); return; } }catch(e){}
   try{ sessionStorage.setItem('atlas_assign',JSON.stringify({items})); }catch(e){}
   location.href='/agents/exproute/page.html';
 }
@@ -527,7 +553,9 @@ function _graphToPng(cb){
 async function emailGraph(){
   const to=(document.getElementById('emGraphTo').value||'').trim(), res=document.getElementById('emGraphRes');
   if(!to){ res.innerHTML='<span style="color:var(--crit)">enter a recipient</span>'; return; }
-  if(!document.querySelector('#graph svg')){ res.innerHTML='<span style="color:var(--crit)">build the graph first (↻ Refresh)</span>'; return; }
+  if(!document.querySelector('#graph svg')){ res.innerHTML='<span style="color:var(--crit)">build the graph first ('+REFRESH_HINT+')</span>'; return; }
+  if(!confirm('Email the '+_graphTitle()+' (as an image) to '+to+'? This is a real send.'
+    +(WRITES?'':'\n\nEmail is gated (NAVI_ALLOW_WRITES / NAVI_EMAIL not set) — the send will be refused.'))) return;
   res.innerHTML='<span class="spin"></span> rendering + sending…';
   _graphToPng(async png=>{
     if(!png){ res.innerHTML='<span style="color:var(--crit)">couldn\'t render the graph image — try again</span>'; return; }
@@ -559,6 +587,9 @@ document.getElementById('thrReset').onclick=()=>{
   syncThreatReadouts(); if(DATA)drawViz();
 };
 document.getElementById('run').onclick=run;
+/* Embedded: the parent page passes the `map` result it already fetched — one API call feeds
+   both its Sankey and this map. */
+window.omLoad=function(result){ DATA=result||{}; if(DATA.note){ flash('flash','ℹ '+esc(DATA.note),'warn'); } else flashClear('flash'); render(); };
 mountAgentHeader({id:'exproute',icon:'🗺',name:'Ownership Map',sub:'Atlas · routes/paths ↔ owners'});
 /* no auto-run — user clicks Run (protects a busy navi.db) */
 </script>

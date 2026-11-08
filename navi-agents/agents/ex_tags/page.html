@@ -6,17 +6,17 @@
 <style>.plink{color:var(--accent);text-decoration:none;font-weight:600}.plink:hover{text-decoration:underline}
 #tbl,#atbl{table-layout:fixed;width:100%}#tbl th,#tbl td,#atbl th,#atbl td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .tagchip{display:inline-block;padding:1px 9px;border-radius:100px;font-size:11.5px;font-weight:700;font-family:var(--mono);background:var(--bg-2);border:1px solid var(--line)}</style>
-</head><body>
+</head><body data-autorun data-page-cache="off">
 <div class="wrap">
   <header class="top" id="app-header"></header>
   <section class="card">
     <h2 style="margin:0">🏷️ Tag Explorer</h2>
-    <p class="sub" style="margin:2px 0 8px">Every tag in navi.db — one row per <b>category : value</b> with its asset count. Search by category or value. 500 rows/page. Click a tag (or its asset count) to see <b>exactly which assets carry it</b> — joined to the assets table, each host linking to its <b>Argos deep-dive</b>.</p>
-    <div class="toolbar needs-llm"><input id="nlq" placeholder="Ask in plain English → SQL on the tags table…" style="flex:1;min-width:240px;padding:9px;border-radius:8px;border:1px solid var(--accent);background:var(--bg-2);color:var(--ink)"><button class="btn sm" id="nlgo">✨ Ask (NL→SQL)</button></div>
+    <p class="sub" style="margin:2px 0 8px">Every tag in navi.db — one row per <b>category : value</b> with its asset count. Search by category or value. 20 rows/page (Rows: up to 50). Click a tag (or its asset count) to see <b>exactly which assets carry it</b> — joined to the assets table, each host linking to its <b>Argos deep-dive</b>.</p>
+    <div class="toolbar needs-llm"><input id="nlq" placeholder="Ask in plain English → SQL on the tags table…" style="flex:1;min-width:240px;padding:9px;border-radius:8px;border:1px solid var(--accent);background:var(--bg-2);color:var(--ink)"><button class="btn sm" id="nlgo" data-run>✨ Ask</button></div>
     <div id="nlout" class="needs-llm"></div>
-    <div class="toolbar"><input id="q" placeholder="tag category / value…" style="flex:1;min-width:220px;padding:9px;border-radius:8px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink)"><button class="btn run sm" id="go">▶ Search</button><span class="chip" id="count"></span></div>
+    <div class="toolbar"><input id="q" placeholder="tag category / value…" style="flex:1;min-width:220px;padding:9px;border-radius:8px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink)"><button class="btn run sm" id="go" data-run>▶ Search</button><span class="chip" id="count"></span></div>
     <div id="flash" class="flash"></div>
-    <table id="tbl" style="table-layout:fixed;width:100%"><colgroup><col style="width:190px"><col><col style="width:74px"><col style="width:96px"><col style="width:96px"></colgroup><thead><tr><th>Category</th><th>Value</th><th>Assets</th><th>First applied</th><th>Last applied</th></tr></thead><tbody><tr><td colspan="5" class="sub">Loading…</td></tr></tbody></table>
+    <table id="tbl" class="nopage" style="table-layout:fixed;width:100%"><colgroup><col style="width:190px"><col><col style="width:74px"><col style="width:96px"><col style="width:96px"></colgroup><thead><tr><th>Category</th><th>Value</th><th>Assets</th><th>First applied</th><th>Last applied</th></tr></thead><tbody><tr><td colspan="5" class="sub">Loading…</td></tr></tbody></table>
     <div class="toolbar" id="pager"></div>
   </section>
 
@@ -25,20 +25,20 @@
     <p class="sub" style="margin:2px 0 8px">The <b>tags ⋈ assets</b> join — every asset carrying this tag. Click a host for its <b>Argos deep-dive</b>; Platform opens the asset in Tenable.</p>
     <div class="toolbar"><input id="aq" placeholder="filter: hostname / IP / OS / uuid…" style="flex:1;min-width:220px;padding:9px;border-radius:8px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink)"><button class="btn run sm" id="ago">▶ Filter</button><span class="chip" id="acount"></span><button class="btn ghost sm" id="aclose">✕ Close</button></div>
     <div id="aflash" class="flash"></div>
-    <table id="atbl" style="table-layout:fixed;width:100%"><colgroup><col><col style="width:130px"><col style="width:200px"><col style="width:52px"><col style="width:52px"><col style="width:96px"><col style="width:78px"></colgroup><thead><tr><th>Host</th><th>IP</th><th>OS</th><th>ACR</th><th>AES</th><th>Tagged on</th><th>Platform</th></tr></thead><tbody></tbody></table>
+    <table id="atbl" class="nopage" style="table-layout:fixed;width:100%"><colgroup><col><col style="width:130px"><col style="width:200px"><col style="width:52px"><col style="width:52px"><col style="width:96px"><col style="width:78px"></colgroup><thead><tr><th>Host</th><th>IP</th><th>OS</th><th>ACR</th><th>AES</th><th>Tagged on</th><th>Platform</th></tr></thead><tbody></tbody></table>
     <div class="toolbar" id="apager"></div>
   </section>
-  <footer>Tag Explorer · read-only navi.db search (paginated 500/page) · drill-down joins the assets table</footer>
+  <footer>Tag Explorer · read-only navi.db search (paginated, 20–50 rows/page) · drill-down joins the assets table</footer>
 </div>
 <script src="/static/console.js"></script>
 <script>
-const API=agentApi('ex_tags'); const PAGE=500; let CUR=null;
+const API=agentApi('ex_tags'); let PAGE=hPageSize('tbl'); let CUR=null;   // 20/page by default, Rows selector up to 50
 const day=s=>{ s=String(s||''); return s?s.slice(0,10):'—'; };
 async function go(off){ off=off||0;
   document.getElementById('go').disabled=true; flash('flash','<span class="spin"></span> querying navi.db…','run');
-  let o; try{ o=await API.post('search',{q:document.getElementById('q').value.trim(),offset:off}); }catch(e){ o={ok:false,error:e.message}; }
+  let o; try{ o=await API.post('search',{q:document.getElementById('q').value.trim(),offset:off,limit:PAGE}); }catch(e){ o={ok:false,error:e.message}; }
   document.getElementById('go').disabled=false;
-  if(!o.ok){ flash('flash','✗ '+(o.error||'failed'),'crit'); return; }
+  if(!o.ok){ flash('flash','✗ '+esc(o.error||'failed'),'crit'); return; }
   flashClear('flash'); const res=o.result||{}; const rows=res.rows||[];
   document.getElementById('count').textContent=rows.length+' shown';
   document.querySelector('#tbl tbody').innerHTML=rows.length?rows.map(r=>{
@@ -55,30 +55,32 @@ async function go(off){ off=off||0;
   pg.innerHTML='<button class="btn ghost sm" '+(off<=0?'disabled':'')+' id="pp">◀ Prev</button><span class="chip">page '+page+' · rows '+(rows.length?off+1:0)+'–'+(off+rows.length)+'</span><button class="btn ghost sm" '+(res.has_next?'':'disabled')+' id="pn">Next ▶</button>';
   const pp=document.getElementById('pp'); if(pp)pp.onclick=()=>go(Math.max(0,off-PAGE));
   const pn=document.getElementById('pn'); if(pn)pn.onclick=()=>go(off+PAGE);
+  hSizeControl(pg,'tbl',v=>{ PAGE=v; go(0); });
 }
 function openTag(k,v){ CUR={k,v}; document.getElementById('acard').style.display='';
   document.getElementById('atag').textContent=k+' : '+v; document.getElementById('aq').value='';
   goAssets(0); document.getElementById('acard').scrollIntoView({behavior:'smooth'}); }
 async function goAssets(off){ off=off||0; if(!CUR) return;
   document.getElementById('ago').disabled=true; flash('aflash','<span class="spin"></span> joining tags ⋈ assets…','run');
-  let o; try{ o=await API.post('assets',{key:CUR.k,value:CUR.v,q:document.getElementById('aq').value.trim(),offset:off}); }catch(e){ o={ok:false,error:e.message}; }
+  let o; try{ o=await API.post('assets',{key:CUR.k,value:CUR.v,q:document.getElementById('aq').value.trim(),offset:off,limit:PAGE}); }catch(e){ o={ok:false,error:e.message}; }
   document.getElementById('ago').disabled=false;
-  if(!o.ok){ flash('aflash','✗ '+(o.error||'failed'),'crit'); return; }
+  if(!o.ok){ flash('aflash','✗ '+esc(o.error||'failed'),'crit'); return; }
   flashClear('aflash'); const res=o.result||{}; const rows=res.rows||[];
   document.getElementById('acount').textContent=rows.length+' shown';
   document.querySelector('#atbl tbody').innerHTML=rows.length?rows.map(r=>{
     const host=(r.hostname||'').trim()||r.ip_address||'(none)';
     const acell=r.uuid?`<a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(r.uuid)}" title="${esc(r.uuid)} — open the Argos asset deep-dive">${esc(host)}</a>`:esc(host);
-    const urlAttr=String(r.url||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;');
+    const urlAttr=esc(safeUrl(r.url));
     return `<tr><td title="${esc(host)}">${acell}</td><td class="mono">${esc(r.ip_address||'')}</td>`
       +`<td title="${esc(r.operating_system||'')}">${esc(r.operating_system||'')}</td>`
       +`<td>${esc(String(r.acr??''))}</td><td>${esc(String(r.aes??''))}</td><td>${day(r.tag_added)}</td>`
-      +`<td>${r.url?`<a class="plink" href="${urlAttr}" target="_blank" rel="noopener">Open ↗</a>`:'<span class="sub">—</span>'}</td></tr>`;
+      +`<td>${safeUrl(r.url,'')?`<a class="plink" href="${urlAttr}" target="_blank" rel="noopener noreferrer">Open ↗</a>`:'<span class="sub">—</span>'}</td></tr>`;
   }).join(''):'<tr><td colspan="7" class="sub">No assets match.</td></tr>';
   const pg=document.getElementById('apager'); const page=res.page||1;
   pg.innerHTML='<button class="btn ghost sm" '+(off<=0?'disabled':'')+' id="app_">◀ Prev</button><span class="chip">page '+page+' · rows '+(rows.length?off+1:0)+'–'+(off+rows.length)+'</span><button class="btn ghost sm" '+(res.has_next?'':'disabled')+' id="apn">Next ▶</button>';
   const pp=document.getElementById('app_'); if(pp)pp.onclick=()=>goAssets(Math.max(0,off-PAGE));
   const pn=document.getElementById('apn'); if(pn)pn.onclick=()=>goAssets(off+PAGE);
+  hSizeControl(pg,'tbl',v=>{ PAGE=v; goAssets(0); });
 }
 document.getElementById('go').onclick=()=>go(0);
 document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter')go(0);});

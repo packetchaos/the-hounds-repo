@@ -1,5 +1,335 @@
 /* Navi Agents — shared front-end helpers used by the hub and every agent page. */
 
+/* ===== Hound page cache — come back to where you left off ======================
+   Every agent page keeps its last run in this browser's IndexedDB. Navigate away
+   and come back: the inputs are refilled, the page's ▶ buttons are replayed in the
+   same order, and every read it makes is answered from the local copy instead of
+   re-running the agent. A strip under the header shows the age, ↻ Re-run (fresh,
+   bypasses the server cache too) and ✕ Clear.
+
+   Opting a page in: put data-run on each button that produces results — the
+   primary ▶ Run plus any later read phase (✨ Ask, ▶ Run Sankey, ▶ Run SQL…).
+   <body data-autorun> marks a page that loads its results by itself on open (its
+   load-time reads are cached too, and its pickers are restored).
+   <body data-page-cache="off"> turns the cache off for a page that loads a live list on
+   open (ACR, Agent Groups, Tag Removal…) — those must always show the current state.
+   <body data-cache-inputs="off"> skips saving/restoring fields — for editors whose
+   fields mirror server state (Contract, Alert), where stale values would fight the
+   live config.
+   Writes are never stored or replayed: tag / apply / send / delete … actions,
+   anything sent with confirm:true, and live status endpoints always go to the
+   server — and while a page is being restored, any write it fires is swallowed.
+   Tunables (localStorage): houndsCacheTTLh (hours, default 24), houndsCacheOff=1. */
+const HC = (function(){
+  const ENABLED = location.pathname.startsWith('/agents/') &&
+                  !(document.body && document.body.dataset.pageCache==='off') &&   // live-list pages opt out
+                  !(function(){ try{ return localStorage.getItem('houndsCacheOff')==='1'; }catch(e){ return false; } })();
+  const KEY = location.pathname + location.search;
+  const TTL_MS = (function(){ let h=24; try{ const v=parseFloat(localStorage.getItem('houndsCacheTTLh')); if(v>0) h=v; }catch(e){} return h*3600e3; })();
+  const MAX_PAGES = 80;
+  // never cached: writes + live state. Mirrors core/launcher._MUTATING and widens it.
+  const WRITE_RE = /^(apply|bulk_apply|assign|tag|tag_.+|.+_tag|tags_.+|send|send_.+|delete|remove|rotate|encrypt|decrypt|refresh|save|set|set_.+|.+_set|toggle|add_.+|arm|disarm|run_now|command|upload|push_file|campaign|abort|verify|run_checks|cred_test|path_check|deploy|rollback|promote|ignore_.+|detections_.+|evaluate|test|trust|run_all|reset_usage|navi_.+|build_from_.+)$/;
+  const LIVE_RE  = /^(status|log|loop_log|history|scheduler|list|get|applied|metrics|verify_tags|tags_compare|which_agent|activity)$/;
+  const SKIP_AGENTS = new Set(['jobs','profile','settings','hub']);
+  const READ_OK = new Set(['tag_plan','os_plan','detections_export']);   // read actions whose names look like writes
+  const S = { on:ENABLED, key:KEY, mode:'live', entry:null, inflight:0, last:0, steps:[], dirty:false, ready:null, runCtx:false,
+              src:'server', onServer:false, respDirty:false };
+  // body keys a page leaves out of its cache key (<body data-cache-ignore="fp,allow">): values
+  // that live in one browser's localStorage, so another browser's replay still matches
+  const IGNORE = new Set(((document.body && document.body.dataset.cacheIgnore)||'').split(',').map(x=>x.trim()).filter(Boolean));
+  /* requests set off by a real ▶ Run / Run all / Enter are this hound's "runs" — mark them
+     until the page goes quiet, so the server can keep a durable last-run history */
+  let _runSeq=0;
+  function startRunCtx(){ const my=++_runSeq;
+    if(!S.runCtx) S.runCtx=Date.now().toString(36)+Math.random().toString(36).slice(2,6);   // one id per run (Run all = one run)
+    setTimeout(async()=>{ await quiet(30*60e3); if(my===_runSeq){ S.runCtx=null; try{ window.dispatchEvent(new Event('hounds:ran')); }catch(e){} } }, 150); }
+
+  /* ---- storage: the SERVER keeps every page's entry (core/pagecache.py via /api/hub/pc_*),
+     so it is shared across browsers and Release the Hounds can fill it. This browser's
+     IndexedDB is only a fallback for when the server can't be reached. ---- */
+  const _rawFetch = window.fetch ? window.fetch.bind(window) : null;
+  async function srv(action, body){
+    const r = await _rawFetch('/api/hub/'+action, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body||{})});
+    if(!r.ok && r.status!==400) throw new Error('page cache: HTTP '+r.status);
+    return r.json(); }
+  // the newer of the server's copy and this browser's fallback copy (a run saved here while
+  // the server was down, or one too large for the server, must not lose to an older server copy)
+  async function cacheGet(k){
+    let sv=null, ok=true; try{ const o=await srv('pc_get',{key:k}); sv=(o&&o.entry)||null; }catch(e){ ok=false; }
+    const lo=await idbGet(k);
+    if(lo && (!sv || (lo.at||0)>(sv.at||0))){ S.src='browser'; return lo; }
+    S.src= ok?'server':'browser'; return sv; }
+  async function cachePut(v){
+    try{ const o=await srv('pc_put',{key:v.key, entry:v}); if(!o||!o.ok) throw new Error((o&&o.error)||'refused');
+      S.src='server'; S.onServer=true; idbDel(v.key); }
+    catch(e){ S.src='browser'; S.onServer=false; await idbPut(v); prune(); } }
+  // field edits after a run: send only the small fields, not every response again
+  async function cachePatch(v){
+    if(!S.onServer) return cachePut(v);
+    try{ const o=await srv('pc_patch',{key:v.key, fields:{final:v.final, steps:v.steps, at:v.at, title:v.title}});
+      if(o&&o.ok) return; }catch(e){}
+    return cachePut(v); }
+  async function cacheDel(k){ try{ await srv('pc_del',{key:k}); }catch(e){} return idbDel(k); }
+  /* ---- tiny IndexedDB wrapper (fallback only) ---- */
+  let _db=null;
+  function idb(){ if(_db) return _db;
+    _db = new Promise((res,rej)=>{ try{ const r=indexedDB.open('hounds-page-cache',1);
+      r.onupgradeneeded=()=>r.result.createObjectStore('pages',{keyPath:'key'});
+      r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }catch(e){ rej(e); } });
+    return _db; }
+  async function tx(mode, fn){ const d=await idb(); return new Promise((res,rej)=>{
+    const t=d.transaction('pages',mode); const st=t.objectStore('pages'); let out; const r=fn(st);
+    if(r) r.onsuccess=()=>{ out=r.result; }; t.oncomplete=()=>res(out); t.onerror=()=>rej(t.error); t.onabort=()=>rej(t.error); }); }
+  const idbGet = k => tx('readonly', st=>st.get(k)).catch(()=>null);
+  const idbPut = v => tx('readwrite', st=>st.put(v)).catch(()=>null);
+  const idbDel = k => tx('readwrite', st=>st.delete(k)).catch(()=>null);
+  async function prune(){ try{ const all=await tx('readonly', st=>st.getAll());
+    if(!all || all.length<=MAX_PAGES) return;
+    all.sort((a,b)=>(a.at||0)-(b.at||0)).slice(0, all.length-MAX_PAGES).forEach(e=>idbDel(e.key)); }catch(e){} }
+
+  /* ---- request classification ---- */
+  function stable(o){ if(o==null||typeof o!=='object') return JSON.stringify(o);
+    if(Array.isArray(o)) return '['+o.map(stable).join(',')+']';
+    return '{'+Object.keys(o).sort().map(k=>JSON.stringify(k)+':'+stable(o[k])).join(',')+'}'; }
+  function classify(url, method, body){
+    let p; try{ p=new URL(url, location.href); }catch(e){ return null; }
+    if(p.origin!==location.origin) return null;
+    const m=p.pathname.match(/^\/api\/([a-z0-9_]+)\/([a-z0-9_]+)$/); if(!m) return null;
+    const agent=m[1], action=m[2];
+    let b={}; if(body){ try{ b=JSON.parse(body); }catch(e){ b=null; } }
+    const write = (WRITE_RE.test(action) && !READ_OK.has(action)) || (agent==='contract' && action==='load') || !!(b && b.confirm);
+    if(write) return {write:true};
+    if(!b || SKIP_AGENTS.has(agent) || LIVE_RE.test(action) || b.background) return null;
+    const k={}; for(const x in (b||{})) if(!/^(_label|_nocache|_run|refresh)$/.test(x) && !IGNORE.has(x)) k[x]=b[x];
+    return { key: method+' '+p.pathname+' '+stable(k), body:b };
+  }
+
+  /* ---- fetch interception: serve from the local copy while replaying, record always ---- */
+  if(ENABLED && window.fetch){
+    const _fetch = window.fetch.bind(window);
+    window.fetch = async function(input, init){
+      const url = typeof input==='string' ? input : (input && input.url) || '';
+      const method = String((init && init.method) || (input && input.method) || 'GET').toUpperCase();
+      const info = classify(url, method, init && typeof init.body==='string' ? init.body : null);
+      if(!info) return _fetch(input, init);
+      await S.ready;
+      if(info.write){
+        // a replay only ever clicks reads; a write here is a side-effect (e.g. an autosave
+        // fired by a restored field) — swallow it rather than change anything server-side.
+        if(S.mode!=='live') return new Response(JSON.stringify({ok:false, skipped:true,
+          error:'write skipped while restoring this page from the local cache'}), {status:200, headers:{'Content-Type':'application/json'}});
+        if(S.mode==='live') setTimeout(()=>{ try{ window.dispatchEvent(new Event('hounds:wrote')); }catch(e){} }, 1500);
+        return _fetch(input, init);
+      }
+      S.last = Date.now();
+      if(S.mode==='replay' && S.entry && S.entry.resp && S.entry.resp[info.key]){
+        const c=S.entry.resp[info.key];
+        let b=c.body; if(b && typeof b==='object' && !Array.isArray(b)) b=Object.assign({}, b, {_replayed:true});
+        return new Response(JSON.stringify(b), {status:c.status||200, headers:{'Content-Type':'application/json'}});
+      }
+      const extra = {};
+      if(S.mode==='fresh' && method==='POST') extra._nocache = true;
+      if(S.runCtx && S.mode==='live' && method==='POST') extra._run = S.runCtx;   // durable run history (core/activity.py)
+      if(Object.keys(extra).length) init = Object.assign({}, init, {body: JSON.stringify(Object.assign({}, info.body, extra))});
+      S.inflight++;
+      try{
+        const r = await _fetch(input, init);
+        try{ if(r.status<400){ const j=await r.clone().json();
+          if(!(j && typeof j==='object' && j.ok===false)) record(info.key, r.status, j); } }catch(e){}
+        return r;
+      } finally { S.inflight--; S.last=Date.now(); }
+    };
+  }
+
+  function blank(){ return {key:KEY, at:Date.now(), title:document.title, steps:[], final:null, resp:{}}; }
+  function record(k, status, body){
+    if(!S.entry) S.entry = blank();
+    S.entry.resp[k] = {status, body}; S.respDirty=true;
+    const ks=Object.keys(S.entry.resp); if(ks.length>250) delete S.entry.resp[ks[0]];
+    persistSoon();
+  }
+  /* write-through: save as soon as a result lands (coalesced), never on unload —
+     browsers abort IndexedDB writes started while a page is being torn down. */
+  let _busy=false, _again=false;
+  function persistSoon(){ if(_busy){ _again=true; return; } _busy=true;
+    Promise.resolve().then(persist).catch(()=>{}).then(()=>{ _busy=false; if(_again){ _again=false; persistSoon(); } }); }
+  const autorun = () => !!(document.body && document.body.hasAttribute('data-autorun'));
+  const PAGE_AGENT = (location.pathname.match(/^\/agents\/([^/]+)\//)||[])[1] || '';
+  // a deep link (?uuid=…, ?q=…) that makes the page run itself on open counts as a run
+  const deepLinkRun = e => !!location.search && Object.keys(e.resp||{}).some(k=>k.startsWith('POST /api/'+PAGE_AGENT+'/'));
+  function worthKeeping(e){ return e && (e.steps.length || autorun() || deepLinkRun(e)); }
+  async function persist(){ const e=S.entry; if(!worthKeeping(e)) return;
+    e.title=document.title;
+    if(S.respDirty || !S.onServer){ S.respDirty=false; await cachePut(e); }
+    else await cachePatch(e); }
+  let _editT=null;
+  function persistEditSoon(){ clearTimeout(_editT); _editT=setTimeout(persistSoon, 1200); }
+
+  /* ---- input snapshots (ids only; never passwords / files) ---- */
+  const noInputs = () => !!(document.body && document.body.dataset.cacheInputs==='off');
+  function fields(){ if(noInputs()) return [];
+    return [...document.querySelectorAll('input[id],select[id],textarea[id]')]
+    .filter(el=>!el.closest('#app-header') && !/^(password|file|hidden|button|submit)$/i.test(el.type||'')); }
+  function snap(){ const o={}; fields().forEach(el=>{
+      if(el.type==='checkbox'||el.type==='radio') o[el.id]={c:el.checked};
+      else if(el.multiple) o[el.id]={m:[...el.selectedOptions].map(x=>x.value)};
+      else o[el.id]={v:el.value}; }); return o; }
+  const sleep = ms => new Promise(r=>setTimeout(r,ms));
+  async function waitFor(fn, ms){ const t0=Date.now(); for(;;){ const v=fn(); if(v) return v; if(Date.now()-t0>ms) return null; await sleep(60); } }
+  async function restore(o){ if(!o) return;
+    for(const id in o){ const el=document.getElementById(id); if(!el) continue; const s=o[id];
+      if(el.tagName==='SELECT' && s.v!=null && s.v!=='' && !el.multiple)
+        await waitFor(()=>[...el.options].some(x=>x.value===s.v), 2500);
+      let changed=false;
+      if('c' in s){ if(el.checked!==s.c){ el.checked=s.c; changed=true; } }
+      else if('m' in s){ [...el.options].forEach(x=>{ const w=s.m.includes(x.value); if(x.selected!==w){ x.selected=w; changed=true; } }); }
+      else if(el.value!==s.v){ el.value=s.v; changed=true; }
+      if(changed){ el.dispatchEvent(new Event('input',{bubbles:true})); el.dispatchEvent(new Event('change',{bubbles:true})); }
+    } }
+  async function quiet(max){ const t0=Date.now(); await sleep(60);
+    while(Date.now()-t0 < (max||30000)){ if(S.inflight===0 && !window.__RUN_ALL_BUSY && Date.now()-S.last>350) return; await sleep(80); } }
+
+  /* user-driven recording: a trusted click on a data-run button starts/extends the run */
+  if(ENABLED){
+    document.addEventListener('click', ev=>{
+      if(!ev.isTrusted || S.mode!=='live') return;
+      const b=ev.target.closest && ev.target.closest('button[data-run],a[data-run]'); if(!b || !b.id) return;
+      if(!S.entry) S.entry=blank();
+      const steps=S.entry.steps, i=steps.findIndex(s=>s.id===b.id);
+      if(i>=0) steps.length=i;                       // re-running an earlier phase drops the later ones
+      if(!steps.length) S.entry.at=Date.now();
+      steps.push({id:b.id, inputs:snap()});
+      delete S.entry.released; S.respDirty=true;     // the user's own run now, not a release's
+      S.entry.final=null; persistSoon(); hideBanner(); startRunCtx();
+    }, true);
+    // Enter in a query box runs the page's ▶/✨ button for that box — record it as that button's step
+    document.addEventListener('keydown', ev=>{
+      if(!ev.isTrusted || S.mode!=='live' || ev.key!=='Enter' || ev.isComposing) return;
+      const t=ev.target; if(!t || !/^(INPUT|TEXTAREA)$/.test(t.tagName)) return;
+      if(t.tagName==='TEXTAREA' && !(ev.ctrlKey||ev.metaKey)) return;
+      let n=t.parentElement, b=null;
+      while(n && n!==document.body && !b){ b=n.querySelector('button[data-run][id]'); if(n.tagName==='SECTION') break; n=n.parentElement; }
+      if(!b) return;
+      if(!S.entry) S.entry=blank();
+      const steps=S.entry.steps, i=steps.findIndex(s=>s.id===b.id);
+      if(i>=0) steps.length=i;
+      if(!steps.length) S.entry.at=Date.now();
+      steps.push({id:b.id, inputs:snap()});
+      delete S.entry.released; S.respDirty=true;
+      S.entry.final=null; persistSoon(); hideBanner(); startRunCtx();
+    }, true);
+    const onEdit = ev=>{ if(!ev.isTrusted || S.mode!=='live') return;
+      if(!S.entry){ if(!autorun()) return; S.entry=blank(); }
+      if(!S.entry.steps.length && !autorun()) return;
+      S.entry.final=snap(); persistEditSoon(); };
+    document.addEventListener('input', onEdit, true);
+    document.addEventListener('change', onEdit, true);
+  }
+
+  /* ---- banner ---- */
+  function ago(t){ const s=Math.max(0,(Date.now()-t)/1000);
+    if(s<60) return 'just now'; if(s<3600) return Math.round(s/60)+' min ago';
+    if(s<86400) return Math.round(s/3600)+' h ago'; return Math.round(s/86400)+' d ago'; }
+  function hideBanner(){ const b=document.getElementById('hcBanner'); if(b) b.remove(); }
+  function showBanner(e, misses){
+    if(!document.getElementById('hcStyle')){ const st=document.createElement('style'); st.id='hcStyle';
+      st.textContent='.hc-banner{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px;padding:8px 12px;border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:var(--radius-sm,8px);background:var(--panel-2);font-size:13px;color:var(--ink-2,var(--ink))}.hc-banner b{color:var(--ink)}.hc-banner .sp{flex:1}';
+      document.head.appendChild(st); }
+    hideBanner();
+    const d=document.createElement('div'); d.id='hcBanner'; d.className='hc-banner';
+    const rel=!!(e.released&&e.released.by==='release');
+    d.innerHTML='<span>'+(rel?'🐾 Released by <a href="/">Release the Hounds</a> · <b>':'↺ Restored your last run · <b>')+ago(e.at)+'</b>'+
+      ' <span class="sub">— saved '+(S.src==='browser'?'in this browser':'on the server')+(misses?' ('+misses+' read'+(misses>1?'s':'')+' fetched live)':'')+'</span></span>'+
+      '<span class="sp"></span><button class="btn sm" type="button" id="hcRerun" title="Run again with fresh data (bypasses every cache)">↻ Re-run</button>'+
+      '<button class="btn sm" type="button" id="hcClear" title="Forget this page\'s saved run">✕ Clear</button>';
+    // sits under the codename strip and the Done so far panel, right above the page's own cards
+    const wrap=document.querySelector('.wrap')||document.body;
+    const first=[...wrap.children].find(e=>e.id!=='actv' && e.id!=='hcBanner' && e.classList.contains('card'));
+    if(first) wrap.insertBefore(d, first); else wrap.prepend(d);
+    d.querySelector('#hcRerun').onclick=()=>rerun();
+    d.querySelector('#hcClear').onclick=()=>clear();
+  }
+
+  /* ---- replay driver ---- */
+  async function drive(fresh){
+    const e=S.entry; let misses=0;
+    const before=Object.keys(e.resp).length;
+    for(const st of e.steps){
+      await restore(st.inputs);
+      // optional step (e.g. ✓ Approve on a download hound): clicked only if it is showing
+      const b=await waitFor(()=>{ const x=document.getElementById(st.id); return x && !x.disabled && (!st.optional || x.offsetParent) ? x : null; },
+                            st.optional ? 1500 : 6000);
+      if(!b){ if(st.optional) continue; break; }
+      b.click(); await quiet();
+    }
+    if(e.final){ await restore(e.final); await quiet(); }
+    misses = fresh ? 0 : Math.max(0, Object.keys(e.resp).length-before);
+    S.mode='live';
+    if(fresh){ e.at=Date.now(); delete e.released; S.respDirty=true; await persist(); }
+    else showBanner(e, misses);
+  }
+  function rerun(){ try{ sessionStorage.setItem('hcFresh:'+KEY,'1'); }catch(e){} location.reload(); }
+  async function clear(){ await cacheDel(KEY); S.entry=null; location.reload(); }
+
+  S.ready = (async()=>{
+    if(!ENABLED) return;
+    let fresh=false; try{ fresh=sessionStorage.getItem('hcFresh:'+KEY)==='1'; sessionStorage.removeItem('hcFresh:'+KEY); }catch(e){}
+    const e = await cacheGet(KEY);
+    // expired for THIS browser's TTL → just don't replay it (the shared server copy stays
+    // for other browsers; the server prunes)
+    if(!e || !Array.isArray(e.steps) || !e.resp || (Date.now()-(e.at||0)) > TTL_MS) return;
+    S.entry = e; S.onServer = S.src==='server';
+    if(fresh){ e.resp={}; S.mode='fresh'; } else S.mode='replay';
+  })();
+  if(ENABLED) window.addEventListener('load', async()=>{
+    await S.ready;
+    if(S.mode==='live' || !S.entry) return;
+    await sleep(30);                    // let the page's own load-time script bind its handlers
+    try{ await drive(S.mode==='fresh'); }catch(err){ S.mode='live'; }
+  });
+
+  /* ---- ▶ Run all — for hounds with more than one ▶ Run step ----------------------
+     Declarative: <button class="btn run sm" id="runAll" data-run data-run-all="load,pqcRun,…">▶ Run all</button>
+     Clicks each step's button in order, waiting for it to finish (its button re-enabled
+     and no API call in flight) before the next. A step whose button is still disabled
+     after 60 s (e.g. needs an earlier result) is skipped. data-run on the Run-all button
+     makes the page cache replay the whole sequence on return. */
+  async function runAll(btn){
+    if(window.__RUN_ALL_BUSY) return;
+    const ids=(btn.dataset.runAll||'').split(',').map(x=>x.trim()).filter(Boolean);
+    const label=btn.dataset.label||(btn.dataset.label=btn.innerHTML);
+    window.__RUN_ALL_BUSY=true; btn.disabled=true; btn.classList.add('pressed');
+    let done=0, skipped=[];
+    try{
+      for(let i=0;i<ids.length;i++){
+        const step=await waitFor(()=>{ const x=document.getElementById(ids[i]); return x && !x.disabled ? x : null; }, 60000);
+        if(!step){ skipped.push(ids[i]); continue; }
+        const name=(step.textContent||'').replace(/^\s*▶\s*(Run\s*)?/,'').trim() || 'main run';
+        btn.innerHTML='<span class="spin"></span> '+(i+1)+'/'+ids.length+' · '+esc(name);
+        step.click(); await sleep(120);
+        // finished = the step's button is enabled again and the page has gone quiet
+        const t0=Date.now();
+        while(Date.now()-t0 < 30*60e3){
+          const x=document.getElementById(ids[i]);
+          if((!x || !x.disabled) && S.inflight===0 && Date.now()-S.last>400) break;
+          await sleep(100);
+        }
+        done++;
+      }
+    } finally {
+      window.__RUN_ALL_BUSY=false; btn.disabled=false; btn.classList.remove('pressed'); btn.innerHTML=label;
+      btn.title='Last run: '+done+'/'+ids.length+' steps'+(skipped.length?' · skipped '+skipped.join(', '):'');
+    }
+  }
+  function wireRunAll(){ document.querySelectorAll('button[data-run-all]').forEach(b=>{ if(!b.__ra){ b.__ra=1; b.addEventListener('click',()=>runAll(b)); } }); }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', wireRunAll); else wireRunAll();
+
+  return { state:S, rerun, clear, runAll,
+           clearAll: async()=>{ try{ await srv('pc_del',{all:true}); }catch(e){} try{ const all=await tx('readonly', st=>st.getAllKeys()); (all||[]).forEach(idbDel); }catch(e){} },
+           replaying: ()=>S.mode!=='live' };
+})();
+
+
 /* ---- theme (dark default; light toggle; persisted; honours OS on first paint) ---- */
 const _SUN='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/></svg>';
 const _MOON='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3 6.6 6.6 0 0 0 21 12.8Z"/></svg>';
@@ -55,7 +385,36 @@ async function jpost(u, b){
   const r = await fetch(u, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(b||{})});
   return r.json();
 }
-const esc = s => String(s==null?'':s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+/* ---- URL hygiene for links built from data (navi.db fields, LLM output, catalogs) ----
+   safeUrl(u)  → u only when it is an absolute http:/https: URL, else `fallback` ('#').
+               Use for EXTERNAL links from data: assets.url, vulns.url, apps.target,
+               findings.url, compliance see_also, catalog links … (javascript:, data:,
+               vbscript:, file:, protocol-relative // and anything else → fallback).
+   safeHref(u) → like safeUrl but also allows same-origin relative links ('/x', '#x',
+               '?x') — for hrefs a server computed for in-console navigation.
+   Always esc() the result when interpolating it into an attribute. */
+function safeUrl(u, fallback){
+  const v=String(u==null?'':u).trim();
+  return /^https?:\/\/[^\s]/i.test(v) && !/[\u0000-\u001f]/.test(v) ? v : (fallback===undefined?'#':fallback);
+}
+function safeHref(u, fallback){
+  const v=String(u==null?'':u).trim();
+  if(/^(\/(?![\/\\])|#|\?)/.test(v) && !/[\u0000-\u001f]/.test(v)) return v;
+  return safeUrl(v, fallback);
+}
+/* Defence in depth: a click on any link whose scheme is not http(s)/same-origin
+   (javascript:, data:, vbscript:) is cancelled, wherever the link came from. */
+document.addEventListener('click', e=>{ const a=e.target&&e.target.closest&&e.target.closest('a[href]'); if(!a) return;
+  if(/^\s*(javascript|data|vbscript):/i.test(a.getAttribute('href')||'')){ e.preventDefault(); e.stopImmediatePropagation(); } }, true);
+/* Only crest ids that belong to a known agent are rendered (ids come from LLM output). */
+/* Image fallbacks without inline handlers: <img data-fb="hide"> hides itself on error,
+   data-fb="ph" becomes the 🐾 placeholder tile, any other value becomes that text. */
+document.addEventListener('error', e=>{ const im=e.target; if(!im||im.tagName!=='IMG'||!im.dataset||im.dataset.fb==null) return;
+  const fb=im.dataset.fb; if(fb==='hide'){ im.style.display='none'; return; }
+  if(fb==='ph'){ const d=document.createElement('div'); d.className='crestph'; d.textContent='🐾'; im.replaceWith(d); return; }
+  im.replaceWith(document.createTextNode(fb||'🐾')); }, true);
+function crestSrc(id){ return /^[a-z0-9_-]{1,40}$/i.test(String(id||'')) ? '/static/crests/'+encodeURIComponent(id)+'.png' : ''; }
 
 /* Per-agent API helper: posts to /api/<agentId>/<action>.
    Every response is quietly scanned for the finding IDs + asset UUIDs + tag the agent just
@@ -269,15 +628,15 @@ function deepDiveChips(id){
   const d = deepDive(id); if(!d) return '';
   let h='';
   if(d.year) h+='<span class="sub" style="font-size:11px;color:var(--ink-3);align-self:center;white-space:nowrap">📖 Origin story · '+d.year+'</span>';
-  if(d.article&&d.article.url) h+='<a class="btn ghost sm" href="'+d.article.url+'" target="_blank" rel="noopener" title="'+esc(d.article.title||'Read the origin article')+'">Deep dive ↗</a>';
-  if(d.code&&d.code.url) h+='<a class="btn ghost sm" href="'+d.code.url+'" target="_blank" rel="noopener" title="'+esc(d.code.label||'Source code')+'">‹ › Code</a>';
+  if(d.article&&d.article.url) h+='<a class="btn ghost sm" href="'+esc(safeUrl(d.article.url))+'" target="_blank" rel="noopener noreferrer" title="'+esc(d.article.title||'Read the origin article')+'">Deep dive ↗</a>';
+  if(d.code&&d.code.url) h+='<a class="btn ghost sm" href="'+esc(safeUrl(d.code.url))+'" target="_blank" rel="noopener noreferrer" title="'+esc(d.code.label||'Source code')+'">‹ › Code</a>';
   return h;
 }
 /* just the origin-story date + article link (shown under the agent name on cards) */
 function deepDiveMeta(id){ const d=deepDive(id); if(!d) return '';
   let h='';
   if(d.year) h+='<span class="sub" style="font-size:11px;color:var(--ink-3)">📖 Origin story · '+d.year+'</span>';
-  if(d.article&&d.article.url) h+='<a href="'+d.article.url+'" target="_blank" rel="noopener" title="'+esc(d.article.title||'')+'" style="font-size:12px;color:var(--accent);font-weight:600;text-decoration:none">Deep dive ↗</a>';
+  if(d.article&&d.article.url) h+='<a href="'+esc(safeUrl(d.article.url))+'" target="_blank" rel="noopener noreferrer" title="'+esc(d.article.title||'')+'" style="font-size:12px;color:var(--accent);font-weight:600;text-decoration:none">Deep dive ↗</a>';
   return h?('<div class="ddmeta" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:2px 0 0">'+h+'</div>'):''; }
 /* just the code link (shown with Execute / Open in the actions row) */
 // The ‹ › Code link points at the agent's own folder in the-hounds-repo on GitHub.
@@ -285,7 +644,7 @@ const HOUNDS_REPO='https://github.com/packetchaos/the-hounds-repo/tree/main/navi
 const HOUNDS_REPO_ALIAS={act1:'certificate',squad:'iot_squad',capp:'customapp',ident:'identity',scaneval:'scan_eval'};
 function houndsRepoUrl(id){ return HOUNDS_REPO+(HOUNDS_REPO_ALIAS[id]||id); }
 function deepDiveCode(id){ const d=deepDive(id); if(!d) return '';
-  return '<a class="btn ghost sm" href="'+houndsRepoUrl(id)+'" target="_blank" rel="noopener" title="Source — this hound in the-hounds-repo">‹ › Code</a>'; }
+  return '<a class="btn ghost sm" href="'+esc(safeUrl(houndsRepoUrl(id)))+'" target="_blank" rel="noopener noreferrer" title="Source — this hound in the-hounds-repo">‹ › Code</a>'; }
 /* ===== Per-agent intro: value line + expanded key capabilities (from the field guide) ===== */
 const AGENT_INTRO = {
  certificate:{does:"Keeps certificate expirations from becoming outages — finds every cert expiring within a year, shows exactly who's affected, and tags the risk before it bites.",caps:[
@@ -331,12 +690,13 @@ const AGENT_INTRO = {
  identity:{does:"Guards the doorways — inventories human and non-human identities and flags the weak credentials attackers pivot through.",caps:[
    "Content-first <b>NHI + human identity</b> discovery; flags non-expiring, privileged, guest-enabled and machine identities.",
    "Surfaces coverage gaps (blind hosts), SSH password auth and weak policy.",
-   "Correlates crown-jewel identities, credential reuse, default/blank creds and AD attack paths.",
+   "Correlates crown-jewel identities, account reuse, default/blank creds and AD attack paths.",
    "Tags the hosting assets — Fenrir's single biggest source of credential pivots."]},
  scan_eval:{does:"Measures where your scans spend their time — and, crucially, what they can't see: the blind and uncredentialed hosts.",caps:[
-   "Cleans up <span class='mono'>navi scan evaluate</span>: average scan time by scanner, policy and scan.",
-   "Reports <b>credential coverage</b> and surfaces blind / uncredentialed hosts.",
-   "Tags problem areas so scanning gaps become actionable.",
+   "Per-asset <b>credential health</b>: failed, insufficient privilege, intermittent or no credentials — from the Target Credential Status / Issues plugins and 19506.",
+   "<b>Scan freshness</b> (never / 30 / 90 days), agent vs network, and <b>crown-jewel blind spots</b>.",
+   "Scanner / policy / scan time per asset, load share, credential success and <b>plugin-feed currency</b>.",
+   "Tags the exact assets under <span class='mono'>Scan Health</span> so scanning gaps become actionable.",
    "The honesty layer — blind hosts are the 'we can't see this' caveat for Janus, Fenrir and On the Scent."]},
  insights:{does:"Your morning 'what am I not seeing' page — rolls every agent's findings into one ranked exposure view.",caps:[
    "Aggregates all producers into an <b>Exposure-at-a-glance</b> ranked list + category tiles.",
@@ -375,11 +735,12 @@ const AGENT_INTRO = {
    "Reads transport signals (TLS/SSH KEX, weak MAC) and crypto-agility (OpenSSH/OpenSSL readiness).",
    "Correlates crown jewels, emits a migration roadmap CSV and a <b>CNSA 2.0</b> timeline.",
    "Tags <span class='mono'>PQC Risk:*</span>, <span class='mono'>PQC Harvest-Now</span>, <span class='mono'>PQC Transport:*</span>, <span class='mono'>PQC Priority</span> (gated)."]},
- attackpath:{does:"The capstone correlator — chains exploitability × identity × reachability into ranked attack paths.",caps:[
-   "Chains <b>foothold</b> (exploitable / weak-auth) → <b>lateral movement</b> (same-subnet + credential pivots) → <b>high-ACR crown-jewel target</b>.",
-   "KPIs, a 3-stage path table and CSV export; tags <span class='mono'>Attack Path:Entry Point</span> / <span class='mono'>Attack Path:Target</span>.",
-   "Consumes Laelaps (KEV), Janus (weak auth), Anubis (ACR targets), Charon/Mimir (exploitable software).",
-   "Honest caveat: reachability is inferred from subnet adjacency + credential signals, not observed traffic."]},
+ attackpath:{does:"The capstone correlator — chains exploits, privilege escalation, account reuse, relay, domain flaws and failed controls into ranked paths to the crown jewels.",caps:[
+   "Builds an attack graph from navi.db <b>vulns</b>, <b>compliance</b> results and <b>identities</b>: remote exploits → privilege escalation → account reuse / NTLM relay / domain admin → crown jewel (ACR ≥ 7).",
+   "<b>Interactive attack map</b>, up to five diverse routes per crown jewel, with every step's evidence and ATT&amp;CK technique.",
+   "<b>Fix first</b>: choke points and a greedy remediation bundle that cuts the most crown-jewel exposure; tags <span class='mono'>Attack Path : Entry Point | Pivot | Target | Choke Point</span> (gated).",
+   "Consumes Laelaps (KEV), Janus (identities), Anubis (ACR targets), Minos (compliance) and EPSS.",
+   "Honest caveat: reachability and domain membership are inferred, not observed; likelihoods rank routes, they are not breach probabilities."]},
  ex_assets:{does:"The finest tracker of the pack — find and profile any host across navi.db.",caps:[
    "Search assets by hostname, IP or UUID and open a full profile.",
    "See an asset's vulnerabilities, tags and platform links in one place."]},
@@ -416,7 +777,7 @@ function _introStyle(){
   if(document.getElementById('introStyle')) return;
   const st=document.createElement('style'); st.id='introStyle';
   st.textContent=
-   '.codetoggle{cursor:pointer;background:var(--panel2,var(--bg-2));border:1px solid var(--line);border-radius:999px;padding:6px 14px;color:var(--ink);font-size:12.5px;font-weight:600;display:inline-flex;align-items:center;gap:7px}'
+   '.codetoggle{cursor:pointer;background:var(--panel2,var(--bg-2));border:1px solid var(--line);border-radius:999px;padding:6px 14px;color:var(--ink);font-size:12.5px;font-weight:600;display:inline-flex;align-items:center;gap:7px;max-width:100%;flex-wrap:wrap}'
   +'.codetoggle:hover{border-color:var(--accent)}'
   +'.codetoggle img{width:22px;height:22px;border-radius:999px;object-fit:cover}'
   +'.cdchev{color:var(--ink-3);font-size:11px}'
@@ -448,8 +809,8 @@ function _mountCodename(host){
   const intro = (typeof AGENT_INTRO!=='undefined' && AGENT_INTRO[id]) || null;
   let cb=document.getElementById('agent-codename');
   if(!cb){ cb=document.createElement('div'); cb.id='agent-codename'; cb.className='codebanner'; cb.style.cssText='margin:0 0 12px'; host.insertAdjacentElement('afterend',cb); }
-  const crestSm='<img src="/static/crests/'+id+'.png?v=5" alt="" onerror="this.replaceWith(document.createTextNode(\'🐾\'))">';
-  const bigCrest='<img class="introCrest" src="/static/crests/'+id+'.png?v=5" alt="'+esc(cn.name)+'" onerror="this.style.display=\'none\'">';
+  const crestSm='<img src="'+esc(crestSrc(id))+'?v=5" alt="" data-fb="🐾">';
+  const bigCrest='<img class="introCrest" src="'+esc(crestSrc(id))+'?v=5" alt="'+esc(cn.name)+'" data-fb="hide">';
   const doesHtml=(intro&&intro.does)?('<div class="introSec"><h4>What it does</h4><p class="introDoes">'+intro.does+'</p></div>'):'';
   const capsHtml=(intro&&intro.caps&&intro.caps.length)?('<div class="introSec"><h4>Key capabilities</h4><ul class="introCaps">'+intro.caps.map(c=>'<li>'+c+'</li>').join('')+'</ul></div>'):'';
   const loreHtml='<div class="introSec"><h4>What\'s in the name</h4><div class="introLore">'+cn.lore+'</div></div>';
@@ -478,8 +839,9 @@ window.__APPLIED_TAGS = new Set();
 const _SEP = '';
 async function loadAppliedTags(){
   try{ const o = await agentApi('explore').post('applied');
-    window.__APPLIED_TAGS = new Set((o.applied||[]).map(r =>
-      String(r.tag_key||'').toLowerCase()+_SEP+String(r.tag_value||'').toLowerCase())); }
+    // a test-run tag ('Hounds-Lifecycle') also answers for its plain category (r.base)
+    window.__APPLIED_TAGS = new Set((o.applied||[]).flatMap(r => [r.tag_key].concat(r.base?[r.base]:[]).map(k =>
+      String(k||'').toLowerCase()+_SEP+String(r.tag_value||'').toLowerCase()))); }
   catch(e){ window.__APPLIED_TAGS = new Set(); }
   return window.__APPLIED_TAGS;
 }
@@ -513,10 +875,10 @@ function renderSqlBox(outEl, sql, table){
   const el = typeof outEl==='string' ? document.getElementById(outEl) : outEl; if(!el) return;
   const id = el.id || ('nlbox'+Math.random().toString(36).slice(2));  el.id = id;
   el.innerHTML = '<div class="callbox" style="padding:10px">'
-    +'<div class="sub" style="margin-bottom:6px">Generated SQL — review / refine, then execute:</div>'
+    +'<div class="sub" style="margin-bottom:6px">Generated SQL — review / refine, then ▶ Run SQL:</div>'
     +'<textarea id="'+id+'_sql" spellcheck="false" style="width:100%;min-height:88px;font-family:ui-monospace,monospace;font-size:12px;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink);box-sizing:border-box">'+esc(sql)+'</textarea>'
     +'<div id="'+id+'_cols" style="margin-top:8px"></div>'
-    +'<div class="toolbar" style="margin-top:8px"><button class="btn run sm" id="'+id+'_go">▶ Execute SQL</button><span class="sub">read-only · single SELECT · LIMIT ≤500 enforced</span></div>'
+    +'<div class="toolbar" style="margin-top:8px"><button class="btn run sm" id="'+id+'_go" data-run>▶ Run SQL</button><span class="sub">read-only · single SELECT · LIMIT ≤500 enforced</span></div>'
     +'<div id="'+id+'_res" style="margin-top:8px"></div></div>';
   document.getElementById(id+'_go').onclick = async () => {
     const sqlv = document.getElementById(id+'_sql').value;
@@ -574,6 +936,7 @@ function hMail(container, getPayload, opts){
     let payload=null; try{ payload=getPayload(); }catch(e){ payload=null; }
     const empty=!payload||(mode==='data'?!(payload.rows&&payload.rows.length):!(payload.components&&payload.components.length));
     if(empty){ res.innerHTML='<span style="color:var(--crit)">no data on this '+(mode==='dashboard'?'dashboard':'widget')+' yet \u2014 run the agent first</span>'; return; }
+    if(!confirm('Email '+(mode==='dashboard'?'this dashboard ('+payload.components.length+' component(s))':'this widget ('+payload.rows.length+' row(s))')+' to '+to+'? This is a real send.')) return;
     if(mode==='data'&&!payload.columns&&payload.rows[0]&&typeof payload.rows[0]==='object') payload.columns=Object.keys(payload.rows[0]);
     _hmailTo(to);
     send.disabled=true; res.innerHTML='<span class="spin"></span> sending\u2026';
@@ -783,7 +1146,9 @@ function mountSearchNav(){
 // navi.db" is an action (#refresh → naviRefresh), the rest navigate.
 const TOOLS_PAGES = [
   ['↻ Refresh navi.db','#refresh'],
-  ['🏷 Tagging log',   '/web/tags-log.html'],
+  ['🏷️ Tagging log',   '/web/tags-log.html'],
+  ['🎯 ACR log',       '/web/acr-log.html'],
+  ['🖥 C2 log',        '/web/c2-log.html'],
   ['⚖ Tag compare',    '/web/tags.html'],
   ['⚖ MCP compare',    '/agents/mcpcmp/page.html'],
   ['🧾 Runs & queries','/web/agent-runs.html'],
@@ -891,9 +1256,9 @@ function mountDashTabs(containerId, onChange){
   el.innerHTML='<span class="lbl">🗂 Dashboards</span>'+s.list.map(d=>{
     const a=d.id===s.active;
     return '<span class="dtab'+(a?' active':'')+'">'
-      +'<button class="dtab-name" data-sw="'+d.id+'" title="Switch to this dashboard">'+_dashEsc(d.name)+'</button>'
-      +(a?'<button class="dtab-ic" data-ren="'+d.id+'" title="Rename">✎</button>'
-         +'<button class="dtab-ic" data-del="'+d.id+'" title="Delete this dashboard">✕</button>':'')
+      +'<button class="dtab-name" data-sw="'+esc(d.id)+'" title="Switch to this dashboard">'+_dashEsc(d.name)+'</button>'
+      +(a?'<button class="dtab-ic" data-ren="'+esc(d.id)+'" title="Rename">✎</button>'
+         +'<button class="dtab-ic" data-del="'+esc(d.id)+'" title="Delete this dashboard">✕</button>':'')
       +'</span>';
   }).join('')
   +(s.list.length<DASH_MAX
@@ -968,6 +1333,7 @@ const _SIDE_GROUPS=[
     ['🛠','Tools','/web/tools.html'],
   ]],
 ];
+const _phoneNav = () => { try{ return window.matchMedia('(max-width:640px)').matches; }catch(e){ return false; } };
 function mountTopNav(){
   const wrap = document.querySelector('.wrap'); if(!wrap) return;
   _navddStyle();   // injects .searchsub styling used by the Dashboards/Search/Tools sub-bars
@@ -997,17 +1363,76 @@ function mountTopNav(){
   if(hdr && !hdr.querySelector('.side-collapse')){
     const cb = document.createElement('button');
     cb.className = 'side-collapse'; cb.type = 'button';
-    cb.title = 'Collapse navigation'; cb.setAttribute('aria-label','Collapse navigation');
-    cb.textContent = '⇔';
-    cb.onclick = () => {
+    // phone (≤640px): ☰ opens an overlay drawer · wider: ⇔ collapses the sidebar to icons.
+    // Re-evaluated whenever the width crosses 640px, so a rotated/resized window stays right.
+    const sync = () => { const ph=_phoneNav(); const t=ph?'Open navigation':'Collapse navigation';
+      cb.textContent = ph ? '☰' : '⇔'; cb.title = t; cb.setAttribute('aria-label', t);
+      if(!ph) document.body.classList.remove('navopen'); };
+    sync();
+    try{ const mq=window.matchMedia('(max-width:640px)'); (mq.addEventListener?mq.addEventListener('change',sync):mq.addListener(sync)); }catch(e){}
+    cb.onclick = (e) => {
+      e.stopPropagation();
+      if(_phoneNav()){ document.body.classList.toggle('navopen'); return; }   // phone: open/close the drawer
       document.body.classList.toggle('navcollapsed');
       try{ localStorage.setItem('naviNavCollapsed', document.body.classList.contains('navcollapsed') ? '1' : '0'); }catch(e){}
     };
     hdr.insertBefore(cb, hdr.firstChild);
+    // phone drawer: a tap outside it closes it (and only closes it — the tap doesn't also
+    // activate whatever was underneath); Escape closes it too
+    document.addEventListener('click', ev => {
+      if(document.body.classList.contains('navopen') && !ev.target.closest('#topnav') && !ev.target.closest('.side-collapse')){
+        document.body.classList.remove('navopen'); ev.preventDefault(); ev.stopPropagation(); }
+    }, true);
+    document.addEventListener('keydown', ev => {
+      if(ev.key==='Escape' && document.body.classList.contains('navopen')) document.body.classList.remove('navopen');
+    });
   }
   mountDashboardsNav();                 // horizontal Dashboards bar on dashboard pages + the hub
   mountSearchNav();                     // horizontal Search-Hounds bar on search pages + the hub
   mountToolsNav();                      // horizontal Tools bar on tool pages + the hub
+  mountTestRunChip();                   // 🧪 test-run indicator (Settings → Test run)
+}
+/* ===== Test run (Settings → Test run · core/tagname.py) =====
+   While it is on, every tag CATEGORY a Hound writes is '<phrase>-<category>'. The server
+   applies it (core/navi_cli.tag); pages use tagCat() only to SHOW the name that will be
+   written (confirm dialogs, previews). A small amber chip in the top bar says it is on. */
+let _TR=null, _TRP=null;
+function testRunStatus(force){
+  if(force||!_TRP) _TRP=jget('/api/health').then(h=>{ _TR=(h&&h.tag_prefix)||null; return _TR; }).catch(()=>null);
+  return _TRP;
+}
+function testRunOn(){ return !!(_TR&&_TR.enabled); }
+/* the category a Hound will actually write (never double-prefixed; exact when off) */
+function tagCat(c){
+  c=String(c==null?'':c); const p=testRunOn()?String(_TR.prefix||''):'';
+  return (!p||!c.trim()||c.toLowerCase().startsWith(p.toLowerCase()))?c:p+c;
+}
+/* Preset SQL that recognises a Hound's tag by name (tag_key='Owner') also matches its
+   test-run name: tag_key IN ('Owner','Hounds-Owner') — the configured prefix, on or off
+   (core/tagname.py reads the same way). Await testRunStatus() first. */
+function tagKeySql(sql){
+  const p=_TR&&_TR.configured_prefix; if(!p) return sql;
+  const q=String(p).replace(/'/g,"''");
+  const pl=String(p).toLowerCase();
+  // tag_key IN ('IoT','Device Type') → each name plus its test-run name (already-prefixed names left alone)
+  const out=String(sql||'').replace(/\btag_key(\s+IN\s*\()\s*('(?:[^']|'')*'(?:\s*,\s*'(?:[^']|'')*')*)\s*\)/gi,(m,inn,list)=>{
+    const ks=list.match(/'(?:[^']|'')*'/g)||[]; const add=[];
+    ks.forEach(t=>{ const k=t.slice(1,-1); if(k && !k.toLowerCase().startsWith(pl)) add.push("'"+q+k+"'"); });
+    return 'tag_key'+inn+ks.concat(add.filter(x=>ks.indexOf(x)<0)).join(',')+')'; });
+  return out.replace(/\btag_key\s*=\s*'((?:[^']|'')+)'/g,(m,k)=>k.toLowerCase().startsWith(pl)?m:"tag_key IN ('"+k+"','"+q+k+"')");
+}
+function mountTestRunChip(force){
+  testRunStatus(force).then(t=>{
+    const old=document.getElementById('testRunChip'); if(old) old.remove();
+    if(!t||!t.enabled) return;
+    const host=document.querySelector('#app-header #meta')||document.querySelector('header.top #meta')
+      ||document.querySelector('#app-header, header.top'); if(!host) return;
+    const a=document.createElement('a'); a.id='testRunChip'; a.className='chip'; a.href='/web/settings.html#trCard';
+    a.title='Test run is ON — every tag the Hounds create is written as '+(t.prefix||'')+'<category>. Turn it off or change the phrase in Settings; clean up with Tag Removal.';
+    a.style.cssText='text-decoration:none;background:rgba(251,191,36,.14);border-color:rgba(251,191,36,.45);color:var(--warn,#fbbf24);white-space:nowrap';
+    a.textContent='🧪 test run · '+(t.prefix||'');
+    host.prepend(a);
+  });
 }
 if(document.readyState !== 'loading') mountTopNav();
 else document.addEventListener('DOMContentLoaded', mountTopNav);
@@ -1097,6 +1522,7 @@ async function mountAgentHeader(opts){
                  (h.db_fresh?`<span class="chip">db <b>${String(h.db_fresh).slice(0,10)}</b></span>`:'')
                : `<span class="chip" style="color:var(--crit)">db: ${esc(h.error||'error')}</span>`)+
       `<span class="chip gate ${we?'':''}">writes: ${we?'enabled':'gated'}</span>`;
+    _TR=h.tag_prefix||null; _TRP=Promise.resolve(_TR); mountTestRunChip();   // meta was just rewritten
     // Refresh / Tag compare / MCP compare / Runs & queries now live in the "🛠 Tools" nav dropdown.
   }catch(e){ /* no backend — header still shows */ }
 }
@@ -1132,8 +1558,25 @@ function dataSourceChip(h){
  * page. Reset to the first page on a fresh load with hPageReset('tblId').  */
 window.__hpg = window.__hpg || {};
 function hPageReset(id){ window.__hpg[id] = 0; }
+/* hPaginate — render rows into #tblId tbody, one page at a time, with a pager below.
+   Default everywhere: 20 rows/page, Rows selector 10–50 (remembered per table).
+   opts.per    default page size (20)
+   opts.sizes  page-size choices, e.g. HPG_SIZES → adds a "Rows" selector; the choice is
+               remembered per table (localStorage) and capped at the largest size
+   opts.wire   fn(tbody) to bind row buttons after each render
+   window.HPG_DEFAULT  page-wide defaults merged under opts (e.g. {per:20, sizes:HPG_SIZES})
+   opts.empty / opts.cols   empty-state row */
+const HPG_SIZES=[10,20,30,40,50];
+function _hpgSize(tblId, opts){
+  if(!opts.sizes) return opts.per || 50;
+  let v=null; try{ v=parseInt(localStorage.getItem('hpgSize:'+location.pathname+':'+tblId),10); }catch(e){}
+  const max=Math.max.apply(null, opts.sizes);
+  return (v && opts.sizes.includes(v)) ? v : Math.min(opts.per || 20, max);
+}
 function hPaginate(tblId, rows, rowHtml, opts){
-  opts = opts || {}; const PER = opts.per || 50; rows = rows || [];
+  // a page can set window.HPG_DEFAULT = {per:20, sizes:HPG_SIZES} to apply to all its tables
+  opts = Object.assign({per:20, sizes:HPG_SIZES}, window.HPG_DEFAULT || {}, opts || {}); const PER = _hpgSize(tblId, opts); rows = rows || [];
+  { const t=document.getElementById(tblId); if(t) t.dataset.paged='1'; }   // the auto-pager leaves managed tables alone
   const pages = Math.max(1, Math.ceil(rows.length / PER));
   let page = window.__hpg[tblId] || 0; if(page >= pages) page = pages - 1; if(page < 0) page = 0;
   window.__hpg[tblId] = page;
@@ -1148,18 +1591,85 @@ function hPaginate(tblId, rows, rowHtml, opts){
     if(t && t.parentNode){ pel = document.createElement('div'); pel.id = pid; pel.className = 'toolbar';
       pel.style.marginTop = '6px'; t.parentNode.insertBefore(pel, t.nextSibling); } }
   if(pel){
-    if(pages <= 1){ pel.style.display = 'none'; pel.innerHTML = ''; }
+    const minSize = opts.sizes ? Math.min.apply(null, opts.sizes) : PER;
+    if(pages <= 1 && rows.length <= minSize){ pel.style.display = 'none'; pel.innerHTML = ''; }
     else { pel.style.display = '';
-      const a = page * PER + 1, b = Math.min(rows.length, (page + 1) * PER);
+      const a = rows.length ? page * PER + 1 : 0, b = Math.min(rows.length, (page + 1) * PER);
       pel.innerHTML = '<button class="btn ghost sm" ' + (page <= 0 ? 'disabled' : '') + ' data-hpv>‹ Prev</button>'
-        + '<span class="sub" style="margin:0 10px">' + a + '–' + b + ' of ' + rows.length + '</span>'
-        + '<button class="btn ghost sm" ' + (page >= pages - 1 ? 'disabled' : '') + ' data-hnx>Next ›</button>';
-      const pv = pel.querySelector('[data-hpv]'), nx = pel.querySelector('[data-hnx]');
+        + '<span class="sub" style="margin:0 10px">' + a + '–' + b + ' of ' + rows.length.toLocaleString()
+        + (pages > 1 ? ' · page ' + (page + 1) + '/' + pages : '') + '</span>'
+        + '<button class="btn ghost sm" ' + (page >= pages - 1 ? 'disabled' : '') + ' data-hnx>Next ›</button>'
+        + (opts.sizes ? '<label class="sub" style="margin-left:auto;display:flex;align-items:center;gap:6px">Rows'
+            + '<select data-hsz style="padding:3px 6px;border-radius:6px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink)">'
+            + opts.sizes.map(n => '<option value="' + n + '"' + (n === PER ? ' selected' : '') + '>' + n + '</option>').join('')
+            + '</select></label>' : '');
+      const pv = pel.querySelector('[data-hpv]'), nx = pel.querySelector('[data-hnx]'), sz = pel.querySelector('[data-hsz]');
       if(pv) pv.onclick = () => { window.__hpg[tblId] = page - 1; hPaginate(tblId, rows, rowHtml, opts); };
       if(nx) nx.onclick = () => { window.__hpg[tblId] = page + 1; hPaginate(tblId, rows, rowHtml, opts); };
+      if(sz) sz.onchange = () => { try{ localStorage.setItem('hpgSize:'+location.pathname+':'+tblId, sz.value); }catch(e){}
+        window.__hpg[tblId] = Math.floor(page * PER / parseInt(sz.value,10)); hPaginate(tblId, rows, rowHtml, opts); };
     }
   }
 }
+/* Page size for a hand-built pager (same setting + storage as hPaginate): 20 by default,
+   10–50 via the Rows selector. hSizeControl(container, key, onChange) appends that selector. */
+function hPageSize(key){ return _hpgSize(key, {per:20, sizes:HPG_SIZES}); }
+function hSizeControl(container, key, onChange){
+  if(!container) return;
+  const cur=hPageSize(key);
+  const lab=document.createElement('label'); lab.className='sub'; lab.style.cssText='margin-left:auto;display:inline-flex;align-items:center;gap:6px';
+  lab.innerHTML='Rows<select style="padding:3px 6px;border-radius:6px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink)">'+
+    HPG_SIZES.map(n=>'<option value="'+n+'"'+(n===cur?' selected':'')+'>'+n+'</option>').join('')+'</select>';
+  lab.querySelector('select').onchange=e=>{ try{ localStorage.setItem('hpgSize:'+location.pathname+':'+key, e.target.value); }catch(_){} onChange(parseInt(e.target.value,10)); };
+  container.appendChild(lab);
+}
+
+/* Auto-pager — every plain data table on an agent page with more than 10 rows shows 20
+   rows/page (Rows selector up to 50), whatever code rendered it. Extra rows are HIDDEN,
+   not removed, so 📧 email / ⬇ CSV still export the whole table. Skipped: tables managed
+   by hPaginate (data-paged), tables/ancestors marked .nopage, and tables with grouped or
+   expandable rows (any colspan cell beyond a single empty-state row). */
+(function(){
+  if(!/^\/agents\//.test(location.pathname)) return;
+  const st=document.createElement('style'); st.textContent='tr.ap-hide{display:none!important}'; document.head.appendChild(st);
+  // page position survives a re-render (pages often rebuild their tables on every click):
+  // keyed by table id, else by position on the page + header text
+  const pageOf=new Map();
+  function keyOf(t){ if(t.id) return t.id;
+    const all=[...document.querySelectorAll('table')]; const th=t.tHead&&t.tHead.rows[0]?t.tHead.rows[0].textContent.trim().slice(0,40):'';
+    return 't'+all.indexOf(t)+':'+th; }
+  function anchorOf(t){ const p=t.parentElement; return (p && p.children.length===1 && /auto|scroll/.test(p.style.overflowX+p.style.overflow)) ? p : t; }
+  function apply(t){
+    if(t.dataset.paged==='1' || t.classList.contains('nopage') || t.closest('.nopage') || t.closest('#app-header')) return;
+    const tb=t.tBodies[0]; if(!tb) return;
+    const rows=[...tb.rows]; const key=keyOf(t);
+    let pel=t.__apPager;
+    const structured = rows.length>1 && rows.some(r=>[...r.cells].some(c=>c.colSpan>1));
+    if(rows.length<=10 || structured){ rows.forEach(r=>r.classList.remove('ap-hide')); if(pel){ pel.remove(); t.__apPager=null; } return; }
+    const per=hPageSize(key), pages=Math.ceil(rows.length/per);
+    let page=pageOf.get(key)||0; if(page>=pages) page=pages-1; if(page<0) page=0; pageOf.set(key,page);
+    rows.forEach((r,i)=>r.classList.toggle('ap-hide', i<page*per || i>=(page+1)*per));
+    if(!pel){ pel=document.createElement('div'); pel.className='toolbar ap-pager'; pel.style.marginTop='6px';
+      const an=anchorOf(t); an.parentNode.insertBefore(pel, an.nextSibling); t.__apPager=pel; }
+    const a=page*per+1, b=Math.min(rows.length,(page+1)*per);
+    pel.innerHTML='<button class="btn ghost sm" '+(page<=0?'disabled':'')+' data-p="-1">‹ Prev</button>'+
+      '<span class="sub" style="margin:0 10px">'+a+'–'+b+' of '+rows.length.toLocaleString()+(pages>1?' · page '+(page+1)+'/'+pages:'')+'</span>'+
+      '<button class="btn ghost sm" '+(page>=pages-1?'disabled':'')+' data-p="1">Next ›</button>';
+    pel.querySelectorAll('[data-p]').forEach(btn=>btn.onclick=()=>{ pageOf.set(key, page+parseInt(btn.dataset.p,10)); apply(t); });
+    hSizeControl(pel, key, ()=>{ pageOf.set(key,0); apply(t); });
+  }
+  let queued=false, dirty=new Set();
+  function flush(){ queued=false; const ts=[...dirty]; dirty.clear(); ts.forEach(t=>{ if(t.isConnected) apply(t); }); }
+  function mark(t){ dirty.add(t); if(!queued){ queued=true; requestAnimationFrame(flush); } }
+  function scan(node){ if(!node || node.nodeType!==1) return;
+    if(node.tagName==='TABLE') mark(node); else if(node.closest) { const t=node.closest('table'); if(t) mark(t); }
+    if(node.querySelectorAll) node.querySelectorAll('table').forEach(mark); }
+  const mo=new MutationObserver(ms=>ms.forEach(m=>{ if(m.target.closest && m.target.closest('.ap-pager')) return;
+    m.addedNodes.forEach(scan); if(m.target.tagName==='TBODY'||m.target.tagName==='TABLE') scan(m.target); }));
+  const start=()=>{ document.querySelectorAll('table').forEach(mark); mo.observe(document.body,{childList:true,subtree:true}); };
+  if(document.body) start(); else document.addEventListener('DOMContentLoaded', start);
+})();
+
 function flash(el, html, kind){
   const n = typeof el==='string' ? document.getElementById(el) : el;
   if(!n) return;
@@ -1188,10 +1698,42 @@ function emailFindings(payload){
    emailFindingsBtn('buildEmailPayload()'). */
 function emailFindingsBtn(exprOrPayload, label){
   const lab = label || '📧 Email findings → Gabriel';
-  if(typeof exprOrPayload === 'string')
-    return `<button class="btn ghost sm" onclick="emailFindings(${exprOrPayload})" title="Hand these findings to Gabriel — email the finding IDs + tagged assets with Tenable deep-links">${lab}</button>`;
-  return `<button class="btn ghost sm" onclick='emailFindings(${JSON.stringify(exprOrPayload)})'>${lab}</button>`;
+  const k='efb'+(++_EFB_N); _EFB[k]=exprOrPayload;   // payload (or a global builder fn name) kept here, never inlined as JS
+  return `<button class="btn ghost sm" data-efb="${k}" title="Hand these findings to Gabriel — email the finding IDs + tagged assets with Tenable deep-links">${lab}</button>`;
 }
+const _EFB={}; let _EFB_N=0;
+document.addEventListener('click', e=>{ const b=e.target&&e.target.closest&&e.target.closest('[data-efb]'); if(!b) return;
+  let v=_EFB[b.dataset.efb]; if(v===undefined) return;
+  if(typeof v==='string'){ const m=/^\s*([A-Za-z_$][\w$]*)\s*(\(\s*\))?\s*$/.exec(v); const f=m&&window[m[1]]; v=(typeof f==='function')?f():null; }
+  emailFindings(v); });
+/* ===== Hand-off to Amarok (Command & Control) — "validate this path" / "remediate this vuln" =====
+   c2Handoff({intent:'validate_path'|'diagnose'|'remediate', targets:[{ip,uuid,hostname}], path,
+   plugin_id, cve, source}) stores the request in sessionStorage (same origin, this tab — NEVER the
+   URL) and opens the C2 page, which reads + clears it, shows "Request from <source>", pre-fills
+   the section and NEVER runs anything by itself (the operator clicks, then confirms).
+   c2Link(intent, payload, label) returns a small link for a table row: the payload is kept in a
+   page-local registry and the link carries only an opaque key (data-c2h) — no inline JS from data. */
+function c2Handoff(req){
+  const r=req||{}; const intent=['validate_path','diagnose','remediate'].includes(r.intent)?r.intent:'diagnose';
+  const t=(Array.isArray(r.targets)?r.targets:[]).filter(x=>x&&x.ip).slice(0,256)
+    .map(x=>({ip:String(x.ip),uuid:String(x.uuid||''),hostname:String(x.hostname||'')}));
+  const out={intent, targets:t, source:String(r.source||document.title||'another hound').slice(0,60)};
+  if(r.path) out.path=String(r.path).slice(0,1024);
+  if(r.plugin_id!=null&&r.plugin_id!=='') out.plugin_id=String(r.plugin_id);
+  if(r.cve) out.cve=String(r.cve);
+  try{ sessionStorage.setItem('c2_handoff', JSON.stringify(out)); }catch(e){}
+  location.href='/agents/c2/page.html';
+}
+const _C2H={}; let _C2H_N=0;
+function c2Link(intent, payload, label){
+  const k='c2h'+(++_C2H_N); _C2H[k]=Object.assign({}, payload||{}, {intent});
+  const lab=label||(intent==='validate_path'?'🔎 Validate':'🛠 Remediate');
+  const tip=intent==='validate_path'?'Hand this path + host to Amarok (Command & Control) to check it exists on the host — pre-filled, never run without your confirm'
+    :'Hand this vulnerability + host(s) to Amarok (Command & Control) to plan a remediation — pre-filled, never run without your confirm';
+  return `<a href="/agents/c2/page.html" class="applink c2h" data-c2h="${k}" title="${esc(tip)}" style="font-size:11.5px;white-space:nowrap">${esc(lab)}</a>`;
+}
+document.addEventListener('click', e=>{ const a=e.target&&e.target.closest&&e.target.closest('[data-c2h]'); if(!a) return;
+  const v=_C2H[a.dataset.c2h]; if(!v) return; e.preventDefault(); c2Handoff(v); });
 /* Uniform "second option" across the pack: an agent calls registerFindings(payload) after
    it runs/tags, and a floating "📧 Email findings → Gabriel" button appears bottom-right.
    payload = {source_agent, source_hound, headline, finding_ids:[plugins], asset_uuids:[…],
@@ -1242,7 +1784,9 @@ function addColResizers(tbl){ if(!tbl||!tbl.tHead||!tbl.tHead.rows[0]||tbl.__rsz
 /* ===== CSV export — every data table gets a "⤓ CSV" button (no per-page wiring) =====
    Generic DOM→CSV. Mirrors the artifact's export; here it's attached automatically to
    any table with a <thead> and at least one data row, via the same enhancement queue. */
-function _csvCell(v){ v=(v==null?'':String(v)); return /[",\r\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }
+function _csvCell(v){ const num=(typeof v==='number'); v=(v==null?'':String(v));
+  if(!num && /^[=+\-@\t\r]/.test(v) && !/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(v)) v="'"+v;   // neutralise spreadsheet formulas (= + - @ TAB CR)
+  return /[",\r\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }
 function _safeName(s){ return String(s||'export').replace(/[^\w.-]+/g,'_').slice(0,80); }
 function downloadText(name,text,mime){ const blob=new Blob(['﻿'+text],{type:(mime||'text/csv')+';charset=utf-8'}); const u=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=u; a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(u),2000); }
 function csvFromObjs(cols,rows){ return [cols.map(_csvCell).join(',')].concat((rows||[]).map(r=>cols.map(c=>_csvCell(r[c])).join(','))).join('\r\n'); }
@@ -1290,3 +1834,163 @@ try{
   document.addEventListener('DOMContentLoaded',()=>document.querySelectorAll('table').forEach(queueRsz));
   document.querySelectorAll('table').forEach(queueRsz);
 }catch(e){}
+
+/* ===== "Done so far" — what this tagging hound has already done ==================
+   A compact dashboard at the top of every TAGGING agent page (manifest category Tagging
+   or Discovery, or "status_panel": true — see core/activity.shows_panel): last run, run count, and — for
+   hounds that write — the tag values it applied, how many assets carry them in navi.db
+   right now, what's still awaiting a navi sync, failures, emails / pushes / ACR changes,
+   plus tags already in navi.db for its categories that weren't applied from this install.
+   Data: /api/explore/activity (core/activity.py) — the Hounds log + live navi.db. Never
+   cached. Refreshes after a run, after a write, and every 15 s while jobs are queued. */
+const _ACT_SKIP = new Set(['explore','hub','settings','_template']);
+const _ACT_OP = {tag:['🏷️','tag'], remove:['🧹','removal'], acr:['⚖','ACR change'], mail:['📧','email'], push:['⚡','push']};
+function _actAgo(t){ if(!t) return '—'; const s=Math.max(0, Date.now()/1000 - t);
+  if(s<60) return 'just now'; if(s<3600) return Math.round(s/60)+' min ago'; if(s<86400) return Math.round(s/3600)+' h ago';
+  if(s<86400*45) return Math.round(s/86400)+' d ago'; return new Date(t*1000).toISOString().slice(0,10); }
+function _actN(n){ return (n==null?0:n).toLocaleString(); }
+function _actStyle(){ if(document.getElementById('actvStyle')) return; const st=document.createElement('style'); st.id='actvStyle';
+  st.textContent='.actv{padding:12px 16px}.actv-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}'+
+  '.actv-head h3{margin:0;font-size:14px}.actv-head .sp{flex:1}'+
+  '.actv-kpis{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}'+
+  '.actv-k{border:1px solid var(--line);border-radius:10px;padding:7px 11px;background:var(--panel-2);min-width:118px}'+
+  '.actv-k .v{font-size:17px;font-weight:700;color:var(--ink);line-height:1.15}.actv-k .l{font-size:11px;color:var(--mut)}'+
+  '.actv-k.warn .v{color:var(--cx-e7c66b,#d9a400)}.actv-k.bad .v{color:var(--crit)}.actv-k.good .v{color:var(--ok)}.actv-k.dim .v{color:var(--mut)}'+
+  '.actv-body{margin-top:12px}.actv-body table{width:100%}.actv-st{font-size:11px;padding:1px 7px;border-radius:7px;border:1px solid var(--line)}'+
+  '.actv-st.on{color:var(--ok);border-color:var(--ok)}.actv-st.sync{color:var(--cx-e7c66b,#d9a400);border-color:var(--cx-e7c66b,#d9a400)}.actv-st.fail{color:var(--crit);border-color:var(--crit)}';
+  document.head.appendChild(st); }
+function _actOpen(id,v){ try{ if(v!==undefined) localStorage.setItem('actvOpen:'+id, v?'1':'0'); return localStorage.getItem('actvOpen:'+id)==='1'; }catch(e){ return false; } }
+async function mountActivity(agentId){
+  if(!agentId || _ACT_SKIP.has(agentId)) return;
+  // fetch first: non-tagging hounds (show:false) get no panel at all — not even a flash of one
+  let o; try{ o=await jpost('/api/explore/activity',{agent:agentId}); }catch(e){ o=null; }
+  if(o && o.ok && o.show===false){ const old=document.getElementById('actv'); if(old) old.remove(); return; }
+  _actStyle();
+  let box=document.getElementById('actv');
+  if(!box){ box=document.createElement('section'); box.id='actv'; box.className='card actv';
+    // order at the top: header → nav → codename strip (info + links) → Done so far → page cards
+    const wrap=document.querySelector('.wrap')||document.body;
+    const first=[...wrap.children].find(e=>e.id!=='actv' && e.id!=='hcBanner' && e.classList.contains('card'));
+    if(first) wrap.insertBefore(box, first); else wrap.appendChild(box); }
+  if(!o || !o.ok){ box.innerHTML='<div class="actv-head"><h3>📋 Done so far</h3><span class="sub">activity unavailable</span></div>'; return; }
+  const k=o.kpi||{}, r=o.runs||{}, ops=o.ops||[], tags=o.tags||[], other=o.other||[];
+  const tagOp=ops.find(x=>x.op==='tag');
+  const chip=(v,l,cls,title)=>'<div class="actv-k '+(cls||'')+'"'+(title?' title="'+esc(title)+'"':'')+'><div class="v">'+v+'</div><div class="l">'+l+'</div></div>';
+  let kp='';
+  const lst=r.last||{}, stp=(lst.steps&&lst.steps.length>1)?lst.steps.length+' steps':(/^(run|load|search|overview|build)$/.test(lst.action||'')?'':lst.action);
+  kp += r.last_at ? chip(_actAgo(r.last_at),'last run'+(stp?' · '+esc(stp):'')+(lst.ok===0?' (failed)':''), lst.ok===0?'bad':'', new Date(r.last_at*1000).toLocaleString()+((lst.steps||[]).length>1?' — '+lst.steps.join(' → '):''))
+                  : chip('never','last run on this install','dim');
+  if(r.count) kp += chip(_actN(r.count),'run'+(r.count>1?'s':'')+' recorded','', (r.fresh||0)+' fresh, '+((r.count||0)-(r.fresh||0))+' served from the server cache');
+  if(tagOp || tags.length){
+    kp += chip(_actN(k.values_applied),'tag value'+(k.values_applied===1?'':'s')+' applied','', (k.categories||[]).join(', '));
+    kp += chip(o.navi_db?_actN(k.assets_tagged):'—','assets carry them now', k.assets_tagged?'good':'', 'distinct assets in navi.db with any of these tag values (as of the last navi sync)');
+    if(k.awaiting_sync) kp += chip(_actN(k.awaiting_sync),'awaiting navi sync','warn','applied OK but not in navi.db yet — run a navi.db update (Settings) to see them');
+    if(k.running) kp += chip(_actN(k.running),'tag jobs queued','warn');
+    if(k.failed) kp += chip(_actN(k.failed),'failed','bad','every attempt for these values failed — see the Tagging log');
+    if(k.no_assets) kp += chip(_actN(k.no_assets),'matched no assets','dim','applied before the last navi.db sync but on 0 assets — the selector matched nothing');
+    if(k.removed) kp += chip(_actN(k.removed),'since removed','dim','removed later (Tag Removal)');
+    if(k.last_write) kp += chip(_actAgo(k.last_write),'last write','', new Date(k.last_write*1000).toLocaleString());
+  }
+  ops.filter(x=>x.op!=='tag').forEach(x=>{ const m=_ACT_OP[x.op]||['•',x.op]; kp += chip(m[0]+' '+_actN(x.ok), m[1]+(x.ok===1?'':'s')+(x.errors?' · '+x.errors+' failed':''), x.errors&&!x.ok?'bad':'', 'last '+_actAgo(x.last)); });
+  if(k.other_values) kp += chip(_actN(k.other_values),'other values already in navi.db','dim', _actN(k.other_assets)+' asset-tags in '+(k.categories||[]).join(', ')+' — applied outside this Hounds install (navi CLI, Tenable UI, another install)');
+  const nothing = !r.last_at && !ops.length && !other.length;
+  const open=_actOpen(agentId);
+  const hasDetail = tags.length || other.length;
+  box.innerHTML='<div class="actv-head"><h3>📋 Done so far</h3><span class="sub">'+(nothing?'nothing recorded for this hound on this install yet':'this hound on this install · tags checked against navi.db')+'</span><span class="sp"></span>'+
+    (hasDetail?'<button class="btn ghost sm" type="button" id="actvToggle">'+(open?'Hide details ▴':'Details ▾')+'</button>':'')+
+    '<button class="btn ghost sm" type="button" id="actvRefresh" title="Refresh">↻</button></div>'+
+    '<div class="actv-kpis">'+kp+'</div><div class="actv-body" id="actvBody"'+(open?'':' hidden')+'></div>';
+  const body=document.getElementById('actvBody');
+  if(hasDetail){
+    const st=t=>t.status==='on assets'?'<span class="actv-st on">on assets</span>':t.status==='awaiting sync'?'<span class="actv-st sync">awaiting sync</span>':t.status==='failed'?'<span class="actv-st fail">failed</span>':(t.status==='removed'||t.status==='no assets')?'<span class="actv-st">'+esc(t.status)+'</span>':'<span class="actv-st sync">'+esc(t.status)+'</span>';
+    let h='';
+    if(tags.length) h+='<h4 style="margin:0 0 6px">Applied by this hound</h4><table id="actvTags"><thead><tr><th>Category</th><th>Value</th><th>Assets now</th><th>Times applied</th><th>Last</th><th>Status</th></tr></thead><tbody></tbody></table>';
+    if(other.length) h+='<h4 style="margin:14px 0 6px">Already in navi.db, not applied from this install</h4><table id="actvOther"><thead><tr><th>Category</th><th>Value</th><th>Assets now</th></tr></thead><tbody></tbody></table>';
+    if(!o.navi_db) h+='<p class="sub">navi.db tags table unavailable — asset counts not shown.</p>';
+    else if(o.navi_db_synced) h+='<p class="sub" style="margin-top:8px">Asset counts are from navi.db as of its last update · '+_actAgo(o.navi_db_synced)+'.</p>';
+    body.innerHTML=h;
+    if(tags.length) hPaginate('actvTags', tags, t=>'<tr><td>'+esc(t.category)+'</td><td>'+esc(t.value)+'</td><td>'+_actN(t.assets)+'</td><td>'+_actN(t.applied)+(t.errors?' <span class="sub">('+t.errors+' failed)</span>':'')+'</td><td>'+_actAgo(t.last)+'</td><td>'+st(t)+'</td></tr>', {per:20, sizes:HPG_SIZES});
+    if(other.length) hPaginate('actvOther', other, t=>'<tr><td>'+esc(t.category)+'</td><td>'+esc(t.value)+'</td><td>'+_actN(t.assets)+'</td></tr>', {per:20, sizes:HPG_SIZES});
+    document.getElementById('actvToggle').onclick=()=>{ const v=body.hidden; body.hidden=!v; _actOpen(agentId, v); document.getElementById('actvToggle').textContent=v?'Hide details ▴':'Details ▾'; };
+  }
+  document.getElementById('actvRefresh').onclick=()=>mountActivity(agentId);
+  clearTimeout(box.__poll);
+  if(k.running || (tagOp && tagOp.busy)) box.__poll=setTimeout(()=>mountActivity(agentId), 15000);
+}
+(function(){
+  const m=location.pathname.match(/^\/agents\/([^/]+)\//); if(!m || _ACT_SKIP.has(m[1])) return;
+  const id=m[1]; let t=null; const again=()=>{ clearTimeout(t); t=setTimeout(()=>mountActivity(id), 600); };
+  window.addEventListener('hounds:ran', again); window.addEventListener('hounds:wrote', again);
+  if(document.readyState==='complete') mountActivity(id); else window.addEventListener('load', ()=>mountActivity(id));
+})();
+
+/* ===== Section navigator — "look ahead" without scrolling =========================
+   Mark the page's widgets:  <section class="card" id="secPlan" data-nav="Planned asset tags" data-nav-icon="🏷️">
+   and call mountSectionNav() once (it goes right after the first card — the metrics).
+   Each chip jumps to its section; setNavCount(id, text) puts a live count on a chip
+   (e.g. setNavCount('secPlan', '1,170')); each section gets a small "↑ Sections" link back.
+   Reusable by every agent page. */
+function _snStyle(){ if(document.getElementById('snStyle')) return; const st=document.createElement('style'); st.id='snStyle';
+  st.textContent='.secnav{display:flex;flex-wrap:wrap;align-items:center;gap:8px;padding:10px 14px}'+
+  '.secnav .lbl{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin-right:4px}'+
+  '.secnav button{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);background:var(--panel-2);color:var(--ink);border-radius:999px;padding:6px 12px;font-size:12.5px;cursor:pointer}'+
+  '.secnav button:hover{border-color:var(--accent)}.secnav .cnt{font-weight:700;color:var(--accent)}.secnav .cnt:empty{display:none}'+
+  '.sn-back{float:right;font-size:11.5px;font-weight:400;color:var(--mut);text-decoration:none;margin-left:10px}.sn-back:hover{color:var(--accent)}'+
+  'section[data-nav]{scroll-margin-top:12px}.sn-flash{box-shadow:0 0 0 2px var(--accent);transition:box-shadow .3s}';
+  document.head.appendChild(st); }
+function mountSectionNav(){
+  const secs=[...document.querySelectorAll('section[data-nav]')]; if(!secs.length) return;
+  _snStyle();
+  let nav=document.getElementById('secNav');
+  if(!nav){ nav=document.createElement('section'); nav.id='secNav'; nav.className='card secnav';
+    const wrap=document.querySelector('.wrap')||document.body;
+    const firstCard=[...wrap.children].find(e=>e.classList&&e.classList.contains('card')&&!['actv','hcBanner','secNav'].includes(e.id)&&!e.hasAttribute('data-nav'));
+    if(firstCard) firstCard.insertAdjacentElement('afterend', nav); else wrap.prepend(nav); }
+  nav.innerHTML='<span class="lbl">Jump to</span>'+secs.map(s=>'<button type="button" data-go="'+esc(s.id)+'">'+
+    (s.dataset.navIcon?'<span>'+esc(s.dataset.navIcon)+'</span>':'')+'<span>'+esc(s.dataset.nav)+'</span><span class="cnt" id="snc_'+esc(s.id)+'">'+esc(s.dataset.navCount||'')+'</span></button>').join('');
+  nav.querySelectorAll('button[data-go]').forEach(b=>b.onclick=()=>{ const s=document.getElementById(b.dataset.go); if(!s) return;
+    s.scrollIntoView({behavior:'smooth',block:'start'}); s.classList.add('sn-flash'); setTimeout(()=>s.classList.remove('sn-flash'),1200); });
+  secs.forEach(s=>{ const h=s.querySelector('h2'); if(h && !h.querySelector('.sn-back')){ const a=document.createElement('a'); a.href='#'; a.className='sn-back'; a.textContent='↑ Sections';
+    a.onclick=e=>{ e.preventDefault(); nav.scrollIntoView({behavior:'smooth',block:'start'}); }; h.appendChild(a); } });
+}
+/* ===== WAS cohorts — shared by the WAS Overview (Arachne) and Web App Recon (Beagle) =====
+   A cohort is "kind:key": sev:critical · owasp:A3 · tech:PHP · scan:stale|fresh · clean · asset.
+   The Overview links every widget to Recon with ?f=<cohort>; Recon narrows its app list to it.
+   `sd` = the stale-scan threshold in days (the Overview's coverage.stale_days). */
+const WAS_SEV_LABEL={critical:'Critical',high:'High',medium:'Medium',low:'Low',info:'Info'};
+const WAS_OWASP={A1:'Injection',A2:'Broken Authentication',A3:'Sensitive Data Exposure',A4:'XML External Entities (XXE)',
+  A5:'Broken Access Control',A6:'Security Misconfiguration',A7:'Cross-Site Scripting (XSS)',A8:'Insecure Deserialization',
+  A9:'Using Components with Known Vulnerabilities',A10:'Insufficient Logging & Monitoring'};
+function wasCohort(f){ f=String(f||''); const i=f.indexOf(':'); const kind=i<0?f:f.slice(0,i), key=i<0?'':f.slice(i+1);
+  const label= kind==='sev'?(WAS_SEV_LABEL[key]||key)+' findings' : kind==='owasp'?('OWASP '+key+' · '+(WAS_OWASP[key]||key))
+    : kind==='tech'?('Technology · '+key) : kind==='scan'?(key==='stale'?'Stale scans':'Fresh scans')
+    : kind==='clean'?'Clean apps (no crit/high/med/low)' : kind==='asset'?'Apps with a Tenable asset' : '';
+  return label?{f:f,kind:kind,key:key,label:label}:null; }
+function wasAppMatch(a,f,sd){ const c=typeof f==='string'?wasCohort(f):f; if(!c) return true; a=a||{};
+  // same reading as the server (core/was.py _SCAN_AGE): first 19 chars, as UTC, offset ignored
+  const age=(()=>{ const r=String(a.scan_completed_time||'').replace('T',' ').slice(0,19); if(!r) return null;
+    const t=Date.parse(r.replace(' ','T')+(r.length>10?'Z':'T00:00:00Z')); return isNaN(t)?null:(Date.now()-t)/86400000; })();
+  switch(c.kind){
+    case 'sev': return (+a[c.key]||0)>0;
+    case 'owasp': return (+((a.owasp||{})[c.key])||0)>0;
+    case 'tech': return (a.tech||[]).indexOf(c.key)>=0;
+    case 'scan': { const fresh=age!=null&&age<=(+sd||30); return c.key==='stale'?!fresh:fresh; }
+    case 'clean': return ((+a.critical||0)+(+a.high||0)+(+a.medium||0)+(+a.low||0))===0;
+    case 'asset': return !!a.asset_uuid;
+  } return true; }
+function wasReconHref(f,sd,app){ const q=new URLSearchParams(); if(app) q.set('app',app); if(f) q.set('f',f); if(f&&sd) q.set('sd',String(sd));
+  return '/agents/was_asset/page.html'+(q.toString()?'?'+q.toString():''); }
+
+function setNavCount(id, text){ const s=document.getElementById(id); if(s) s.dataset.navCount=text==null?'':String(text);
+  const c=document.getElementById('snc_'+id); if(c) c.textContent=text==null?'':String(text); }
+
+/* ===== External downloads — Settings → Auto-approve downloads (core/downloads.py) =====
+   downloadsAutoApproved('<source id>') resolves to the registered source {id,name,urls,…}
+   when the setting is ON — skip the "Human approval — external download" card and show
+   "Auto-approved download: <url> (Settings)" — or null when it is OFF, unknown or
+   unreachable (show the card as before). */
+async function downloadsAutoApproved(id){
+  try{ const o=await jpost('/api/settings/downloads',{id:id||''});
+    return (o && o.ok && o.auto_approve) ? (o.source || {id:id, name:id, urls:[]}) : null; }
+  catch(e){ return null; }
+}

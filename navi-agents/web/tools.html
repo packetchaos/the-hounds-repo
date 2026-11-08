@@ -32,7 +32,9 @@
 <script>
 const CARDS=[
   {t:'↻ Refresh navi.db', n:'Re-sync', d:'Pull the latest assets, tags, and findings from Tenable into navi.db so every hound reads current data.', href:'#refresh'},
-  {t:'🏷 Tagging log', n:'Audit trail', d:'Every tag the hounds have queued or applied — status, args, and the navi command behind each one.', href:'/web/tags-log.html'},
+  {t:'🏷️ Tagging log', n:'Audit trail', d:'Every tag the hounds have queued or applied — status, args, and the navi command behind each one.', href:'/web/tags-log.html'},
+  {t:'🎯 ACR log', n:'ACR registry', d:'Every asset whose ACR the hounds changed — when, by which hound, before → after, the business case — and the assets navi skipped because they carry NO : UPDATE.', href:'/web/acr-log.html'},
+  {t:'🖥 C2 log', n:'Command log', d:'Every command any hound ran on any host over navi action push — when, where, who asked, the (masked) command, status, exit code — never the reply. Append-only and hash-chained.', href:'/web/c2-log.html'},
   {t:'⚖ Tag compare', n:'Drift check', d:'Compare what navi.db believes is tagged against the live Tenable tag set — catch stale or missing tags before a removal.', href:'/web/tags.html'},
   {t:'⚖ MCP compare', n:'Same account?', d:'Confirm the navi MCP and the official Tenable MCP point at the same container and dataset.', href:'/agents/mcpcmp/page.html'},
   {t:'🧾 Runs & queries', n:'Profiler', d:'The run history for every agent action, with the exact SQL each one issued and how long it took.', href:'/web/agent-runs.html'},

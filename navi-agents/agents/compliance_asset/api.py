@@ -1,11 +1,13 @@
 """Tiresias — Compliance Asset deep-dive HTTP actions.
 
 run    — readiness stub (the hub's generic Execute).
-detail — payload {asset_uuid} (falls back to the worst-failing asset) → its audit checks
+detail — payload {asset_uuid, f} (falls back to the worst-failing asset; `f` narrows the
+         asset list to a cohort from a Minos widget) → its audit checks
          (pass/fail/warn + actual/expected/frameworks), its vulns, and the inferred
          audit↔vuln correlations; plus the compliance asset list for the page selector.
 tag    — GATED: tag this asset with an 'Audit-Vuln Link' for a correlated topic, via navi.
 """
+from core.gates import confirmed
 AGENT = None
 
 
@@ -22,17 +24,32 @@ def run(p):
 
 
 def detail(p):
+    """{asset_uuid, f}: `f` is a cohort from a Minos widget (st:failed, check:<id>, fw:<name>,
+    audit:<file>, pct:lt50 …) — the asset list is narrowed to it, and with no asset given
+    the worst asset IN the cohort opens."""
     from core import compliance as _c, navi_cli
     au = (p.get("asset_uuid") or p.get("asset") or "").strip()
-    return {"ok": True, "result": {"detail": _c.asset_detail(asset_uuid=au),
-                                   "assets": _c.assets_list()},
+    coh = _c.cohort(p.get("f")) if p.get("f") else None
+    assets = _c.assets_list(only=coh["uuids"] if coh else None)
+    if coh and not au and assets:
+        au = assets[0]["asset_uuid"]
+    cinfo = ({"f": coh["f"], "kind": coh["kind"], "key": coh["key"], "label": coh["label"],
+              "count": len(assets)} if coh else None)
+    if coh and not au:
+        # an empty group: say so — never fall back to some unrelated "worst asset"
+        det = {"available": False, "empty_cohort": True,
+               "reason": "No asset in navi.db is in this group right now."}
+    else:
+        det = _c.asset_detail(asset_uuid=au, focus_check=coh["key"] if coh and coh["kind"] == "check" else None)
+    return {"ok": True, "result": {"detail": det,
+                                   "assets": assets, "cohort": cinfo},
             "writes": {"enabled": navi_cli.writes_enabled(), "navi": navi_cli.navi_available(),
                        "reason": navi_cli.write_gate_reason()}}, 200
 
 
 def tag(p):
     from core import compliance as _c, navi_cli
-    if not p.get("confirm"):
+    if not confirmed(p):
         return {"ok": False, "error": "confirm=true required to write tags"}, 400
     topic = (p.get("topic") or p.get("value") or "").strip()
     if not topic:

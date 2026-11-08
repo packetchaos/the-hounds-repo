@@ -1,135 +1,281 @@
 <!DOCTYPE html>
 <html lang="en"><head>
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
-<title>Scan Evaluations · Navi Agents</title>
+<title>Scan Evaluations · Chronos · Navi Agents</title>
 <link rel="stylesheet" href="/static/console.css"/>
 <style>
-.plink{color:var(--accent);text-decoration:none;font-weight:600}.plink:hover{text-decoration:underline}
-.barwrap{display:flex;height:22px;border-radius:100px;overflow:hidden;border:1px solid var(--line);margin:8px 0}
-.barwrap .ok{background:linear-gradient(90deg,var(--cx-2e7d57),var(--cx-3fae74))}.barwrap .bad{background:linear-gradient(90deg,var(--cx-b9791a),var(--cx-f5a623))}
-.prob{color:var(--crit);font-weight:700}
+  .plink{color:var(--accent);text-decoration:none}.plink:hover{text-decoration:underline}
+  .mkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-top:10px}
+  .mk{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--panel-2)}
+  .mk .v{font-size:22px;font-weight:800;color:var(--ink);line-height:1.1}.mk .v small{font-size:13px;font-weight:600;color:var(--mut)}
+  .mk .l{font-size:11.5px;color:var(--mut);margin-top:2px}
+  .mk .u{font-size:11.5px;color:var(--ink-2,var(--ink));margin-top:4px}.mk .u b{color:var(--ink)}
+  .mk[data-f],.mk[data-j]{cursor:pointer;border-left:4px solid var(--rc,var(--line))}.mk[data-f]:hover,.mk[data-j]:hover{border-color:var(--accent)}.mk.on{box-shadow:0 0 0 2px var(--accent)}
+  .mhead{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 0}
+  .glance{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin-top:10px}
+  .gl{border:1px solid var(--line);border-radius:12px;padding:10px 12px}.gl h4{margin:0 0 6px;font-size:12.5px}
+  .sbar{display:flex;height:16px;border-radius:6px;overflow:hidden;background:var(--panel-2)}
+  .sbar span{display:block;height:100%}.sbar span+span{border-left:2px solid var(--panel,#fff)}
+  .slg{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11.5px;margin-top:6px;color:var(--ink-2,var(--ink))}
+  .slg i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px}.slg b{font-family:var(--mono)}
+  .fchip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--accent);color:var(--accent);border-radius:999px;padding:3px 10px;font-size:12px}
+  .fchip button{border:0;background:transparent;color:inherit;cursor:pointer;font-size:13px;padding:0}
+  .pill{font-size:11px;padding:1px 7px;border-radius:999px;border:1px solid currentColor;white-space:nowrap}
+  .tagval{font-weight:700}
+  .segbar{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;flex-wrap:wrap}
+  .segbar .seg{background:var(--panel);border:0;border-right:1px solid var(--line);padding:5px 10px;font-size:11.5px;color:var(--ink-2);cursor:pointer;font-family:inherit;display:inline-flex;gap:5px;align-items:center}
+  .segbar .seg:last-child{border-right:0}
+  .segbar .seg.on{background:var(--accent);color:#fff}.segbar .seg.on b{color:#fff}
+  .segbar .seg b{font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+  .segbar .seg:hover:not(.on){background:var(--panel-2)}
+  .prob{color:var(--crit);font-weight:700}
+  .meter{display:inline-block;width:40px;height:6px;border-radius:3px;background:var(--panel-2);vertical-align:middle;margin-right:6px;overflow:hidden}
+  .meter i{display:block;height:100%;background:var(--accent)}
 </style>
 </head><body>
 <div class="wrap">
   <header class="top" id="app-header"></header>
-  <section class="card">
-    <div class="toolbar"><div><h2 style="margin:0">Scan Evaluations</h2>
-      <p class="sub" style="margin:2px 0 0">Reproduces <span class="mono">navi scan evaluate</span> — average scan time per asset by <b>scanner</b>, <b>policy</b>, and <b>scan</b> (plugin 19506) — plus credential-failure coverage (plugin 104410). Tag problem areas via navi (gated).</p></div>
-      <button class="btn run sm" id="run" style="margin-left:auto">▶ Run evaluation</button></div>
+
+  <section class="card" style="background:var(--panel)">
+    <div class="toolbar"><div><div class="acode">Chronos</div><h2 style="margin:0">📈 Scan Evaluations</h2>
+      <p class="sub" style="margin:2px 0 0">What your scans can and can't see. Per asset: <b>credential health</b> from the Target Credential Status / Issues plugins (<span class="mono">104410 · 110385 · 102094 · 117885 · 110723 · 141118 · 110095</span>) and plugin 19506, <b>scan freshness</b>, agent vs network, and patch-assessment failures (<span class="mono">21745</span>). Per scanner, policy and scan: time per asset, load share, credential success and <b>plugin-feed currency</b>. Tags <b>the assets</b> by uuid under <span class="tagval">Scan Health</span>; writes are gated and tracked in the <a href="/web/tags-log.html">Tagging log</a>.</p></div>
+      <button class="btn run sm" id="run" data-run style="margin-left:auto">▶ Run</button></div>
     <div id="flash" class="flash"></div>
+    <div id="metrics"><div class="setupcard"><div class="big">Press ▶ Run</div><p class="sub">Find the hosts your scans can't really see — failed or missing credentials, stale or never scanned, crown jewels in the dark — and the scanners, policies and scans that are slow, overloaded or running an old plugin feed.</p></div></div>
+    <div id="glance"></div>
   </section>
 
-  <section class="card" id="credCard" style="display:none">
-    <h2>Credential coverage</h2>
-    <div class="kpi" id="credKpi"></div>
-    <div class="barwrap" id="credBar" title="green = credentialed OK · amber = credential failures"></div>
-    <div class="toolbar"><button class="btn run sm" id="credTag">▶ Tag credential failures (gated)</button><span class="chip" id="credTagHint">Scan Health : Cred Failure · plugin 104410</span></div>
-    <div id="credRes"></div>
-    <h2 style="margin:14px 0 0;font-size:14px">⚠ Assets WITH a credential failure <span class="sub" id="credCount"></span></h2>
-    <p class="sub" style="margin:2px 0 6px">These returned plugin <span class="mono">104410</span> — Nessus could not authenticate, so their scans are uncredentialed (results incomplete).</p>
-    <table id="credTbl" style="margin-top:6px"><thead><tr><th>Host (cred-fail)</th><th>IP</th><th>Platform</th></tr></thead><tbody></tbody></table>
+  <section class="card" id="secAssets" data-nav="Coverage by asset" data-nav-icon="📋">
+    <div class="toolbar" style="margin:0"><h2 style="margin:0">Coverage by asset <span class="sub" id="aCount"></span></h2>
+      <button class="btn ghost sm" id="aCsv" style="margin-left:auto">⬇ CSV</button></div>
+    <p class="sub">Worst credential state first, then highest ACR. An asset takes the worst state any credential plugin reports for it. Click a metric card above or a state below to filter; the tag button tags exactly that set.</p>
+    <div class="toolbar" style="flex-wrap:wrap;gap:6px"><span class="sub">Credentials:</span><div class="segbar" id="stSeg"></div><span id="filt"></span></div>
+    <div class="toolbar" id="aTags" style="flex-wrap:wrap;gap:6px;margin-top:6px"></div>
+    <table id="aTbl" class="nocsv"><thead><tr><th>Host</th><th>ACR</th><th>Credentials</th><th>Last scan</th><th>Scanner</th><th>Policy</th><th>Duration</th></tr></thead><tbody></tbody></table>
   </section>
 
-  <section class="card" id="dimCard" style="display:none">
-    <div class="toolbar" style="margin:0"><h2 style="margin:0">By scanner <span class="sub" id="scnCount"></span></h2><button class="btn ghost sm" id="scnCsv" style="margin-left:auto">⬇ CSV</button></div>
-    <p class="sub">Uneven load is the signal — a scanner far above the average is a bottleneck. Tag a problematic scanner (navi <span class="mono">--plugin 19506 --output "&lt;ip&gt;"</span>).</p>
-    <table id="scnTbl" class="nocsv"><thead><tr><th>Scanner IP</th><th>Assets</th><th>Avg / asset</th><th>Max</th><th></th></tr></thead><tbody></tbody></table>
-    <div class="toolbar" style="margin:18px 0 0"><h2 style="margin:0">By policy <span class="sub" id="polCount"></span></h2><button class="btn ghost sm" id="polCsv" style="margin-left:auto">⬇ CSV</button></div>
-    <p class="sub">Heavy policies cost time per asset. Tag a problematic policy (navi <span class="mono">--plugin 19506 --output "&lt;policy&gt;"</span>).</p>
-    <table id="polTbl" class="nocsv"><thead><tr><th>Policy</th><th>Assets</th><th>Avg / asset</th><th>Max</th><th></th></tr></thead><tbody></tbody></table>
-    <div class="toolbar" style="margin:18px 0 0"><h2 style="margin:0">By scan <span class="sub" id="scaCount"></span></h2><button class="btn ghost sm" id="scaCsv" style="margin-left:auto">⬇ CSV</button></div>
-    <p class="sub">Tag a problematic scan (navi <span class="mono">--scanid</span> when known, else by scan name in 19506 output).</p>
-    <table id="scaTbl" class="nocsv"><thead><tr><th>Scan name</th><th>Assets</th><th>Avg / asset</th><th>Max</th><th></th></tr></thead><tbody></tbody></table>
-    <div id="dimRes"></div>
+  <section class="card" id="secScanners" data-nav="Scanners" data-nav-icon="📡">
+    <div class="toolbar" style="margin:0"><h2 style="margin:0">Scanners <span class="sub" id="scnCount"></span></h2><button class="btn ghost sm" id="scnCsv" style="margin-left:auto">⬇ CSV</button></div>
+    <p class="sub">Uneven load is the signal: a scanner well above the average time per asset (<b>⚠</b>, &gt; 1.5×) is a bottleneck. <b>Feed</b> is the newest plugin feed the scanner used; more than <span id="lagN">7</span> days behind the newest feed in navi.db means it's missing recent checks.</p>
+    <table id="scnTbl" class="nocsv"><thead><tr><th>Scanner</th><th>Assets</th><th>Load</th><th>Avg / asset</th><th>Max</th><th>Credentialed</th><th>Nessus · plugin feed</th><th>Last scan</th><th></th></tr></thead><tbody></tbody></table>
   </section>
-  <footer>Scan Evaluations · read-only navi.db (plugin 19506 / 104410) · gated navi tags</footer>
+
+  <section class="card" id="secPolicies" data-nav="Policies" data-nav-icon="📜">
+    <div class="toolbar" style="margin:0"><h2 style="margin:0">Policies <span class="sub" id="polCount"></span></h2><button class="btn ghost sm" id="polCsv" style="margin-left:auto">⬇ CSV</button></div>
+    <p class="sub">Heavy policies cost time per asset. <b>Safe checks off</b> can crash fragile services; <b>thorough tests</b> slow scans down.</p>
+    <table id="polTbl" class="nocsv"><thead><tr><th>Policy</th><th>Assets</th><th>Avg / asset</th><th>Max</th><th>Credentialed</th><th>Safe checks off</th><th>Thorough</th><th></th></tr></thead><tbody></tbody></table>
+  </section>
+
+  <section class="card" id="secScans" data-nav="Scans" data-nav-icon="🗂">
+    <div class="toolbar" style="margin:0"><h2 style="margin:0">Scans <span class="sub" id="scaCount"></span></h2><button class="btn ghost sm" id="scaCsv" style="margin-left:auto">⬇ CSV</button></div>
+    <p class="sub">Every scan name seen in plugin 19506. A scan that hasn't run recently or rarely gets credentials in is where coverage leaks.</p>
+    <table id="scaTbl" class="nocsv"><thead><tr><th>Scan</th><th>Assets</th><th>Avg / asset</th><th>Max</th><th>Credentialed</th><th>Last run</th><th></th></tr></thead><tbody></tbody></table>
+  </section>
+
+  <section class="card" id="secSlow" data-nav="Slowest assets" data-nav-icon="🐢">
+    <div class="toolbar" style="margin:0"><h2 style="margin:0">Slowest assets <span class="sub" id="slowCount"></span></h2>
+      <button class="btn sm" id="tagSlow" style="margin-left:auto" disabled>🏷️ Tag assets over 1 h → Scan Health : Slow Scan</button></div>
+    <p class="sub">Longest last scan per asset (plugin 19506 <span class="mono">Scan duration</span>). A single slow host can hold a whole scan window open.</p>
+    <table id="slowTbl" class="nocsv"><thead><tr><th>Host</th><th>Duration</th><th>Scanner</th><th>Policy</th><th>Scan</th><th>Last scan</th></tr></thead><tbody></tbody></table>
+  </section>
+
+  <footer>Chronos · Scan Evaluations · reads navi.db read-only (19506 + credential-status plugins) · gated navi tags by uuid · tracked in the Tagging log</footer>
 </div>
 <script src="/static/console.js"></script>
 <script>
 const API=agentApi('scan_eval');
-const plat=(u,l)=>u?` <a href="${String(u).replace(/&/g,'&amp;').replace(/"/g,'&quot;')}" target="_blank" rel="noopener" class="plink" title="Open in Tenable platform">${l||'↗'}</a>`:'<span class="sub">—</span>';
-const dur=s=>{s=Math.round(s||0);return s<60?s+'s':Math.floor(s/60)+'m '+(s%60)+'s';};
-let DATA=null;
+let DATA=null, WRITES=false, FILTER=null, STF='all';
+const N=v=>(v==null?0:v).toLocaleString();
+const dur=s=>{ if(s==null)return '—'; s=Math.round(s); return s<60?s+'s':(s<3600?Math.floor(s/60)+'m '+(s%60)+'s':Math.floor(s/3600)+'h '+Math.floor((s%3600)/60)+'m'); };
+const pct=v=>v==null?'<span class="sub">—</span>':`<span class="meter"><i style="width:${v}%;background:${v>=80?'#30a46c':v>=40?'#e0913a':'var(--crit)'}"></i></span>${v}%`;
+const ST={failed:['Failed','var(--crit)'],insufficient:['Insufficient privilege','#e0913a'],intermittent:['Intermittent','#c9a227'],
+  uncredentialed:['Uncredentialed','#8b95a7'],ok:['Credentialed OK','#30a46c'],unknown:['No scan data','#c4c9d4']};
+const FR={'0-7':['≤ 7 days','#30a46c'],'8-30':['8–30 days','#7cc48a'],'31-90':['31–90 days','#e0913a'],'90+':['> 90 days','var(--crit)'],never:['Never scanned','#8b95a7'],unknown:['Date unknown','#c4c9d4']};
+const BLIND=['failed','insufficient','intermittent','uncredentialed'];
+/* filter → [label, predicate, tag keys that tag exactly this set] */
+const FILTERS={
+  failed:['Credential failure',x=>x.status==='failed',['status:failed']],
+  insufficient:['Insufficient privilege',x=>x.status==='insufficient',['status:insufficient']],
+  intermittent:['Intermittent authentication',x=>x.status==='intermittent',['status:intermittent']],
+  uncredentialed:['Scanned without credentials',x=>x.status==='uncredentialed',['status:uncredentialed']],
+  blind:['Not credentialed (any reason)',x=>BLIND.includes(x.status),['status:failed','status:insufficient','status:intermittent','status:uncredentialed']],
+  patch:['Patch assessment failed',x=>x.patch==='failed',['patch:failed']],
+  stale30:['Last scan over 30 days ago',x=>x.fresh==='31-90'||x.fresh==='90+',['fresh:31-90','fresh:90+']],
+  stale90:['Last scan over 90 days ago',x=>x.fresh==='90+',['fresh:90+']],
+  never:['Never scanned',x=>x.fresh==='never',['fresh:never']],
+  slow:['Scan over 1 hour',x=>(x.dur||0)>(DATA.slow_sec||3600),['slow']],
+  crownblind:['Crown-jewel blind spots',x=>x.crown&&(BLIND.includes(x.status)||x.fresh==='90+'||x.fresh==='never'),['crown:blind']],
+  crown:['Crown jewels (ACR ≥ 7)',x=>x.crown,[]],
+  agent:['Scanned by a Nessus Agent',x=>x.type==='Agent',[]], network:['Scanned over the network',x=>x.type==='Network',[]] };
+const KEYVAL={'status:failed':'Cred Failure','status:insufficient':'Insufficient Privilege','status:intermittent':'Intermittent Auth','status:uncredentialed':'Uncredentialed',
+  'patch:failed':'Patch Assessment Failed','fresh:31-90':'Stale Scan 30d+','fresh:90+':'Stale Scan 90d+','fresh:never':'Never Scanned','slow':'Slow Scan','crown:blind':'Crown Jewel Blind Spot'};
+const host=(u,h)=>u?`<a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(u)}">${esc(h)}</a>`:esc(h);
+
 async function run(){
-  document.getElementById('run').disabled=true;
-  flash('flash','<span class="spin"></span> evaluating scans from navi.db (plugin 19506)…','run');
+  const b=document.getElementById('run'); b.disabled=true;
+  flash('flash','<span class="spin"></span> evaluating scan coverage, credentials and performance from navi.db…','run');
   let o; try{ o=await API.post('run'); }catch(e){ o={ok:false,error:e.message}; }
-  document.getElementById('run').disabled=false;
-  if(!o.ok){ flash('flash','✗ '+(o.error||'failed'),'crit'); return; }
-  DATA=o.result; flashClear('flash'); render();
+  b.disabled=false;
+  if(!o||!o.ok||!o.result){ flash('flash','✗ '+esc((o&&(o.error||o.message))||'failed'),'crit'); return; }
+  DATA=o.result; FILTER=null; STF='all';
+  ['aTbl','scnTbl','polTbl','scaTbl','slowTbl'].forEach(hPageReset);
+  const m=DATA.metrics||{};
+  if(!m.assets) flash('flash','No assets in navi.db.','warn');
+  else if(!m.scanned) flash('flash','No Nessus Scan Information (plugin 19506) in navi.db — run a navi update that includes vulns.','warn');
+  else if(DATA.assets_truncated) flash('flash',`Showing the first ${N(DATA.assets.length)} assets in the table; metrics and tags cover all ${N(m.assets)}.`,'warn');
+  else flashClear('flash');
+  render();
 }
-function dimRows(list,kind){
-  return list.length?list.map(x=>`<tr><td class="${x.problematic?'prob':''}">${esc(x.key)}${x.problematic?' ⚠':''}</td><td>${x.assets}</td><td class="${x.problematic?'prob':''}">${dur(x.avg_sec)}</td><td class="mono">${dur(x.max_sec)}</td><td><button class="btn sm" data-kind="${kind}" data-val="${esc(x.key)}">Tag</button></td></tr>`).join(''):'<tr><td colspan="5" class="sub">None found.</td></tr>';
+
+/* ---- gated writes: one line of feedback; detail lives in the Tagging log ---- */
+async function gated(btn,label,call,okMsg,ask){   /* ask: plain-text question naming the exact tag + count */
+  if(btn&&btn.disabled) return null;
+  await testRunStatus();
+  if(!confirm((typeof ask==='function'?ask():ask)+(WRITES?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.'))) return null;
+  if(btn&&btn.disabled) return null;
+  const fb=document.getElementById('flash'); const scroll=()=>{ if(fb) fb.scrollIntoView({behavior:'smooth',block:'center'}); };
+  if(btn){ btn.dataset.label=btn.dataset.label||btn.textContent; btn.disabled=true; btn.textContent='⏳'; }
+  flash('flash','<span class="spin"></span> '+label+'…','run'); scroll();
+  let o; try{ o=await call(); }catch(e){ o={ok:false,error:e.message}; }
+  if(btn){ btn.disabled=false; btn.textContent=btn.dataset.label; }
+  if(!o||!o.ok){ flash('flash','✗ '+esc((o&&(o.error||o.message))||'failed'),'crit'); scroll(); return o; }
+  flash('flash','✓ '+okMsg(o)+' — sent to the <a href="/web/tags-log.html">Tagging log</a>.'+(o.writes_enabled===false?' Writes are gated, so nothing reaches Tenable until NAVI_ALLOW_WRITES=1.':' Tags take ~30 min to land in Tenable.'),'ok'); scroll();
+  return o;
 }
-/* paginate the scan/scanner/policy tables — a busy env can have thousands of scans */
-const SE_PER=50; const _sePage={scanner:0,policy:0,scan:0};
-const _SE_MAP={scanner:['scanners','#scnTbl','scnPager'],policy:['policies','#polTbl','polPager'],scan:['scans','#scaTbl','scaPager']};
-function sePager(pid,total,kind){ const el=document.getElementById(pid); if(!el)return; const pages=Math.ceil(total/SE_PER);
-  if(pages<=1){ el.style.display='none'; el.innerHTML=''; return; } el.style.display='';
-  const p=_sePage[kind], a=p*SE_PER+1, b=Math.min(total,(p+1)*SE_PER);
-  el.innerHTML=`<button class="btn ghost sm" ${p<=0?'disabled':''} data-pv>‹ Prev</button><span class="sub" style="margin:0 10px">${a}–${b} of ${total}</span><button class="btn ghost sm" ${p>=pages-1?'disabled':''} data-nx>Next ›</button>`;
-  const pv=el.querySelector('[data-pv]'), nx=el.querySelector('[data-nx]');
-  if(pv)pv.onclick=()=>{ _sePage[kind]--; renderDim(kind); };
-  if(nx)nx.onclick=()=>{ _sePage[kind]++; renderDim(kind); }; }
-function renderDim(kind){ const [key,tbl,pid]=_SE_MAP[kind]; const list=(DATA&&DATA[key])||[];
-  const pages=Math.max(1,Math.ceil(list.length/SE_PER)); if(_sePage[kind]>=pages)_sePage[kind]=pages-1; if(_sePage[kind]<0)_sePage[kind]=0;
-  const slice=list.slice(_sePage[kind]*SE_PER,(_sePage[kind]+1)*SE_PER);
-  const tb=document.querySelector(tbl+' tbody'); tb.innerHTML=dimRows(slice,kind);
-  tb.querySelectorAll('button[data-kind]').forEach(b=>b.onclick=()=>tagDim(b.dataset.kind,b.dataset.val));
-  sePager(pid,list.length,kind); }
-function render(){
-  const c=DATA.credential||{};
-  document.getElementById('credCard').style.display='block';
-  document.getElementById('dimCard').style.display='block';
-  document.getElementById('credKpi').innerHTML=
-    `<div class="k"><div class="v">${c.total_assets||0}</div><div class="l">total assets</div></div>`+
-    `<div class="k"><div class="v" style="color:var(--crit)">${c.cred_fail_assets||0}</div><div class="l">credential failures (104410)</div></div>`+
-    `<div class="k"><div class="v" style="color:var(--cx-3fae74)">${c.ok_assets||0}</div><div class="l">credentialed OK</div></div>`;
-  const t=c.total_assets||1, bad=c.cred_fail_assets||0, ok=c.ok_assets||0;
-  document.getElementById('credBar').innerHTML=`<div class="ok" style="width:${(ok/t*100).toFixed(1)}%"></div><div class="bad" style="width:${(bad/t*100).toFixed(1)}%"></div>`;
-  const _cc=document.getElementById('credCount'); if(_cc)_cc.textContent='('+(c.assets||[]).length+')';
-  hPageReset('credTbl'); hPaginate('credTbl', (c.assets||[]), a=>`<tr><td><a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(a.asset_uuid)}">${esc(a.host)}</a></td><td class="mono">${esc(a.ip||'')}</td><td>${plat(a.url,'Open ↗')}</td></tr>`, {empty:'<tr><td colspan="3" class="sub">No credential failures. ✔</td></tr>', cols:3});
-  document.getElementById('scnCount').textContent=`(${DATA.scanners.length})`;
-  document.getElementById('polCount').textContent=`(${DATA.policies.length})`;
-  document.getElementById('scaCount').textContent=`(${DATA.scans.length})`;
-  _sePage.scanner=0; _sePage.policy=0; _sePage.scan=0;
-  renderDim('scanner'); renderDim('policy'); renderDim('scan');
-  wireCsv('scnCsv','scanners','scan-eval-by-scanner',{key:'scanner_ip'});
-  wireCsv('polCsv','policies','scan-eval-by-policy',{key:'policy'});
-  wireCsv('scaCsv','scans','scan-eval-by-scan',{key:'scan_name'});
+async function tagKeys(keys,btn,n){
+  if(!keys.length) return;
+  const ask=()=>`Tag ${keys.map(k=>tagCat('Scan Health')+' : '+KEYVAL[k]).join(' + ')} on ${n!=null?N(n)+' asset(s)':'the matching assets'}${keys.length>1?` (${keys.length} selectors)`:''}?`;
+  if(keys.length===1) return gated(btn,`queuing Scan Health : ${KEYVAL[keys[0]]}`,()=>API.post('tag',{key:keys[0],confirm:true}),
+    o=>`queued <span class="tagval">Scan Health : ${esc(o.value)}</span> on ${N(o.count)} asset(s)`,ask);
+  return gated(btn,'queuing '+keys.length+' Scan Health tags',async()=>{ let n=0,a=0,last=null;
+      for(const k of keys){ const o=await API.post('tag',{key:k,confirm:true}); if(o&&o.ok){ n++; a+=o.count||0; last=o; } }
+      return n?{ok:true,n,count:a,writes_enabled:last.writes_enabled}:{ok:false,error:'nothing to tag'}; },
+    o=>`queued ${N(o.n)} Scan Health tag(s) across ${N(o.count)} asset(s)`,ask);
 }
-// per-category CSV export, sitting next to its own table
-function wireCsv(btnId, listKey, fname, hdr){
-  const b=document.getElementById(btnId); if(!b)return;
-  b.onclick=()=>{
-    const rows=(DATA&&DATA[listKey]||[]).map(x=>({
-      [hdr.key]:x.key, assets:x.assets, avg_sec:Math.round(x.avg_sec||0),
-      max_sec:Math.round(x.max_sec||0), problematic:x.problematic?'yes':'no'}));
-    downloadCSV(fname+'.csv',[hdr.key,'assets','avg_sec','max_sec','problematic'],rows);
-  };
+function tagDim(kind,name,btn){
+  const K=kind[0].toUpperCase()+kind.slice(1), x=((DATA&&DATA[{scanner:'scanners',policy:'policies',scan:'scans'}[kind]])||[]).find(y=>String(y.key)===String(name));
+  return gated(btn,`queuing Scan Health : ${K} : ${esc(name)}`,()=>API.post('tag',{key:kind,name,confirm:true}),
+    o=>`queued <span class="tagval">Scan Health : ${esc(o.value)}</span> on ${N(o.count)} asset(s)`,
+    ()=>`Tag ${tagCat('Scan Health')} : ${K} : ${name} on ${x&&x.assets!=null?N(x.assets)+' asset(s)':'its assets'}?`);
 }
-async function tagDim(kind,val){
-  const labels={scanner:'Problematic Scanner',policy:'Problematic Policy',scan:'Problematic Scan'};
-  const value=prompt('Tag value for this '+kind+' (editable):',labels[kind]||'Scan Issue'); if(value===null)return;
-  let scanid='';
-  if(kind==='scan'){ scanid=(prompt('navi scan ID (leave blank to match by scan name in plugin 19506 output):','')||'').trim(); }
-  const res=document.getElementById('dimRes'); res.innerHTML='<div class="callbox"><span class="spin"></span> tagging via navi…</div>';
-  let o; try{ o=await API.post('tag',{kind,value:value.trim()||labels[kind],output:val,scanid,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
-  reportTag(res,o,'Tagged '+kind+' "'+val+'"');
+
+function renderMetrics(){
+  const m=DATA.metrics||{}, st=m.status||{}, fr=m.fresh||{};
+  const k=(v,l,u,o)=>{o=o||{}; return `<div class="mk${o.f&&FILTER===o.f?' on':''}"${o.f?` data-f="${o.f}"`:''}${o.j?` data-j="${o.j}"`:''} style="${o.c?'--rc:'+o.c:''}"${o.t?` title="${esc(o.t)}"`:''}><div class="v">${v}</div><div class="l">${l}</div>${u?`<div class="u">${u}</div>`:''}</div>`;};
+  const sp=m.scanned?Math.round(100*m.scanned/m.assets):null;
+  document.getElementById('metrics').innerHTML=
+    '<div class="mhead">Coverage — click a card to filter the asset list</div><div class="mkpi">'+
+    k(N(m.scanned)+(sp!=null?` <small>${sp}%</small>`:''),'assets with scan results', `of <b>${N(m.assets)}</b> assets in navi.db`)+
+    k(N(m.never),'never scanned', 'in navi.db but no Nessus Scan Information (19506)', {f:'never',c:'#8b95a7'})+
+    k(N(fr['0-7']),'scanned in the last 7 days', `<b>${N(fr['8-30'])}</b> more within 30 days`, {c:'#30a46c'})+
+    k(`${N(m.network)} <small>/ ${N(m.agent)}</small>`,'network / agent scanned', 'by the latest scan of each asset', {f:m.agent?'agent':'network',c:'var(--accent)',t:'click to show agent-scanned assets'})+
+    '</div><div class="mhead">Credential health</div><div class="mkpi">'+
+    k(m.cred_ok_pct!=null?m.cred_ok_pct+'%':'—','credentialed OK', `<b>${N(st.ok)}</b> of <b>${N(m.scanned)}</b> scanned assets`, {c:'#30a46c'})+
+    k(N(st.failed),'credential failures', 'credentials provided but rejected · 104410', {f:'failed',c:ST.failed[1]})+
+    k(N(st.insufficient),'insufficient privilege', 'logged in, but can\'t run every check · 110385 / 102094', {f:'insufficient',c:ST.insufficient[1]})+
+    k(N(st.intermittent),'intermittent authentication', 'login worked only some of the time · 117885', {f:'intermittent',c:ST.intermittent[1]})+
+    k(N(st.uncredentialed),'scanned without credentials', 'none provided, or 19506 says credentialed : no', {f:'uncredentialed',c:ST.uncredentialed[1]})+
+    k(N(m.patch_failed),'patch assessment failed', `OS patch checks didn't run · 21745${m.patch_na?` · <b>${N(m.patch_na)}</b> not available (117886)`:''}`, {f:'patch',c:'#e0913a'})+
+    '</div><div class="mhead">Freshness and crown jewels</div><div class="mkpi">'+
+    k(N(m.stale_30),'last scanned over 30 days ago', `<b>${N(m.stale_90)}</b> over 90 days`, {f:'stale30',c:'#e0913a'})+
+    k(N(m.stale_90),'last scanned over 90 days ago', 'findings may no longer be true', {f:'stale90',c:FR['90+'][1]})+
+    k(N(m.crown_blind),'crown-jewel blind spots', `of <b>${N(m.crown)}</b> crown jewels (ACR ≥ 7) · <b>${N(m.crown_uncred)}</b> uncredentialed · <b>${N(m.crown_stale)}</b> stale or never scanned`, {f:'crownblind',c:'var(--crit)'})+
+    k(N(m.crown),'crown jewels', 'ACR ≥ 7', {f:'crown',c:'var(--accent)'})+
+    '</div><div class="mhead">Performance and scanners</div><div class="mkpi">'+
+    k(dur(m.overall_avg_sec),'average scan time per asset', `<b>${N(m.slow)}</b> asset(s) over 1 hour`, {f:'slow',c:'#e0913a'})+
+    k(N(m.slow_scanners),'slow scanners', `of <b>${N(m.scanner_count)}</b> · busiest carries <b>${m.top_scanner_share!=null?m.top_scanner_share+'%':'—'}</b> of the load`, {j:'secScanners',c:'#e0913a',t:'avg time per asset > 1.5× the overall average'})+
+    k(`${N(m.slow_policies)} <small>/ ${N(m.slow_scans)}</small>`,'slow policies / scans', 'avg > 1.5× the overall average', {j:'secPolicies',c:'#e0913a'})+
+    k(N(m.outdated_scanners),'scanners on an old plugin feed', m.newest_feed?`> ${DATA.feed_lag_days} days behind <b>${esc(m.newest_feed)}</b> · <b>${N(m.versions)}</b> Nessus version(s) in use`:'no feed version in 19506 output', {j:'secScanners',c:'var(--crit)'})+
+    k(N(m.safe_off),'assets scanned with safe checks off', 'can disrupt fragile services', {j:'secPolicies',c:'#e0913a'})+
+    '</div>';
+  document.querySelectorAll('#metrics .mk[data-f]').forEach(c=>c.onclick=()=>{
+    FILTER=FILTER===c.dataset.f?null:c.dataset.f; STF='all'; hPageReset('aTbl'); renderMetrics(); renderAssets();
+    if(FILTER) document.getElementById('secAssets').scrollIntoView({behavior:'smooth',block:'start'}); });
+  document.querySelectorAll('#metrics .mk[data-j]').forEach(c=>c.onclick=()=>document.getElementById(c.dataset.j).scrollIntoView({behavior:'smooth',block:'start'}));
 }
-document.getElementById('credTag').onclick=async()=>{
-  const value=prompt('Tag value for credential failures (editable):','Cred Failure'); if(value===null)return;
-  const res=document.getElementById('credRes'); res.innerHTML='<div class="callbox"><span class="spin"></span> tagging via navi tag --plugin 104410…</div>';
-  let o; try{ o=await API.post('tag',{kind:'cred',value:value.trim()||'Cred Failure',confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
-  reportTag(res,o,'Tagged credential failures');
-};
-function reportTag(res,o,okmsg){
-  if(!o.ok){ res.innerHTML='<div class="callbox" style="color:var(--cx-ffb4c6)">✗ '+(o.error||'failed')+'</div>'; return; }
-  const r=o.result||{}; const okk=r.ok||/job_uuid|not subscriptable/.test(JSON.stringify(r));
-  res.innerHTML='<div class="callbox" style="color:'+(okk?'var(--ok)':'var(--cx-ffb4c6)')+'">'+(okk?(okmsg+'.'+(o.writes_enabled?' Allow ~30 min for Tenable.':' (gated — set NAVI_ALLOW_WRITES=1 and put navi on PATH)')):('✗ '+(r.message||'tag failed')))+'</div>';
+
+function sbar(parts){ const tot=parts.reduce((s,p)=>s+p.n,0)||1;
+  return `<div class="sbar">${parts.filter(p=>p.n).map(p=>`<span style="width:${(100*p.n/tot).toFixed(2)}%;background:${p.c}" title="${esc(p.l)}: ${N(p.n)}"></span>`).join('')}</div>`+
+    `<div class="slg">${parts.filter(p=>p.n).map(p=>`<span><i style="background:${p.c}"></i>${esc(p.l)} <b>${N(p.n)}</b></span>`).join('')}</div>`; }
+function renderGlance(){
+  const m=DATA.metrics||{}; if(!m.assets){ document.getElementById('glance').innerHTML=''; return; }
+  const st=m.status||{}, fr=m.fresh||{};
+  const sc=(DATA.scanners||[]).slice().sort((a,b)=>b.assets-a.assets), top=sc.slice(0,5), rest=sc.slice(5).reduce((s,x)=>s+x.assets,0);
+  const PAL=['#3987e5','#30a46c','#a97fd6','#e0913a','#3fb0c9'];
+  const gl=(t,b,s)=>`<div class="gl"><h4>${t}</h4>${b}${s?`<div class="sub" style="font-size:11px;margin-top:4px">${s}</div>`:''}</div>`;
+  document.getElementById('glance').innerHTML='<div class="mhead">At a glance</div><div class="glance">'+
+    gl('Credential state', sbar(Object.keys(ST).map(s=>({l:ST[s][0],n:st[s]||0,c:ST[s][1]}))), 'Each asset counted once, under its worst state.')+
+    gl('Last scan', sbar(Object.keys(FR).map(f=>({l:FR[f][0],n:fr[f]||0,c:FR[f][1]}))), 'Days since each asset\'s most recent scan, as of '+esc(DATA.today||'today')+'.')+
+    gl('Scanner load', sbar(top.map((x,i)=>({l:x.key,n:x.assets,c:PAL[i]})).concat(rest?[{l:'Other',n:rest,c:'#8b95a7'}]:[])), 'Assets per scanner; an asset scanned by several counts for each.')+
+    '</div>';
 }
+
+function shownAssets(){ let r=DATA.assets||[]; if(STF!=='all') r=r.filter(x=>x.status===STF); if(FILTER) r=r.filter(FILTERS[FILTER][1]); return r; }
+function renderAssets(){
+  const a=DATA.assets||[], m=DATA.metrics||{}, st=m.status||{}, rows=shownAssets();
+  const seg=document.getElementById('stSeg');
+  seg.innerHTML='<button class="seg" data-sf="all">All <b>'+N(a.length)+'</b></button>'+Object.keys(ST).filter(s=>st[s]).map(s=>`<button class="seg" data-sf="${s}">${ST[s][0]} <b>${N(st[s])}</b></button>`).join('');
+  seg.querySelectorAll('.seg').forEach(s=>{ s.classList.toggle('on',s.dataset.sf===STF); s.onclick=()=>{ STF=s.dataset.sf; FILTER=null; hPageReset('aTbl'); renderMetrics(); renderAssets(); }; });
+  const fe=document.getElementById('filt');
+  fe.innerHTML=FILTER?`<span class="fchip">${esc(FILTERS[FILTER][0])}<button id="clrF" title="Clear">✕</button></span>`:'';
+  const c=document.getElementById('clrF'); if(c) c.onclick=()=>{ FILTER=null; hPageReset('aTbl'); renderMetrics(); renderAssets(); };
+  document.getElementById('aCount').textContent=rows.length===a.length?`(${N(a.length)})`:`(${N(rows.length)} of ${N(a.length)})`;
+  setNavCount('secAssets', N(m.blind)+' blind');
+  // the tag button tags EXACTLY the shown set — only offered when a server-side key matches it
+  const keys=FILTER?FILTERS[FILTER][2]:(STF!=='all'&&STF!=='ok'&&STF!=='unknown'?['status:'+STF]:[]);
+  const at=document.getElementById('aTags');
+  at.innerHTML=keys.length&&rows.length&&!(FILTER&&STF!=='all')?`<button class="btn sm" id="tagShown">🏷️ Tag these ${N(rows.length)} → ${keys.map(k=>'Scan Health : '+esc(KEYVAL[k])).join(' + ')}</button>`:
+    '<span class="sub">Pick a credential state or a metric card to tag that set.</span>';
+  const tb=document.getElementById('tagShown'); if(tb) tb.onclick=function(){ tagKeys(keys,this,rows.length); };
+  hPaginate('aTbl', rows, x=>`<tr><td><b>${host(x.asset_uuid,x.host)}</b><div class="sub mono" style="font-size:11px">${x.ip&&x.ip!==x.host?esc(x.ip)+' ':''}${safeUrl(x.url,'')?`<a href="${esc(safeUrl(x.url))}" target="_blank" rel="noopener noreferrer" class="plink" title="Open in Tenable">↗</a>`:''}</div></td>`+
+      `<td>${x.acr==null?'<span class="sub">—</span>':(x.crown?`<b style="color:var(--crit)">${x.acr}</b>`:x.acr)}</td>`+
+      `<td><span class="pill" style="color:${ST[x.status][1]}">${ST[x.status][0]}</span>${x.patch==='failed'?' <span class="pill" style="color:#e0913a" title="21745 OS Security Patch Assessment Failed">patch checks failed</span>':''}</td>`+
+      `<td>${x.last_scan?`${esc(x.last_scan)} <span class="sub" style="color:${FR[x.fresh]?FR[x.fresh][1]:'inherit'}">${N(x.age_days)}d</span>`:`<span class="sub">${x.fresh==='never'?'never':'—'}</span>`}</td>`+
+      `<td><span class="mono" style="font-size:12px">${esc(x.scanner||'—')}</span>${x.type?`<div class="sub" style="font-size:11px">${esc(x.type)}</div>`:''}</td><td>${esc(x.policy||'—')}</td>`+
+      `<td class="mono">${x.dur!=null?dur(x.dur):'—'}</td></tr>`,
+    {cols:7, empty:'<tr><td colspan="7" class="sub">'+(a.length?'Nothing matches the filter.':'No assets.')+'</td></tr>'});
+}
+
+function dimTable(tbl,list,kind,cells,secId,countId){
+  document.getElementById(countId).textContent=`(${N(list.length)}${list.some(x=>x.problematic)?' · '+list.filter(x=>x.problematic).length+' slow':''})`;
+  setNavCount(secId, N(list.length));
+  hPaginate(tbl, list, x=>`<tr><td class="${(x.problematic?'prob ':'')+(kind==='scanner'?'mono':'')}" style="max-width:360px;overflow-wrap:anywhere">${esc(x.key)}${x.problematic?' ⚠':''}</td>`+cells(x)+
+      `<td><button class="btn ghost sm" data-k="${esc(x.key)}" title="Tag its assets → Scan Health : ${kind[0].toUpperCase()+kind.slice(1)} : ${esc(x.key)}">🏷️ Tag</button></td></tr>`,
+    {cols:12, empty:'<tr><td colspan="12" class="sub">None found in plugin 19506.</td></tr>',
+     wire:tb=>tb.querySelectorAll('button[data-k]').forEach(b=>b.onclick=()=>tagDim(kind,b.dataset.k,b))});
+}
+function renderDims(){
+  document.getElementById('lagN').textContent=DATA.feed_lag_days||7;
+  dimTable('scnTbl',DATA.scanners||[],'scanner',x=>`<td>${N(x.assets)}</td><td>${x.share_pct}%</td><td class="${x.problematic?'prob':''}">${dur(x.avg_sec)}</td><td class="mono">${dur(x.max_sec)}</td>`+
+    `<td>${pct(x.cred_pct)}</td><td><span class="mono" style="font-size:12px">${esc((x.versions||[]).join(', ')||'—')}</span>`+
+    `<div style="font-size:11.5px">${x.feed?`<span class="mono${x.outdated?' prob':''}">${esc(x.feed)}</span>${x.feed_lag_days?` <span class="${x.outdated?'prob':'sub'}">${N(x.feed_lag_days)}d behind</span>`:''}`:'<span class="sub">no feed info</span>'}</div></td>`+
+    `<td>${esc(x.last_scan||'—')}</td>`,'secScanners','scnCount');
+  dimTable('polTbl',DATA.policies||[],'policy',x=>`<td>${N(x.assets)}</td><td class="${x.problematic?'prob':''}">${dur(x.avg_sec)}</td><td class="mono">${dur(x.max_sec)}</td><td>${pct(x.cred_pct)}</td>`+
+    `<td>${x.safe_off?`<b style="color:#e0913a">${N(x.safe_off)}</b>`:'0'}</td><td>${x.thorough?N(x.thorough):'0'}</td>`,'secPolicies','polCount');
+  dimTable('scaTbl',DATA.scans||[],'scan',x=>`<td>${N(x.assets)}</td><td class="${x.problematic?'prob':''}">${dur(x.avg_sec)}</td><td class="mono">${dur(x.max_sec)}</td><td>${pct(x.cred_pct)}</td><td>${esc(x.last_scan||'—')}</td>`,'secScans','scaCount');
+}
+function renderSlow(){
+  const s=DATA.slowest||[], m=DATA.metrics||{};
+  document.getElementById('slowCount').textContent=`(top ${N(s.length)} · ${N(m.slow)} over 1 h)`; setNavCount('secSlow', N(m.slow));
+  document.getElementById('tagSlow').disabled=!m.slow;
+  hPaginate('slowTbl', s, x=>`<tr><td><b>${host(x.asset_uuid,x.host)}</b></td><td class="mono${(x.dur||0)>(DATA.slow_sec||3600)?' prob':''}">${dur(x.dur)}</td><td class="mono" style="font-size:12px">${esc(x.scanner||'—')}</td><td>${esc(x.policy||'—')}</td><td>${esc(x.scan||'—')}</td><td>${esc(x.last_scan||'—')}</td></tr>`,
+    {cols:6, empty:'<tr><td colspan="6" class="sub">No scan durations in plugin 19506.</td></tr>'});
+}
+
+function csvDim(list,keyName,fname){ downloadCSV(fname+'.csv',[keyName,'assets','share_pct','avg_sec','max_sec','cred_pct','last_scan','problematic'],
+  (list||[]).map(x=>({[keyName]:x.key,assets:x.assets,share_pct:x.share_pct,avg_sec:Math.round(x.avg_sec||0),max_sec:Math.round(x.max_sec||0),cred_pct:x.cred_pct==null?'':x.cred_pct,last_scan:x.last_scan||'',problematic:x.problematic?'yes':'no'}))); }
+document.getElementById('scnCsv').onclick=()=>DATA&&csvDim(DATA.scanners,'scanner','scan-eval-scanners');
+document.getElementById('polCsv').onclick=()=>DATA&&csvDim(DATA.policies,'policy','scan-eval-policies');
+document.getElementById('scaCsv').onclick=()=>DATA&&csvDim(DATA.scans,'scan','scan-eval-scans');
+document.getElementById('aCsv').onclick=()=>{ if(!DATA)return; downloadCSV('scan-eval-assets.csv',['host','ip','acr','credentials','patch_assessment','last_scan','age_days','type','scanner','policy','scan','duration_sec'],
+  shownAssets().map(x=>({host:x.host,ip:x.ip||'',acr:x.acr==null?'':x.acr,credentials:ST[x.status][0],patch_assessment:x.patch,last_scan:x.last_scan||'',age_days:x.age_days==null?'':x.age_days,type:x.type,scanner:x.scanner,policy:x.policy,scan:x.scan,duration_sec:x.dur==null?'':Math.round(x.dur)}))); };
+document.getElementById('tagSlow').onclick=function(){ tagKeys(['slow'],this,((DATA&&DATA.metrics)||{}).slow); };
+
+function render(){ if(!DATA) return; renderMetrics(); renderGlance(); renderAssets(); renderDims(); renderSlow(); }
 document.getElementById('run').onclick=run;
-mountAgentHeader({icon:'📈',name:'Scan Evaluations',sub:'scanner / policy / scan averages · credential coverage'});
+mountAgentHeader({id:'scan_eval',icon:'📈',name:'Scan Evaluations',sub:'Chronos · credential health · freshness · scanner performance'});
+mountSectionNav();
 try{ hMailAuto(); }catch(e){}
+jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});
 </script>
 </body></html>

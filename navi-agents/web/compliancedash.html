@@ -170,10 +170,10 @@ function mountCTabs(){
   const s=cLoad(); const el=document.getElementById('cTabs');
   el.innerHTML=s.list.map(d=>{
     const on=d.id===s.active;
-    return `<span class="ctab ${on?'on':''}" data-id="${d.id}">`+
+    return `<span class="ctab ${on?'on':''}" data-id="${esc(d.id)}">`+
       `<span class="nm">${esc(d.name)}</span>`+
       (d.framework?`<span class="fw">${esc(d.framework)}</span>`:'')+
-      (on&&s.list.length>1?` <span class="x" data-x="${d.id}" title="delete">✕</span>`:'')+`</span>`;
+      (on&&s.list.length>1?` <span class="x" data-x="${esc(d.id)}" title="delete">✕</span>`:'')+`</span>`;
   }).join('') + (s.list.length<CMAX?`<button class="ctadd" id="cAddBtn">＋ dashboard (${s.list.length}/${CMAX})</button>`:'');
   el.querySelectorAll('.ctab').forEach(t=>{
     t.querySelector('.nm').onclick=()=>{ cSetActive(t.dataset.id); syncActive(); };
@@ -247,12 +247,12 @@ async function renderBoard(){
   const maxF=Math.max(1,...tf.map(c=>c.failed));
   document.getElementById('topFail').innerHTML=tf.length?tf.map(c=>{
     const w=Math.round(c.failed/maxF*100), ctrls=(c.controls||[]).join(', ');
-    return `<div class="ctl" data-check="${esc(c.check_id)}" data-name="${esc(c.check_name)}">`+
+    return `<div class="ctl" data-check="${esc(c.check_id)}" data-name="${esc(c.check_name)}" data-fa="${esc(c.failed_assets!=null?c.failed_assets:c.failed)}">`+
       `<div class="cbar-l"><span class="cn">${esc(c.check_name)}</span><span class="cc">${esc(ctrls||'—')}</span></div>`+
       `<div class="cbar"><div class="cbar-f" style="width:${w}%"></div><span class="cv">${c.failed} fail</span></div>`+
       `<div class="cmeta">${c.assets} assets affected · ${c.pass_pct}% pass${c.audit_file?' · '+esc(c.audit_file):''}</div></div>`;
   }).join(''):'<p class="sub">No failing controls — full adherence on this framework. 🎉</p>';
-  document.querySelectorAll('#topFail .ctl').forEach(el=>el.onclick=()=>openDrill(el.dataset.check,el.dataset.name));
+  document.querySelectorAll('#topFail .ctl').forEach(el=>el.onclick=()=>openDrill(el.dataset.check,el.dataset.name,+el.dataset.fa||0));
   document.getElementById('drill').style.display='none';
   // per-asset
   const rows=(v.assets_rows||[]).slice().sort((a,b)=>a.pass_pct-b.pass_pct).slice(0,40);
@@ -279,14 +279,14 @@ function kpi(val,label,cls){ return `<div class="kpi ${cls||''}"><div class="kv"
 
 /* ---------- control drill-down + Assign Audit Owner (gated write via navi) ---------- */
 let WRITES=null;
-function openDrill(checkId,name){
+function openDrill(checkId,name,nFail){
   const d=document.getElementById('drill'); d.style.display='block';
   const gated = WRITES && WRITES.enabled;
   d.innerHTML=`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">`+
     `<b style="font-size:13px">${esc(name)}</b><span class="cc" style="font-family:var(--mono);font-size:10.5px;color:var(--accent)">${esc(checkId)}</span>`+
     `<span style="margin-left:auto;color:var(--ink-3);cursor:pointer" id="drClose">✕ close</span></div>`+
     `<p class="sub" style="margin:6px 0 0">Assign an <b>Audit Owner</b> to every asset that <b>fails</b> this control — tagged in navi on the same asset UUIDs (${gated?'writes enabled':'<span class="gate">write-gated</span>'}).</p>`+
-    `<div class="assignrow"><input id="ownerIn" placeholder="owner name (e.g. GRC — Jordan)"><button class="btn run sm" id="assignBtn">▶ Assign Audit Owner${gated?'':' (gated)'}</button><span class="sub" id="assignRes"></span></div>`;
+    `<div class="assignrow"><input id="ownerIn" placeholder="owner name (e.g. GRC — Jordan)"><button class="btn run sm" id="assignBtn">🏷️ Tag Audit Owner</button><span class="sub" id="assignRes"></span></div>`;
   // Refocus the page on the data that just changed: mark the clicked control,
   // scroll the drill panel into view, flash it, and put the cursor in the field.
   document.querySelectorAll('#topFail .ctl').forEach(x=>x.classList.toggle('on', x.dataset.check===checkId));
@@ -301,11 +301,17 @@ function openDrill(checkId,name){
     const owner=document.getElementById('ownerIn').value.trim();
     const res=document.getElementById('assignRes');
     if(!owner){ res.textContent='enter an owner name'; return; }
+    const ab=document.getElementById('assignBtn'); if(ab.disabled) return;
+    await testRunStatus();
+    if(!confirm('Tag '+tagCat('Audit Owner')+' : '+owner+' on the '+(nFail||0)+' asset'+(nFail===1?'':'s')+' failing "'+(name||checkId)+'"?'
+      +((WRITES&&WRITES.enabled)?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.'))) return;
+    ab.disabled=true;
     res.innerHTML='<span class="spin"></span> tagging…';
     let o; try{ o=await CAPI.post('tag',{check_id:checkId,owner,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
     const rr=o.result||o;
     if(rr.ok||rr.queued){ res.innerHTML='✓ '+(rr.queued?'queued':'tagged')+' '+(rr.asset_count||0)+' asset(s) → '+esc(rr.value||owner); }
     else{ res.innerHTML='✗ '+esc(rr.message||rr.error||'failed'); }
+    ab.disabled=false;
   };
 }
 
@@ -322,7 +328,7 @@ wPreset.onchange=()=>{
   const v=wPreset.value;
   if(!v){ [wSql,wTitle,wAdd].forEach(x=>x.style.display='none'); return; }
   if(v==='sql:custom'){ wSql.style.display=''; wTitle.style.display=''; wAdd.style.display=''; wSql.value=''; wTitle.value=''; wSql.focus(); }
-  else { const p=PRESETS[v]; wSql.style.display=''; wTitle.style.display=''; wAdd.style.display=''; wSql.value=p.sql; wTitle.value=p.title; }
+  else { const p=PRESETS[v]; wSql.style.display=''; wTitle.style.display=''; wAdd.style.display=''; wSql.value=tagKeySql(p.sql); wTitle.value=p.title; }
 };
 wAdd.onclick=()=>{
   const sql=wSql.value.trim(), title=wTitle.value.trim()||'Widget';
@@ -348,7 +354,7 @@ function wtable(cols,rows){
 async function renderWidgets(){
   const items=cItems(); const g=document.getElementById('wGrid');
   if(!items.length){ g.innerHTML='<p class="sub" style="grid-column:1/-1">No pinned widgets yet — add one above (the framework board always stays on top).</p>'; return; }
-  g.innerHTML=items.map(it=>`<div class="wcard" data-id="${it.id}"><h4>📊 ${esc(it.title)}<span class="wx" data-x="${it.id}" title="remove">✕</span></h4><div class="wtag">navi.db · SELECT</div><div class="wbody" id="wb-${it.id}"><span class="spin"></span></div></div>`).join('');
+  g.innerHTML=items.map(it=>`<div class="wcard" data-id="${esc(it.id)}"><h4>📊 ${esc(it.title)}<span class="wx" data-x="${esc(it.id)}" title="remove">✕</span></h4><div class="wtag">navi.db · SELECT</div><div class="wbody" id="wb-${esc(it.id)}"><span class="spin"></span></div></div>`).join('');
   g.querySelectorAll('.wx').forEach(x=>x.onclick=()=>{ cSetItems(cItems().filter(i=>i.id!==x.dataset.x)); renderWidgets(); });
   for(const it of items){
     const body=document.getElementById('wb-'+it.id); if(!body) continue;

@@ -7,6 +7,7 @@
 """
 from core import navi_cli
 from .agent import AgentGroupAgent, groups, tag_group
+from core.gates import confirmed
 
 AGENT = AgentGroupAgent()
 
@@ -26,7 +27,7 @@ def _tag_names(names):
 
 
 def tag(p):
-    if not p.get("confirm"):
+    if not confirmed(p):
         return {"ok": False, "error": "confirm=true required to write tags"}, 400
     names = p.get("groups") or []
     if not names:
@@ -37,7 +38,7 @@ def tag(p):
 
 
 def tag_all(p):
-    if not p.get("confirm"):
+    if not confirmed(p):
         return {"ok": False, "error": "confirm=true required to write tags"}, 400
     names = [g["name"] for g in groups()]
     if not names:

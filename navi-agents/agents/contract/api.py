@@ -1,6 +1,7 @@
 """AI Navi Contract — HTTP actions (authoring, plan, arm, run, schedule)."""
 from core import contract, navi_cli
 from .agent import ContractAgent
+from core.gates import confirmed
 
 AGENT = ContractAgent()
 
@@ -8,11 +9,15 @@ AGENT = ContractAgent()
 def get(p):
     return {"ok": True, "agent": AGENT.meta(), "contract": contract.current(),
             "scheduler": contract.scheduler_status(), "saved": contract.list_saved(),
+            "taggers": contract.taggers_info(), "excluded": contract.AGENT_EXCLUDED,
             "writes_enabled": navi_cli.writes_enabled()}, 200
 
 
 def set_(p):
     doc = p.get("contract") or p
+    err = contract.acr_rule_errors(doc)
+    if err:                          # e.g. score 9.5 — navi int()s the score; refuse, don't truncate
+        return {"ok": False, "error": err}, 400
     return {"ok": True, "contract": contract.set_contract(doc)}, 200
 
 
@@ -22,12 +27,19 @@ def build_from_log(p):
     return {"ok": True, "contract": contract.build_from_log(), "log_count": n}, 200
 
 
+def _uncsv(v):
+    """Undo the CSV-injection guard of the Tagging-log export (a ' put before = + - @ TAB CR)."""
+    if isinstance(v, str) and len(v) > 1 and v[0] == "'" and v[1] in "=+-@\t\r":
+        return v[1:]
+    return v
+
+
 def build_from_csv(p):
     """Build the contract from rows parsed out of an exported tag-log CSV, so the
     policy can be seeded even after a restart (in-memory log is gone). Each row is
     a dict with at least agent/category/value (and detail for ACR score)."""
     rows = p.get("rows") or []
-    rows = [r for r in rows if isinstance(r, dict) and (r.get("agent") or r.get("category"))]
+    rows = [{k: _uncsv(v) for k, v in r.items()} for r in rows if isinstance(r, dict) and (r.get("agent") or r.get("category"))]
     return {"ok": True, "contract": contract.build_from_log(rows), "log_count": len(rows)}, 200
 
 
@@ -39,13 +51,20 @@ def export(p):
     return {"ok": True, "script": contract.export_script()}, 200
 
 
+_NEED = "confirm=true required — this %s"
+
+
 def run_now(p):
+    if not confirmed(p):
+        return {"ok": False, "error": _NEED % "runs a contract cycle (tags, ACR, removals when armed)"}, 400
     # manual trigger: removal + re-tag, but DON'T block the request for the 30-min
     # pause (that pause is enforced only in the autonomous scheduler loop)
     return {"ok": True, "cycle": contract.run_cycle(enforce_pause=False)}, 200
 
 
 def arm(p):
+    if not confirmed(p):
+        return {"ok": False, "error": _NEED % "arms the autonomous loop"}, 400
     c = contract.current(); c["armed"] = True
     contract.set_contract(c)
     contract.scheduler_start()
@@ -87,6 +106,8 @@ def loop_log(p):
 def scheduler(p):
     op = p.get("op")
     if op == "start":
+        if not confirmed(p):
+            return {"ok": False, "error": _NEED % "starts the autonomous loop"}, 400
         return {"ok": True, **contract.scheduler_start()}, 200
     if op == "stop":
         return {"ok": True, **contract.scheduler_stop()}, 200

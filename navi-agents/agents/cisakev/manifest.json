@@ -4,9 +4,17 @@
   "icon": "🛡️",
   "order": 12,
   "category": "Tagging",
-  "summary": "Laelaps — tags CISA Known-Exploited Vulnerabilities off Tenable's CISA-KNOWN-EXPLOITED xref: every KEV asset (CISA KEV:Vulnerable), or by catalog date (CISA KEV:<Mon>-<DD>-<YYYY>). Plus an NL→SQL to hunt KEV in navi.db / tags.",
+  "summary": "Laelaps — CISA Known Exploited Vulnerabilities on your assets, joined to CISA's catalog: remediation due dates (overdue / due soon), ransomware use, crown jewels and vendors. Tags assets CISA KEV:Vulnerable (xref), by catalog date added, by CISA due date (CISA KEV Due:<YYYY-MM-DD>) and CISA KEV:Ransomware. Plus an NL→SQL to hunt KEV in navi.db / tags.",
   "needs_backend": true,
   "page": "page.html",
-  "actions": ["run", "tag_vulnerable", "tag_dates", "nl"],
+  "actions": [
+    "source",
+    "run",
+    "tag_vulnerable",
+    "tag_dates",
+    "tag_due",
+    "tag_ransomware",
+    "nl"
+  ],
   "codename": "Laelaps Hound"
 }

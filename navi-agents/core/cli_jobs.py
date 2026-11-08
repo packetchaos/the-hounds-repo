@@ -242,12 +242,28 @@ def start_update(kind):
     argv = COMMANDS.get(key)
     if not argv:
         return {"ok": False, "error": "unknown update kind: " + (key or "(blank)")}
-    return _start(argv, "navi " + " ".join(argv))
+    r = _start(argv, "navi " + " ".join(argv))
+    _tag_kind(r, key)
+    return r
+
+
+def _tag_kind(r, kind):
+    """Remember which Settings button started a job, so the page can show it as running."""
+    try:
+        jid = (r.get("job") or {}).get("id")
+        if jid is not None:
+            with _LOCK:
+                if jid in _JOBS:
+                    _JOBS[jid]["kind"] = kind
+    except Exception:
+        pass
 
 
 def start_optimize():
     """Start `navi config optimize` streaming (builds SQL indexes)."""
-    return _start(COMMANDS["optimize"], "navi config optimize")
+    r = _start(COMMANDS["optimize"], "navi config optimize")
+    _tag_kind(r, "optimize")
+    return r
 
 
 def _view(job, since=0):
@@ -275,6 +291,6 @@ def poll(jid, since=0):
 def recent():
     with _LOCK:
         jobs = [_JOBS[i] for i in _ORDER]
-    return [{"id": j["id"], "label": j["label"], "status": j["status"],
+    return [{"id": j["id"], "label": j["label"], "status": j["status"], "kind": j.get("kind"),
              "returncode": j["returncode"], "n_lines": len(j["lines"]),
              "started": j["started"], "finished": j["finished"]} for j in reversed(jobs)]

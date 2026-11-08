@@ -6,6 +6,7 @@ report   — the per-app App Report for ?app_uuid=<uuid> (falls back to the top-
            plus the risk-sorted app list for the page's selector.
 Read-only over navi.db.
 """
+from core.gates import confirmed
 AGENT = None
 
 
@@ -53,7 +54,7 @@ def tag(p):
     asset (asset_uuid) via navi — same path as every VM tagger. Targets are recomputed
     server-side from was.tag_targets (client UUIDs are not trusted)."""
     from core import was, navi_cli
-    if not p.get("confirm"):
+    if not confirmed(p):
         return {"ok": False, "error": "confirm=true required to write tags"}, 400
     tgt = was.tag_targets(dimension=(p.get("dimension") or ""), key=(p.get("key") or ""))
     if not tgt:

@@ -58,6 +58,8 @@ def _db_init():
     try:
         con = sqlite3.connect(_DBPATH, timeout=5.0)
         try:
+            from core.security import private_file
+            private_file(_DBPATH)                 # the ledger is owner-only (it records every write)
             con.execute("PRAGMA journal_mode=WAL")
             con.execute(
                 "CREATE TABLE IF NOT EXISTS jobs("
@@ -65,6 +67,13 @@ def _db_init():
                 "message TEXT, created REAL, started REAL, finished REAL, op TEXT, "
                 "agent TEXT, category TEXT, value TEXT, selector TEXT, detail TEXT, spec TEXT)")
             con.execute("CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, val TEXT)")
+            # business case (human-readable ACR Change Reasons + note) — added in build 442; an
+            # older tag_jobs.db gains the column in place (existing rows read as '').
+            try:
+                if "business_case" not in [r[1] for r in con.execute("PRAGMA table_info(jobs)")]:
+                    con.execute("ALTER TABLE jobs ADD COLUMN business_case TEXT")
+            except sqlite3.OperationalError:
+                pass                    # another process added it first (duplicate column)
             con.commit()
         finally:
             con.close()
@@ -105,12 +114,12 @@ def _dbexec(sql, params=(), want=None):
 def _db_insert(job):
     return _dbexec(
         "INSERT INTO jobs(status,ok,message,created,started,finished,op,agent,"
-        "category,value,selector,detail,spec) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "category,value,selector,detail,spec,business_case) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (job.get("status"), _b(job.get("ok")), job.get("message", ""),
          job.get("created"), job.get("started"), job.get("finished"),
          job.get("op", "tag"), job.get("agent", ""), job.get("category", ""),
          job.get("value", ""), job.get("selector", ""), job.get("detail", ""),
-         json.dumps(job.get("spec") or {})), want="id")
+         json.dumps(job.get("spec") or {}), job.get("business_case", "")), want="id")
 
 
 def _db_update(job):
@@ -122,7 +131,7 @@ def _db_update(job):
 def _db_all(limit=2000):
     rows = _dbexec(
         "SELECT id,status,ok,message,created,started,finished,op,agent,category,"
-        "value,selector,detail,spec FROM jobs ORDER BY id DESC LIMIT ?", (limit,), want="all")
+        "value,selector,detail,spec,business_case FROM jobs ORDER BY id DESC LIMIT ?", (limit,), want="all")
     if rows is None:
         return None
     out = []
@@ -132,7 +141,8 @@ def _db_all(limit=2000):
                     "message": r[3], "created": r[4], "started": r[5], "finished": r[6],
                     "op": r[7], "agent": r[8], "category": r[9], "value": r[10],
                     "selector": r[11], "detail": r[12],
-                    "spec": (json.loads(r[13]) if r[13] else {})})
+                    "spec": (json.loads(r[13]) if r[13] else {}),
+                    "business_case": r[14] or ""})
     return out
 
 
@@ -270,6 +280,7 @@ def submit(fn, kwargs, meta=None) -> dict:
            "agent": meta.get("agent", ""), "category": meta.get("category", ""),
            "value": meta.get("value", ""), "selector": meta.get("selector", ""),
            "detail": meta.get("detail", ""),
+           "business_case": meta.get("business_case", ""),
            # the raw navi args, retained so the Tagging log can export a runnable
            # navi script (shell / python) for cron.
            "spec": dict(kwargs or {})}
@@ -297,6 +308,7 @@ def record(meta, result) -> dict:
            "agent": (meta or {}).get("agent", ""), "category": (meta or {}).get("category", ""),
            "value": (meta or {}).get("value", ""), "selector": (meta or {}).get("selector", ""),
            "detail": (meta or {}).get("detail", ""),
+           "business_case": (meta or {}).get("business_case", ""),
            "spec": dict((meta or {}).get("spec") or {})}
     jid = _db_insert(job)
     if not jid:

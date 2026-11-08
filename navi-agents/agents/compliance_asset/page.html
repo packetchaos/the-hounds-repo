@@ -38,8 +38,15 @@
 .lensgrid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}@media(max-width:900px){.lensgrid{grid-template-columns:1fr}}
 .afrow{cursor:pointer}.afrow:hover{background:var(--panel-2)}
 .aftbl{width:100%}.aftbl td,.aftbl th{padding:6px 9px}
+/* cohort banner — the Minos widget this page was opened from */
+.cohort{display:flex;flex-wrap:wrap;gap:8px;align-items:center;background:var(--panel-2);border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:9px;padding:9px 12px;font-size:12.5px}
+.cohort .capps{display:flex;flex-wrap:wrap;gap:6px;width:100%}
+.capp{font-size:12px;border:1px solid var(--line);border-radius:100px;padding:3px 10px;color:var(--ink-2);text-decoration:none;background:var(--panel)}
+.capp:hover{border-color:var(--accent);color:var(--ink)}.capp.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.capp b{font-family:var(--mono);font-size:10.5px;margin-left:4px}
+tr.hl td{background:var(--crit-bg)}
 </style>
-</head><body>
+</head><body data-autorun>
 <div class="wrap">
   <header class="top" id="app-header"></header>
   <section class="card">
@@ -57,6 +64,7 @@
         <label class="sub" for="afsel" style="margin:0">Audit file</label>
         <select class="fld" id="afsel" style="min-width:220px;max-width:360px"></select></span>
     </div>
+    <div id="cohort" style="display:none;margin-top:10px"></div>
     <div id="flash" class="flash" style="margin-top:8px"></div>
   </section>
   <div id="body"></div>
@@ -73,33 +81,61 @@
 const API=agentApi('compliance_asset');
 let DET=null, APPS=[], CURR=null, WRITES=null, CFILTER='all';
 let LENS='asset', AUD=null, AFILE='';
+/* ?f=<cohort> — opened from a Minos widget (st:failed, check:<id>, fw:<name>, audit:<file>,
+   pct:lt50): the server narrows the asset list to it and opens its worst asset first. */
+let COHF=q('f'), COH=null;
+function setURL(){ const p=new URLSearchParams(); if(CURR) p.set('asset',CURR); if(COHF) p.set('f',COHF);
+  try{ history.replaceState(null,'','?'+p.toString()); }catch(_){} }
 const STAT=[['all','All'],['failed','Failed'],['warning','Warning'],['passed','Passed']];
 const SEVO=['critical','high','medium','low','info'];
 const fnum=n=>(n==null?'—':Number(n).toLocaleString());
 function q(k){ return new URLSearchParams(location.search).get(k)||''; }
 function kpi(v,l,c){ return `<div class="k"><div class="v"${c?' style="color:'+c+'"':''}>${v}</div><div class="l">${esc(l)}</div></div>`; }
-function stpill(s){ s=String(s||'unknown').toLowerCase(); return `<span class="st st-${s}">${esc(s)}</span>`; }
+function stpill(s){ s=String(s||'unknown').toLowerCase(); return `<span class="st st-${esc(s.replace(/[^a-z0-9_-]/g,''))}">${esc(s)}</span>`; }
 function svpill(s){ s=String(s||'info').toLowerCase(); if(!SEVO.includes(s))s='info'; return `<span class="sv sv-${s}">${esc(s)}</span>`; }
 function ctrlShort(n){ return String(n||'').replace(/\s+/g,' ').trim(); }
 
 async function load(au){
   CURR=au||q('asset')||q('target')||'';
   flash('flash','<span class="spin"></span> investigating the asset…','run');
-  let o; try{ o=await API.post('detail',{asset_uuid:CURR}); }catch(e){ o={ok:false,error:e.message}; }
+  let o; try{ o=await API.post('detail',{asset_uuid:CURR,f:COHF||undefined}); }catch(e){ o={ok:false,error:e.message}; }
   if(!o||!o.ok){ flash('flash','✗ '+esc((o&&o.error)||'failed'),'crit'); return; }
-  flashClear('flash'); const r=o.result||{}; DET=r.detail||{}; APPS=r.assets||[]; WRITES=o.writes||null;
-  CURR=(DET.asset&&DET.asset.uuid)||CURR; CFILTER='all'; renderAsset();
+  flashClear('flash'); const r=o.result||{}; DET=r.detail||{}; APPS=r.assets||[]; WRITES=o.writes||null; COH=r.cohort||null;
+  if(COHF&&!COH) COHF='';      // unknown cohort → plain view
+  CURR=(DET.asset&&DET.asset.uuid)||CURR;
+  // a failure cohort opens on the failing checks; a warning cohort on the warnings
+  // a failure cohort opens on the failing checks, a warning cohort on the warnings — but only
+  // for an asset IN the cohort (one opened from elsewhere shows all its checks)
+  const inCoh=COH&&APPS.some(a=>a.asset_uuid===CURR);
+  CFILTER=inCoh?((COH.kind==='st'&&COH.key==='warning')?'warning':(COH.kind==='st'&&COH.key==='clean'?'all':'failed')):'all';
+  setURL(); renderAsset();
+}
+function cohortBar(){
+  const el=document.getElementById('cohort');
+  if(!COH||LENS!=='asset'){ el.style.display='none'; el.innerHTML=''; return; }
+  const CAP=30; el.style.display='block';
+  el.innerHTML=`<div class="cohort"><span>⚖️ From Compliance: <b>${esc(COH.label)}</b> — <b>${fnum(COH.count)}</b> asset${COH.count===1?'':'s'}</span>`
+    +`<a class="applink" href="#" id="cohortClear" style="margin-left:auto">show all assets</a>`
+    +(APPS.length?`<div class="capps">${APPS.slice(0,CAP).map(a=>`<a class="capp${a.asset_uuid===CURR?' on':''}" href="#" data-au="${esc(a.asset_uuid)}" title="${esc(a.ip||'')}">${esc(a.hostname||a.ip||String(a.asset_uuid).slice(0,10))}${a.failed?'<b>'+a.failed+' fail</b>':''}</a>`).join('')}${APPS.length>CAP?`<span class="sub">+${APPS.length-CAP} more in the Asset list</span>`:''}</div>`:'<div class="sub">No asset in navi.db matches this group any more.</div>')+'</div>';
+  document.getElementById('cohortClear').onclick=e=>{ e.preventDefault(); COHF=''; COH=null; load(CURR); };
+  el.querySelectorAll('[data-au]').forEach(x=>x.onclick=e=>{ e.preventDefault(); load(x.getAttribute('data-au')); });
 }
 function assetOptions(){
   const sel=document.getElementById('asel');
-  if(!APPS.length){ sel.innerHTML='<option value="">(no assets)</option>'; return; }
-  sel.innerHTML=APPS.map(a=>{ const nm=a.hostname||a.ip||(String(a.asset_uuid).slice(0,12)+'…');
+  const cur=(!APPS.some(a=>a.asset_uuid===CURR)&&DET&&DET.asset&&DET.asset.uuid)?   // opened outside the cohort
+    `<option value="${esc(CURR)}" selected>${esc(DET.asset.hostname||DET.asset.ip||String(CURR).slice(0,12))} · (outside this group)</option>`:'';
+  if(!APPS.length&&!cur){ sel.innerHTML='<option value="">(no assets)</option>'; return; }
+  sel.innerHTML=cur+APPS.map(a=>{ const nm=a.hostname||a.ip||(String(a.asset_uuid).slice(0,12)+'…');
     return `<option value="${esc(a.asset_uuid)}"${a.asset_uuid===CURR?' selected':''}>${esc(nm)} · ${a.failed} fail</option>`; }).join('');
 }
 function renderAsset(){
-  assetOptions();
+  assetOptions(); cohortBar();
   const B=document.getElementById('body');
-  if(!DET.available){ B.innerHTML='<section class="card"><p class="sub">No compliance data. Populate with <span class="mono">navi config update compliance</span>.</p></section>'; return; }
+  if(!DET.available){ B.innerHTML=DET.empty_cohort
+      ?'<section class="card"><p class="sub">'+esc(DET.reason)+' <a class="applink" href="#" id="emptyAll">Show all assets</a>.</p></section>'
+      :'<section class="card"><p class="sub">No compliance data. Populate with <span class="mono">navi config update compliance</span>.</p></section>';
+    const ea=document.getElementById('emptyAll'); if(ea) ea.onclick=e=>{ e.preventDefault(); COHF=''; COH=null; load(''); };
+    return; }
   const a=DET.asset||{}, bs=DET.by_status||{}, corr=DET.correlations||[], sev=DET.vuln_severity||{};
   const nm=a.hostname||a.ip||(String(a.uuid||'').slice(0,14)+'…');
   let h='';
@@ -126,7 +162,7 @@ function renderAsset(){
     +'<div class="segbar" id="cseg">'+STAT.map(([k,l])=>`<button class="seg${k===CFILTER?' on':''}" data-st="${k}">${l} <b>${counts[k]||0}</b></button>`).join('')+'</div>'
     +'<div style="overflow-x:auto"><table id="ctbl" class="nocsv"><colgroup><col style="width:86px"><col><col style="width:120px"></colgroup>'
     +'<thead><tr><th>Status</th><th>Control</th><th>Frameworks</th></tr></thead><tbody>'
-    +(checks.length?checks.map((c,i)=>`<tr data-st="${c.status}"><td>${stpill(c.status)}</td>`
+    +(checks.length?checks.map((c,i)=>`<tr data-st="${esc(c.status)}"${COH&&COH.kind==='check'&&String(c.check_id)===COH.key?' class="hl" title="the control you came from"':''}><td>${stpill(c.status)}</td>`
       +`<td title="${esc(c.check_name)}"><a class="cname" data-i="${i}">${esc(ctrlShort(c.check_name))}</a></td>`
       +`<td class="mono" style="color:var(--ink-3)">${(c.frameworks||[]).length||'—'}</td></tr>`).join('')
       +'<tr id="crow-empty" style="display:none"><td colspan="3" class="sub">No checks match this filter.</td></tr>'
@@ -142,7 +178,7 @@ function renderAsset(){
 }
 function corrCard(c){
   return '<section class="card corr" style="margin:12px 0 0">'
-    +'<div class="chd"><span class="cico">'+(c.icon||'🧩')+'</span><b>'+esc(c.topic)+'</b>'
+    +'<div class="chd"><span class="cico">'+esc(c.icon||'🧩')+'</span><b>'+esc(c.topic)+'</b>'
     +'<span class="sub">'+c.check_count+' control'+(c.check_count===1?'':'s')+' ↔ '+c.vuln_count+' finding'+(c.vuln_count===1?'':'s')+'</span>'
     +'<button class="btn sm ctag" data-topic="'+esc(c.topic)+'" style="margin-left:auto">🏷️ Tag link</button></div>'
     +'<div class="cgrid"><div><div class="olbl">failing controls</div><div class="clist">'
@@ -171,7 +207,7 @@ function openCheck(i){
   if(c.solution)P.push('<div class="olbl">remediation</div><div class="opre">'+esc(c.solution)+'</div>');
   if((c.frameworks||[]).length){ P.push('<div class="olbl">framework mappings</div><div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px">'
     +c.frameworks.map(f=>'<span class="fwchip">'+esc(f.framework)+(f.control?' '+esc(f.control):'')+'</span>').join('')+'</div>'); }
-  if(c.audit_file)P.push('<p class="sub" style="margin:14px 0 0">benchmark: <span class="mono">'+esc(c.audit_file)+'</span>'+(c.see_also?' · <a class="applink" href="'+esc(c.see_also)+'" target="_blank" rel="noopener">reference ↗</a>':'')+'</p>');
+  if(c.audit_file)P.push('<p class="sub" style="margin:14px 0 0">benchmark: <span class="mono">'+esc(c.audit_file)+'</span>'+(c.see_also?(safeUrl(c.see_also,'')?' · <a class="applink" href="'+esc(safeUrl(c.see_also))+'" target="_blank" rel="noopener noreferrer">reference ↗</a>':' · <span class="mono sub">'+esc(c.see_also)+'</span>'):'')+'</p>');
   document.getElementById('obody').innerHTML=P.join('')||'<p class="sub">No further detail recorded.</p>';
 }
 function closeCheck(){ document.getElementById('omodal').style.display='none'; }
@@ -179,17 +215,22 @@ function closeCheck(){ document.getElementById('omodal').style.display='none'; }
 async function corrTag(btn){
   const topic=btn.getAttribute('data-topic'), card=btn.closest('.corr'), res=card.querySelector('.tres');
   if(WRITES&&WRITES.reason){ res.innerHTML='<span style="color:var(--cx-e7c66b)">🔒 '+esc(WRITES.reason)+'</span>'; return; }
+  if(btn.disabled) return;
+  await testRunStatus();
+  const da=(DET&&DET.asset)||{}, host=da.hostname||da.ip||CURR;
+  if(!confirm('Tag '+tagCat('Audit-Vuln Link')+' : '+topic+' on 1 asset ('+host+')?'
+    +((WRITES&&WRITES.enabled)?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.'))) return;
   btn.disabled=true; btn.textContent='⏳ tagging…'; res.innerHTML='';
   let o; try{ o=await API.post('tag',{confirm:true,asset_uuid:CURR,topic}); }catch(e){ o={ok:false,error:e.message}; }
   if(o&&o.ok&&o.queued){ res.innerHTML='<span style="color:var(--ok)">✓ queued — Audit-Vuln Link: '+esc(o.value)+' on this asset'+(o.write_gate_reason?'':' · track in Tagging log')+'</span>'; btn.textContent='✓ queued';
     if(o.write_gate_reason)res.innerHTML='<span style="color:var(--cx-e7c66b)">queued but gated — '+esc(o.write_gate_reason)+'</span>'; }
   else if(o&&o.blocked){ res.innerHTML='<span style="color:var(--cx-e7c66b)">🔒 '+esc(o.message||'writes disabled')+'</span>'; btn.disabled=false; btn.textContent='🏷️ Tag link'; }
-  else { res.innerHTML='<span style="color:var(--crit)">✗ '+esc((o&&(o.error||o.message))||'failed')+'</span>'; btn.disabled=false; btn.textContent='🏷️ retry'; }
+  else { res.innerHTML='<span style="color:var(--crit)">✗ '+esc((o&&(o.error||o.message))||'failed')+'</span>'; btn.disabled=false; btn.textContent='🏷️ Tag again'; }
 }
 document.getElementById('oclose').onclick=closeCheck;
 document.getElementById('omodal').addEventListener('click',e=>{ if(e.target.id==='omodal')closeCheck(); });
 document.addEventListener('keydown',e=>{ if(e.key==='Escape')closeCheck(); });
-document.getElementById('asel').onchange=e=>{ const u=e.target.value; try{history.replaceState(null,'','?asset='+encodeURIComponent(u));}catch(_){} load(u); };
+document.getElementById('asel').onchange=e=>{ load(e.target.value); };
 
 /* ================= AUDIT-FILE LENS ================= */
 function bandColor(p){ return p==null?'var(--ink-3)':(p>=80?'var(--ok)':(p>=50?'var(--med)':'var(--crit)')); }
@@ -202,7 +243,7 @@ function setLens(lens){
     ? 'One asset in full: every audit check it passed, failed or warned — and the inferred link between a failed control and the real findings backing it.'
     : 'The same estate through the audit file: adherence, the checks and assets a file covers, and the real vulns backing its failing controls — aggregate and per file.';
   if(lens==='asset'){ document.getElementById('body').innerHTML=''; load(CURR); }
-  else { loadAudit(); }
+  else { cohortBar(); loadAudit(); }
 }
 async function loadAudit(){
   flash('flash','<span class="spin"></span> rolling the estate up by audit file…','run');
@@ -217,7 +258,8 @@ function afOptions(){
   sel.value=AFILE;
 }
 async function renderAudit(){
-  try{ history.replaceState(null,'', AFILE?('?audit='+encodeURIComponent(AFILE)):location.pathname); }catch(_){}
+  try{ const p=new URLSearchParams(); if(AFILE) p.set('audit',AFILE); if(COHF) p.set('f',COHF);   // keep the cohort on reload/share
+    history.replaceState(null,'', p.toString()?('?'+p.toString()):location.pathname); }catch(_){}
   if(!AUD||!AUD.available){ document.getElementById('body').innerHTML='<section class="card"><p class="sub">No compliance data. Populate with <span class="mono">navi config update compliance</span>.</p></section>'; return; }
   if(!AFILE){ renderAuditAggregate(); return; }
   flash('flash','<span class="spin"></span> opening '+esc(AFILE)+'…','run');
@@ -234,7 +276,7 @@ function auditLeaderboard(files){
 }
 function corrCardAgg(c){
   return '<section class="card corr" style="margin:12px 0 0">'
-    +'<div class="chd"><span class="cico">'+(c.icon||'🧩')+'</span><b>'+esc(c.topic)+'</b>'
+    +'<div class="chd"><span class="cico">'+esc(c.icon||'🧩')+'</span><b>'+esc(c.topic)+'</b>'
     +'<span class="sub">'+c.check_count+' control'+(c.check_count===1?'':'s')+' ↔ '+c.vuln_count+' finding'+(c.vuln_count===1?'':'s')+' · '+c.asset_count+' asset'+(c.asset_count===1?'':'s')+'</span></div>'
     +'<div class="cgrid"><div><div class="olbl">failing controls</div><div class="clist">'
     +(c.checks||[]).map(k=>'<div class="cli">'+stpill(k.status)+'<span title="'+esc(k.check_name)+'">'+esc(ctrlShort(k.check_name))+'</span></div>').join('')+'</div></div>'
@@ -246,7 +288,7 @@ function corrCardAgg(c){
       +(c.asset_count>c.assets.length?'<span class="sub">+'+(c.asset_count-c.assets.length)+' more</span>':'')+'</div>'):'')
     +'</section>';
 }
-function wireAuj(){ document.querySelectorAll('.auj').forEach(x=>x.onclick=(ev)=>{ ev.stopPropagation(); CURR=x.getAttribute('data-au'); AFILE=''; setLens('asset'); }); }
+function wireAuj(){ document.querySelectorAll('.auj').forEach(x=>x.onclick=(ev)=>{ ev.stopPropagation(); CURR=x.getAttribute('data-au'); AFILE=''; COHF=''; COH=null; setLens('asset'); }); }   // a hand-picked asset leaves the cohort
 function renderAuditAggregate(){
   const files=AUD.files||[], corr=AUD.correlations||[];
   let h='<div class="lensgrid">'

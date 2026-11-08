@@ -4,14 +4,17 @@
 <title>AI Navi Contract · Navi Agents</title>
 <link rel="stylesheet" href="/static/console.css"/>
 <style>
-.arow{display:grid;grid-template-columns:150px 1fr;gap:10px;align-items:start;margin-bottom:8px}
+.arow{display:grid;grid-template-columns:minmax(150px,240px) 1fr;gap:10px;align-items:start;margin-bottom:8px}
+.arow .adesc{display:block;font-size:11px;color:var(--mut);margin:3px 0 0 20px;line-height:1.35}
+.arow .needs{font-size:10px;padding:1px 6px;border-radius:9px;border:1px solid var(--line);color:var(--warn,var(--mut));margin-left:4px}
+.arow .xtra{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
 .arow textarea{width:100%;min-height:40px;padding:7px;border-radius:7px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink);font-size:12px;box-sizing:border-box}
 .fld{padding:7px;border-radius:7px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink)}
 .armed{background:rgba(52,211,153,.14);color:var(--ok);border:1px solid rgba(52,211,153,.4)}
 .disarmed{background:rgba(138,153,173,.16);color:var(--mut);border:1px solid var(--line)}
 .kpi .v{font-size:18px}
 </style>
-</head><body>
+</head><body data-cache-inputs="off">
 <div class="wrap">
   <header class="top" id="app-header"></header>
 
@@ -24,8 +27,8 @@
       <button class="btn sm" id="fromLog">⬇ Build from tag log</button>
       <button class="btn sm" id="fromCsv">⬆ Build from tag-log CSV</button>
       <input type="file" id="csvFile" accept=".csv,text/csv" style="display:none">
-      <button class="btn run sm" id="planBtn">🔍 Plan (no writes)</button>
-      <button class="btn sm" id="runBtn">▶ Run one cycle now</button>
+      <button class="btn run sm" id="planBtn" data-run title="Plan only — previews what the contract would do; nothing is written">▶ Run</button>
+      <button class="btn sm" id="runBtn">⚡ Execute one cycle now</button>
       <button class="btn sm" id="armBtn" style="margin-left:auto"></button>
     </div>
     <div class="toolbar">
@@ -39,9 +42,35 @@
     <div id="flash" class="flash"></div>
   </section>
 
+  <section class="card">
+    <h3 style="margin:0 0 6px">✨ Ask — ACR changes in plain English</h3>
+    <div class="needs-llm">
+      <div class="sub" style="margin-bottom:6px"><b>✨ Author ACR rules with AI</b> — describe your criticality policy in plain English; the model maps it across your live tag list. Several rules in one sentence are fine (e.g. <i>"drop all IoT and lab gear by 5, set anything internet-facing to 9, bump production databases to 10"</i>).</div>
+      <textarea id="cAcrAi" rows="2" placeholder="e.g. set production to 10, internet-facing to 9, drop lab + IoT by 5" style="width:100%;box-sizing:border-box;font-size:13px;padding:8px;border-radius:7px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink)"></textarea>
+      <div class="toolbar" style="margin-top:6px">
+        <span class="sub">Change reason:</span>
+        <span id="cAcrReasons" class="sub" style="display:flex;gap:10px;flex-wrap:wrap">
+          <label><input type="checkbox" value="business" checked> business</label>
+          <label><input type="checkbox" value="compliance"> compliance</label>
+          <label><input type="checkbox" value="mitigation"> mitigation</label>
+          <label><input type="checkbox" value="development"> development</label>
+        </span>
+        <input id="cAcrAiNote" class="fld" placeholder="optional note appended to each change" style="flex:1;min-width:160px">
+      </div>
+      <div class="toolbar" style="margin-top:6px">
+        <button class="btn run sm" id="cAcrInterpret" data-run>✨ Ask</button>
+        <button class="btn sm" id="cAcrAddAll" disabled>➕ Add all to ACR rules</button>
+        <span class="chip" id="cAcrAiCount"></span>
+      </div>
+      <div id="cAcrAiFlash" class="flash"></div>
+      <div id="cAcrAiPreview"></div>
+    </div>
+    <div class="no-llm-note callbox" style="display:none;color:var(--warn,var(--cx-e7c66b));margin:0 0 12px">AI ACR authoring needs a language model. Set <span class="mono">ANTHROPIC_API_KEY</span> on the server to enable it — you can still add ACR rules by hand below.</div>
+  </section>
+
   <section class="card" id="planCard">
     <div class="toolbar"><h3 style="margin:0">🔍 Plan preview</h3><span class="chip" id="planCount"></span></div>
-    <div id="planOut"><p class="sub">Click <b>🔍 Plan (no writes)</b> above to preview what the contract would tag — it appears right here.</p></div>
+    <div id="planOut"><p class="sub">Click <b>▶ Run</b> above to plan (no writes) and preview what the contract would tag — it appears right here.</p></div>
   </section>
 
   <section class="card">
@@ -63,28 +92,9 @@
 
   <section class="card">
     <div class="toolbar"><h3 style="margin:0">ACR changes</h3><button class="btn ghost sm" id="acrAdd" style="margin-left:auto">+ ACR rule</button></div>
-    <div class="needs-llm callbox" style="margin:0 0 12px">
-      <div class="sub" style="margin-bottom:6px"><b>✨ Author ACR rules with AI</b> — describe your criticality policy in plain English; the model maps it across your live tag list. Several rules in one sentence are fine (e.g. <i>"drop all IoT and lab gear by 5, set anything internet-facing to 9, bump production databases to 10"</i>).</div>
-      <textarea id="cAcrAi" rows="2" placeholder="e.g. set production to 10, internet-facing to 9, drop lab + IoT by 5" style="width:100%;box-sizing:border-box;font-size:13px;padding:8px;border-radius:7px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink)"></textarea>
-      <div class="toolbar" style="margin-top:6px">
-        <span class="sub">Change reason:</span>
-        <span id="cAcrReasons" class="sub" style="display:flex;gap:10px;flex-wrap:wrap">
-          <label><input type="checkbox" value="business" checked> business</label>
-          <label><input type="checkbox" value="compliance"> compliance</label>
-          <label><input type="checkbox" value="mitigation"> mitigation</label>
-          <label><input type="checkbox" value="development"> development</label>
-        </span>
-        <input id="cAcrAiNote" class="fld" placeholder="optional note appended to each change" style="flex:1;min-width:160px">
-      </div>
-      <div class="toolbar" style="margin-top:6px">
-        <button class="btn run sm" id="cAcrInterpret">✨ Interpret with AI</button>
-        <button class="btn sm" id="cAcrAddAll" disabled>➕ Add all to ACR rules</button>
-        <span class="chip" id="cAcrAiCount"></span>
-      </div>
-      <div id="cAcrAiFlash" class="flash"></div>
-      <div id="cAcrAiPreview"></div>
-    </div>
-    <div class="no-llm-note callbox" style="display:none;color:var(--warn,var(--cx-e7c66b));margin:0 0 12px">AI ACR authoring needs a language model. Set <span class="mono">ANTHROPIC_API_KEY</span> on the server to enable it — you can still add ACR rules by hand below.</div>
+    <p class="sub trhint" style="display:none;margin:0 0 8px;color:var(--warn,#fbbf24)"></p>
+    <p class="sub" style="margin:0 0 8px">navi never changes the ACR of an asset tagged <span class="tagval">NO : UPDATE</span> — <b>📋 Plan</b> shows, per rule, how many assets change and how many are protected. Every change is recorded per asset in the <a href="/web/acr-log.html">ACR log</a>.</p>
+    <label class="sub" style="display:block;margin:0 0 8px" title="After the ACR rules run, tag NO : UPDATE on exactly the assets they changed, so later cycles leave those ACRs alone"><input type="checkbox" id="protectAcrChk"> 🛡️ Protect ACR after applying — tag <span class="mono">NO : UPDATE</span> on the assets the rules change (counts for navi after the next navi.db sync; remove it with <a href="/agents/tagremoval/page.html">Tag Removal</a>)</label>
     <div id="acr"></div>
   </section>
 
@@ -97,6 +107,7 @@
       <label class="sub"><input type="checkbox" id="remNaviupd"> run <span class="mono">navi update</span> after removal</label>
       <span style="margin-left:auto;display:flex;gap:6px"><button class="btn ghost sm" id="remAdd">+ tag</button><button class="btn ghost sm" id="remClear">Clear list</button></span>
     </div>
+    <p class="sub trhint" style="display:none;margin:8px 0 0;color:var(--warn,#fbbf24)"></p>
     <div id="remList" style="margin-top:8px"></div>
   </section>
 
@@ -118,15 +129,24 @@
 <script src="/static/console.js"></script>
 <script>
 const API=agentApi('contract'); let C=null, WRITES=false, LASTPLAN=null, LASTARMED=false;
-const AGENTS=[['iot_squad','IoT squad'],['customapp','Custom apps'],['exproute','Ownership (Atlas)'],['eol','EOL / unsupported'],['software','Software (Mimir)'],['ai','AI inventory'],['identity','Identity'],['mitre','MITRE ATT&CK'],['scan_eval','Scan eval'],['certificate','Certificates'],['cisakev','CISA KEV (Laelaps)'],['postquantum','Post-Quantum (Heimdall)'],['agentgroup','Agent Groups (Sirius)']];
+// [id, label, description, needs_input, prompt_driven] — replaced by the server's list (get → taggers)
+let AGENTS=[['iot_squad','IoT squad'],['customapp','Custom apps'],['exproute','Ownership (Atlas)','',true,true],['eol','EOL / unsupported'],['software','Software (Mimir)'],['ai','AI inventory'],['identity','Identity'],['mitre','MITRE ATT&CK'],['scan_eval','Scan eval'],['certificate','Certificates'],['cisakev','CISA KEV (Laelaps)'],['postquantum','Post-Quantum (Heimdall)'],['agentgroup','Agent Groups (Sirius)'],['classify','Asset Classification (Linnaeus)'],['attackpath','Attack Paths (Fenrir)'],['was','Web apps (Arachne)'],['fused_score','Exposure Score (Nemesis)'],['compliance','Compliance owner (Minos)','',true],['asset_ownership','Asset Ownership (Terminus)','',true,true]];
+let EXCLUDED={};
+const agentLabel=id=>{ const a=AGENTS.find(x=>x[0]===id); return a?a[1]:id; };
 function gather(){ // pull edits from the form back into C
   C.schedule_hours=+document.getElementById('hours').value||4;
   C.wait_minutes=+document.getElementById('wait').value||0;
   C.defaults.top_n=+document.getElementById('topn').value||50;
   C.navi_update=document.getElementById('naviupd').checked;
   C.optimize=document.getElementById('optimizeChk').checked;
+  C.protect_acr=document.getElementById('protectAcrChk').checked;
   AGENTS.forEach(([id])=>{ const en=document.getElementById('en_'+id), lg=document.getElementById('lg_'+id);
-    if(en) C.agents[id]={enabled:en.checked, logic:(lg?lg.value:'')}; });
+    if(!en) return;
+    const a=Object.assign({},C.agents[id]||{}, {enabled:en.checked, logic:(lg?lg.value:'')});
+    const ow=document.getElementById('ow_'+id), ck=document.getElementById('ck_'+id);
+    if(ow) a.owner=ow.value.trim();
+    if(ck) a.checks=ck.value.split(',').map(x=>x.trim()).filter(Boolean);
+    C.agents[id]=a; });
   C.acr=[...document.querySelectorAll('#acr .acrrow')].map(r=>({category:r.querySelector('.ac').value.trim(),value:r.querySelector('.av').value.trim(),score:+r.querySelector('.as').value||0,mod:r.querySelector('.am').value,reasons:[r.querySelector('.ar').value],note:'contract'})).filter(x=>x.category&&x.value);
   C.removal=C.removal||{tags:[]};
   C.removal.enabled=document.getElementById('remEnabled').checked;
@@ -157,38 +177,54 @@ function renderRemoval(){ const r=C.removal||{enabled:false,tags:[],pause_minute
   box.querySelectorAll('.remdel').forEach(b=>b.onclick=()=>b.closest('.remrow').remove());
   const c=document.getElementById('remCount'); if(c)c.textContent=((r.tags||[]).length)+' tag(s)'+(r.enabled?' · armed-cycle removes first':'');
 }
-async function push(){ await API.post('set',{contract:gather()}); }
+async function push(){ const o=await API.post('set',{contract:gather()});
+  if(o&&o.ok===false){ flash('flash','✗ '+esc(o.error||'could not save the contract'),'crit'); return false; } return true; }
 function renderArm(){ const b=document.getElementById('armBadge'), btn=document.getElementById('armBtn');
   if(C.armed){ b.className='badge armed'; b.textContent='● ARMED — autonomous'; btn.textContent='■ Disarm'; btn.className='btn ghost sm'; }
   else { b.className='badge disarmed'; b.textContent='○ Disarmed — plan only'; btn.textContent='⚡ Arm contract'; btn.className='btn run sm'; } }
-function renderAgents(){ document.getElementById('agents').innerHTML=AGENTS.map(([id,nm])=>{const a=C.agents[id]||{enabled:true,logic:''};
-  return `<div class="arow"><label class="sub"><input type="checkbox" id="en_${id}" ${a.enabled?'checked':''}> <b>${esc(nm)}</b></label>
-    <textarea id="lg_${id}" placeholder="policy (blank = risk-weighted top-N)">${esc(a.logic||'')}</textarea></div>`;}).join(''); }
+function renderAgents(){ document.getElementById('agents').innerHTML=AGENTS.map(([id,nm,desc,needs,prompt])=>{const a=C.agents[id]||{enabled:!needs,logic:''};
+  const ph=prompt?(id==='exproute'?'owner mapping — e.g. "payment routes → VM Team; ignore the ICMP route" (required)':'owner instruction(s), one per line — e.g. "assign Jane Smith to production" (required)')
+    :'policy (blank = risk-weighted top-N)';
+  const xtra=(id==='compliance')?`<div class="xtra"><input class="fld" id="ow_${esc(id)}" placeholder="Audit Owner name (required)" value="${esc(a.owner||'')}" style="flex:1;min-width:180px">
+    <input class="fld" id="ck_${esc(id)}" placeholder="only these check_ids, comma-separated (blank = every failing control)" value="${esc((a.checks||[]).join(', '))}" style="flex:2;min-width:220px"></div>`:'';
+  return `<div class="arow"><label class="sub"><input type="checkbox" id="en_${esc(id)}" ${a.enabled?'checked':''}> <b>${esc(nm)}</b>${needs?'<span class="needs">needs input</span>':''}${desc?`<span class="adesc">${esc(desc)}</span>`:''}</label>
+    <div><textarea id="lg_${esc(id)}" placeholder="${esc(ph)}">${esc(a.logic||'')}</textarea>${xtra}</div></div>`;}).join('')
+  +(Object.keys(EXCLUDED).length?'<p class="sub" style="margin:8px 0 0;font-size:11px">Not orchestrated: '+Object.entries(EXCLUDED).map(([k,v])=>'<b>'+esc(k)+'</b> — '+esc(v)).join(' · ')+'.</p>':''); }
 function acrRow(r){ r=r||{category:'',value:'',score:8,mod:'set',reasons:['business']};
   return `<div class="arow acrrow"><span></span><div class="toolbar" style="margin:0">
     <input class="fld ac" placeholder="tag category (e.g. Business Tier)" value="${esc(r.category||'')}" style="flex:1">
     <input class="fld av" placeholder="tag value (e.g. Production)" value="${esc(r.value||'')}" style="flex:1">
-    <input class="fld as" type="number" value="${r.score!=null?r.score:8}" style="width:64px" title="score">
+    <input class="fld as" type="number" min="1" max="10" step="1" value="${esc(String(r.score!=null?r.score:8))}" style="width:64px" title="score">
     <select class="fld am"><option ${r.mod==='set'?'selected':''}>set</option><option ${r.mod==='inc'?'selected':''}>inc</option><option ${r.mod==='dec'?'selected':''}>dec</option></select>
     <select class="fld ar"><option ${(!r.reasons||r.reasons[0]==='business')?'selected':''}>business</option><option ${r.reasons&&r.reasons[0]==='compliance'?'selected':''}>compliance</option><option ${r.reasons&&r.reasons[0]==='mitigation'?'selected':''}>mitigation</option><option ${r.reasons&&r.reasons[0]==='development'?'selected':''}>development</option></select>
     <button class="btn ghost sm acrdel">✕</button></div></div>`; }
 function renderAcr(){ const box=document.getElementById('acr'); box.innerHTML=(C.acr&&C.acr.length?C.acr:[]).map(acrRow).join('')||'<p class="sub">No ACR rules. ACR is never auto-ranked — add explicit rules here.</p>';
   box.querySelectorAll('.acrdel').forEach(b=>b.onclick=()=>{b.closest('.acrrow').remove();}); }
 function renderForm(){ document.getElementById('hours').value=C.schedule_hours; document.getElementById('wait').value=C.wait_minutes; document.getElementById('topn').value=C.defaults.top_n; document.getElementById('naviupd').checked=!!C.navi_update; document.getElementById('optimizeChk').checked=(C.optimize!==false);
+  document.getElementById('protectAcrChk').checked=(C.protect_acr===true);
   renderAgents(); renderAcr(); renderRemoval(); renderNotify(); renderArm();
-  document.getElementById('kpi').innerHTML=`<div class="k"><div class="v">${AGENTS.filter(([id])=>C.agents[id]&&C.agents[id].enabled).length}</div><div class="l">agents enabled</div></div><div class="k"><div class="v">${C.defaults.top_n}</div><div class="l">default top-N (risk)</div></div><div class="k"><div class="v">${C.schedule_hours}h</div><div class="l">cadence</div></div><div class="k"><div class="v" style="color:${WRITES?'var(--ok)':'var(--mut)'}">${WRITES?'on':'gated'}</div><div class="l">writes</div></div>`; }
-async function refresh(){ const o=await API.post('get'); C=o.contract; WRITES=o.writes_enabled; renderForm(); renderLoop(o.scheduler); }
+  document.getElementById('kpi').innerHTML=`<div class="k"><div class="v">${AGENTS.filter(([id])=>C.agents[id]&&C.agents[id].enabled).length}</div><div class="l">agents enabled</div></div><div class="k"><div class="v">${esc(String(C.defaults.top_n))}</div><div class="l">default top-N (risk)</div></div><div class="k"><div class="v">${esc(String(C.schedule_hours))}h</div><div class="l">cadence</div></div><div class="k"><div class="v" style="color:${WRITES?'var(--ok)':'var(--mut)'}">${WRITES?'on':'gated'}</div><div class="l">writes</div></div>`; }
+async function refresh(){ const o=await API.post('get'); C=o.contract; WRITES=o.writes_enabled;
+  if(Array.isArray(o.taggers)&&o.taggers.length) AGENTS=o.taggers.map(t=>[t.id,t.label||t.id,t.desc||'',!!t.needs_input,!!t.prompt_driven]);
+  if(o.excluded&&typeof o.excluded==='object') EXCLUDED=o.excluded;
+  renderForm(); renderLoop(o.scheduler); }
 function renderPlan(p){ LASTPLAN=p; LASTARMED=!!(p&&p.armed); const blocks=p.agents||[]; document.getElementById('planCount').textContent=blocks.reduce((s,b)=>s+(b.selected||0),0)+' tags planned';
   document.getElementById('planOut').innerHTML='<div style="overflow-x:auto"><table><thead><tr><th>Agent</th><th>Candidates</th><th>Selected</th><th>How</th><th>Sample</th></tr></thead><tbody>'+
-    blocks.map(b=>`<tr><td><b>${esc(b.agent)}</b></td><td>${b.error?'<span class="sub" style="color:var(--crit)">'+esc(b.error)+'</span>':(b.candidates||0)}</td><td>${b.selected||0}</td><td class="sub">${esc(b.note||'')}</td><td class="sub" style="font-size:11px">${esc((b.items||[]).slice(0,4).map(i=>i.label).join(', '))}${(b.items||[]).length>4?'…':''}</td></tr>`).join('')+
-    '</tbody></table></div>'+(p.acr&&p.acr.length?'<p class="sub" style="margin-top:8px">+ '+p.acr.length+' ACR change(s)</p>':'')+
+    blocks.map(b=>`<tr><td><b>${esc(agentLabel(b.agent))}</b></td><td>${b.error?'<span class="sub" style="color:var(--crit)">'+esc(b.error)+'</span>':(b.needs_input?'<span class="sub" style="color:var(--warn,var(--mut))">'+esc(b.needs_input)+'</span>':(b.candidates||0))}</td><td>${b.selected||0}${(b.commands||0)>(b.selected||0)?' <span class="sub" style="font-size:11px">('+esc(String(b.commands))+' navi cmds)</span>':''}</td><td class="sub">${esc(b.note||'')}</td><td class="sub" style="font-size:11px">${esc((b.items||[]).slice(0,4).map(i=>i.label).join(', '))}${(b.items||[]).length>4?'…':''}</td></tr>`).join('')+
+    '</tbody></table></div>'+(p.tag_prefix?'<p class="sub" style="margin-top:8px;color:var(--warn,#fbbf24)">🧪 Test run is on — every planned tag is written as <b class="mono">'+esc(p.tag_prefix)+'&lt;category&gt;</b>. ACR rules and the removal list use the category exactly as typed (a Hound-created tag is now <span class="mono">'+esc(p.tag_prefix)+'…</span>).</p>':'')+(p.acr&&p.acr.length?'<p class="sub" style="margin-top:8px">+ '+p.acr.length+' ACR change(s)'+(p.protect_acr?' · 🛡️ then NO : UPDATE on the assets they change':'')+'</p>'+acrPlanTable(p):'')+
     ((p.removal&&p.removal.enabled&&(p.removal.tags||[]).length)?'<p class="sub" style="margin-top:6px">🗑️ Removal phase: strips <b>'+p.removal.tags.length+'</b> tag(s) first, pauses '+(p.removal.pause_minutes!=null?p.removal.pause_minutes:30)+' min, runs <span class="mono">navi update</span>, then re-tags.</p>':'')+
     '<p class="sub" style="margin-top:6px">'+(p.armed?(WRITES?'Armed — a cycle will execute these via the background tag queue.':'Armed, but writes are gated (set NAVI_ALLOW_WRITES=1).'):'Disarmed — planning only.')+'</p>'; }
+function acrPlanTable(p){ const rows=p.acr_preview||[]; if(!rows.length) return '';
+  const n=x=>Number(x||0).toLocaleString();
+  return '<div style="overflow-x:auto"><table><thead><tr><th>ACR rule</th><th title="assets navi will set to a new ACR">Change</th><th title="tagged NO : UPDATE — navi skips them">Protected (skipped)</th><th title="no ACR in navi.db — navi skips them">No ACR (skipped)</th><th>Business case</th></tr></thead><tbody>'+
+    rows.map(r=>`<tr><td>${esc(r.category)} : <b>${esc(r.value)}</b> <span class="sub mono">${r.mod==='set'?'set '+esc(r.score):(r.mod==='inc'?'+':'−')+esc(r.score)}</span>${r.valid_score===false?' <span class="sub" style="color:var(--crit)">score navi ignores</span>':''}${r.error?' <span class="sub" style="color:var(--crit)">'+esc(r.error)+'</span>':''}${r.refuse?'<div class="sub" style="color:var(--crit)">✗ will not run: '+esc(r.refuse)+'</div>':''}</td>`
+      +`<td>${n(r.change)}${r.unchanged?' <span class="sub">(+'+n(r.unchanged)+' unchanged)</span>':''}</td><td>${n(r.protected)}</td><td>${n(r.no_acr)}</td><td class="sub">${esc(r.business_case||'')}</td></tr>`).join('')+
+    '</tbody></table></div>'; }
 function renderLoop(sched){ const box=document.getElementById('loop');
   API.post('loop_log').then(o=>{ const log=o.loop_log||[]; const s=sched||{};
     const hdr=`<p class="sub">Scheduler: <b>${s.running?'running':'stopped'}</b>${s.next_run?(' · next ~'+new Date(s.next_run*1000).toLocaleTimeString()):''}</p>`;
-    box.innerHTML=hdr+(log.length?'<div style="overflow-x:auto"><table><thead><tr><th>Started</th><th>Armed</th><th>Queued</th><th>ACR</th><th>navi update</th><th>QA</th></tr></thead><tbody>'+
-      log.map(e=>`<tr><td class="sub" style="font-size:11px">${esc((e.started||'').replace('T',' ').replace('Z',''))}</td><td>${e.armed?'yes':'plan'}</td><td>${e.queued_tags||0}</td><td>${e.acr_applied||0}</td><td class="sub">${esc(((e.navi_update||{}).started||[]).join(',')||(e.navi_update||{}).skipped||'')}</td><td><span class="badge ${e.qa&&e.qa.verdict==='ok'?'b-ready':'b-err'}">${e.qa?e.qa.verdict:'—'}</span> <span class="sub">Δtags ${e.qa?(e.qa.tag_delta==null?'?':e.qa.tag_delta):'?'}</span></td></tr>`).join('')+'</tbody></table></div>':'<p class="sub">No cycles yet.</p>'); });
+    box.innerHTML=hdr+(log.length?'<div style="overflow-x:auto"><table><thead><tr><th>Started</th><th>Armed</th><th>Queued</th><th>ACR</th><th title="assets tagged NO : UPDATE after the ACR rules">Protected</th><th>navi update</th><th>QA</th></tr></thead><tbody>'+
+      log.map(e=>`<tr><td class="sub" style="font-size:11px">${esc((e.started||'').replace('T',' ').replace('Z',''))}</td><td>${e.armed?'yes':'plan'}</td><td>${e.queued_tags||0}</td><td>${e.acr_applied||0}</td><td>${e.acr_protected||0}</td><td class="sub">${esc(((e.navi_update||{}).started||[]).join(',')||(e.navi_update||{}).skipped||'')}</td><td><span class="badge ${e.qa&&e.qa.verdict==='ok'?'b-ready':'b-err'}">${esc(e.qa?String(e.qa.verdict):'—')}</span> <span class="sub">Δtags ${esc(e.qa?(e.qa.tag_delta==null?'?':String(e.qa.tag_delta)):'?')}</span></td></tr>`).join('')+'</tbody></table></div>':'<p class="sub">No cycles yet.</p>'); });
 }
 document.getElementById('fromLog').onclick=async()=>{ flash('flash','<span class="spin"></span> building from tag log…','run'); const o=await API.post('build_from_log'); C=o.contract; renderForm();
   if(o.log_count) flash('flash','✓ Built the policy from <b>'+o.log_count+'</b> logged tag(s) — review below, then Plan / Arm.','ok');
@@ -201,7 +237,7 @@ document.getElementById('csvFile').onchange=async(e)=>{
   let text; try{ text=await f.text(); }catch(err){ flash('flash','✗ could not read the file','crit'); return; }
   const rows=parseCsv(text);
   if(!rows.length){ flash('flash','✗ no rows found in that CSV (expected a tag-log export)','crit'); return; }
-  let o; try{ o=await API.post('build_from_csv',{rows}); }catch(err){ flash('flash','✗ '+err.message,'crit'); return; }
+  let o; try{ o=await API.post('build_from_csv',{rows}); }catch(err){ flash('flash','✗ '+esc(err.message),'crit'); return; }
   C=o.contract; renderForm();
   flash('flash','✓ Built the policy from <b>'+(o.log_count||rows.length)+'</b> tag(s) in '+esc(f.name)+' — review below, then Plan / Arm.','ok');
 };
@@ -214,9 +250,10 @@ function parseCsv(text){
   const hdr=split(lines[0]).map(h=>h.trim().toLowerCase());
   return lines.slice(1).map(l=>{ const cells=split(l); const o={}; hdr.forEach((h,i)=>o[h]=(cells[i]||'').trim()); return o; });
 }
-document.getElementById('planBtn').onclick=async()=>{ await push(); flash('flash','<span class="spin"></span> planning…','run'); const o=await API.post('plan'); flashClear('flash'); renderPlan(o.plan); };
-document.getElementById('exportBtn').onclick=async()=>{ await push(); flash('flash','<span class="spin"></span> building navi script…','run'); let o; try{o=await API.post('export');}catch(e){o={ok:false}} flashClear('flash'); if(!o.ok){flash('flash','✗ export failed','crit');return;} const blob=new Blob([o.script],{type:'text/x-shellscript'}); const u=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=u; a.download=(C.name||'navi-contract')+'.sh'; a.click(); setTimeout(()=>URL.revokeObjectURL(u),2000); flash('flash','Exported navi script — run it where navi can write.','ok'); };
-document.getElementById('runBtn').onclick=async()=>{ await push(); flash('flash','<span class="spin"></span> running one cycle…','run'); const o=await API.post('run_now'); flashClear('flash'); renderPlan((o.cycle&&o.cycle.plan)||{agents:[]}); refresh(); flash('flash','Cycle complete — queued '+((o.cycle&&o.cycle.queued_tags)||0)+' tag(s). See loop log + Tag log.','ok'); };
+document.getElementById('planBtn').onclick=async()=>{ if(!await push()) return; flash('flash','<span class="spin"></span> planning…','run'); const o=await API.post('plan'); flashClear('flash'); renderPlan(o.plan); };
+document.getElementById('exportBtn').onclick=async()=>{ if(!await push()) return; flash('flash','<span class="spin"></span> building navi script…','run'); let o; try{o=await API.post('export');}catch(e){o={ok:false}} flashClear('flash'); if(!o.ok){flash('flash','✗ export failed','crit');return;} const blob=new Blob([o.script],{type:'text/x-shellscript'}); const u=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=u; a.download=(C.name||'navi-contract')+'.sh'; a.click(); setTimeout(()=>URL.revokeObjectURL(u),2000); flash('flash','Exported navi script — run it where navi can write.','ok'); };
+document.getElementById('runBtn').onclick=async()=>{ if(!confirm((C&&C.armed?'Run one contract cycle now? It applies the planned tags'+((C.acr||[]).length?', ACR rules'+(document.getElementById('protectAcrChk').checked?' (then tags NO : UPDATE on the assets they change)':''):'')+((C.removal&&C.removal.enabled&&(C.removal.tags||[]).length)?' and the removal list':'')+' through the gated tag queue.':'Run one contract cycle now? The contract is disarmed, so it only plans and logs the cycle.'))) return;
+  if(!await push()) return; flash('flash','<span class="spin"></span> running one cycle…','run'); let o; try{ o=await API.post('run_now',{confirm:true}); }catch(e){ flashClear('flash'); flash('flash','✗ '+esc(e.message||'run failed'),'crit'); return; } flashClear('flash'); renderPlan((o.cycle&&o.cycle.plan)||{agents:[]}); refresh(); flash('flash','Cycle complete — queued '+((o.cycle&&o.cycle.queued_tags)||0)+' tag(s). See loop log + Tag log.','ok'); };
 document.getElementById('armBtn').onclick=async()=>{
   const btn=document.getElementById('armBtn'); const lbl=btn.textContent; btn.disabled=true; btn.textContent='…';
   try{
@@ -225,8 +262,8 @@ document.getElementById('armBtn').onclick=async()=>{
       let o; try{ o=await API.post('disarm'); }catch(e){ o={ok:false,error:e.message}; }
       flash('flash', (o&&o.ok)?'○ Disarmed — planning only.':('✗ '+esc((o&&(o.error||o.message))||'disarm failed')), (o&&o.ok)?'warn':'crit');
     } else {
-      if(!WRITES && !confirm('Writes are gated (NAVI_ALLOW_WRITES not set), so armed cycles will be planned but not executed. Arm anyway?')){ btn.disabled=false; btn.textContent=lbl; return; }
-      let o; try{ o=await API.post('arm'); }catch(e){ o={ok:false,error:e.message}; }
+      if(!confirm(WRITES?'Arm the contract? The autonomous loop starts now and applies the plan every '+C.schedule_hours+'h (live tag writes).':'Writes are gated (NAVI_ALLOW_WRITES not set), so armed cycles will be planned but not executed. Arm anyway?')){ btn.disabled=false; btn.textContent=lbl; return; }
+      let o; try{ o=await API.post('arm',{confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
       if(o&&o.ok) flash('flash','● Armed — the autonomous loop is running'+(o.writes_enabled?'':' (writes gated — it will plan but not execute until NAVI_ALLOW_WRITES=1)')+'.','ok');
       else flash('flash','✗ Arm failed: '+esc((o&&(o.error||o.message))||'unknown error'),'crit');
     }
@@ -242,7 +279,7 @@ document.getElementById('emailSummaryBtn').onclick=async()=>{
   // assets-per-category, and uses this plan for enabled/skipped/matched-nothing.
   emailFindings({report:'contract_summary', armed:LASTARMED, plan_agents});
 };
-document.getElementById('saveBtn').onclick=async()=>{ await push(); const name=prompt('Save contract as:',C.name||'navi-contract'); if(name===null)return; const o=await API.post('save',{name}); flash('flash',o.ok?('Saved '+o.name+'.json'):'Save failed','ok'); };
+document.getElementById('saveBtn').onclick=async()=>{ if(!await push()) return; const name=prompt('Save contract as:',C.name||'navi-contract'); if(name===null)return; const o=await API.post('save',{name}); flash('flash',o.ok?('Saved '+esc(o.name)+'.json'):'Save failed','ok'); };
 document.getElementById('exportJson').onclick=()=>{ const doc=gather(); const blob=new Blob([JSON.stringify(doc,null,2)],{type:'application/json'}); const u=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=u; a.download=(doc.name||'navi-contract')+'.json'; a.click(); setTimeout(()=>URL.revokeObjectURL(u),2000); flash('flash','Exported contract JSON — Import it on another machine to reuse this policy.','ok'); };
 document.getElementById('importJson').onclick=()=>document.getElementById('cFile').click();
 document.getElementById('cFile').onchange=(e)=>{ const f=e.target.files&&e.target.files[0]; if(!f)return; const r=new FileReader();
@@ -262,7 +299,7 @@ async function ensureAcrTags(){ if(C_ACR_TAGS&&C_ACR_TAGS.length) return C_ACR_T
 function cAcrRender(changes,source){
   C_ACR_AI={changes:changes};
   const pv=document.getElementById('cAcrAiPreview'), ab=document.getElementById('cAcrAddAll'), cc=document.getElementById('cAcrAiCount');
-  if(pv) pv.innerHTML='<p class="sub" style="margin:10px 0 4px">'+changes.length+' change(s) · <b>'+esc(source)+'</b></p>'+(changes.length?'<div style="overflow-x:auto"><table><thead><tr><th>Tag</th><th>Action</th><th>Reason</th><th>Why</th></tr></thead><tbody>'+changes.map(c=>'<tr><td>'+esc(c.category)+' : <b>'+esc(c.value)+'</b></td><td><b>'+(c.mod==='set'?'set '+c.score:(c.mod==='inc'?'+':'−')+c.score)+'</b></td><td class="sub">'+esc((c.reasons||[]).join(', '))+'</td><td class="sub">'+esc(c.why||'')+'</td></tr>').join('')+'</tbody></table></div>':'<p class="sub">No changes.</p>');
+  if(pv) pv.innerHTML='<p class="sub" style="margin:10px 0 4px">'+changes.length+' change(s) · <b>'+esc(source)+'</b></p>'+(changes.length?'<div style="overflow-x:auto"><table><thead><tr><th>Tag</th><th>Action</th><th>Reason</th><th>Why</th></tr></thead><tbody>'+changes.map(c=>'<tr><td>'+esc(c.category)+' : <b>'+esc(c.value)+'</b></td><td><b>'+(c.mod==='set'?'set '+esc(c.score):(c.mod==='inc'?'+':'−')+esc(c.score))+'</b></td><td class="sub">'+esc((c.reasons||[]).join(', '))+'</td><td class="sub">'+esc(c.why||'')+'</td></tr>').join('')+'</tbody></table></div>':'<p class="sub">No changes.</p>');
   if(cc)cc.textContent=changes.length+' change(s)';
   if(ab)ab.disabled=!changes.length;
 }
@@ -299,5 +336,8 @@ refresh();
 if(new URLSearchParams(location.search).get('plan')){
   setTimeout(()=>{ const b=document.getElementById('planBtn'); if(b){ b.click(); const pc=document.getElementById('planCard'); if(pc) pc.scrollIntoView({behavior:'smooth',block:'start'}); } }, 450);
 }
+// Settings → Test run: categories typed here are used EXACTLY — say what a Hound-created tag is now called
+testRunStatus().then(t=>{ if(!t||!t.enabled) return; document.querySelectorAll('.trhint').forEach(el=>{ el.style.display='';
+  el.innerHTML='🧪 Test run is on — the Hounds now create <span class="mono">'+esc(t.prefix)+'&lt;category&gt;</span> tags (e.g. <span class="mono">'+esc(t.prefix)+'Lifecycle</span>). A category typed here is used exactly as typed.'; }); });
 </script>
 </body></html>

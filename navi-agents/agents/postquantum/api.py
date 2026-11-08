@@ -1,14 +1,16 @@
 """Heimdall / Post-Quantum Cipher Analysis — self-contained HTTP actions.
 
-  run          — discover the PQC-plugin surface (277650 / 277652 / 277653)
+  run          — one pass: the quantum-vulnerable surface, certificate crypto, transport +
+                 agility, the migration roadmap and the headline metrics
   tag          — tag those plugins' assets Post-Quantum:Cipher Analysis (gated)
   roadmap      — correlate cert crypto + transport + agility, weighted by ACR +
                  KEV, into a ranked crown-jewel migration roadmap (read-only)
   roadmap_tag  — tag the roadmap hit-list PQC Priority:<value> (gated)
 """
-from core import navi_cli, db
+from core import activity, navi_cli, db
 from .agent import (PostQuantumAgent, tag_all, roadmap, ROADMAP_CAT,
-                    cert_analysis, transport_analysis)
+                    cert_analysis, transport_analysis, overview)
+from core.gates import confirmed
 
 AGENT = PostQuantumAgent()
 
@@ -24,9 +26,11 @@ def transport(p):
 def tag_uuids(p):
     """Generic gated tag of an explicit uuid set — powers the per-algorithm, harvest-now,
     transport-signal and agility-tier tag buttons. {category, value, uuids}."""
-    if not p.get("confirm"):
+    if not confirmed(p):
         return {"ok": False, "error": "confirm=true required to write tags"}, 400
     category = (p.get("category") or "PQC Risk").strip() or "PQC Risk"
+    if not activity.allowed_category("postquantum", category):
+        return {"ok": False, "error": f"category '{category}' is not one this agent writes"}, 400
     value = (p.get("value") or "Vulnerable").strip() or "Vulnerable"
     uu = [u for u in (p.get("uuids") or []) if u]
     if not uu:
@@ -39,11 +43,19 @@ def tag_uuids(p):
 
 
 def run(p):
-    return {"ok": True, "agent": AGENT.meta(), "result": AGENT.run()}, 200
+    """One ▶ Run: the surface (kept at the top level — the Contract and the hub read
+    `plugins` / `assets`) plus certificates, transport, agility, roadmap and metrics."""
+    res = AGENT.run()
+    try:
+        ov = overview()
+        res = {**res, **{k: v for k, v in ov.items() if k not in ("surface", "ok")}}
+    except Exception as e:
+        res = {**res, "overview_error": f"analysis failed: {e}"}
+    return {"ok": True, "agent": AGENT.meta(), "result": res}, 200
 
 
 def tag(p):
-    if not p.get("confirm"):
+    if not confirmed(p):
         return {"ok": False, "error": "confirm=true required to write tags"}, 400
     res = tag_all()
     return {"ok": True, "queued": len(res), "results": res,
@@ -60,7 +72,7 @@ def roadmap_tag(p):
     value defaults to 'Crown Jewel'. Used both for the crown-jewel bulk tag and
     per-row 'Migrate' tags from the roadmap table.
     """
-    if not p.get("confirm"):
+    if not confirmed(p):
         return {"ok": False, "error": "confirm=true required to write tags"}, 400
     uu = [u for u in (p.get("uuids") or []) if u]
     if not uu:

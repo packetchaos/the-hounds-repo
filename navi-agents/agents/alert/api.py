@@ -5,6 +5,7 @@ no state change, no send). Mutations: save / delete / toggle / add_template (loc
 not a tenant write). evaluate: run every enabled alert, fire on change, optionally email a
 gated digest (send=true)."""
 from core import alerts, navi_cli
+from core.gates import confirmed
 from .agent import AlertAgent
 
 AGENT = AlertAgent()
@@ -67,8 +68,14 @@ def add_template(p):
 
 def send_test(p):
     """Send a REAL test email for one alert so the operator can confirm delivery works —
-    regardless of whether the alert would fire. Gated by NAVI_EMAIL. Changes no state."""
+    regardless of whether the alert would fire. Gated by NAVI_EMAIL + confirm === true, and
+    only to a configured alert recipient (NAVI_ALERT_EMAIL). Changes no state."""
     p = p or {}
+    if not confirmed(p):
+        return {"ok": False, "error": "confirm=true required to send a test email"}, 400
+    ok_r, why = alerts.recipient_allowed(p.get("recipient"))
+    if not ok_r:
+        return {"ok": False, "error": why, "result": {"ok": False, "reason": why}}, 400
     a = p.get("alert") or {"id": p.get("id"), "name": p.get("name")}
     if a.get("id") and not (a.get("metric_sql") or a.get("builtin")):
         for d in alerts.list_alerts():
@@ -83,7 +90,13 @@ def evaluate(p):
     """Evaluate all enabled alerts now. send=true emails a digest of what NEWLY fired
     (gated by NAVI_EMAIL). Without send it's a live dry-run — nothing leaves the box."""
     p = p or {}
-    send = bool(p.get("send"))
+    send = p.get("send") is True
+    if send:
+        if not confirmed(p):
+            return {"ok": False, "error": "confirm=true required to email the digest (send=true)"}, 400
+        ok_r, why = alerts.recipient_allowed(p.get("recipient"))
+        if not ok_r:
+            return {"ok": False, "error": why}, 400
     res = alerts.evaluate_all(send=send, recipient=(p.get("recipient") or None),
                               source=p.get("source") or "manual")
     res["email_enabled"] = navi_cli.email_enabled()

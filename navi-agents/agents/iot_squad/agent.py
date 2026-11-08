@@ -22,7 +22,7 @@ All reads are read-only sqlite3. Registry writes are gated behind human approval
 """
 from core import iot_common as ic
 from core import iot_registry as reg
-from core import navi_cli
+from core import navi_cli, tagname
 from core.agents.base import Agent
 
 
@@ -31,6 +31,7 @@ def _sh(s):
 
 
 def _sel_cmd(cat, val, s):
+    cat = tagname.effective(cat)      # preview the name navi_cli.tag will write (Settings → Test run)
     if s.get("plugin"):
         return ('navi enrich tag --c %s --v %s --plugin %s%s'
                 % (_sh(cat), _sh(val), s["plugin"],
@@ -333,19 +334,47 @@ class IoTSquadOrchestrator(Agent):
                 "proposals": len(self.result["xterm"]["proposals"]),
                 "qa_flags": len(self.result["qa"]["flags"])}
 
+    def _empty(self, missing):
+        """Every result key, empty — for a navi.db without the vulns table (fresh install,
+        WAS-only db). The contract + page read these keys; nothing crashes."""
+        cov = {"carriers": 0, "supplied_carriers": 0, "vocab_terms": 0, "pack_terms": 0,
+               "pack_deduped": 0, "combinations_tested": 0, "proposals": 0,
+               "warned_proposals": 0, "dropped_below_floor": 0, "skipped_rejected": 0,
+               "floor": ic.CLUSTER_MIN, "assets": 0, "floor_note": ""}
+        regd = reg.load()
+        return {"registry": {"detections": len(regd["detections"]), "rejected": len(regd["rejected"])},
+                "discovery": {"detected": [], "handoff": {}, "tag_actions": []},
+                "carriers": {"carriers": {}, "supplied": []},
+                "xterm": {"proposals": [], "ledger": [], "floor": ic.CLUSTER_MIN, "total": 0,
+                          "vocab_size": 0, "pack_terms": 0, "pack_deduped": 0, "tested": 0,
+                          "floor_note": ""},
+                "qa": {"flags": [], "checks": [], "coverage": cov, "ledger": [], "agents": {}},
+                "tag_actions": [], "proposals": [],
+                "available": False, "missing": missing,
+                "signal_coverage": [], "exposure": {"assets": [], "summary": {}}}
+
     def _run(self, db_path=None, use_pack=False):
+        missing = [t for t in ("vulns", "assets") if not ic.table_cols(t, db_path)]
+        if missing:                          # both are needed (devices join vulns → assets)
+            return self._empty(missing)
         d = self.a1.run(db_path)
 
-        # signal-fusion discovery (device-type / OUI / mDNS / cert) — Gate-1 tags
+        # signal-fusion discovery (device-type / OUI / mDNS / cert) — Gate-1 tags.
+        # Only devices the registry did NOT already confirm: a registry-confirmed asset
+        # must not get a second Device Type tag under the fusion label (it used to be
+        # tagged both "Chromecast" and "Chromecast / Nest"). Virtual NICs / hypervisors
+        # (VMware OUI, Device Type "hypervisor") are infrastructure, not IoT.
         try:
             from core import signals
             devs = (signals._iot(db_path) or {}).get("devices", [])
             seen = {a["asset_uuid"] for a in d["detected"] if a.get("asset_uuid")}
             for dev in devs:
                 u = dev.get("asset_uuid")
-                if not u:
+                if not u or u in seen:
                     continue
                 klass, vendor, typ = dev.get("klass"), dev.get("vendor"), dev.get("type")
+                if typ == "hypervisor" or signals._vendor_class(vendor or "") == "virtual":
+                    continue
                 name = (klass if klass and klass != "Embedded / candidate"
                         else (vendor.split(",")[0] if vendor and vendor != "—"
                               else (typ if typ and typ not in ("unknown", "general-purpose") else "Embedded device")))
@@ -355,10 +384,10 @@ class IoTSquadOrchestrator(Agent):
                 h["fused"] = True
                 if u not in h["asset_uuids"]:
                     h["asset_uuids"].append(u)
-                if u not in seen:
-                    seen.add(u)
-                    d["detected"].append({"iot_name": name, "vendor": vendor or "", "asset_uuid": u,
-                                          "hostname": dev.get("host", ""), "ip": dev.get("ip", ""), "fused": True})
+                seen.add(u)
+                d["detected"].append({"iot_name": name, "vendor": vendor or "", "asset_uuid": u,
+                                      "hostname": dev.get("host", ""), "ip": dev.get("ip", ""), "fused": True,
+                                      "signals": dev.get("signals") or []})
             d["tag_actions"] = [_iot_tag_action(nm, h) for nm, h in d["handoff"].items()]
         except Exception:
             pass
@@ -403,10 +432,15 @@ class IoTSquadOrchestrator(Agent):
                        "xterm": self.a3.status},
         }
 
+        regd = reg.load()
         return {
-            "registry": {"detections": len(reg.load()["detections"]),
-                         "rejected": len(reg.load()["rejected"])},
+            "registry": {"detections": len(regd["detections"]),
+                         "rejected": len(regd["rejected"])},
             "discovery": d, "carriers": c, "xterm": x, "qa": qa,
             "tag_actions": d["tag_actions"],   # gate 1
             "proposals": x["proposals"],       # gate 2
+            # page metrics (read-only; additive — every key above is unchanged)
+            "available": True, "missing": missing,
+            "signal_coverage": ic.identity_signal_coverage(db_path),
+            "exposure": ic.device_exposure([a.get("asset_uuid") for a in d["detected"]], db_path),
         }

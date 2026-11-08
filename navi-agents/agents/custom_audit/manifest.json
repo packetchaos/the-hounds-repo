@@ -1,12 +1,20 @@
 {
   "id": "custom_audit",
   "name": "Custom Audit",
-  "icon": "📜",
+  "icon": "\ud83d\udcdc",
   "order": 18,
   "category": "Operationalize",
   "codename": "Draco",
-  "summary": "Draco — the lawgiver. Author a custom Tenable .audit file two ways: describe the check in plain English and Claude drafts valid Nessus checks, or build one field-by-field from the platform catalog — Windows config (registry, password/lockout/audit policy, user rights, service, REG_CHECK, WMI, PowerShell), Windows file-content (FILE_CONTENT_CHECK), and Unix/Linux/macOS (file, content, command, RPM, process, service). Live .audit preview, syntax validation, and auto-mapped framework references (NIST/PCI/HIPAA/CIS/ISO). Download a scan-ready .audit or a single check.",
+  "summary": "Draco \u2014 the lawgiver. Author a custom Tenable .audit file two ways: describe the check in plain English and Claude drafts valid Nessus checks, or build one field-by-field from the platform catalog \u2014 Windows config (registry, password/lockout/audit policy, user rights, service, REG_CHECK, WMI, PowerShell), Windows file-content (FILE_CONTENT_CHECK), and Unix/Linux/macOS (file, content, command, RPM, process, service). Live .audit preview, syntax validation, and auto-mapped framework references (NIST/PCI/HIPAA/CIS/ISO). Download a scan-ready .audit or a single check. NEW: seed a whole CIS benchmark from the built-in library (CIS Docker, Ubuntu, RHEL) and adjust controls in one prompt (e.g. \u201ccreate a CIS Docker benchmark and tighten 5.x\u201d).",
   "needs_backend": true,
   "page": "page.html",
-  "actions": ["platforms", "draft", "render", "validate", "suggest", "parse"]
+  "actions": [
+    "platforms",
+    "benchmarks",
+    "draft",
+    "render",
+    "validate",
+    "suggest",
+    "parse"
+  ]
 }

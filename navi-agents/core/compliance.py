@@ -13,6 +13,7 @@ navi schema quirks this module hides from the pages:
     audit↔vuln link is INFERRED by topic (keyword) overlap on the same asset.
 """
 import ast
+import re
 
 from core import db
 
@@ -71,11 +72,11 @@ def _cols(table, path=None):
 def parse_reference(s):
     """'[{'framework':'800-53','control':'CM-7'}, …]' -> [{framework,control}] (trimmed).
     navi stores leading spaces on some frameworks (' 800-53') — normalise them."""
-    if not s or not str(s).strip():
+    if not s or not str(s).strip() or len(str(s)) > 200_000:
         return []
     try:
         v = ast.literal_eval(str(s))
-    except (ValueError, SyntaxError):
+    except (ValueError, SyntaxError, TypeError, MemoryError, RecursionError):
         return []
     out = []
     if isinstance(v, (list, tuple)):
@@ -159,7 +160,8 @@ _CTRL_AGG = (
     " SUM(CASE WHEN upper(status) LIKE 'FAIL%' THEN 1 ELSE 0 END) AS failed, "
     " SUM(CASE WHEN upper(status) LIKE 'PASS%' THEN 1 ELSE 0 END) AS passed, "
     " SUM(CASE WHEN upper(status) LIKE 'WARN%' THEN 1 ELSE 0 END) AS warning, "
-    " COUNT(DISTINCT asset_uuid) AS assets "
+    " COUNT(DISTINCT asset_uuid) AS assets, "
+    " COUNT(DISTINCT CASE WHEN upper(status) LIKE 'FAIL%' THEN asset_uuid END) AS failed_assets "
     "FROM compliance GROUP BY check_id")
 
 
@@ -199,7 +201,8 @@ def overview(path=None):
         " SUM(CASE WHEN upper(status) LIKE 'FAIL%' THEN 1 ELSE 0 END) AS failed, "
         " SUM(CASE WHEN upper(status) LIKE 'PASS%' THEN 1 ELSE 0 END) AS passed, "
         " SUM(CASE WHEN upper(status) LIKE 'WARN%' THEN 1 ELSE 0 END) AS warning "
-        "FROM compliance GROUP BY asset_uuid ORDER BY failed DESC, warning DESC", path=path)]
+        "FROM compliance WHERE asset_uuid IS NOT NULL AND asset_uuid<>'' "
+        "GROUP BY asset_uuid ORDER BY failed DESC, warning DESC", path=path)]
     idents = _identities(path, [a["asset_uuid"] for a in arows])
     for a in arows:
         idn = idents.get(a["asset_uuid"], {})
@@ -214,8 +217,9 @@ def overview(path=None):
             "frameworks": frameworks, "audit_files": audit_files, "assets_rows": arows}
 
 
-def assets_list(path=None):
-    """Compliance assets, worst-first, for the deep-dive selector."""
+def assets_list(path=None, only=None):
+    """Compliance assets, worst-first, for the deep-dive selector. `only` = a set of
+    asset_uuids (a cohort) to keep."""
     st = status(path)
     if not st["ready"]:
         return []
@@ -223,7 +227,10 @@ def assets_list(path=None):
         "SELECT asset_uuid, COUNT(*) AS total, "
         " SUM(CASE WHEN upper(status) LIKE 'FAIL%' THEN 1 ELSE 0 END) AS failed, "
         " SUM(CASE WHEN upper(status) LIKE 'WARN%' THEN 1 ELSE 0 END) AS warning "
-        "FROM compliance GROUP BY asset_uuid ORDER BY failed DESC, warning DESC", path=path)
+        "FROM compliance WHERE asset_uuid IS NOT NULL AND asset_uuid<>'' "
+        "GROUP BY asset_uuid ORDER BY failed DESC, warning DESC", path=path)
+    if only is not None:
+        rows = [r for r in rows if r["asset_uuid"] in only]
     idents = _identities(path, [r["asset_uuid"] for r in rows])
     out = []
     for r in rows:
@@ -232,6 +239,64 @@ def assets_list(path=None):
                     "ip": idn.get("ip") or "", "failed": int(r["failed"] or 0),
                     "warning": int(r["warning"] or 0), "total": int(r["total"] or 0)})
     return out
+
+
+# --------------------------------------------------------------------------- #
+#  Cohorts — Minos links each widget to Tiresias with ?f=<cohort>; Tiresias narrows
+#  its asset list to it. "kind:key":
+#    st:failed | st:warning | st:clean   assets with ≥1 failed / warning check; or neither
+#    pct:lt50                            assets passing under half their checks
+#    check:<check_id>                    assets FAILING that control
+#    fw:<framework>                      assets failing a control mapped to that framework
+#    audit:<audit_file>                  assets failing a check in that audit file
+# --------------------------------------------------------------------------- #
+_FAILED = "upper(status) LIKE 'FAIL%'"
+
+
+def cohort(f, path=None):
+    """Resolve a cohort string → {f, kind, key, label, uuids:set} (None if unknown/empty)."""
+    f = str(f or "")
+    kind, _, key = f.partition(":")
+    kind = kind.strip()                       # the key is kept verbatim: navi ids/files may carry spaces
+    if not _table_exists("compliance", path):
+        return None
+
+    def _set(sql, args=()):
+        try:
+            return {r["asset_uuid"] for r in db.query(sql, args, path=path) if r.get("asset_uuid")}
+        except Exception:
+            return set()
+    per = ("SELECT asset_uuid, SUM(CASE WHEN upper(status) LIKE 'FAIL%' THEN 1 ELSE 0 END) f, "
+           "SUM(CASE WHEN upper(status) LIKE 'WARN%' THEN 1 ELSE 0 END) w, "
+           "SUM(CASE WHEN upper(status) LIKE 'PASS%' THEN 1 ELSE 0 END) p FROM compliance GROUP BY asset_uuid")
+    if kind == "st" and key in ("failed", "warning", "clean"):
+        cond = {"failed": "f > 0", "warning": "w > 0", "clean": "f = 0 AND w = 0"}[key]
+        label = {"failed": "Assets failing a check", "warning": "Assets with warnings",
+                 "clean": "Assets with no failures or warnings"}[key]
+        uu = _set("SELECT asset_uuid FROM (" + per + ") WHERE " + cond)
+    elif kind == "pct" and key == "lt50":
+        label = "Assets passing under 50% of their checks"
+        uu = _set("SELECT asset_uuid FROM (" + per + ") WHERE p + f > 0 AND 100.0 * p / (p + f) < 50")
+    elif kind == "check" and key:
+        name = db.scalar("SELECT check_name FROM compliance WHERE check_id=? LIMIT 1", (key,), path=path) or key
+        label = "Failing: " + re.sub(r"\s+", " ", str(name)).strip()
+        uu = _set("SELECT DISTINCT asset_uuid FROM compliance WHERE check_id=? AND " + _FAILED, (key,))
+    elif kind == "fw" and key:
+        label = "Framework · " + key
+        uu = set()
+        try:
+            for r in db.query("SELECT asset_uuid, reference FROM compliance WHERE " + _FAILED +
+                              " AND reference LIKE ?", ("%" + key + "%",), path=path):
+                if r.get("asset_uuid") and any(x["framework"] == key for x in parse_reference(r.get("reference"))):
+                    uu.add(r["asset_uuid"])
+        except Exception:
+            pass
+    elif kind == "audit":
+        label = "Failing in " + (key or "(no audit file)")
+        uu = _set("SELECT DISTINCT asset_uuid FROM compliance WHERE COALESCE(audit_file,'')=? AND " + _FAILED, (key,))
+    else:
+        return None
+    return {"f": f, "kind": kind, "key": key, "label": label, "uuids": uu}
 
 
 # --------------------------------------------------------------------------- #
@@ -313,7 +378,7 @@ def _correlate(checks, vulns):
     return out
 
 
-def asset_detail(path=None, asset_uuid=None):
+def asset_detail(path=None, asset_uuid=None, focus_check=None):
     st = status(path)
     if not st["ready"]:
         return {"available": False, "reason": "no compliance data in navi.db"}
@@ -366,7 +431,9 @@ def asset_detail(path=None, asset_uuid=None):
             "asset": {"uuid": asset_uuid, "hostname": idn.get("hostname") or "", "ip": idn.get("ip") or ""},
             "by_status": by_status, "total": len(checks),
             "pass_pct": round(100.0 * p / (p + f), 1) if (p + f) else None,
-            "checks": checks[:600], "checks_count": len(checks),
+            # the control a Minos link came from sorts first, so the 600-row cap never drops it
+            "checks": (sorted(checks, key=lambda c: c["check_id"] != focus_check) if focus_check else checks)[:600],
+            "checks_count": len(checks),
             "vulns_total": len(vulns), "vuln_severity": sev, "correlations": corr}
 
 
@@ -375,8 +442,8 @@ def asset_detail(path=None, asset_uuid=None):
 # --------------------------------------------------------------------------- #
 def control_targets(path=None, check_id=None, failed_only=True):
     """asset_uuids that FAIL (default) a given control — the assets an Audit Owner owns."""
-    cid = (check_id or "").strip()
-    if not cid:
+    cid = check_id or ""                      # verbatim: a check_id may carry spaces
+    if not cid.strip():
         return None
     cond = "check_id=?"
     if failed_only:
@@ -472,11 +539,13 @@ def framework_view(framework, path=None):
         cid = r.get("check_id")
         ca = checks.setdefault(cid, {"check_id": cid, "check_name": r.get("check_name") or cid,
                                      "controls": set(), "passed": 0, "failed": 0, "warning": 0,
-                                     "assets": set(), "audit_file": af, "solution": r.get("solution") or ""})
+                                     "assets": set(), "fassets": set(), "audit_file": af, "solution": r.get("solution") or ""})
         if st in ca:
             ca[st] += 1
         if u:
             ca["assets"].add(u)
+            if st == "failed":
+                ca["fassets"].add(u)
         for x in refs:
             if x.get("control"):
                 ca["controls"].add(x["control"])
@@ -496,7 +565,8 @@ def framework_view(framework, path=None):
         pf = ca["passed"] + ca["failed"]
         clist.append({"check_id": cid, "check_name": ca["check_name"], "controls": sorted(ca["controls"])[:8],
                       "passed": ca["passed"], "failed": ca["failed"], "warning": ca["warning"],
-                      "assets": len(ca["assets"]), "audit_file": ca["audit_file"], "solution": ca["solution"],
+                      "assets": len(ca["assets"]), "failed_assets": len(ca["fassets"]),
+                      "audit_file": ca["audit_file"], "solution": ca["solution"],
                       "pass_pct": round(100.0 * ca["passed"] / pf, 1) if pf else None})
     clist.sort(key=lambda c: (-(c["failed"]), -(c["warning"]), c["check_name"]))
 

@@ -60,12 +60,16 @@
 
   <!-- ===== AI mode ===== -->
   <section class="card" id="aiCard">
-    <h3 style="margin:0 0 2px;font-size:15px">✨ Describe the audit check or file you need</h3>
+    <h3 style="margin:0 0 2px;font-size:15px">✨ Ask — describe the audit check or file you need</h3>
     <p class="sub" style="margin:0 0 8px">Plain English. Draco maps it to valid check types for the platform and auto-attaches framework controls. Example: <i>"Ensure SSH disables root login and uses Protocol 2, and that /etc/shadow isn't world-readable."</i></p>
     <div class="fld"><textarea id="nl" class="nl" placeholder="Describe one check or a whole file of checks…"></textarea></div>
     <div class="row" style="margin-top:8px">
-      <button class="btn run" id="draftBtn">✨ Draft with Claude</button>
+      <button class="btn run" id="draftBtn" data-run>✨ Ask</button>
       <span class="sub" id="notes" style="flex:1"></span>
+    </div>
+    <div id="benchWrap" style="margin-top:10px;display:none">
+      <div class="sub" style="margin-bottom:5px">📜 <b>CIS benchmark library</b> — click to seed a whole benchmark, then add adjustments (e.g. <i>"…and set 5.12 read-only, drop 4.5, tighten 2.6"</i>):</div>
+      <div id="benchRow" style="display:flex;flex-wrap:wrap;gap:6px"></div>
     </div>
   </section>
 
@@ -121,6 +125,7 @@
 <script>
 const API=agentApi('custom_audit');
 let CATALOG=null, MODE='ai', LAST_AUDIT='';
+let BENCHES=[];
 let WORK={platform:'Unix', title:'Custom Audit', wrapper:null, group:undefined, checks:[]};
 let builderRefs=[];
 
@@ -143,12 +148,31 @@ async function init(){
   const res=(o.result||o);
   if(!res||!res.platforms){ flash('flash','✗ could not load the audit catalog: '+esc((o&&o.error)||'unknown'),'crit'); return; }
   CATALOG=res;
-  $('platform').innerHTML=CATALOG.platforms.map(p=>`<option value="${p.id}">${esc(p.label)}</option>`).join('');
+  $('platform').innerHTML=CATALOG.platforms.map(p=>`<option value="${esc(p.id)}">${esc(p.label)}</option>`).join('');
   $('rfw').innerHTML=(CATALOG.frameworks||[]).map(f=>`<option>${esc(f)}</option>`).join('');
   WORK.platform=CATALOG.platforms[0].id;
   $('platform').value=WORK.platform;
   buildTypeDropdown(); buildFields();
   render();
+  loadBenchmarks();
+}
+
+async function loadBenchmarks(){
+  let o; try{ o=await API.post('benchmarks'); }catch(e){ return; }
+  const list=((o.result||o).benchmarks)||[];
+  if(!list.length) return;
+  BENCHES=list;
+  $('benchRow').innerHTML=list.map((b,i)=>
+    '<button type="button" class="btn ghost sm benchchip" data-i="'+i+'" title="'+esc((b.version||'')+' · '+b.control_count+' controls')+'">'
+    +esc(b.name)+' <span class="sub">('+b.control_count+')</span></button>').join('');
+  $('benchRow').querySelectorAll('.benchchip').forEach(btn=>btn.onclick=()=>{
+    const b=BENCHES[+btn.dataset.i]; if(!b) return;
+    if(knownPlatform()!=='Unix' && !WORK.checks.length){ setPlatformSelect('Unix'); WORK.platform='Unix'; WORK.wrapper=null; WORK.group=undefined; buildTypeDropdown(); buildFields(); }
+    $('nl').value='Create a '+b.name+' benchmark';
+    $('nl').focus();
+    flash('flash','Seeded the prompt for '+esc(b.name)+' — add any per-control adjustments, then Draft with Claude. All '+b.control_count+' controls are grounded from the library.','ok');
+  });
+  $('benchWrap').style.display='block';
 }
 $('platform').onchange=()=>{
   if(WORK.checks.length && !confirm('Switch platform? Your current checks were written for '+(WORK.platform||'the uploaded file')+' and may not be valid for the new platform. Keep them anyway?')){ setPlatformSelect(WORK.platform, WORK.wrapper); return; }
@@ -168,7 +192,7 @@ $('modeSeg').querySelectorAll('button').forEach(b=>b.onclick=()=>{
 /* ---------- builder ---------- */
 function buildTypeDropdown(){
   const p=pdef();
-  $('ctype').innerHTML = p ? (p.types||[]).map(t=>`<option value="${t.type}">${t.type}</option>`).join('')
+  $('ctype').innerHTML = p ? (p.types||[]).map(t=>`<option value="${esc(t.type)}">${esc(t.type)}</option>`).join('')
                            : '<option value="">— custom wrapper —</option>';
 }
 $('ctype').onchange=buildFields;
@@ -181,9 +205,9 @@ function buildFields(){
   $('cfields').innerHTML=(t.fields||[]).map(f=>{
     const req=f.required?' <span class="req">*</span>':'';
     const ph=f.example?('e.g. '+f.example):'';
-    if(f.enum) return `<div class="fld"><label>${esc(f.label)}${req}</label><select data-k="${f.key}">`+
+    if(f.enum) return `<div class="fld"><label>${esc(f.label)}${req}</label><select data-k="${esc(f.key)}">`+
       f.enum.map(e=>`<option>${esc(e)}</option>`).join('')+`</select></div>`;
-    return `<div class="fld"><label>${esc(f.label)}${req}</label><input data-k="${f.key}" placeholder="${esc(ph)}"></div>`;
+    return `<div class="fld"><label>${esc(f.label)}${req}</label><input data-k="${esc(f.key)}" placeholder="${esc(ph)}"></div>`;
   }).join('');
 }
 // auto-suggest refs as the description is typed (debounced)
@@ -236,7 +260,18 @@ $('draftBtn').onclick=async()=>{
   (r.checks||[]).forEach(c=>WORK.checks.push({
     type:c.type, description:c.description||'', info:c.info||'', fields:c.fields||{},
     solution:c.solution||'', references:c.references||[]}));
-  $('notes').innerHTML=(r.checks?('✓ drafted '+r.checks.length+' check(s)'):'')+(r.notes?(' · '+esc(r.notes)):'');
+  if(r.benchmark){
+    const bm=r.benchmark;
+    let h='📜 <b>'+esc(bm.name)+'</b>'+(bm.version?(' <span class="mono">'+esc(bm.version)+'</span>'):'')
+        +' — drafted '+bm.drafted+' of '+bm.total_controls+' control(s)'
+        +(bm.scaffold?' · <b>scaffold</b> (set ANTHROPIC_API_KEY in Settings for full check logic + adjustments)':'');
+    if((r.applied||[]).length) h+='<br>✎ adjustments: '+r.applied.map(esc).join('; ');
+    if(bm.truncated && r.notes) h+='<br><span class="sub">'+esc(r.notes)+'</span>';
+    if(bm.note) h+='<br><span class="sub">ℹ '+esc(bm.note)+'</span>';
+    $('notes').innerHTML=h;
+  } else {
+    $('notes').innerHTML=(r.checks?('✓ drafted '+r.checks.length+' check(s)'):'')+(r.notes?(' · '+esc(r.notes)):'');
+  }
   render();
 };
 
@@ -316,7 +351,7 @@ async function loadAudit(text, fname){
   setPlatformSelect(WORK.platform, r.wrapper);
   buildTypeDropdown(); buildFields();
   const c=r.counts||{}, unk=c.unknown_types||[];
-  $('importNote').innerHTML='✓ imported <b>'+c.items+'</b> check(s)'+(c.raw?(' + '+c.raw+' preserved block(s)'):'')+
+  $('importNote').innerHTML='✓ imported <b>'+esc(c.items)+'</b> check(s)'+(c.raw?(' + '+esc(c.raw)+' preserved block(s)'):'')+
     (unk.length?(' · '+unk.length+' custom type(s) kept verbatim: '+esc(unk.slice(0,5).join(', '))):'')+
     ' — remove any with ✕, or add more below.';
   flashClear('flash'); render();

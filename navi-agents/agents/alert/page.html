@@ -21,7 +21,7 @@
   .switch.on{color:var(--ok);border-color:rgba(52,211,153,.5);background:rgba(52,211,153,.10)}
   .switch.off{color:var(--mut)}
 </style>
-</head><body>
+</head><body data-cache-inputs="off">
 <div class="wrap">
   <header class="top" id="app-header"></header>
   <section class="card" style="background:radial-gradient(120% 140% at 90% -20%,var(--amber-glow),transparent 60%),var(--panel)">
@@ -29,7 +29,7 @@
     <div class="toolbar" style="margin:0"><div><h2 style="margin:0">🚨 Alerting</h2>
       <p class="sub" style="margin:2px 0 0">Ravens ride with the wolf pack — scouting ahead and calling out where the danger is. <b>Alert Raven</b> watches <span class="mono">navi.db</span> for conditions worth an email. Alerts fire <b>on change</b> (once, until they clear), evaluation runs in the <a href="/agents/contract/page.html">AI Contract</a> loop, and delivery is a gated digest. Detection is read-only.</p></div>
       <span style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
-        <button class="btn run sm" id="evalBtn" title="Evaluate every enabled alert now — no email, just show what would fire">▶ Evaluate now</button>
+        <button class="btn run sm" id="evalBtn" title="Evaluate every enabled alert now — no email, just show what would fire">▶ Run</button>
         <button class="btn sm" id="sendBtn" title="Evaluate + email a digest of what newly fired (gated)">📧 Run &amp; send digest</button></span></div>
     <div id="flash" class="flash"></div>
     <div class="akpi" id="metrics" style="margin-top:8px"></div>
@@ -41,21 +41,22 @@
   </section>
 
   <section class="card">
+    <h2 style="margin:0 0 2px">✨ Ask — craft an alert</h2>
+    <p class="sub" style="margin:2px 0 6px">Describe it in plain English. Alert Raven searches the fields that <b>define an asset</b> — <b>tag category</b> &amp; <b>tag value</b>, and navi's <b>purpose-built tables</b>: <b>software</b>, <b>certs</b>, <b>routes</b>, <b>paths</b>, and <b>plugins</b> (which navi pre-parses from plugin output, so they're faster and cleaner than scanning raw output). Join conditions with <b>and</b> to intersect — only assets matching <i>all</i> of them count.</p>
+    <p class="sub" style="margin:0 0 8px">e.g. <i>"alert me on assets that have a MITRE and CISA KEV and EOL and NHI tag"</i> · <i>"assets running OpenSSL 1.0"</i> · <i>"certs signed with SHA-1"</i> · <i>"assets with a file under /opt/tomcat"</i> · <i>"critical when new CISA KEV appears"</i>. It drafts a read-only query you can <b>test before saving</b>; works without a key too.</p>
+    <div class="toolbar" style="margin:0;flex-wrap:wrap"><input id="craftQ" class="fld2" style="flex:1;min-width:280px" placeholder="alert me on assets that have…"><button class="btn run sm" id="craftBtn" data-run>✨ Ask</button></div>
+    <label class="sub" style="display:inline-flex;align-items:center;gap:6px;margin-top:8px"><input type="checkbox" id="craftOutput"> also search raw <span class="mono">plugin output</span> <span class="mut">— slower; only when the text isn't in software / certs / routes / paths</span></label>
+    <div id="editor" style="display:none;margin-top:12px"></div>
+    <div id="craftFlash" class="flash"></div>
+  </section>
+
+  <section class="card">
     <div class="toolbar" style="margin:0"><div><h2 style="margin:0">💡 Suggested patterns</h2>
       <p class="sub" style="margin:2px 0 0">Ready-to-add alerts, ranked by what's actually in your navi.db. Click <b>+ Add</b> to create one (then tune it below).</p></div>
       <button class="btn ghost sm" id="refreshSug" style="margin-left:auto">↻ Refresh</button></div>
     <div id="suggest" style="margin-top:8px"><p class="sub">Loading…</p></div>
   </section>
 
-  <section class="card">
-    <h2 style="margin:0 0 2px">✨ Craft an alert</h2>
-    <p class="sub" style="margin:2px 0 6px">Describe it in plain English. Alert Raven searches the fields that <b>define an asset</b> — <b>tag category</b> &amp; <b>tag value</b>, and navi's <b>purpose-built tables</b>: <b>software</b>, <b>certs</b>, <b>routes</b>, <b>paths</b>, and <b>plugins</b> (which navi pre-parses from plugin output, so they're faster and cleaner than scanning raw output). Join conditions with <b>and</b> to intersect — only assets matching <i>all</i> of them count.</p>
-    <p class="sub" style="margin:0 0 8px">e.g. <i>"alert me on assets that have a MITRE and CISA KEV and EOL and NHI tag"</i> · <i>"assets running OpenSSL 1.0"</i> · <i>"certs signed with SHA-1"</i> · <i>"assets with a file under /opt/tomcat"</i> · <i>"critical when new CISA KEV appears"</i>. It drafts a read-only query you can <b>test before saving</b>; works without a key too.</p>
-    <div class="toolbar" style="margin:0;flex-wrap:wrap"><input id="craftQ" class="fld2" style="flex:1;min-width:280px" placeholder="alert me on assets that have…"><button class="btn run sm" id="craftBtn">✨ Draft</button></div>
-    <label class="sub" style="display:inline-flex;align-items:center;gap:6px;margin-top:8px"><input type="checkbox" id="craftOutput"> also search raw <span class="mono">plugin output</span> <span class="mut">— slower; only when the text isn't in software / certs / routes / paths</span></label>
-    <div id="editor" style="display:none;margin-top:12px"></div>
-    <div id="craftFlash" class="flash"></div>
-  </section>
 
   <section class="card">
     <div class="toolbar" style="margin:0"><h2 style="margin:0">🐾 Your alerts <span class="chip" id="alertCount"></span></h2></div>
@@ -107,6 +108,7 @@ function renderMetrics(m){
     +stat(m.firing_now||0,'firing now',(m.firing_now?'var(--cx-f43f5e)':''))
     +stat(m.fired_7d||0,'fired · 7d')+stat(m.fired_30d||0,'fired · 30d')
     +stat((bs.critical||0),'critical','var(--cx-f43f5e)')+stat((bs.warning||0),'warning','var(--cx-e7c66b)');
+  ALERT_TO=m.recipient||'';
   const de=document.getElementById('defEmail'); if(de && document.activeElement!==de) de.value=m.recipient||'';
   document.getElementById('emailNote').innerHTML = m.email_enabled
     ? '<span style="color:var(--ok)">✓ email enabled (NAVI_EMAIL)</span>'
@@ -120,7 +122,7 @@ function renderSuggest(list){
   box.innerHTML=list.map(s=>{
     const badge=s.count?('<span class="chip">'+s.count+' '+esc(s.count_label||'')+'</span>'):'';
     const add=s.already_added?'<span class="switch off">added</span>':'<button class="btn run sm" data-add="'+esc(s.template)+'">+ Add</button>';
-    return '<div class="acard"'+(s.relevant?'':' style="opacity:.6"')+'><div class="top"><span class="sev '+s.severity+'">'+s.severity+'</span><b>'+esc(s.name)+'</b>'+badge+'<span style="margin-left:auto">'+add+'</span></div>'
+    return '<div class="acard"'+(s.relevant?'':' style="opacity:.6"')+'><div class="top"><span class="sev '+esc(s.severity)+'">'+esc(s.severity)+'</span><b>'+esc(s.name)+'</b>'+badge+'<span style="margin-left:auto">'+add+'</span></div>'
       +'<p class="sub" style="margin:6px 0 0">'+esc(s.desc)+'</p></div>';
   }).join('');
   box.querySelectorAll('[data-add]').forEach(b=>b.onclick=async()=>{ b.disabled=true; b.textContent='adding…';
@@ -135,7 +137,7 @@ function renderAlerts(list){
     const cond=a.op+' '+a.threshold+(a.unit&&a.op.indexOf('pct')<0?(' '+a.unit):'');
     const src=a.source==='builtin'?('builtin: '+esc(a.builtin||'')):'sql';
     return '<div class="arow"><span class="switch '+(a.enabled?'on':'off')+'" data-tog="'+esc(a.id)+'" data-en="'+(a.enabled?'0':'1')+'">'+(a.enabled?'● on':'○ off')+'</span>'
-      +'<span class="sev '+(a.severity||'warning')+'">'+(a.severity||'warning')+'</span>'
+      +'<span class="sev '+esc(a.severity||'warning')+'">'+esc(a.severity||'warning')+'</span>'
       +'<b>'+esc(a.name||'(unnamed)')+'</b> <span class="sub mono">'+esc(cond)+'</span> <span class="sub">· '+src+'</span>'
       +'<span style="margin-left:auto;display:flex;gap:6px"><button class="btn ghost sm" data-test="'+esc(a.id)+'" title="Dry-run: evaluate now, show what would fire — no email">🔎 Test</button>'
       +'<button class="btn ghost sm" data-mail="'+esc(a.id)+'" title="Send a real test email for this alert now — confirms delivery works (gated by NAVI_EMAIL)">📧 Test email</button>'
@@ -150,11 +152,16 @@ function renderAlerts(list){
   box.querySelectorAll('[data-edit]').forEach(b=>b.onclick=()=>{ const a=list.find(x=>x.id===b.dataset.edit); if(a){ DRAFT=Object.assign({},a); renderEditor(); document.getElementById('editor').scrollIntoView({behavior:'smooth',block:'center'}); } });
 }
 
+let ALERT_TO='';   // the configured default alert recipient (metrics.recipient)
+function _alertTo(){ return ALERT_TO||'the configured alert recipient (NAVI_ALERT_EMAIL / NAVI_EMAIL_TO)'; }
 async function sendTestEmail(id,el,btn){
+  if(!confirm('Send a REAL test email for this alert to '+_alertTo()+'?')) return;
   if(btn){btn.disabled=true;}
   el.innerHTML='<span class="spin"></span> sending a test email…';
-  const r=await API.post('send_test',{id}); const t=(r&&r.result)||{};
+  let r; try{ r=await API.post('send_test',{id, confirm:true}); }catch(e){ r={ok:false,error:e.message}; }
   if(btn){btn.disabled=false;}
+  if(r&&r.ok===false&&r.error&&!r.result){ el.innerHTML='<div class="callbox" style="margin-top:2px;color:var(--crit)">✗ Not sent — '+esc(r.error)+'</div>'; return; }
+  const t=(r&&r.result)||{};
   if(t.ok){
     el.innerHTML='<div class="callbox" style="margin-top:2px;color:var(--ok)">✉ Test email sent to <b>'+esc(t.recipient||'')+'</b>. Check that inbox to confirm delivery.'+(t.would_fire?' <span class="sub">(this alert currently would fire)</span>':' <span class="sub">(sent even though it isn\'t firing right now — it\'s a delivery test)</span>')+'</div>';
   } else {
@@ -222,8 +229,9 @@ document.getElementById('sendBtn').onclick=()=>runEval(true);
 async function runEval(send){
   const btn=document.getElementById(send?'sendBtn':'evalBtn'); btn.disabled=true;
   flash('flash','<span class="spin"></span> evaluating all enabled alerts…','run');
-  const r=await API.post('evaluate',{send:send}); btn.disabled=false;
-  if(!r||!r.ok){ flash('flash','✗ evaluation failed','crit'); return; }
+  if(send && !confirm('Evaluate every enabled alert and EMAIL a digest of what newly fired to '+_alertTo()+'? This is a real send.')){ btn.disabled=false; flashClear('flash'); return; }
+  let r; try{ r=await API.post('evaluate',send?{send:true,confirm:true}:{send:false}); }catch(e){ r={ok:false,error:e.message}; } btn.disabled=false;
+  if(!r||!r.ok){ flash('flash','✗ '+esc((r&&r.error)||'evaluation failed'),'crit'); return; }
   const nf=r.newly_fired||[], still=r.still_firing||[];
   let msg='Evaluated '+((r.evaluated||[]).length)+' alert(s) · <b>'+nf.length+' newly fired</b>'+(still.length?(' · '+still.length+' still firing'):'');
   if(send){ const s=r.sent; msg+= s&&s.ok ? ' · <span style="color:var(--ok)">✉ digest sent to '+esc(r.recipient||'')+'</span>'
@@ -236,6 +244,7 @@ async function runEval(send){
 document.getElementById('saveEmail').onclick=async()=>{
   const v=(document.getElementById('defEmail').value||'').trim();
   const r=await SET.post('set_env',{env:{NAVI_ALERT_EMAIL:v}}).catch(()=>null);
+  if(r&&(r.ok===false||r.warning)&&!(r.applied||[]).includes('NAVI_ALERT_EMAIL')){ flash('flash','✗ '+esc(r.warning||r.error||'not saved'),'crit'); return; }
   if(r){ flash('flash','✓ default alert email '+(v?('set to <b>'+esc(v)+'</b>'):'cleared')+'.','ok'); load(); }
   else flash('flash','✗ could not save (Settings service unavailable)','crit');
 };

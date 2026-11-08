@@ -73,7 +73,7 @@ async function loadRuns(){
   hPaginate('tbl', jobs, j=>{
     const st=j.status, col=st==='done'?'var(--ok)':st==='error'?'var(--crit)':st==='running'?'var(--accent)':'var(--mut)';
     const msg=(st==='running')?'<span class="spin"></span> running…':(st==='queued'?'waiting…':esc((j.message||'').slice(0,120)));
-    return `<tr data-jid="${j.id}" style="cursor:pointer"><td class="mono">${j.id}</td><td><span class="chip" style="color:${col}">${esc(st)}</span></td><td>${esc(j.agent)}</td><td class="mono">${esc(j.label||j.action)}</td><td>${msg}</td><td class="mono">${fmtElapsed(j)}</td></tr>`
+    return `<tr data-jid="${esc(j.id)}" style="cursor:pointer"><td class="mono">${j.id}</td><td><span class="chip" style="color:${col}">${esc(st)}</span></td><td>${esc(j.agent)}</td><td class="mono">${esc(j.label||j.action)}</td><td>${msg}</td><td class="mono">${fmtElapsed(j)}</td></tr>`
       +`<tr id="qd-${j.id}" style="display:none"><td colspan="6"><div id="qdbox-${j.id}" class="callbox"><span class="sub">click to load queries…</span></div></td></tr>`;
   }, {cols:6, empty:'<tr><td colspan="6" class="sub">No agent runs yet — run any agent and it appears here.</td></tr>',
      wire:tb=>{ tb.querySelectorAll('tr[data-jid]').forEach(r=>r.onclick=()=>toggleQueries(r.dataset.jid)); }});

@@ -11,7 +11,12 @@
     "run",
     "apply",
     "bulk_apply",
-    "interpret"
+    "interpret",
+    "preview",
+    "metrics",
+    "log",
+    "log_export",
+    "protect"
   ],
   "codename": "Anubis"
 }

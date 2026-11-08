@@ -3,21 +3,51 @@
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>MITRE ATT&CK Tagging · Navi Agents</title>
 <link rel="stylesheet" href="/static/console.css"/>
-<style>.plink{color:var(--accent);text-decoration:none}.plink:hover{text-decoration:underline}</style>
+<style>.plink{color:var(--accent);text-decoration:none}.plink:hover{text-decoration:underline}
+/* metrics */
+.mkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:12px}
+.mk{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--panel-2)}
+.mk .v{font-size:22px;font-weight:800;color:var(--ink);line-height:1.1}.mk .l{font-size:11.5px;color:var(--mut);margin-top:2px}
+.mk .u{font-size:11.5px;color:var(--ink-2,var(--ink));margin-top:4px}.mk .u b{color:var(--accent)}
+.mk.role{cursor:pointer;border-left:4px solid var(--rc,var(--line))}.mk.role:hover{border-color:var(--accent)}
+.mk.role.on{box-shadow:0 0 0 2px var(--accent)}
+.mhead{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 0}
+/* role colours */
+:root{--r-p:#e5484d;--r-s:#f5a524;--r-e:#7c5cff;--r-t:#8b95a7}
+.rdot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:3px;vertical-align:1px}
+/* ATT&CK matrix */
+.mxbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:6px 0 10px}
+.mx{display:flex;gap:8px;overflow-x:auto;padding-bottom:6px}
+.mx-col{flex:1 0 150px;min-width:150px;max-width:220px;max-height:560px;overflow-y:auto;padding-right:2px}
+.mx-h{font-size:11.5px;font-weight:700;padding:6px 8px;border-radius:8px;background:var(--panel-2);border:1px solid var(--line);margin-bottom:6px;position:sticky;top:0}
+.mx-h .n{float:right;color:var(--accent)}.mx-col.empty .mx-h{opacity:.45}
+.mx-cell{display:block;width:100%;text-align:left;border:1px solid var(--line);border-radius:7px;padding:4px 7px;margin-bottom:4px;cursor:pointer;color:var(--ink);
+  background:color-mix(in srgb, var(--accent) calc(var(--heat,0) * 55%), var(--panel-2))}
+.mx-cell:hover{border-color:var(--accent)}.mx-cell.on{box-shadow:0 0 0 2px var(--accent)}
+.mx-cell .id{display:flex;justify-content:space-between;align-items:center;font-weight:700;font-size:11.5px}
+.mx-cell .id .c{font-weight:600;font-size:10.5px;color:var(--ink-2,var(--mut))}
+.mx-cell .nm{font-size:11px;line-height:1.2;margin-top:1px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.mx-cell.sub{margin-left:10px;width:calc(100% - 10px)}
+.mx-cell a{color:inherit;text-decoration:none;opacity:.7}.mx-cell a:hover{opacity:1}
+.fchip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--accent);color:var(--accent);border-radius:999px;padding:3px 10px;font-size:12px}
+.fchip button{border:0;background:transparent;color:inherit;cursor:pointer;font-size:13px;padding:0}
+.tnames{font-size:11px;color:var(--mut);margin-top:2px}
+</style>
 </head><body>
 <div class="wrap">
   <header class="top" id="app-header"></header>
   <section class="card">
     <div class="toolbar"><div><h2 style="margin:0">MITRE ATT&CK tagging</h2>
-      <p class="sub" style="margin:2px 0 0">Follows the navi <span class="mono">tag-by-cve</span> recipe: fetch the live ATT&amp;CK→CVE mapping, then tag each CVE with its <b>Primary / Secondary Impact</b> and <b>Exploit Technique</b> via navi's tag-by-CVE function. Writes are gated.</p></div>
-      <button class="btn run sm" id="run" style="margin-left:auto">▶ Start</button></div>
+      <p class="sub" style="margin:2px 0 0">Tags <b>assets</b> with the ATT&amp;CK impact of the vulnerabilities they carry. It fetches the ATT&amp;CK→CVE mapping, finds the assets in navi.db whose findings cite each mapped CVE, and tags those assets <span class="tagval">Mitre : Primary Impact / Secondary Impact / Exploit Technique</span>. The CVE is only the selector (navi <span class="mono">tag-by-CVE</span>); the tag lands on the assets. Writes are gated.</p></div>
+      <button class="btn run sm" id="run" data-run style="margin-left:auto">▶ Run</button></div>
     <div id="flash" class="flash"></div>
+    <p class="sub" id="dlNote" style="display:none;margin:6px 0 0"></p>
     <div id="approve" class="card" style="background:var(--panel2);display:none">
       <b style="font-size:12.5px">Human approval — external download</b>
-      <p class="sub" style="margin:6px 0">This agent fetches the live <b>ATT&amp;CK→CVE</b> mapping from an external source before tagging. Review and approve.</p>
+      <p class="sub" style="margin:6px 0">This agent fetches the live <b>ATT&amp;CK→CVE</b> mapping from an external source before tagging any assets. Review and approve.</p>
       <div class="callbox" id="srcUrl"></div>
       <div class="callbox" id="srcAssess" style="margin-top:6px">…</div>
-      <div class="toolbar" style="margin-top:10px"><button class="btn run sm" id="approveBtn">✓ Approve &amp; download</button><button class="btn ghost sm" id="cancelBtn">Cancel</button></div>
+      <div class="toolbar" style="margin-top:10px"><button class="btn run sm" id="approveBtn" data-run>✓ Approve &amp; download</button><button class="btn ghost sm" id="cancelBtn">Cancel</button></div>
     </div>
     <div class="toolbar">
       <div class="filterbtns" id="scope"><button data-s="navidb" class="on">CVEs in navi.db</button><button data-s="all">Full mapping</button></div>
@@ -25,100 +55,207 @@
       <a class="btn ghost sm" id="dlCsv" href="#" target="_blank" rel="noopener">⬇ Download official CSV ↗</a>
       <span class="chip" id="counts"></span>
     </div>
-    <div class="kpi" id="kpi"></div>
+    <div id="metrics"><div class="setupcard"><div class="big">Press ▶ Run</div><p class="sub">Approve the ATT&amp;CK→CVE download to see how many assets would be tagged, by impact type and technique.</p></div></div>
   </section>
-  <section class="card">
-    <h2>Planned MITRE tags <span class="sub" id="planCount"></span></h2>
-    <p class="sub">Each row = one <span class="tagval">Mitre : &lt;impact/technique&gt;</span> applied to every asset whose findings cite that CVE (navi tag-by-CVE). Approve, then apply.</p>
-    <div class="toolbar"><button class="btn sm" id="approveAll">Approve all</button><button class="btn ghost sm" id="reset">Reset</button>
-      <button class="btn run sm" id="apply" style="margin-left:auto" disabled>▶ Apply tags (gated)</button><span class="chip" id="apprCount"></span></div>
-    <table id="tbl"><thead><tr><th>CVE</th><th>Category</th><th>Tag value</th><th>Status</th><th></th></tr></thead>
+
+  <section class="card" id="secMatrix" data-nav="ATT&CK matrix" data-nav-icon="🗺">
+    <h2>ATT&amp;CK matrix <span class="sub" id="mxCount"></span></h2>
+    <p class="sub">The ATT&amp;CK techniques behind the planned tags, placed under their tactics. Shade = how many <b>assets</b> would carry the technique (CVEs in navi.db) or how many CVEs map to it (Full mapping). The number on each technique is that count. Dots show the tag type: <span class="rdot" style="background:var(--r-p)"></span>Primary impact <span class="rdot" style="background:var(--r-s)"></span>Secondary impact <span class="rdot" style="background:var(--r-e)"></span>Exploit technique <span class="rdot" style="background:var(--r-t)"></span>Technique (uncategorized). Click a technique to filter the planned tags.</p>
+    <div class="mxbar"><label class="sub"><input type="checkbox" id="mxEmpty"> show tactics with no hits</label><span class="sub" id="mxSrc"></span></div>
+    <div class="mx" id="mx"><div class="sub">Run to load…</div></div>
+  </section>
+
+  <section class="card" id="secPlan" data-nav="Planned asset tags" data-nav-icon="🏷️">
+    <h2>Planned asset tags <span class="sub" id="planCount"></span></h2>
+    <p class="sub">Each row tags <b>the assets whose findings cite the CVE</b> with one <span class="tagval">Mitre : &lt;value&gt;</span>. The CVE only picks the assets (navi tag-by-CVE). Approve, then apply.</p>
+    <div class="toolbar"><span id="filt"></span><button class="btn sm" id="approveAll" title="Approve every planned row (all pages, ignoring the filter)">Approve all</button><button class="btn ghost sm" id="reset">Reset</button>
+      <button class="btn run sm" id="apply" style="margin-left:auto" disabled>🏷️ Tag assets</button><span class="chip" id="apprCount"></span></div>
+    <table id="tbl"><thead><tr><th>CVE (selector)</th><th>Assets</th><th>Tag applied to those assets</th><th>Status</th><th></th></tr></thead>
       <tbody><tr><td colspan="5" class="sub">Build the plan to load…</td></tr></tbody></table>
     <div id="res"></div>
   </section>
-  <section class="card">
+
+  <section class="card" id="secHigh" data-nav="High-risk assets (ACR > 7)" data-nav-icon="🔥">
     <h2>High-risk assets (ACR &gt; 7) with ATT&amp;CK-mapped CVEs <span class="sub" id="highCount"></span></h2>
     <p class="sub">The crown-jewel assets behind the “MITRE techniques on assets (ACR &gt; 7)” insight.</p>
     <table id="highTbl"><thead><tr><th>Host</th><th>IP</th><th>ACR</th><th>Mapped CVEs</th></tr></thead>
       <tbody><tr><td colspan="4" class="sub">Build the plan to load…</td></tr></tbody></table>
   </section>
-  <footer>MITRE ATT&CK Tagging · live ATT&amp;CK→CVE CSV · gated <span class="mono">navi enrich tag --cve</span></footer>
+  <footer>MITRE ATT&CK Tagging · live ATT&amp;CK→CVE CSV · ATT&amp;CK technique data from mitre/cti · gated <span class="mono">navi enrich tag --cve</span> (tags the assets that have the CVE)</footer>
 </div>
 <script src="/static/console.js"></script>
 <script>
-const API=agentApi('mitre');
+const API=agentApi('mitre'); let WRITES=false; jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});
 let PLAN=null, scope='navidb', appr=JSON.parse(localStorage.getItem('mitreAppr')||'{}');
 const save=()=>localStorage.setItem('mitreAppr',JSON.stringify(appr));
 const key=a=>a.cve+'|'+a.value;
 const CSV_URL='https://raw.githubusercontent.com/center-for-threat-informed-defense/attack_to_cve/master/Att%26ckToCveMappings.csv';
+const ROLE_COLOR={'Primary Impact':'var(--r-p)','Secondary Impact':'var(--r-s)','Exploit Technique':'var(--r-e)','Technique':'var(--r-t)'};
+const ROLE_LABEL={'Primary Impact':'Primary impact','Secondary Impact':'Secondary impact','Exploit Technique':'Exploit technique','Technique':'Technique (uncategorized)'};
+let FILTER={role:null, tech:null};
+let TECH={};          // resolved technique id → info (names for the plan table)
 let uploadText='';
+let APPROVED=false;   // external download approved — ✓ Approve, or Settings → Auto-approve downloads
+const N=v=>(v==null?0:v).toLocaleString();
+const atkUrl=id=>esc('https://attack.mitre.org/techniques/'+String(id||'').split('.').map(encodeURIComponent).join('/')+'/');
+
 async function run(){
   document.getElementById('run').disabled=true;
-  flash('flash','<span class="spin"></span> '+(uploadText?'parsing uploaded CSV':'loading ATT&CK→CVE mapping')+' & building plan…','run');
-  let o; try{ o=await API.post('run',{scope,csv_text:uploadText}); }catch(e){ o={ok:false,error:e.message}; }
+  flash('flash','<span class="spin"></span> '+(uploadText?'parsing uploaded CSV':'loading ATT&CK→CVE mapping')+' &amp; finding the affected assets…','run');
+  let o; try{ o=await API.post('run',{scope,csv_text:uploadText,approved:APPROVED}); }catch(e){ o={ok:false,error:e.message}; }
   document.getElementById('run').disabled=false;
-  if(!o.ok){ flash('flash','✗ '+(o.error||'failed'),'crit'); return; }
-  PLAN=o.result; flashClear('flash'); await loadAppliedTags(); render();
+  if(!o.ok){ flash('flash','✗ '+esc(o.error||'failed'),'crit'); return; }
+  PLAN=o.result; TECH={}; (PLAN.techniques||[]).forEach(t=>{ TECH[t.id]=t; (t.raw_ids||[]).forEach(r=>TECH[r]=t); });
+  FILTER={role:null,tech:null}; hPageReset('tbl'); hPageReset('highTbl');   // a fresh plan starts on page 1
+  flashClear('flash'); await loadAppliedTags(); render();
+}
+
+function renderMetrics(){
+  // shade/count the matrix by assets for navi.db scope; by CVEs for the full mapping (few of those sit on assets)
+  const m=PLAN.metrics||{}, byAssets=scope==='navidb' && (m.assets_affected||0)>0;
+  const src={live:'● live download',bundled:'◆ baked snapshot',upload:'⬆ your upload',unavailable:'✗ no source'}[PLAN.mapping_source]||PLAN.mapping_source||'';
+  document.getElementById('counts').textContent=`${N(PLAN.csv_rows)} CSV rows · ${N(PLAN.navi_cves)} CVEs in navi.db · ${src}`;
+  const k=(v,l,u,t)=>`<div class="mk"${t?` title="${esc(t)}"`:''}><div class="v">${v}</div><div class="l">${l}</div>${u?`<div class="u">${u}</div>`:''}</div>`;
+  let h='<div class="mkpi">'+
+    k(N(m.assets_affected),'assets to tag','', 'distinct assets in navi.db whose findings cite a mapped CVE — the tags land on these')+
+    k(N(m.cves_mapped),'CVEs used as selectors', scope==='navidb'?'present in navi.db':'full mapping')+
+    k(N(m.tag_pairs),'tags planned', m.unique_tag_values!==m.tag_pairs?`<b>${N(m.unique_tag_values)}</b> unique tag values`:'', 'one row per CVE × tag value')+
+    k(N(m.unique_techniques),'ATT&CK techniques', '', 'distinct techniques across every tag type (multi-technique values split; retired ids followed to their replacement)')+
+    k(`${N(m.tactics_hit)}<span class="sub" style="font-size:13px">/${N(m.tactics_total)}</span>`,'tactics hit')+
+    '</div><div class="mhead">By tag type — click to filter the planned tags</div><div class="mkpi">';
+  (m.roles||[]).forEach(r=>{
+    const uniq=[];
+    if(r.unique_techniques!==r.tags) uniq.push(`<b>${N(r.unique_techniques)}</b> unique technique${r.unique_techniques===1?'':'s'}`);
+    if(r.unique_values!==r.tags && r.unique_values!==r.unique_techniques) uniq.push(`<b>${N(r.unique_values)}</b> unique values`);
+    uniq.push(`${N(r.assets)} asset${r.assets===1?'':'s'}`);
+    h+=`<div class="mk role${FILTER.role===r.role?' on':''}" data-role="${esc(r.role)}" style="--rc:${ROLE_COLOR[r.role]}" title="${esc(N(r.tags)+' tags across '+N(r.cves)+' CVEs')}">`+
+       `<div class="v">${N(r.tags)}</div><div class="l">${esc(ROLE_LABEL[r.role]||r.role)} tags</div><div class="u">${uniq.join(' · ')}</div></div>`;
+  });
+  if(!(m.roles||[]).length) h+='<div class="sub">No ATT&amp;CK-mapped CVEs found — try Full mapping, or sync navi.db.</div>';
+  document.getElementById('metrics').innerHTML=h+'</div>';
+  document.querySelectorAll('#metrics .mk.role').forEach(c=>c.onclick=()=>{ FILTER.role=FILTER.role===c.dataset.role?null:c.dataset.role; hPageReset('tbl'); render();
+    if(FILTER.role) document.getElementById('secPlan').scrollIntoView({behavior:'smooth',block:'start'}); });
+  return byAssets;
+}
+
+function renderMatrix(byAssets){
+  const tactics=(PLAN.attack&&PLAN.attack.tactics)||[], techs=PLAN.techniques||[];
+  const showEmpty=document.getElementById('mxEmpty').checked;
+  const metric=t=>byAssets?t.assets:t.cves;
+  const max=Math.max(1,...techs.map(metric));
+  const cols=tactics.map(tc=>({name:tc.name, items:techs.filter(t=>t.domain==='enterprise' && t.tactics.includes(tc.short))}));
+  const other=techs.filter(t=>t.domain!=='enterprise' || !t.tactics.length);
+  if(other.length) cols.push({name:'ICS / Mobile / other', items:other});
+  const cell=(t,parentShown)=>{
+    const isSub=t.id.includes('.') && parentShown;
+    const dots=Object.keys(t.roles).map(r=>`<span class="rdot" title="${esc((ROLE_LABEL[r]||r)+': '+t.roles[r])}" style="background:${ROLE_COLOR[r]}"></span>`).join('');
+    const tip=`${t.id} ${t.name}${t.parent_name&&t.id.includes('.')?' (sub-technique of '+t.parent+' '+t.parent_name+')':''}\n${N(t.assets)} asset(s) · ${N(t.cves)} CVE(s)\n`+
+      Object.keys(t.roles).map(r=>(ROLE_LABEL[r]||r)+': '+t.roles[r]).join(' · ')+(t.revoked_from?`\n(mapping uses retired id ${t.revoked_from})`:'');
+    return `<button class="mx-cell${isSub?' sub':''}${FILTER.tech===t.id?' on':''}" data-t="${esc(t.id)}" style="--heat:${Math.sqrt(metric(t)/max).toFixed(3)}" title="${esc(tip)}">`+
+      `<div class="id"><span>${esc(t.id)} <a href="${atkUrl(t.id)}" target="_blank" rel="noopener" title="Open on attack.mitre.org">↗</a> ${dots}</span><span class="c">${N(metric(t))}</span></div>`+
+      `<div class="nm">${esc(t.name||'(unknown technique)')}</div></button>`;
+  };
+  // keep sub-techniques directly under their parent
+  const order=items=>{ const byP={}; items.forEach(t=>(byP[t.parent]=byP[t.parent]||[]).push(t));
+    return Object.values(byP).sort((a,b)=>Math.max(...b.map(metric))-Math.max(...a.map(metric))).flatMap(g=>g.sort((x,y)=>(x.id===x.parent?-1:y.id===y.parent?1:x.id.localeCompare(y.id)))); };
+  const html=cols.filter(c=>showEmpty||c.items.length).map(c=>`<div class="mx-col${c.items.length?'':' empty'}"><div class="mx-h">${esc(c.name)}<span class="n">${c.items.length||''}</span></div>${(()=>{ const ids=new Set(c.items.map(x=>x.id)); return order(c.items).map(t=>cell(t, ids.has(t.parent))).join(''); })()}</div>`).join('');
+  document.getElementById('mx').innerHTML=html||'<div class="sub">No ATT&amp;CK techniques in this plan.</div>';
+  const hit=cols.filter(c=>c.items.length && c.name!=='ICS / Mobile / other').length;
+  document.getElementById('mxCount').textContent=`(${N(techs.length)} techniques · ${hit} tactic${hit===1?'':'s'})`;
+  document.getElementById('mxSrc').textContent=`shaded by ${byAssets?'assets':'CVEs'} · ATT&CK data ${String((PLAN.attack||{}).modified||'').slice(0,10)}`;
+  document.querySelectorAll('#mx .mx-cell').forEach(b=>b.onclick=e=>{ if(e.target.closest('a')) return;
+    FILTER.tech=FILTER.tech===b.dataset.t?null:b.dataset.t; hPageReset('tbl'); render();
+    if(FILTER.tech) document.getElementById('secPlan').scrollIntoView({behavior:'smooth',block:'start'}); });
+  setNavCount('secMatrix', N(techs.length));
+}
+
+function techNames(a){
+  return (a.techniques||[]).map(t=>{ const i=TECH[t]; return i?`${t}${i.id!==t?' → '+i.id:''} ${i.name}`:t; }).join(' · ');
+}
+function filtered(){
+  let acts=PLAN.actions;
+  if(FILTER.role) acts=acts.filter(a=>a.role===FILTER.role);
+  if(FILTER.tech) acts=acts.filter(a=>(a.techniques||[]).some(t=>(TECH[t]||{}).id===FILTER.tech||t===FILTER.tech));
+  return acts;
 }
 function render(){
   if(!PLAN)return;
-  const src={live:'● live download',bundled:'◆ baked snapshot',upload:'⬆ your upload',unavailable:'✗ no source'}[PLAN.mapping_source]||PLAN.mapping_source||'';
-  document.getElementById('counts').textContent=`${PLAN.csv_rows} CSV rows · ${PLAN.navi_cves} CVEs in navi.db · ${PLAN.matched_cves} matched · ${src}`;
-  document.getElementById('kpi').innerHTML=
-    `<div class="k"><div class="v">${PLAN.matched_cves}</div><div class="l">CVEs to tag</div></div>`+
-    `<div class="k"><div class="v">${PLAN.actions.length}</div><div class="l">tag writes</div></div>`+
-    `<div class="k"><div class="v">${PLAN.navi_cves}</div><div class="l">CVEs in navi.db</div></div>`;
-  const tb=document.querySelector('#tbl tbody'); const acts=PLAN.actions;
-  document.getElementById('planCount').textContent=`(${acts.length})`;
-  tb.innerHTML=acts.length?acts.slice(0,500).map(a=>{const B=tagBadge(a.category||'Mitre',a.value,appr[key(a)]);const bc=B.cls;const bl=B.label;
-    return `<tr><td class="mono"><a class="plink" href="https://nvd.nist.gov/vuln/detail/${esc(a.cve)}" target="_blank" rel="noopener">${esc(a.cve)}</a></td><td>${esc(a.category)}</td><td><span class="tagval">${esc(a.value)}</span></td>
-      <td><span class="badge ${bc}">${bl}</span></td><td>${B.done?'':`<button class="btn sm" data-k="${esc(key(a))}">${appr[key(a)]==='approved'?'Un-approve':'Approve'}</button>`}</td></tr>`;}).join(''):'<tr><td colspan="5" class="sub">No matching CVEs. Try the full mapping, or sync navi.db.</td></tr>';
-  if(acts.length>500) tb.innerHTML+=`<tr><td colspan="5" class="sub">… and ${acts.length-500} more (apply works on all approved).</td></tr>`;
-  tb.querySelectorAll('button[data-k]').forEach(b=>b.onclick=()=>{const k=b.dataset.k;appr[k]=appr[k]==='approved'?'pending':'approved';save();render();});
-  const n=acts.filter(a=>appr[key(a)]==='approved').length;
-  document.getElementById('apprCount').textContent=`${n} approved / ${acts.length}`;
+  const byAssets=renderMetrics();
+  renderMatrix(byAssets);
+  const acts=filtered();
+  const f=[]; if(FILTER.role) f.push(['role',ROLE_LABEL[FILTER.role]||FILTER.role]); if(FILTER.tech) f.push(['tech',FILTER.tech+' '+((TECH[FILTER.tech]||{}).name||'')]);
+  document.getElementById('filt').innerHTML=f.map(([k,l])=>`<span class="fchip">Filtered: ${esc(l)}<button data-clear="${k}" title="Clear">✕</button></span>`).join(' ');
+  document.querySelectorAll('#filt [data-clear]').forEach(b=>b.onclick=()=>{ FILTER[b.dataset.clear]=null; hPageReset('tbl'); render(); });
+  document.getElementById('planCount').textContent=acts.length===PLAN.actions.length?`(${N(acts.length)})`:`(${N(acts.length)} of ${N(PLAN.actions.length)})`;
+  setNavCount('secPlan', N(PLAN.actions.length));
+  // paginated — 20 rows by default, Rows selector up to 50 (apply works on every approved row, any page)
+  hPaginate('tbl', acts, a=>{const B=tagBadge(a.category||'Mitre',a.value,appr[key(a)]);
+    return `<tr><td class="mono"><a class="plink" href="https://nvd.nist.gov/vuln/detail/${esc(a.cve)}" target="_blank" rel="noopener">${esc(a.cve)}</a></td>`+
+      `<td><b>${N(a.assets)}</b></td>`+
+      `<td><span class="rdot" style="background:${ROLE_COLOR[a.role]||'var(--line)'}"></span><span class="tagval">${esc(a.category)} : ${esc(a.value)}</span><div class="tnames">${esc(techNames(a))}</div></td>`+
+      `<td><span class="badge ${B.cls}">${B.label}</span></td><td>${B.done?'':`<button class="btn sm" data-k="${esc(key(a))}">${appr[key(a)]==='approved'?'Un-approve':'Approve'}</button>`}</td></tr>`;},
+    {per:20, sizes:HPG_SIZES, empty:'<tr><td colspan="5" class="sub">'+(PLAN.actions.length?'Nothing matches the filter.':'No ATT&amp;CK-mapped CVEs on assets in navi.db. Try Full mapping, or sync navi.db.')+'</td></tr>',
+     wire: tb=>tb.querySelectorAll('button[data-k]').forEach(b=>b.onclick=()=>{const k=b.dataset.k;appr[k]=appr[k]==='approved'?'pending':'approved';save();render();})});
+  const n=PLAN.actions.filter(a=>appr[key(a)]==='approved').length;
+  document.getElementById('apprCount').textContent=`${N(n)} approved / ${N(PLAN.actions.length)}`;
   document.getElementById('apply').disabled=!n;
-  const ha=PLAN.high_acr||[]; document.getElementById('highCount').textContent=`(${ha.length})`;
-  hPageReset('highTbl'); hPaginate('highTbl', ha, a=>`<tr><td><a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(a.asset_uuid)}">${esc(a.host)}</a></td><td class="mono">${esc(a.ip||'')}</td><td><b style="color:var(--crit)">${esc(String(a.acr))}</b></td><td>${(a.cves||[]).map(c=>`<span class="tagval">${esc(c)}</span>`).join(' ')}</td></tr>`, {empty:'<tr><td colspan="4" class="sub">No ACR&gt;7 assets with ATT&CK-mapped CVEs.</td></tr>', cols:4});
+  const ha=PLAN.high_acr||[]; document.getElementById('highCount').textContent=`(${ha.length})`; setNavCount('secHigh', N(ha.length));
+  hPaginate('highTbl', ha, a=>`<tr><td><a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(a.asset_uuid)}">${esc(a.host)}</a></td><td class="mono">${esc(a.ip||'')}</td><td><b style="color:var(--crit)">${esc(String(a.acr))}</b></td><td>${(a.cves||[]).map(c=>`<span class="tagval">${esc(c)}</span>`).join(' ')}</td></tr>`, {per:20, sizes:HPG_SIZES, empty:'<tr><td colspan="4" class="sub">No ACR&gt;7 assets with ATT&CK-mapped CVEs.</td></tr>', cols:4});
 }
+document.getElementById('mxEmpty').onchange=()=>{ if(PLAN) render(); };
 document.querySelectorAll('#scope button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#scope button').forEach(x=>x.classList.remove('on'));b.classList.add('on');scope=b.dataset.s;run();});
 document.getElementById('dlCsv').href=CSV_URL;
 document.getElementById('csvFile').onchange=function(e){
   const f=e.target.files&&e.target.files[0]; if(!f)return;
   const rd=new FileReader(); rd.onload=()=>{ uploadText=rd.result||''; document.getElementById('approve').style.display='none';
-    flash('flash','Using uploaded CSV ('+f.name+'). Building plan…','run'); run(); }; rd.readAsText(f);
+    flash('flash','Using uploaded CSV ('+esc(f.name)+'). Building plan…','run'); run(); }; rd.readAsText(f);
 };
-async function requestApprove(){
+// onOpen: called on page load — with auto-approve ON just show the source note (no auto-run)
+async function requestApprove(onOpen){
+  const auto=await downloadsAutoApproved('mitre');
+  if(auto){ APPROVED=true; document.getElementById('approve').style.display='none';
+    const n=document.getElementById('dlNote'); n.style.display='';
+    n.innerHTML='⬇ Auto-approved download: <span class="mono">'+esc((auto.urls||[])[0]||CSV_URL)+'</span> (<a class="plink" href="/web/settings.html">Settings</a>) · falls back to the baked snapshot offline.';
+    if(!onOpen) run(); return; }
   const ap=document.getElementById('approve'); ap.style.display='block';
   document.getElementById('srcUrl').textContent='GET '+'(ATT&CK→CVE mapping)';
   document.getElementById('srcAssess').innerHTML='<span class="spin"></span> assessing source…';
   let o; try{ o=await API.post('source'); }catch(e){ o={ok:false}; }
-  if(o&&o.ok){ document.getElementById('srcUrl').textContent='GET '+o.url; document.getElementById('srcAssess').textContent=o.assessment+(o.llm_used?'':'  (set ANTHROPIC_API_KEY for an AI assessment)'); }
+  if(o&&o.ok){ document.getElementById('srcUrl').textContent='GET '+o.url; document.getElementById('srcAssess').textContent=o.assessment+(o.llm_used?'':'  (set an API key on Settings for an AI assessment)'); }
   else { document.getElementById('srcAssess').textContent='Official Center for Threat-Informed Defense attack_to_cve mapping. Approve to download.'; }
 }
-document.getElementById('run').onclick=requestApprove;
-document.getElementById('approveBtn').onclick=()=>{document.getElementById('approve').style.display='none';run();};
+document.getElementById('run').onclick=()=>requestApprove(false);
+document.getElementById('approveBtn').onclick=()=>{APPROVED=true;document.getElementById('approve').style.display='none';run();};
 document.getElementById('cancelBtn').onclick=()=>{document.getElementById('approve').style.display='none';};
 document.getElementById('approveAll').onclick=()=>{if(PLAN){PLAN.actions.forEach(a=>{if(appr[key(a)]!=='applied')appr[key(a)]='approved';});save();render();}};
 document.getElementById('reset').onclick=()=>{if(PLAN){PLAN.actions.forEach(a=>{if(appr[key(a)]!=='applied')delete appr[key(a)];});save();render();}};
 document.getElementById('apply').onclick=async()=>{
   const btn=document.getElementById('apply'); if(btn&&btn.disabled)return;
   const acts=PLAN.actions.filter(a=>appr[key(a)]==='approved'); if(!acts.length)return;
+  await testRunStatus();
+  { const cats=[...new Set(acts.map(a=>tagCat(a.category)))], vals=[...new Set(acts.map(a=>a.value))], nC=new Set(acts.map(a=>a.cve)).size, nA=acts.reduce((s,a)=>s+(a.assets||0),0);
+    if(!confirm('Tag '+cats.join(' / ')+' with '+vals.length+' value'+(vals.length===1?'':'s')+' ('+vals.slice(0,6).join(', ')+(vals.length>6?', …':'')+') on the assets behind '+nC+' CVE'+(nC===1?'':'s')+(nA?' (~'+nA+' asset-tag pairs)':'')+'?'
+      +(WRITES?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.'))) return; }
+  if(btn&&btn.disabled)return;
   const res=document.getElementById('res');
   const scroll=()=>{ if(res)res.scrollIntoView({behavior:'smooth',block:'center'}); };
   const reset=()=>{ if(!btn)return; btn.disabled=false; btn.textContent=btn.dataset.label; btn.style.opacity=''; btn.style.transform=''; btn.style.cursor=''; };
   if(btn){ btn.dataset.label=btn.dataset.label||btn.textContent; btn.disabled=true; btn.textContent='⏳ Sending…'; btn.style.opacity='.6'; btn.style.transform='translateY(1px)'; btn.style.cursor='default'; }
-  res.innerHTML='<div class="callbox"><span class="spin"></span> applying '+acts.length+' tag(s) via navi tag-by-CVE…</div>';
+  const nAssets=acts.reduce((s,a)=>s+(a.assets||0),0);
+  res.innerHTML='<div class="callbox"><span class="spin"></span> tagging the assets behind '+N(new Set(acts.map(a=>a.cve)).size)+' CVE(s) with '+N(new Set(acts.map(a=>a.value)).size)+' Mitre value(s) via navi tag-by-CVE…</div>';
   scroll();
-  const o=await API.post('apply',{actions:acts,confirm:true});
-  if(!o.ok){res.innerHTML='<div class="callbox" style="color:var(--cx-ffb4c6)">✗ '+(o.error||'failed')+'</div>';reset();scroll();return;}
-  (o.results||[]).forEach(r=>{ if(r.ok) appr[r.cve+'|'+r.value]='applied'; }); save();
-  res.innerHTML=`<div class="callbox" style="color:${o.applied?'var(--ok)':'var(--cx-ffb4c6)'}">Applied ${o.applied}/${o.total}.`+(o.writes_enabled?' Allow ~30 min for Tenable.':' (gated — set NAVI_ALLOW_WRITES=1 and put navi on PATH)')+'</div>';
-  reset(); render();   // render() re-derives the apply button's disabled state from remaining approvals
+  const o=await API.post('apply',{actions:acts.map(({cve,category,value})=>({cve,category,value})),approved:APPROVED,confirm:true});
+  if(!o.ok){res.innerHTML='<div class="callbox" style="color:var(--cx-ffb4c6)">✗ '+esc(o.error||'failed')+'</div>';reset();scroll();return;}
+  // results are grouped per tag value — mark every approved row of a queued value as applied
+  const queued=new Set((o.results||[]).filter(r=>r.ok&&r.queued).map(r=>r.value));
+  acts.forEach(a=>{ if(queued.has(a.value)) appr[key(a)]='applied'; }); save();
+  res.innerHTML=`<div class="callbox" style="color:${o.applied?'var(--ok)':'var(--cx-ffb4c6)'}">Queued ${N(o.applied)}/${N(o.total)} Mitre tag value(s) for the assets behind ${N(new Set(acts.map(a=>a.cve)).size)} CVE(s)`+(nAssets?` (~${N(nAssets)} asset-tag pairs)`:'')+'.'+(o.writes_enabled?' Allow ~30 min for Tenable.':' (gated — set NAVI_ALLOW_WRITES=1 and put navi on PATH)')+'</div>';
+  reset(); render();
   scroll();
 };
-mountAgentHeader({icon:'🎯',name:'MITRE ATT&CK Tagging',sub:'navi tag-by-CVE · live ATT&CK mapping'});
+mountAgentHeader({icon:'🎯',name:'MITRE ATT&CK Tagging',sub:'tags assets by the ATT&CK impact of their CVEs'});
+mountSectionNav();
 try{ hMailAuto(); }catch(e){}
-requestApprove();   // human approves the external download before anything is fetched
+requestApprove(true);   // human approves the external download before anything is fetched (or Settings auto-approves it)
 </script>
 </body></html>

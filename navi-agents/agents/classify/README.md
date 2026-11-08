@@ -19,6 +19,24 @@ enumeration ⇒ general-purpose host, not IoT. That single subtractive filter is
 kills the false positives (management software / drivers tagged as devices). OS is only
 a *minimal* signal (Windows/macOS) because IoT is so often embedded Linux.
 
+## The page
+
+A sticky **Jump to** nav (At a glance · Ask · Explorer · OS Signals · Classes · the drilled
+class) and a **📊 At a glance** section of metric cards, each linking to where you act on it:
+
+- **Classification** — assets, classified (coverage %), unclassified (→ the hand-classify
+  worklist), untagged assets with an OS/device signal (→ OS Signals), cloud-by-metadata.
+- **Class breakdown** — servers, workstations, network, IoT (→ IoT Discovery), OT, hypervisors.
+- **Operating systems** — Windows / Linux / macOS classified, untagged OS hosts detected,
+  assets on an **unsupported / EOL OS** (open findings, Charon's selector → EOL hound),
+  **low-confidence OS fingerprints** (plugin 11936 < 70% → pre-fills the ✨ Ask prompt).
+- **Risk & ownership** — the class with the most KEV / critical assets (→ that class), unclassified
+  assets with a KEV, the riskiest unclassified asset (→ Argos), assets with open criticals
+  (→ Exposure Score), classified assets without an Owner (→ Atlas Ownership Map).
+
+All from the ▶ Run's four reads (`run`, `tree`, `os_breakdown`, `signals`); KEV / critical
+count **open** findings only. Every tag write asks for confirmation first.
+
 ## What it gives you
 
 - **Coverage %** — the health of your whole ownership pipeline in one number.

@@ -98,6 +98,11 @@ def health() -> dict:
             "enable_file": navi_cli._enable_file() or None, "llm": llm_ok,
             "llm_provider": llm_provider, "llm_model": llm_model, "llm_why": llm_why}
     try:
+        from . import tagname as _tagname
+        info["tag_prefix"] = _tagname.status()     # Settings → Test run (header chip)
+    except Exception:
+        info["tag_prefix"] = None
+    try:
         from . import version as _version
         info["version"] = _version.version_string()
     except Exception:

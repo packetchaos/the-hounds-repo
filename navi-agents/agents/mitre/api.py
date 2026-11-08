@@ -1,11 +1,14 @@
 """MITRE ATT&CK Tagging — self-contained HTTP actions.
 
-`run`   — fetch the live ATT&CK->CVE mapping and build the per-CVE tag plan
-          (scope='navidb' by default: only CVEs present in navi.db).
-`apply` — gated; tags each selected CVE via navi's tag-by-CVE function
-          (navi enrich tag --cve), exactly as the navi skill recipe prescribes.
+`run`   — fetch the live ATT&CK->CVE mapping and build the asset-tagging plan
+          (scope='navidb' by default: only CVEs present in navi.db), with metrics
+          and the ATT&CK technique/tactic view.
+`apply` — gated; tags the ASSETS affected by each selected CVE via navi's
+          tag-by-CVE selector (navi enrich tag --cve), exactly as the navi skill
+          recipe prescribes — the CVE picks the assets, the tag lands on them.
 """
-from core import mitre, navi_cli
+from core import downloads, mitre, navi_cli
+from core.gates import confirmed
 try:
     from core import llm
 except Exception:
@@ -32,7 +35,8 @@ def source(p):
         except Exception:
             pass
     return {"ok": True, "url": mitre.CSV_URL, "assessment": note,
-            "llm_used": llm_used, "llm_available": bool(llm and llm.available())}, 200
+            "llm_used": llm_used, "llm_available": bool(llm and llm.available()),
+            "source_id": mitre.SOURCE_ID, "auto_approved": downloads.auto_approve()}, 200
 
 
 def _agent():
@@ -43,19 +47,28 @@ def _agent():
     return AGENT
 
 
+_LAST = {"csv": ""}   # the CSV the PAGE last uploaded — apply() re-validates against it
+
+
 def run(p):
     scope = p.get("scope", "navidb")
     csv_text = p.get("csv_text", "")   # optional user-supplied CSV
+    # live download only when approved: by the human (approved:true) or Settings → Auto-approve
+    live, by = downloads.allowed(p)
+    # only a page run (it always sends csv_text / approved) updates the remembered upload —
+    # the Contract's discovery runs this with {} and must not wipe it
+    if "csv_text" in p or "approved" in p:
+        _LAST["csv"] = csv_text or ""
     try:
-        res = mitre.build_plan(scope=scope, csv_text=csv_text)
+        res = mitre.build_plan(scope=scope, csv_text=csv_text, allow_live=live)
     except Exception as e:
         return {"ok": False, "error": f"could not build ATT&CK->CVE plan: {e}"}, 200
     return {"ok": True, "agent": _agent().meta(), "result": res,
-            "download_url": mitre.CSV_URL}, 200
+            "download_url": mitre.CSV_URL, "approved_by": by}, 200
 
 
 def apply(p):
-    if not p.get("confirm"):
+    if not confirmed(p):
         return {"ok": False, "error": "confirm=true required to write tags"}, 400
     actions = p.get("actions") or []
     if not actions:
@@ -65,14 +78,25 @@ def apply(p):
     # resolves the affected assets server-side and pages internally, so there is
     # no UUID cap to dodge and no SQL --query is used at all — the CVE is the
     # built-in. Group by (category, value) → union of CVEs → one --cve call each.
-    groups = {}
+    # Re-build the plan on the server and accept only (cve, value) pairs that are in it AND have
+    # assets in navi.db; the category is always Mitre. A crafted request can't pick another
+    # category, and "approve all" in full-mapping scope doesn't queue jobs for absent CVEs.
+    try:
+        # live vs snapshot decided by THIS request's approval (the page sends approved with
+        # apply, as with run) — not a process-wide flag another caller can overwrite
+        plan = mitre.build_plan(scope="navidb", csv_text=_LAST["csv"], allow_live=downloads.allowed(p)[0])
+    except Exception as e:
+        return {"ok": False, "error": f"could not rebuild the plan: {e}"}, 200
+    valid = {(a["cve"], a["value"]) for a in plan.get("actions", []) if a.get("assets")}
+    groups, skipped = {}, 0
     for a in actions:
-        cve, cat, val = (a.get("cve", "") or "").upper(), a.get("category", "Mitre"), a.get("value", "")
-        if not cve or not val:
+        cve, val = (a.get("cve", "") or "").upper(), a.get("value", "")
+        if (cve, val) not in valid:
+            skipped += 1
             continue
-        groups.setdefault((cat, val), set()).add(cve)
+        groups.setdefault(("Mitre", val), set()).add(cve)
     if not groups:
-        return {"ok": False, "error": "no cve/value pairs supplied"}, 400
+        return {"ok": False, "error": "none of those CVE / value pairs are in the plan with assets in navi.db"}, 400
     results = []
     for (cat, val), cves in groups.items():
         job_ids = []
@@ -85,7 +109,7 @@ def apply(p):
                         "job_id": (job_ids[0] if job_ids else None), "ok": True,
                         "queued": bool(job_ids), "writes_enabled": navi_cli.writes_enabled(),
                         "write_gate_reason": navi_cli.write_gate_reason()})
-    return {"ok": True, "applied": sum(1 for r in results if r.get("ok")),
+    return {"ok": True, "applied": sum(1 for r in results if r.get("ok")), "skipped": skipped,
             "total": len(results), "results": results,
             "writes_enabled": navi_cli.writes_enabled()}, 200
 

@@ -65,6 +65,23 @@ All configuration is environment variables (put them in a `.env` in the repo roo
 `run.py` loads it; real shell env always wins). Nothing here is required to boot the
 demo; the defaults run the bundled sample read-only.
 
+### Settings page & the config store
+
+Model, keys, gates and paths can also be set on **Settings → 🔑 Environment**. They
+take effect live; the **Storage** switch decides whether they survive a restart:
+
+- **💾 Config file** (default) — saved to `hounds.config.json` in the repo root
+  (chmod 600, git-ignored) and re-applied on every start of the app and the MCP
+  server. Keys are stored in plain text, the same exposure as a `.env`.
+- **⏳ Ephemeral** — nothing is written; values last until the server restarts.
+  Switching to ephemeral deletes any saved values, leaving only a
+  `{"mode": "ephemeral"}` marker so the choice sticks.
+
+Set `HOUNDS_CONFIG=/path/to/file.json` to move the file, or `HOUNDS_CONFIG=off` to
+disable the store completely (never read or written). Precedence:
+**shell env > config file > `.env` > defaults** — each field on the Settings page
+shows where its current value came from.
+
 ### Core
 
 | Variable | Default | Purpose |
@@ -130,7 +147,12 @@ real call with an actionable failure reason.
 | `CONTRACT_DIR` | `contracts/` | Where the AI Contract stores its policy + state. |
 | `ALERT_DIR` | `alerts/` | Alert Raven's definitions and fired-state. |
 | `NAVI_HISTORY_DIR` | `data/` | Daily snapshots for SLA / trend history. |
+| `HOUNDS_CONFIG` | `hounds.config.json` | Settings config-store file path, or `off` to disable it. |
 | `NAVI_AGENT_CACHE_TTL_S` | `300` | Agent-result cache lifetime. |
+
+Every tagging agent (manifest category Tagging or Discovery) opens with a **📋 Done so far** strip — last run, runs recorded, tag values applied, how many assets carry them in navi.db now, what's awaiting a sync, failures, emails/pushes/ACR changes, and tags already in navi.db that weren't applied from this install (`core/activity.py`; run history is kept in `tag_jobs.db`, table `runs`, capped by `NAVI_RUN_LOG_MAX`, default 20000).
+
+Each agent page also remembers its last run (24 h) — kept on the server (`data/cache/pages/`), so it's shared across browsers — and restores it when you come back; use **↻ Re-run** on the restore strip for fresh numbers. **🐾 Release the Hounds** on the hub runs every hound in the sidebar's order in the background (reads only, with an estimate first and a Cancel) so every page is already populated when you open it. Per-browser tunables in `localStorage`: `houndsCacheTTLh` (hours) and `houndsCacheOff=1` to disable.
 | `NAVI_HEALTH_TTL_S` | `30` | Health-chip cache lifetime. |
 | `NAVI_ASSET_COUNT_TTL_S` | `300` | Asset-count cache lifetime. |
 | `NAVI_QUERY_BUDGET_MS` | off | Abort a `navi.db` query that exceeds this budget. |
@@ -155,7 +177,7 @@ the "Hound" suffix.
 | **MITRE ATT&CK Tagging** | Orthrus Hound | Maps CVEs to ATT&CK techniques and tags the affected assets |
 | **CISA KEV Tagging** | Laelaps Hound | Tags Known-Exploited vulns off the CISA-KNOWN-EXPLOITED xref, all or by catalog date |
 | **EOL / Unsupported** | Charon | Tags end-of-life / unsupported software by plugin lifecycle text |
-| **Certificate Agent** | Certania | Tags 12-month certificate failures; cert-issue × asset heat maps |
+| **Certificate Agent** | Certania | Tags assets with expired certs (by month, last 12 months + older) and certs failing in 12 months; expiry timeline, crown-jewel / weak-crypto metrics, Cert Issue tagging |
 | **IoT Discovery Squad** | Cerberus Hound | Detect → expand → cross-reference → QA; tags IoT / embedded / OT devices |
 | **Post-Quantum Cipher Analysis** | Heimdall | Tags assets in Tenable's PQ-cipher plugins (277650 / 277652 / 277653); crown-jewel migration roadmap |
 | **AI Inventory** | Pythia | Finds AI / ML software; labels EOL + ATT&CK/ATLAS exposure; tags by role |
@@ -265,14 +287,60 @@ Copy `agents/_template/` to `agents/<your-id>/`, fill in `manifest.json`,
 `agent.py`, `api.py`, and `page.html`. The hub discovers it automatically on the
 next start. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Security model
+
+The console is a **local** tool by default. `core/security.py` is the single policy every
+server (stdlib, Flask, FastAPI) applies to every request:
+
+| Control | Default | How to change it |
+|---|---|---|
+| **Bind address** | `127.0.0.1` — only this machine can connect | `HOUNDS_BIND=0.0.0.0` (or a specific IP) opts in to LAN access; startup prints a loud warning |
+| **Host allowlist** (every request, GET too) | `localhost`, `127.0.0.1`, `[::1]` on any port; anything else → `403`. This is what defeats DNS rebinding | `HOUNDS_ALLOWED_HOSTS=hounds.lan,10.0.0.5` adds names/IPs. With a non-loopback `HOUNDS_BIND` the bound IP and this machine's hostname/IPs are added |
+| **Access token** | not needed on loopback | With a non-loopback bind every `/api` call needs this launch's token. It is printed **once**, in the startup URL (`http://host:port/?token=…`); opening that URL swaps it for an `HttpOnly; SameSite=Strict` cookie. Scripts send `X-Hounds-Token: <token>`. A new token is generated on every start. `HOUNDS_REQUIRE_TOKEN=1` demands it on loopback too (shared jump boxes, where other local users can reach 127.0.0.1) |
+| **POST guard** | JSON `Content-Type` required; a present `Origin` must be same-origin with an allowed host; `Origin: null` and `Sec-Fetch-Site: cross-site` refused | — |
+| **Response headers** | `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` | — |
+| **Static files** | only page assets (`.html .css .js .json .md` images, fonts) under `/agents/`, `/web/`, `/static/` — never `.py` source, `__pycache__` or dotfiles | — |
+| **Limits** | request bodies capped at 80 MB (above the 64 MB page-cache entry) → `413`; socket timeout 120 s | `HOUNDS_MAX_BODY`, `HOUNDS_SOCKET_TIMEOUT` |
+| **File modes** | the servers and the MCP server run with `umask 077`; caches, logs, alert state, contracts, C2 uploads are written `0600` (dirs `0700`) | — |
+
+**Settings that can't be changed from the browser.** The Settings page can't set
+`NAVI_BIN` or `NAVI_CWD` at all — a browser-settable binary path or working directory is
+remote code execution. Set them in the shell, `.env` or `hounds.config.json` and restart.
+Turning **on** the write / email / remote-execution gates (`NAVI_ALLOW_WRITES`,
+`NAVI_EMAIL`, `NAVI_REMOTE_CODE_EXECUTION`) or changing `NAVI_DB_PATH` needs a browser on
+**this machine** (loopback) plus an explicit confirmation; turning a gate **off** never
+needs one. `NAVI_DB_PATH` must name an existing SQLite file. Changing the model endpoint
+(`NAVI_LLM_BASE_URL`, http/https only) or provider **clears the stored model keys** unless
+you enter the new key in the same save, so a changed URL can't receive the old key; the
+page only ever shows the endpoint as `scheme://host[:port]/path` (no `user:pass@`, no query).
+
+**SQL a person or the model writes** (Advanced search, Mimir, Alert Raven metrics, the
+Dashboard builder) runs under a SQLite authorizer (`core.db.user_query`) that refuses to read
+navi's credential tables — `keys`, `smtp`, `ssh`, `resend` — whatever the SQL looks like;
+those values are also on the response scrub list.
+
+**Approvals are strict.** Every write / send / remove / push needs `confirm: true` — a JSON
+boolean; `"false"`, `"0"`, `1` or `"true"` are refused. Alert Raven only mails the configured
+alert address(es) (`NAVI_ALERT_EMAIL`); mail recipients must be plain `user@host` addresses
+and subjects are single-line. C2 uploads need the write + remote-exec gates and a confirm,
+and the upload folder is capped (200 MB, oldest pruned). The C2 destructive-command list is
+**advisory** — a warning that forces an extra confirm, not a guard.
+
+The MCP server's HTTP transport (`HOUNDS_MCP_HTTP=1`) is unauthenticated, so it refuses a
+non-loopback `HOUNDS_MCP_HOST` unless you also set `HOUNDS_MCP_ALLOW_REMOTE=1`.
+
 ## Security notes
 
 - **Writes are gated** by `NAVI_ALLOW_WRITES=1` *and* a per-action `confirm`.
   Email and remote execution each need a **second** flag on top of that.
 - **Never commit `navi.db`** — it's a snapshot of your tenant. It's already in
-  `.gitignore` along with sqlite journals and `.env`.
-- Set secrets (model API keys, navi API keys) via environment variables or `.env`,
-  never in code.
+  `.gitignore` along with sqlite journals, `.env` and `hounds.config.json`.
+- Set secrets (model API keys, navi API keys) via environment variables, `.env`, or
+  the Settings page — use **Ephemeral** storage (or `HOUNDS_CONFIG=off`) if keys
+  must never touch disk. Never put them in code.
+- **Keys never reach the browser.** Settings shows only set / not set for a key, and
+  every API response is scrubbed (`core/redact.py`) of configured secret values and
+  anything shaped like `sk-…` / AWS key ids — including provider error messages.
 
 ## Troubleshooting
 

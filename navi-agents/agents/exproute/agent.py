@@ -6,10 +6,18 @@ live Tenable API) and the application **routes** (`vuln_route`) and filesystem
 route/path to an owner; applying a mapping tags every asset on that route/path
 with `Owner:<group-or-user>` via the gated navi tag path.
 """
+import datetime
+import gzip
+import hashlib
+import json as _json
+import os
 import re
+import threading
+import time as _time
 
-from core import db, navi_cli
+from core import db, navi_cli, tagname
 from core.agents.base import Agent
+from core.security import private_open as _popen
 
 _SPLIT = re.compile(r"\s{2,}")
 _DIV = re.compile(r"^-{5,}$")
@@ -105,6 +113,10 @@ def parse_dispositions(prompt, rts, pas):
         cl = cl.strip()
         if not cl:
             continue
+        # an ASSIGNMENT clause ("give the Jenkins route to Skip", "assign nginx to the Fixed
+        # Income team") names an owner, not a disposition — leave it to the owner mapping
+        if re.search(r"\b(give|gives|assign|assigned|hand|handed|belongs?|owned\s+by|owner|owners|own|owns)\b", cl):
+            continue
         disp = None
         for w, lab in _DISP_VERBS.items():
             if re.search(r"\b" + re.escape(w) + r"\b", cl):
@@ -158,6 +170,12 @@ def _info_rows(stdout: str) -> list[list]:
 
 
 def owners() -> list[dict]:
+    """Users + groups available to assign — from the on-disk owner cache (see
+    owners_cached); the live navi pull is _owners_live()."""
+    return owners_cached()[0]
+
+
+def _owners_live() -> list[dict]:
     """Users + groups available to assign. navi primary; the Tenable MCP acts as a
     backup/validator in the UI layer."""
     out, seen = [], set()
@@ -345,8 +363,19 @@ def tag_owner(owner: str, route_id=None, path=None, app=None, db_path=None) -> d
         rid = rows[0].get("route_id")
         name = app or rows[0].get("app_name") or str(rid)
         if rid not in (None, ""):
-            # native route selector: exact, one short command, no giant IN() query
-            return navi_cli.tag("Owner", f"{name}: {owner}", route_id=rid, remove=False, agent="exproute")
+            # native route selector: exact, one short command, no giant IN() query.
+            # Several route_ids can share an app_name and the map merges them by name, so
+            # tag EVERY row with this name — tagging only one left the route 'partial' forever.
+            rids = [r["route_id"] for r in db.query(
+                "SELECT route_id FROM vuln_route WHERE app_name=? COLLATE NOCASE ORDER BY route_id",
+                (rows[0].get("app_name") or name,), path=db_path) if r.get("route_id") not in (None, "")] or [rid]
+            jobs = [navi_cli.tag("Owner", f"{name}: {owner}", route_id=x, remove=False, agent="exproute")
+                    for x in rids]
+            first = dict(jobs[0])
+            first["ok"] = all(j.get("ok", True) is not False for j in jobs)
+            first["job_ids"] = [j.get("job_id") for j in jobs if j.get("job_id") is not None]
+            first["route_ids"] = rids
+            return first
         # fallback — tag by the route's plugin set (local navi.db membership)
         ids = _plugin_ids(rows[0].get("plugin_list"))
         if not ids:
@@ -366,62 +395,197 @@ def tag_owner(owner: str, route_id=None, path=None, app=None, db_path=None) -> d
 # in quotes ('%'<id>'%') so 519 doesn't match 51192.
 _RA = ("WITH ra AS (SELECT DISTINCT r.app_name app, v.asset_uuid au "
        "FROM vuln_route r JOIN vulns v ON r.plugin_list LIKE '%''' || v.plugin_id || '''%') ")
+# _RA is kept for reference / ad-hoc SQL only. It joins every route to every finding with a
+# LIKE — routes × findings string comparisons — so coverage() and ownership_map() no longer
+# use it: _base() builds the same route→asset sets from linear scans in Python.
 
 
-def coverage(db_path=None) -> dict:
+def _nk(s):
+    """Owner-tag / route-name key: case-insensitive, whitespace-collapsed."""
+    return " ".join((s or "").strip().lower().split())
+
+
+def _base(db_path=None) -> dict:
+    """One pass over navi.db shared by ownership_map() and coverage().
+
+    The same relationships the old SQL computed, without the quadratic LIKE joins:
+      route (app_name) → plugin ids   parsed from vuln_route.plugin_list
+      route → assets                  plugin ids → DISTINCT (plugin_id, asset_uuid) from vulns
+      path  → assets / plugin ids     from vuln_paths
+      route ↔ path                    a route's plugin found at that path
+      Owner tags                      '<name>: <user>' keyed by _nk(name)
+    """
+    def q(sql, args=()):
+        try:
+            return list(db.query(sql, args, path=db_path)) if args else list(db.query(sql, path=db_path))
+        except Exception:
+            return []
+    b = {"has_routes": bool(q("SELECT name FROM sqlite_master WHERE type='table' AND name='vuln_route'"))}
+    if not b["has_routes"]:
+        return b
+    apps = [r["app_name"] for r in q("SELECT DISTINCT app_name FROM vuln_route WHERE app_name IS NOT NULL")]
+    known = {_nk(a) for a in apps} | {_nk(r["path"]) for r in q("SELECT DISTINCT path FROM vuln_paths WHERE path IS NOT NULL")}
+
+    def split(val):
+        """'<name>: <user>'. Split at the ': ' whose left side is a known route/path — so an
+        owner like 'Ops: EMEA' or a name containing ': ' parses right — else at the last ': '
+        (Windows paths 'C:\\…' have no ': ')."""
+        if ": " not in val:
+            return val, ""
+        at = [m.start() for m in re.finditer(": ", val)]
+        for pos in at:
+            if _nk(val[:pos]) in known:
+                return val[:pos], val[pos + 2:]
+        return val[:at[-1]], val[at[-1] + 2:]
+
+    # name_owners       every user string on '<name>: …' tags (real owners AND disposition labels)
+    # name_assets       assets carrying ANY Owner tag for the name (sizing / unmatched lists)
+    # owned_assets      assets carrying a REAL owner for the name — not Ignored/Accepted/
+    #                   Mitigated, not a bare '<name>' with no user
+    # disp_assets       assets carrying a disposition for the name
+    # user_assets       (name, user) -> assets, so an owner's workload is only their own assets
+    name_owners, name_assets, name_display, tagged = {}, {}, {}, set()
+    owned_assets, disp_assets, user_assets, asset_owned = {}, {}, {}, {}
+    for r in q("SELECT asset_uuid, tag_value FROM tags WHERE " + tagname.sql_lit("tag_key", "Owner") + " AND tag_value IS NOT NULL"):
+        val = (r.get("tag_value") or "").strip()
+        au = r.get("asset_uuid")
+        name, user = split(val)
+        name, user = name.strip(), user.strip()
+        k = _nk(name)
+        name_display.setdefault(k, name)
+        if user:
+            name_owners.setdefault(k, set()).add(user)
+        if not au:
+            continue
+        tagged.add(au)
+        name_assets.setdefault(k, set()).add(au)
+        if user and disposition_label(user):
+            disp_assets.setdefault(k, set()).add(au)
+        elif user:
+            owned_assets.setdefault(k, set()).add(au)
+            user_assets.setdefault((k, user), set()).add(au)
+            asset_owned.setdefault(au, set()).add(k)
+    app_plugins, plugin_apps = {}, {}
+    for r in q("SELECT app_name, plugin_list FROM vuln_route WHERE app_name IS NOT NULL"):
+        app = r.get("app_name")
+        pids = set(_plugin_ids(r.get("plugin_list")))
+        app_plugins.setdefault(app, set()).update(pids)
+        for pid in pids:
+            plugin_apps.setdefault(pid, set()).add(app)
+    # findings: one scan of DISTINCT (plugin, asset) → route assets + per-plugin asset counts
+    route_assets, plugin_asset_n = {}, {}
+    for r in q("SELECT DISTINCT plugin_id, asset_uuid FROM vulns"):
+        pid, au = str(r.get("plugin_id")), r.get("asset_uuid")
+        plugin_asset_n[pid] = plugin_asset_n.get(pid, 0) + 1
+        for app in plugin_apps.get(pid, ()):
+            route_assets.setdefault(app, set()).add(au)
+    path_assets, path_plugin, path_rows = {}, {}, set()
+    for r in q("SELECT path, asset_uuid, plugin_id FROM vuln_paths WHERE path IS NOT NULL"):
+        p, au, pid = r["path"], r.get("asset_uuid"), str(r.get("plugin_id"))
+        path_assets.setdefault(p, set()).add(au)
+        path_plugin.setdefault(p, set()).add(pid)
+        path_rows.add((p, au))
+    route_paths, path_routes = {}, {}
+    for p, pids in path_plugin.items():
+        for pid in pids:
+            for app in plugin_apps.get(pid, ()):
+                route_paths.setdefault(app, set()).add(p)
+                path_routes.setdefault(p, set()).add(app)
+    b.update(name_owners=name_owners, name_assets=name_assets, name_display=name_display,
+             owned_assets=owned_assets, disp_assets=disp_assets, user_assets=user_assets,
+             asset_owned=asset_owned, tagged=tagged, app_plugins=app_plugins, route_assets=route_assets,
+             plugin_asset_n=plugin_asset_n, path_assets=path_assets, path_plugin=path_plugin,
+             path_rows=path_rows, route_paths=route_paths, path_routes=path_routes, apps=apps)
+    return b
+
+
+def _has_owner_tag(b, au, name):
+    """The asset carries a REAL owner tag for this route/path ('<name>: <user>', name compared
+    case- and whitespace-insensitively, no LIKE wildcards; dispositions don't count)."""
+    return _nk(name) in b["asset_owned"].get(au, ())
+
+
+def retag_owner_tags(from_name, to_name, db_path=None) -> dict:
+    """Move the Owner tags written for an UNMATCHED name ('WEB SERVER: alice') onto an exact
+    route/path name ('WEB SERVER ALLOWS: alice') — on exactly the assets that carry the old
+    tag, per owner. (Tagging the whole route by --route_id put every asset on the route under
+    every owner of the old name.) Never removes the old tag."""
+    rt = {_nk(r["app_name"]): r["app_name"] for r in db.query(
+        "SELECT DISTINCT app_name FROM vuln_route WHERE app_name IS NOT NULL", path=db_path)}
+    pa = {_nk(r["path"]): r["path"] for r in db.query(
+        "SELECT DISTINCT path FROM vuln_paths WHERE path IS NOT NULL", path=db_path)}
+    target = rt.get(_nk(to_name)) or pa.get(_nk(to_name))
+    if not target:
+        return {"ok": False, "message": f"'{to_name}' is not a route or path in navi.db"}
+    src = _nk(from_name)
+    if not src or src in rt or src in pa:
+        return {"ok": False, "message": f"'{from_name}' already matches a route/path — nothing to move"}
+    by_user = {}
+    for r in db.query("SELECT asset_uuid, tag_value FROM tags WHERE " + tagname.sql_lit("tag_key", "Owner") + " AND tag_value IS NOT NULL",
+                      path=db_path):
+        val = (r.get("tag_value") or "").strip()
+        if ": " not in val or not r.get("asset_uuid"):
+            continue
+        name, user = val.rsplit(": ", 1)
+        if _nk(name) == src and user.strip():
+            by_user.setdefault(user.strip(), set()).add(r["asset_uuid"])
+    if not by_user:
+        return {"ok": False, "message": f"no Owner tags named '{from_name}: …' in navi.db"}
+    jobs, out = [], []
+    for user, aus in sorted(by_user.items()):
+        uu = sorted(aus)
+        inl = ",".join("'" + u.replace("'", "''") + "'" for u in uu)
+        js = navi_cli.tag_capped("Owner", f"{target}: {user}", uuids=uu,
+                                 query=f"SELECT uuid AS asset_uuid FROM assets WHERE uuid IN ({inl})",
+                                 remove=False, agent="exproute")
+        jobs += [j.get("job_id") for j in js if j.get("job_id") is not None]
+        out.append({"owner": user, "assets": len(uu)})
+    return {"ok": True, "target": target, "owners": out, "job_ids": jobs,
+            "assets": sum(x["assets"] for x in out)}
+
+
+def coverage(db_path=None, base=None, om=None, users_total=None) -> dict:
     """How much of the attack surface has an owner assigned. An asset is CLOSED only when
-    EVERY route it sits on is owned (an Owner:'<app>: <user>' tag for each route). Read-only."""
+    EVERY route it sits on is owned (an Owner:'<app>: <user>' tag for each route). Read-only.
+    Pass `base` / `om` (from _base / ownership_map) to reuse one pass instead of re-reading."""
     def sc(sql):
         try:
             return db.scalar(sql, path=db_path) or 0
         except Exception:
             return 0
-    if not db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='vuln_route'", path=db_path):
+    b = base if base is not None else _base(db_path)
+    if not b.get("has_routes"):
         return {"ok": True, "owned": 0, "assets_with_routes": 0, "avg_routes": 0.0,
                 "closed": 0, "total_routes": 0, "total_paths": 0, "owned_paths": 0,
                 "note": "No vuln_route table — run `navi config update route` + `navi config update paths`."}
-    owned = sc("SELECT COUNT(DISTINCT asset_uuid) FROM tags WHERE tag_key='Owner'")
+    owned = len(b["asset_owned"])              # assets with a real owner on some route/path
     # distinct people/groups actually assigned in Owner tags (the '<app>: <user>' scheme) —
     # what the operator means by "my owners", independent of the navi user directory.
     owner_count = sc("SELECT COUNT(DISTINCT TRIM(substr(tag_value, instr(tag_value, ': ')+2))) "
-                     "FROM tags WHERE tag_key='Owner' AND tag_value LIKE '%: %'")
-    assets_with_routes = sc(_RA + "SELECT COUNT(DISTINCT au) FROM ra")
-    avg_routes = sc(_RA + "SELECT AVG(c) FROM (SELECT au, COUNT(DISTINCT app) c FROM ra GROUP BY au)")
-    total_routes = sc("SELECT COUNT(*) FROM vuln_route")
+                     "FROM tags WHERE " + tagname.sql_lit("tag_key", "Owner") + " AND tag_value LIKE '%: %'")
+    ra = b["route_assets"]
+    asset_apps = {}
+    for app, aus in ra.items():
+        for au in aus:
+            asset_apps.setdefault(au, set()).add(app)
+    assets_with_routes = len(asset_apps)
+    avg_routes = (sum(len(x) for x in asset_apps.values()) / len(asset_apps)) if asset_apps else 0
+    total_routes = len(b["apps"])              # distinct route names — what the map counts
     total_paths = sc("SELECT COUNT(DISTINCT path) FROM vuln_paths")
     # workload reduction: raw path findings (every asset×path row) collapse to distinct
     # paths you actually assign; sum of route vulns collapse to a handful of routes.
     path_findings = sc("SELECT COUNT(*) FROM vuln_paths")
     route_findings = sc("SELECT COALESCE(SUM(total_vulns),0) FROM vuln_route")
-    # Owner-tag matching is CASE-INSENSITIVE here to match ownership_map() exactly — the
-    # dashboard was case-insensitive but this widget wasn't, so they disagreed (e.g. an
-    # 'APACHE: user' tag counted for route 'Apache' on the map but not here). Scheme is
-    # '<app/path>: <user>', so we match LOWER(tag_value) LIKE LOWER(<name>) || ': %'.
-    closed, owned_paths, routes_owned = 0, 0, 0
-    if owned > 0:
-        # a ROUTE is owned when EVERY asset on it carries that route's Owner tag — the same
-        # definition the Ownership Map uses (its "N owned" count). Reconciles the two widgets.
-        routes_owned = sc(_RA + "SELECT COUNT(*) FROM (SELECT app FROM ra GROUP BY app HAVING "
-                          "SUM(CASE WHEN EXISTS(SELECT 1 FROM tags t WHERE t.asset_uuid=ra.au "
-                          "AND t.tag_key='Owner' AND LOWER(t.tag_value) LIKE LOWER(ra.app) || ': %') "
-                          "THEN 0 ELSE 1 END)=0)")
-        # an ASSET is closed when every route it sits on is owned.
-        closed = sc(_RA + "SELECT COUNT(*) FROM (SELECT au FROM ra GROUP BY au HAVING "
-                    "SUM(CASE WHEN EXISTS(SELECT 1 FROM tags t WHERE t.asset_uuid=ra.au "
-                    "AND t.tag_key='Owner' AND LOWER(t.tag_value) LIKE LOWER(ra.app) || ': %') THEN 0 ELSE 1 END)=0)")
-        # a path is OWNED when it carries its own Owner tag OR when the route that covers
-        # it is fully owned — a route covers its paths, so closing a route closes them too.
-        owned_paths = sc(_RA +
-            "SELECT COUNT(DISTINCT p) FROM ("
-            "SELECT DISTINCT vp.path p FROM vuln_paths vp JOIN tags t "
-            "ON t.asset_uuid=vp.asset_uuid AND t.tag_key='Owner' "
-            "AND LOWER(t.tag_value) LIKE LOWER(vp.path) || ': %' "
-            "UNION "
-            "SELECT DISTINCT vp.path p FROM vuln_paths vp JOIN vuln_route r "
-            "ON r.plugin_list LIKE '%''' || vp.plugin_id || '''%' WHERE r.app_name IN ("
-            "SELECT app FROM ra GROUP BY app HAVING SUM(CASE WHEN EXISTS("
-            "SELECT 1 FROM tags t2 WHERE t2.asset_uuid=ra.au AND t2.tag_key='Owner' "
-            "AND LOWER(t2.tag_value) LIKE LOWER(ra.app) || ': %') THEN 0 ELSE 1 END)=0))")
+    # Owner-tag matching is CASE-INSENSITIVE, the same as ownership_map(): an asset is
+    # owned for a route/path when it carries an Owner '<name>: …' tag for that name.
+    # Route and path ownership come from the map's statuses, so the two widgets can't
+    # disagree: a route is owned when every asset on it has a real owner tag for it; a path
+    # when every asset does OR the route covering it is owned.
+    om = om if om is not None else ownership_map(db_path, base=b)
+    routes_owned = sum(1 for r in om.get("routes", []) if r.get("status") == "owned")
+    owned_paths = sum(1 for p in om.get("paths", []) if p.get("status") == "owned")
+    # an ASSET is closed when every route it sits on has a real owner FOR THAT ASSET.
+    closed = sum(1 for au, apps in asset_apps.items() if all(_has_owner_tag(b, au, a) for a in apps)) if owned else 0
     # --- outcome of decisions on each route/path + who has no assigned work ------
     # Reuse the Ownership Map so these numbers reconcile exactly with the graph.
     #   owners_total    = people the platform knows as owners (any Owner tag, minus
@@ -432,7 +596,6 @@ def coverage(db_path=None) -> dict:
     owners_total = owners_assigned = owners_no_work = 0
     surface_total = mit = acc = ign = 0
     try:
-        om = ownership_map(db_path)
         k = om.get("kpi", {}) or {}
         surface_total = int(k.get("routes", 0)) + int(k.get("paths", 0))
         mit = int(k.get("mitigated", 0)); acc = int(k.get("accepted", 0)); ign = int(k.get("ignored", 0))
@@ -451,12 +614,11 @@ def coverage(db_path=None) -> dict:
         pass
 
     # total platform users (the denominator for owner engagement): 4 owners of 87 users.
-    users_total = 0
-    try:
-        ur = navi_cli.explore_info("users")
-        users_total = sum(1 for f in _info_rows(ur.get("stdout", "")) if f)
-    except Exception:
-        users_total = 0
+    if users_total is None:                 # from the cached owner directory, not a live call
+        try:
+            users_total = sum(1 for o in owners() if o.get("type") == "user")
+        except Exception:
+            users_total = 0
 
     def _p(n, d):
         return round(100.0 * n / d, 1) if d else 0.0
@@ -478,7 +640,7 @@ def coverage(db_path=None) -> dict:
             "ignored": int(ign), "ignored_pct": _p(ign, surface_total)}
 
 
-def ownership_map(db_path=None) -> dict:
+def ownership_map(db_path=None, base=None) -> dict:
     """The Ownership Map — every route/path with the owners assigned to it (the Owner
     tag scheme '<name>: <user>'), the assets behind it, and a coverage status:
       owned   — every asset on it carries that route/path's Owner tag
@@ -499,36 +661,13 @@ def ownership_map(db_path=None) -> dict:
     # Owner tags -> map a route/path NAME to its owners + the assets carrying that tag.
     # Keyed CASE-INSENSITIVELY (whitespace-collapsed) because owner tags are frequently
     # applied in a different case than navi's route app_name — e.g. an 'SIEMENS: …' tag
-    # vs the 'Siemens' route, 'APACHE TOMCAT' vs 'Apache Tomcat'. An exact, case-sensitive
-    # key silently drops those from the Sankey even though navi.db has the tag. The
-    # value scheme is '<name>: <user>' (split on the LAST ': ' so Windows paths like
-    # 'C:\...' survive).
-    def _nk(s):
-        return " ".join((s or "").strip().lower().split())
-    name_owners, name_assets, name_display = {}, {}, {}
-    for r in q("SELECT asset_uuid, tag_value FROM tags WHERE tag_key='Owner' AND tag_value IS NOT NULL"):
-        val = (r.get("tag_value") or "").strip()
-        au = r.get("asset_uuid")
-        if ": " in val:
-            name, user = val.rsplit(": ", 1)
-        else:
-            name, user = val, ""
-        name, user = name.strip(), user.strip()
-        k = _nk(name)
-        name_display.setdefault(k, name)
-        if user:
-            name_owners.setdefault(k, set()).add(user)
-        if au:
-            name_assets.setdefault(k, set()).add(au)
-
-    # route -> assets (via plugin_list membership) and path -> assets
-    route_assets = {}
-    for r in q(_RA + "SELECT app, au FROM ra"):
-        if r.get("app"):
-            route_assets.setdefault(r["app"], set()).add(r.get("au"))
-    path_assets = {}
-    for r in q("SELECT path, asset_uuid FROM vuln_paths WHERE path IS NOT NULL"):
-        path_assets.setdefault(r["path"], set()).add(r.get("asset_uuid"))
+    # vs the 'Siemens' route, 'APACHE TOMCAT' vs 'Apache Tomcat'. The value scheme is
+    # '<name>: <user>' (split on the LAST ': ' so Windows paths like 'C:\...' survive).
+    # Built once in _base() and shared with coverage().
+    b = base if base is not None else _base(db_path)
+    name_owners, name_assets, name_display = b["name_owners"], b["name_assets"], b["name_display"]
+    owned_by, disp_by = b["owned_assets"], b["disp_assets"]
+    route_assets, path_assets = b["route_assets"], b["path_assets"]
 
     def _item(name, kind, assets):
         k = _nk(name)
@@ -542,22 +681,22 @@ def ownership_map(db_path=None) -> dict:
             else:
                 real.add(u)
         owners = sorted(real)
-        owned = len((name_assets.get(k, set()) & assets))   # always computed (never drop owners)
+        owned = len(owned_by.get(k, set()) & assets)        # real owners only — a disposition or a
+                                                            # bare '<name>' tag doesn't own an asset
         total = len(assets)
         if disp and not owners:                             # disposition ONLY when no real owner
             status = disp.lower()                           # 'ignored' | 'accepted' | 'mitigated'
             # a route may have no plugin-membership assets but the disposition still tagged
             # some — size it by the tagged set so it shows on the Sankey (not filtered out).
             if total == 0:
-                total = len(name_assets.get(k, set()))
+                total = len(disp_by.get(k, set()) or name_assets.get(k, set()))
         else:
             status = ("unowned" if (not owners or owned == 0)
                       else "partial" if owned < total else "owned")
         return {"name": name, "type": kind, "owners": owners, "owner_count": len(owners),
                 "assets": total, "owned_assets": owned, "status": status, "disposition": disp}
 
-    routes = [_item(r["app_name"], "route", route_assets.get(r["app_name"], set()))
-              for r in q("SELECT DISTINCT app_name FROM vuln_route WHERE app_name IS NOT NULL")]
+    routes = [_item(a, "route", route_assets.get(a, set())) for a in b["apps"]]
     paths = [_item(p, "path", a) for p, a in path_assets.items()]
 
     # ── Per-route/path threat scores: the HIGHEST VPR and HIGHEST CVSS3 on the route wins ──
@@ -584,12 +723,7 @@ def ownership_map(db_path=None) -> dict:
             v = _fnum(r.get("c"))
             if v is not None:
                 cvss_by_pid[str(r.get("plugin_id"))] = v
-    app_plugins = {}
-    for r in q("SELECT app_name, plugin_list FROM vuln_route WHERE app_name IS NOT NULL"):
-        app_plugins.setdefault(r.get("app_name"), set()).update(_plugin_ids(r.get("plugin_list")))
-    path_plugin = {}
-    for r in q("SELECT path, plugin_id FROM vuln_paths WHERE path IS NOT NULL"):
-        path_plugin.setdefault(r.get("path"), set()).add(str(r.get("plugin_id")))
+    app_plugins, path_plugin = b["app_plugins"], b["path_plugin"]
 
     def _maxscore(pids, table):
         vals = [table[p] for p in pids if p in table]
@@ -608,19 +742,27 @@ def ownership_map(db_path=None) -> dict:
     # cover MANY paths (e.g. a Jenkins route's plugins fire in many sub-dirs). This is the
     # true CVE→plugin→app→path chain, NOT the loose shared-asset proxy. Surfaces apps with
     # no filesystem-path detail and ORPHAN paths whose plugin belongs to no app.
-    route_paths, path_routes = {}, {}
-    for r in q("SELECT DISTINCT r.app_name app, vp.path path FROM vuln_route r "
-               "JOIN vuln_paths vp ON r.plugin_list LIKE '%''' || vp.plugin_id || '''%'"):
-        app, pth = r.get("app"), r.get("path")
-        if app and pth:
-            route_paths.setdefault(app, set()).add(pth)
-            path_routes.setdefault(pth, set()).add(app)
+    route_paths, path_routes = b["route_paths"], b["path_routes"]
     for it in routes:
         it["paths_on_route"] = len(route_paths.get(it["name"], set()))
     for it in paths:
         cov = path_routes.get(it["name"], set())
         it["routes"] = sorted(cov)                # which app(s) cover this path
         it["on_route"] = bool(cov)
+    # A path under a FULLY owned route is owned by that route's owner(s) — the same rule
+    # coverage() uses for owned_paths. Marked `inherited` (owners = the route's) so the gap
+    # lists stop showing it as Ownerless Risk; it doesn't add to anyone's workload twice.
+    _route_by = {r["name"]: r for r in routes}
+    for it in paths:
+        if it["status"] in ("unowned", "partial"):
+            via = sorted(a for a in it["routes"] if _route_by.get(a, {}).get("status") == "owned")
+            if via:
+                it["inherited"] = True
+                it["via_routes"] = via
+                it["owners"] = sorted({o for a in via for o in _route_by[a]["owners"]} | set(it["owners"]))
+                it["owner_count"] = len(it["owners"])
+                it["owned_assets"] = it["assets"]
+                it["status"] = "owned"
     route_paths_list = {a: sorted(s) for a, s in route_paths.items()}
     orphan_paths = sorted(p["name"] for p in paths if not p["on_route"])
 
@@ -628,12 +770,18 @@ def ownership_map(db_path=None) -> dict:
     paths.sort(key=lambda x: (-x["assets"], x["name"]))
 
     # per-owner workload: routes, paths and distinct assets each owner carries
+    # — only the items an owner is DIRECTLY tagged on, and only the assets tagged to THEM
+    #   (not every asset tagged for the name, which counted other owners' and dispositions')
     load = {}
+    ua = b["user_assets"]
     for it in routes + paths:
+        if it.get("inherited"):
+            continue
+        k = _nk(it["name"])
         for o in it["owners"]:
             e = load.setdefault(o, {"owner": o, "routes": 0, "paths": 0, "assets": set()})
             e["routes" if it["type"] == "route" else "paths"] += 1
-            e["assets"] |= (name_assets.get(_nk(it["name"]), set()))
+            e["assets"] |= ua.get((k, o), set())
     owner_load = sorted(([{"owner": e["owner"], "routes": e["routes"], "paths": e["paths"],
                            "assets": len(e["assets"])} for e in load.values()]),
                         key=lambda x: -(x["routes"] + x["paths"]))
@@ -643,8 +791,18 @@ def ownership_map(db_path=None) -> dict:
         all_assets |= s
     for s in path_assets.values():
         all_assets |= s
-    tagged = {r["asset_uuid"] for r in q("SELECT DISTINCT asset_uuid FROM tags WHERE tag_key='Owner'") if r.get("asset_uuid")}
-    unowned_assets = len(all_assets - tagged)
+    # Ownerless Risk: assets with neither an owner nor a decision on ANY route/path they sit
+    # on. (Subtracting every asset with any Owner tag hid assets whose only tag was for a
+    # different route, or a bare team name.)
+    covered = set()
+    for it, aset in [(r, route_assets.get(r["name"], set())) for r in routes] + \
+                    [(p, path_assets.get(p["name"], set())) for p in paths]:
+        if it.get("inherited"):
+            covered |= aset
+            continue
+        k = _nk(it["name"])
+        covered |= (owned_by.get(k, set()) | disp_by.get(k, set())) & aset
+    unowned_assets = len(all_assets - covered)
 
     def kc(items, s):
         return sum(1 for i in items if i["status"] == s)
@@ -679,14 +837,16 @@ def ownership_map(db_path=None) -> dict:
                       "plugins": int(row.get("plugins") or 0), "paths": int(row.get("paths") or 0),
                       "routes": int(row.get("routes") or 0)}
         cr = q("WITH present AS (SELECT DISTINCT plugin_id FROM vulns) "
-               "SELECT p.plugin_id,p.name,(length(p.cves)-length(replace(p.cves,'CVE-','')))/4 cve_count,"
-               "(SELECT COUNT(DISTINCT asset_uuid) FROM vulns v WHERE v.plugin_id=p.plugin_id) assets "
+               "SELECT p.plugin_id,p.name,(length(p.cves)-length(replace(p.cves,'CVE-','')))/4 cve_count "
                "FROM plugins p JOIN present ON present.plugin_id=p.plugin_id "
                "WHERE p.cves IS NOT NULL AND p.cves NOT IN ('','[]','None') ORDER BY cve_count DESC LIMIT 1")
         if cr:
             c = cr[0]
             champion = {"plugin_id": c.get("plugin_id"), "name": c.get("name"),
-                        "cve_count": int(c.get("cve_count") or 0), "assets": int(c.get("assets") or 0)}
+                        "cve_count": int(c.get("cve_count") or 0),
+                        # per-plugin asset count from _base's one scan (a correlated
+                        # COUNT(DISTINCT) per plugin was the slowest query on big tenants)
+                        "assets": int(b["plugin_asset_n"].get(str(c.get("plugin_id")), 0))}
 
     # Owner tags that DON'T map to any route or path — surfaced (not silently dropped) so
     # you can see exactly what's not landing on the Sankey and why. These are usually tags
@@ -772,7 +932,7 @@ def path_detail(path):
             "ON r.plugin_list LIKE '%''' || vp.plugin_id || '''%' WHERE vp.path=?", (path,)) if r.get("app")]
     owners = set()
     apps_ci = {a.strip().lower() for a in apps}
-    for r in q("SELECT DISTINCT tag_value FROM tags WHERE tag_key='Owner' AND tag_value IS NOT NULL"):
+    for r in q("SELECT DISTINCT tag_value FROM tags WHERE " + tagname.sql_lit("tag_key", "Owner") + " AND tag_value IS NOT NULL"):
         val = (r.get("tag_value") or "").strip()
         if ": " in val:
             nm, us = val.rsplit(": ", 1)
@@ -781,6 +941,164 @@ def path_detail(path):
     return {"ok": True, "path": path, "apps": sorted(apps), "owners": sorted(owners),
             "assets": assets, "plugins": sorted(plugins), "findings": sorted(findings),
             "asset_count": len(assets)}
+
+
+# ===================================================================================
+# Snapshot — everything the page shows (owners, routes, paths, coverage, the ownership
+# map) built in ONE pass, cached on disk and in memory, keyed by navi.db's signature
+# (size + mtime of the db and its -wal). A navi update changes the signature, so the next
+# Run rebuilds; until then a Run — or reopening the page — is instant. Builds run on the
+# job queue, so leaving the page doesn't stop them. The owner directory (a live Tenable
+# API call through navi) is cached separately for OWNERS_TTL.
+# ===================================================================================
+
+CACHE_DIR = os.environ.get("NAVI_CACHE_DIR") or os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "data", "cache")
+OWNERS_TTL = float(os.environ.get("NAVI_OWNERS_TTL_S", str(6 * 3600)))
+SNAP_VERSION = 1
+_SNAP_MEM = {}            # key -> snapshot dict
+_BUILDING = {}            # key -> {"job_id", "started"}
+_SLOCK = threading.Lock()
+
+
+def _cache_path(name):
+    os.makedirs(CACHE_DIR, mode=0o700, exist_ok=True)
+    return os.path.join(CACHE_DIR, name)
+
+
+def _atomic_write(path, data: bytes):
+    tmp = path + ".tmp"
+    with _popen(tmp, "wb") as f:
+        f.write(data)
+    os.replace(tmp, path)
+
+
+def _db_file(db_path=None):
+    try:
+        return os.path.abspath(db_path or db.db_path())
+    except Exception:
+        return ""
+
+
+def db_signature(db_path=None) -> str:
+    p = _db_file(db_path)
+    parts = []
+    for fp in (p, p + "-wal"):
+        try:
+            st = os.stat(fp)
+            parts.append(f"{st.st_size}:{st.st_mtime_ns}")
+        except OSError:
+            parts.append("-")
+    return "|".join(parts)
+
+
+def _snap_key(db_path=None):
+    return hashlib.sha1(_db_file(db_path).encode()).hexdigest()[:16]
+
+
+def owners_cached(refresh=False):
+    """(owners, fetched_at). The live navi pull is cached on disk for OWNERS_TTL; a failed
+    or empty live pull keeps the last good list rather than wiping it."""
+    path = _cache_path("exproute_owners.json")
+    old = None
+    try:
+        with open(path, encoding="utf-8") as f:
+            old = _json.load(f)
+    except Exception:
+        old = None
+    if old and not refresh and (_time.time() - float(old.get("at", 0))) < OWNERS_TTL:
+        return old.get("owners") or [], float(old["at"])
+    live = _owners_live()
+    if not live and old:
+        return old.get("owners") or [], float(old.get("at", 0))
+    now = _time.time()
+    try:
+        _atomic_write(path, _json.dumps({"at": now, "owners": live}).encode())
+    except Exception:
+        pass
+    return live, now
+
+
+def _iso(ts):
+    try:
+        return datetime.datetime.fromtimestamp(float(ts)).astimezone().isoformat(timespec="seconds")
+    except Exception:
+        return None
+
+
+def _load_snapshot(key, sig):
+    s = _SNAP_MEM.get(key)
+    if s and s.get("meta", {}).get("sig") == sig:
+        return s
+    try:
+        with gzip.open(_cache_path(f"exproute_{key}.json.gz"), "rt", encoding="utf-8") as f:
+            s = _json.load(f)
+    except Exception:
+        return None
+    if s.get("meta", {}).get("sig") != sig or s.get("meta", {}).get("v") != SNAP_VERSION:
+        return None
+    _SNAP_MEM.clear()
+    _SNAP_MEM[key] = s
+    return s
+
+
+def _save_snapshot(key, s):
+    _SNAP_MEM.clear()
+    _SNAP_MEM[key] = s
+    try:
+        _atomic_write(_cache_path(f"exproute_{key}.json.gz"),
+                      gzip.compress(_json.dumps(s, default=list).encode("utf-8"), 5))
+    except Exception:
+        pass
+
+
+def build_snapshot(db_path=None, refresh_owners=False) -> dict:
+    t0 = _time.time()
+    sig = db_signature(db_path)
+    b = _base(db_path)
+    om = ownership_map(db_path, base=b)
+    ow, ow_at = owners_cached(refresh_owners)
+    cov = coverage(db_path, base=b, om=om, users_total=sum(1 for o in ow if o.get("type") == "user"))
+    rt, pa = routes(db_path), paths(db_path)
+    snap = {"load": {"owners": ow, "routes": rt, "paths": pa,
+                     "counts": {"owners": len(ow), "routes": len(rt), "paths": len(pa)}},
+            "coverage": cov, "map": om,
+            "meta": {"v": SNAP_VERSION, "sig": sig, "db": _db_file(db_path),
+                     "built_at": _iso(t0), "build_sec": round(_time.time() - t0, 2),
+                     "owners_at": _iso(ow_at)}}
+    _save_snapshot(_snap_key(db_path), snap)
+    return snap
+
+
+def snapshot_state(db_path=None) -> dict:
+    """What the page can show right now without computing anything."""
+    key, sig = _snap_key(db_path), db_signature(db_path)
+    s = _load_snapshot(key, sig)
+    with _SLOCK:
+        bld = dict(_BUILDING.get(key) or {})
+    return {"snap": s, "building": bld or None, "key": key}
+
+
+def start_build(submit, db_path=None, refresh_owners=False) -> dict:
+    """Start (or join) the background build. `submit(fn)` puts fn on the job queue and
+    returns the job stub. One build per navi.db at a time."""
+    key = _snap_key(db_path)
+    with _SLOCK:
+        if key in _BUILDING:
+            return dict(_BUILDING[key])
+
+        def _work():
+            try:
+                s = build_snapshot(db_path, refresh_owners=refresh_owners)
+                m = s["meta"]
+                return {"ok": True, "ready": True, "build_sec": m["build_sec"],
+                        "message": f"ownership snapshot built in {m['build_sec']}s"}
+            finally:
+                with _SLOCK:
+                    _BUILDING.pop(key, None)
+        job = submit(_work)
+        _BUILDING[key] = {"job_id": job.get("id"), "started": _iso(_time.time())}
+        return dict(_BUILDING[key])
 
 
 class ExpRouteAgent(Agent):

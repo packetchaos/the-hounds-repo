@@ -1,6 +1,7 @@
 """IoT Discovery Squad — self-contained HTTP actions."""
 from core import navi_cli, iot_registry, iot_common
 from .agent import IoTSquadOrchestrator
+from core.gates import confirmed
 
 AGENT = IoTSquadOrchestrator()
 
@@ -8,7 +9,10 @@ AGENT = IoTSquadOrchestrator()
 def run(p):
     p = p or {}
     use_pack = bool(p.get("use_pack"))
-    res = AGENT.run(use_pack=use_pack)
+    try:
+        res = AGENT.run(use_pack=use_pack)
+    except FileNotFoundError as e:          # no navi.db at all — say so, don't 500
+        return {"ok": False, "error": str(e)}, 200
     return {"ok": True, "agent": AGENT.meta(), "result": res,
             "options": {"use_pack": use_pack,
                         "pack_size": len(iot_common.term_pack()),
@@ -27,11 +31,19 @@ def _tag_selector(cat, val, s):
     return navi_cli.tag(cat, val, query=s.get("query", ""), remove=False, agent="iot_squad")
 
 
-def tags_apply(p):
+def _ensure_result(use_pack=False):
+    """The page can show a run replayed from the page cache after a server restart, when
+    this process has no result yet — re-derive it (a read) instead of failing the write."""
     if AGENT.result is None:
-        return {"ok": False, "error": "run the agent first"}, 400
-    if not p.get("confirm"):
+        AGENT.run(use_pack=bool(use_pack))
+    return AGENT.result
+
+
+def tags_apply(p):
+    if not confirmed(p):
         return {"ok": False, "error": "confirm=true required to apply tags"}, 400
+    if _ensure_result(p.get("use_pack")) is None:
+        return {"ok": False, "error": "run the agent first"}, 400
     actions = {a["value"]: a for a in AGENT.result.get("tag_actions", [])}
     # Unified inventory scheme: category 'Asset Inventory', value '<Facet>: <name>'. The UI
     # may override the facet per device (facets map) or set one default for all (facet).
@@ -63,7 +75,7 @@ def tag_candidate(p):
 
     Used after a human inspects the candidate's plugin output and decides it is a
     true match, not a false positive."""
-    if not p.get("confirm"):
+    if not confirmed(p):
         return {"ok": False, "error": "confirm=true required to apply tag"}, 400
     name = (p.get("iot_name") or "").strip()
     uuid = (p.get("asset_uuid") or "").strip()
@@ -71,13 +83,13 @@ def tag_candidate(p):
     if not name or not uuid:
         return {"ok": False, "error": "iot_name and asset_uuid required"}, 400
     q = f"SELECT asset_uuid FROM vulns WHERE asset_uuid = '{uuid.replace(chr(39), chr(39)*2)}';"
-    res = navi_cli.tag("IoT", value, q, remove=False)
+    res = navi_cli.tag("IoT", value, q, remove=False, agent="iot_squad")
     return {"ok": True, "iot_name": name, "value": value, "asset_uuid": uuid,
             "result": res, "writes_enabled": navi_cli.writes_enabled()}, 200
 
 
 def detections_decide(p):
-    if not p.get("confirm"):
+    if not confirmed(p):
         return {"ok": False, "error": "confirm=true required to update detections"}, 400
     decisions = p.get("decisions", [])
     if not decisions:
@@ -89,11 +101,11 @@ def detections_export(p):
     """Base-building: write the confirmed proposals from a rich-db hunt to a
     reviewable learned base file (default) — or merge=True to fold in the seeds
     too. Does NOT touch the live registry; the operator swaps the file in."""
-    if not p.get("confirm"):
+    if not confirmed(p):
         return {"ok": False, "error": "confirm=true required to export a base"}, 400
     proposals = p.get("proposals")
-    if proposals is None and AGENT.result:      # default: everything Agent 3 confirmed
-        proposals = AGENT.result.get("proposals", [])
+    if proposals is None:                       # default: everything Agent 3 confirmed
+        proposals = (_ensure_result(p.get("use_pack")) or {}).get("proposals", [])
     if not proposals:
         return {"ok": False, "error": "no proposals to export (run a hunt first)"}, 400
     return {"ok": True, **iot_registry.export_base(proposals, merge=bool(p.get("merge")))}, 200

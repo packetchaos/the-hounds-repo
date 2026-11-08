@@ -4,379 +4,438 @@
 <title>On the Scent · Navi Agents</title>
 <link rel="stylesheet" href="/static/console.css"/>
 <style>
-  .lead{display:flex;align-items:center;gap:16px;flex-wrap:wrap;border:1px solid rgba(229,72,77,.4);border-radius:14px;
-    padding:15px 17px;margin-top:14px;background:radial-gradient(120% 160% at 100% -30%,rgba(229,72,77,.13),transparent 60%),var(--panel)}
-  .lead .n{font-family:var(--display);font-weight:700;font-size:34px;line-height:1;color:var(--crit)}
-  .lead .go{margin-left:auto;background:linear-gradient(100deg,#c53b40,#e5484d);color:#fff;border:0;border-radius:10px;
-    font-family:var(--display);font-weight:700;font-size:13.5px;padding:11px 17px;text-decoration:none;white-space:nowrap}
-  .lstat{display:flex;gap:18px;flex-wrap:wrap}
-  .lstat .v{font-family:var(--display);font-weight:700;font-size:20px}.lstat .l{font-size:10.5px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em}
-  .g2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}@media(max-width:840px){.g2{grid-template-columns:1fr}}
-  .gr{display:grid;grid-template-columns:1.15fr .85fr;gap:16px;margin-top:16px}@media(max-width:900px){.gr{grid-template-columns:1fr}}
-  h3.ct{margin:0;font-size:15px}
-  /* distribution stacked bar */
-  .dist{display:flex;height:34px;border-radius:9px;overflow:hidden;border:1px solid var(--line);margin:12px 0 10px}
-  .dist>i{height:100%;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:11px;color:#0d0f16;font-weight:700;min-width:0}
-  .distleg{display:flex;flex-wrap:wrap;gap:6px}
-  .lg{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;border:1px solid var(--line);border-radius:999px;padding:3px 9px}
-  .lg .sw{width:10px;height:10px;border-radius:3px}
-  .sev-crit{background:var(--crit)} .sev-high{background:var(--high)} .sev-med{background:var(--med)} .sev-low{background:var(--low)} .sev-ok{background:var(--ok)}
-  /* horizontal ranked bars */
-  .hb{display:flex;flex-direction:column;gap:7px;margin-top:10px}
-  .hbrow{display:grid;grid-template-columns:150px 1fr 92px;gap:10px;align-items:center;font-size:12px}
-  @media(max-width:560px){.hbrow{grid-template-columns:110px 1fr 76px}}
-  .hbrow .nm b{color:var(--ink)}.hbrow .nm span{display:block;font-family:var(--mono);font-size:9.5px;color:var(--ink-3)}
-  .hbtrack{height:16px;border-radius:6px;background:var(--panel-2,var(--bg-2));overflow:hidden}
-  .hbtrack>i{display:block;height:100%;border-radius:6px}
-  .hbrow .rt{font-family:var(--mono);text-align:right;color:var(--ink-2)}
-  .hbrow .rt b{color:var(--ink)}
-  /* coverage bars */
-  .cov{display:flex;flex-direction:column;gap:9px;margin-top:10px}
-  .covrow .cbh{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:12px}
-  .covrow .cbh b{color:var(--ink)} .covrow .cbh .n{font-family:var(--mono);color:var(--ink-2)}
-  .covtrack{height:13px;border-radius:5px;background:var(--panel-2,var(--bg-2));overflow:hidden;margin-top:4px}
-  .covtrack>i{display:block;height:100%;border-radius:5px;background:linear-gradient(90deg,#43b98a,#2f8f6b)}
-  .covrow .drop{color:var(--crit);font-size:10.5px}
-  /* 12-month certificate expiry timeline — each bar deep-links into certdash */
-  .certtl{display:flex;gap:6px;align-items:flex-end;margin-top:14px;overflow-x:auto;padding:18px 0 4px}
-  .certtl a.cb{flex:1 0 50px;min-width:50px;display:flex;flex-direction:column;align-items:center;gap:5px;text-decoration:none;color:inherit}
-  .certtl .col{display:block;width:100%;min-height:3px;border-radius:7px 7px 3px 3px;background:var(--high);position:relative;transition:.12s}
-  .certtl a.exp .col{background:var(--crit)}
-  .certtl .cnt{position:absolute;top:-17px;left:0;right:0;text-align:center;font-family:var(--mono);font-size:11px;color:var(--ink)}
-  .certtl .lab{font-size:10px;color:var(--ink-3);text-align:center;line-height:1.15;white-space:nowrap}
-  .certtl a.cb:hover .col{filter:brightness(1.14);outline:2px solid var(--accent);outline-offset:1px}
-  .certtl a.cb:hover .lab{color:var(--ink);font-weight:600}
-  .certtl a.zero{opacity:.4;pointer-events:none}
-  /* radar */
-  .radarwrap{display:flex;flex-direction:column;align-items:center}
-  /* convergence */
-  .conv{display:flex;flex-direction:column;gap:8px;margin-top:10px}
-  .cv{display:grid;grid-template-columns:44px 1fr auto;align-items:center;gap:12px;border:1px solid var(--line);border-radius:11px;padding:9px 13px;background:var(--bg-2);text-decoration:none;color:inherit;transition:.12s}
-  .cv:hover{border-color:var(--accent)}
-  .cv .cn{font-family:var(--display);font-weight:700;font-size:22px;text-align:center}
-  .cv.crit{box-shadow:inset 3px 0 0 var(--crit)} .cv.crit .cn{color:var(--crit)}
-  .cv.warn{box-shadow:inset 3px 0 0 var(--high)} .cv.warn .cn{color:var(--high)}
-  .cv .cgo{font-family:var(--mono);font-size:10.5px;color:var(--accent);white-space:nowrap}
-  /* posture tiles */
-  .board{display:grid;grid-template-columns:repeat(auto-fill,minmax(184px,1fr));gap:11px;margin-top:12px}
-  .dt{display:block;text-decoration:none;border:1px solid var(--line);border-left-width:3px;border-radius:11px;background:var(--bg-2);padding:12px 13px;transition:.14s;color:inherit}
-  .dt:hover{border-color:var(--accent);transform:translateY(-1px)}
-  .dt .dh{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--ink-2)}
-  .dt .dv{font-family:var(--display);font-weight:700;font-size:26px;line-height:1.1;margin-top:5px}
-  .dt .ds{font-size:11px;color:var(--ink-3);margin-top:2px}.dt .hn{font-family:var(--mono);font-size:9.5px;color:var(--ink-3);margin-top:6px;letter-spacing:.04em}
-  .dt.crit{border-left-color:var(--crit)} .dt.crit .dv{color:var(--crit)}
-  .dt.warn{border-left-color:var(--high)} .dt.warn .dv{color:var(--high)}
-  .dt.ok{border-left-color:var(--ok)} .dt.ok .dv{color:var(--ok)}
-  .dt.off{border-left-color:var(--line);opacity:.72} .dt.off .dv{color:var(--ink-3);font-size:20px}
-  .blind{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:10px;margin-top:8px}
-  .bt{border:1px solid var(--line);border-radius:11px;background:var(--bg-2);padding:11px 13px}
-  .bt.crit{box-shadow:inset 3px 0 0 var(--crit)} .bt.warn{box-shadow:inset 3px 0 0 var(--high)}
-  .bt .bv{font-family:var(--display);font-weight:700;font-size:24px}.bt.crit .bv{color:var(--crit)}
-  .bt .bl{font-size:12px;color:var(--ink);font-weight:600;margin-top:2px}.bt .bs{font-size:11px;color:var(--ink-3);margin-top:2px}
-  .mini{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin-top:8px}
-  .mn{border:1px solid var(--line);border-radius:9px;background:var(--bg-2);padding:9px 11px;text-decoration:none;color:inherit}
-  .mn .mv{font-family:var(--display);font-weight:700;font-size:18px}.mn .ml{font-size:10.5px;color:var(--ink-3)}
-  /* per-widget email (Gabriel `data` action — same as the Custom Dashboard widgets) */
-  section.card,.lead{position:relative}
-  .embtn{position:absolute;top:11px;right:13px;background:transparent;border:1px solid var(--line);color:var(--ink-3);
-    border-radius:8px;padding:4px 9px;font-size:11px;cursor:pointer;z-index:2}
-  .embtn:hover{border-color:var(--accent);color:var(--ink)}
-  .emrow{display:none;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;border-top:1px dashed var(--line);padding-top:9px;flex-basis:100%}
-  .emrow input{background:var(--bg-2);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:7px 10px;font-size:12px;min-width:210px;flex:1}
-  .emrow .res{font-size:11.5px;flex-basis:100%}
+  /* On the Scent — built from Release the Hounds (core/insights.scent_digest). Only console tokens. */
+  .mkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr));gap:10px;margin-top:10px}
+  .mk{display:block;border:1px solid var(--line);border-left:4px solid var(--rc,var(--line));border-radius:12px;padding:10px 12px;background:var(--panel-2);color:inherit;text-decoration:none}
+  .mk .v{font-size:22px;font-weight:800;color:var(--ink);line-height:1.1;font-family:var(--display)}
+  .mk .l{font-size:11.5px;color:var(--ink-3);margin-top:2px}.mk .u{font-size:11px;color:var(--accent);margin-top:4px}
+  .mk{position:relative} a.mk:hover{border-color:var(--accent)} .mk.zero{opacity:.55}
+  .mk .sv{position:absolute;top:7px;right:9px;font-family:var(--mono);font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
+  .mhead{font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 0}
+  .acode{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
+  .story{font-size:15px;line-height:1.55;color:var(--ink-2);margin:8px 0 0;max-width:880px}
+  .story a{font-weight:700;text-decoration:none;border-bottom:1px dashed currentColor;color:var(--accent)}
+  .story a.c{color:var(--crit)} .story a.w{color:var(--high)}
+  .fresh{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px;padding:10px 12px;border:1px solid var(--line);border-left:3px solid var(--ok);border-radius:10px;background:var(--panel-2);font-size:12.5px}
+  .fresh.warn{border-left-color:var(--high)} .fresh.run{border-left-color:var(--accent)} .fresh .sp{flex:1}
+  .fresh a{color:var(--accent)} .fresh .btn{color:#fff} .fresh .btn.ghost{color:var(--ink)}
+  .dots{display:flex;gap:4px;flex-wrap:wrap}
+  .dots a{width:14px;height:14px;border-radius:4px;display:block;border:1px solid transparent}
+  .st-fresh{background:var(--ok)} .st-user{background:var(--accent2)} .st-stale{background:var(--high)}
+  .st-missing{background:transparent;border-color:var(--ink-3)!important;border-style:dashed!important} .st-error{background:var(--crit)}
+  .st-skipped,.st-cancelled{background:repeating-linear-gradient(135deg,var(--ink-3) 0 2px,transparent 2px 5px);border-color:var(--ink-3)!important}
+  .st-live,.st-pending{background:var(--line)} .st-running{background:var(--accent)} .st-done{background:var(--ok)}
+  h3.ct{margin:0;font-size:14.5px;font-family:var(--display)}
+  .ctsub{color:var(--ink-3);font-size:12px;margin:2px 0 10px}
+  .g2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:18px}
+  .g2.w{grid-template-columns:minmax(0,.8fr) minmax(0,1.2fr)}
+  @media(max-width:860px){.g2,.g2.w{grid-template-columns:minmax(0,1fr)}}
+  .panel{border:1px solid var(--line-soft);border-radius:12px;padding:14px;background:var(--bg-2);min-width:0}
+  .ph{color:var(--ink-3);font-size:12.5px;margin:6px 0;padding:10px 12px;border:1px dashed var(--line);border-radius:9px}
+  .ph a{color:var(--accent)}
+  .sact{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;align-items:center;margin:-4px 0 6px}
+  /* gauge + waffle */
+  .gwrap{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+  .gauge{width:200px;max-width:100%;display:block}
+  .waffle{display:grid;grid-template-columns:repeat(16,1fr);gap:3px;flex:1;min-width:min(200px,100%);max-width:340px}
+  .waffle a{aspect-ratio:1;border-radius:3px;display:block}
+  .b-critical{background:var(--crit)} .b-high{background:var(--high)} .b-elevated{background:var(--med)} .b-low{background:var(--low)} .b-clean{background:var(--ok)}
+  .leg{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px;align-items:center}
+  .leg a{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;border:1px solid var(--line);border-radius:999px;padding:3px 9px;color:var(--ink-2);text-decoration:none}
+  .leg a:hover{border-color:var(--accent)} .leg .sw{width:10px;height:10px;border-radius:3px} .leg b{color:var(--ink)}
+  /* treemap */
+  .tmap{position:relative;height:260px;border-radius:10px;overflow:hidden}
+  .tmap a{position:absolute;box-sizing:border-box;border:2px solid var(--panel);border-radius:6px;padding:6px 8px;color:var(--ink);text-decoration:none;overflow:hidden;
+    background:color-mix(in srgb,var(--accent) calc(var(--a)*100%),var(--panel-2))}
+  .tmap a:hover{outline:2px solid var(--accent);z-index:2}
+  .tmap .tp{font-family:var(--display);font-weight:700;font-size:17px;line-height:1}
+  .tmap .tl{font-size:11px;margin-top:3px;line-height:1.2}.tmap .th{font-size:10px;color:var(--ink-2);font-family:var(--mono)}
+  .tmap a.dk{color:#fff}.tmap a.dk .th{color:rgba(255,255,255,.8)}
+  /* footprint bullets */
+  .fp{display:flex;flex-direction:column;gap:9px}
+  .fp a{display:grid;grid-template-columns:minmax(120px,190px) minmax(0,1fr) 112px;gap:10px;align-items:center;text-decoration:none;color:inherit;padding:2px 4px;border-radius:7px}
+  .fp a:hover{background:var(--panel-2)}
+  .fp .nm{font-size:12.5px;color:var(--ink)} .fp .nm span{display:block;font-size:10.5px;color:var(--ink-3);font-family:var(--mono)}
+  .fp .trk{height:14px;border-radius:4px;background:var(--line-soft);position:relative;overflow:hidden}
+  .fp .trk i{position:absolute;left:0;top:0;bottom:0;border-radius:4px}
+  .fp .trk i.all{background:color-mix(in srgb,var(--accent) 38%,transparent)} .fp .trk i.cr{background:var(--accent);border-right:2px solid var(--panel)}
+  .fp .rt{font-family:var(--mono);font-size:11px;text-align:right;color:var(--ink-2);line-height:1.3} .fp .rt b{color:var(--ink)} .fp .rt small{display:block;font-size:9.5px;color:var(--ink-3);white-space:nowrap}
+  @media(max-width:560px){.fp a{grid-template-columns:minmax(0,1fr) 112px}.fp .trk{grid-column:1/-1;order:3}}
+  /* worst assets x hound matrix */
+  .scroll{overflow-x:auto;max-width:100%}
+  .mx{width:100%;border-collapse:separate;border-spacing:3px;font-size:11.5px}
+  .mx th{font-size:9.5px;letter-spacing:.04em;padding:2px;text-align:center;border:0;text-transform:none;writing-mode:vertical-rl;transform:rotate(180deg);height:78px;vertical-align:bottom;color:var(--ink-3)}
+  .mx td{padding:0;border:0;height:22px}
+  .mx td.h{white-space:nowrap;padding-right:6px;max-width:130px;overflow:hidden;text-overflow:ellipsis}
+  .mx td.h a{color:var(--ink);text-decoration:none}.mx td.s{font-family:var(--mono);font-weight:700;text-align:right;padding-right:6px}
+  .mx td.c{border-radius:4px;min-width:16px;background:color-mix(in srgb,var(--accent) calc(var(--a)*100%),var(--line-soft))}
+  .mx tr:hover td.h a{color:var(--accent)}
+  /* cert wall */
+  .certtl{display:flex;gap:5px;align-items:flex-end;overflow-x:auto;padding:18px 0 4px}
+  .certtl a{flex:1 0 34px;min-width:34px;display:flex;flex-direction:column;align-items:center;gap:5px;text-decoration:none;color:inherit}
+  .certtl .col{display:block;width:100%;min-height:3px;border-radius:4px 4px 2px 2px;background:var(--high);position:relative}
+  .certtl a.exp .col{background:var(--crit)} .certtl .cnt{position:absolute;top:-16px;left:0;right:0;text-align:center;font-family:var(--mono);font-size:10.5px;color:var(--ink)}
+  .certtl .lab{font-size:9.5px;color:var(--ink-3);white-space:nowrap} .certtl a.zero{opacity:.4}
+  .certtl a:hover .col{outline:2px solid var(--accent)}
+  .clk{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr));gap:8px;margin-top:10px}
+  .clk a{border:1px solid var(--line);border-radius:10px;padding:8px 10px;text-decoration:none;color:inherit;background:var(--panel-2)}
+  .clk a:hover{border-color:var(--accent)} .clk .v{font-family:var(--display);font-weight:700;font-size:18px} .clk .l{font-size:11px;color:var(--ink-3)}
+  .clk a.na .v{color:var(--ink-3);font-size:15px}
+  /* signal stack */
+  .hist{display:flex;align-items:flex-end;gap:6px;height:150px;padding-top:16px}
+  .hist a{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;text-decoration:none;color:inherit;min-width:0}
+  .hist .bar{width:100%;border-radius:4px 4px 0 0;background:color-mix(in srgb,var(--accent) calc(var(--a)*100%),var(--line-soft));position:relative;min-height:2px}
+  .hist .bar span{position:absolute;top:-16px;left:-6px;right:-6px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--ink)}
+  .hist .x{font-size:11px;color:var(--ink-3);margin-top:5px;font-family:var(--mono)}
+  .hist a:hover .bar{outline:2px solid var(--accent)}
+  .axisn{font-size:11px;color:var(--ink-3);text-align:center;margin-top:4px}
+  /* co-occurrence */
+  .co{border-collapse:separate;border-spacing:2px;font-size:10.5px;margin:0 auto}
+  .co td,.co th{border:0;padding:0;text-align:center}
+  .co th{font-size:10px;color:var(--ink-3);letter-spacing:0;text-transform:none;font-family:var(--body);padding:0 3px;font-weight:500}
+  .co th.r{text-align:right;padding-right:6px}
+  .co td a{display:flex;align-items:center;justify-content:center;width:34px;height:28px;border-radius:5px;text-decoration:none;font-family:var(--mono);color:var(--ink);
+    background:color-mix(in srgb,var(--crit) calc(var(--a)*100%),var(--line-soft))}
+  .co td a.dk{color:#fff} .co td a.dg{background:transparent;border:1px dashed var(--line);color:var(--ink-3)}
+  .co td a:hover{outline:2px solid var(--accent)}
+  @media(max-width:480px){.co td a{width:25px;height:24px;font-size:9.5px}}
+  .conv{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+  .cv{display:grid;grid-template-columns:52px minmax(0,1fr) auto;align-items:center;gap:12px;border:1px solid var(--line);border-radius:11px;padding:9px 13px;background:var(--panel-2)}
+  .cv .cn{font-family:var(--display);font-weight:700;font-size:22px;text-align:center;text-decoration:none;border-radius:8px;padding:2px 0}
+  .cv .cn:hover{outline:2px solid var(--accent)}
+  .cv.crit{box-shadow:inset 3px 0 0 var(--crit)} .cv.crit .cn{color:var(--crit)} .cv.warn{box-shadow:inset 3px 0 0 var(--high)} .cv.warn .cn{color:var(--high)}
+  .cv .pair{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-top:2px} .cv .cgo{font-family:var(--mono);font-size:10.5px;color:var(--accent);white-space:nowrap;text-decoration:none}
+  .cv .cgo:hover{text-decoration:underline}
+  .sevt{font-family:var(--mono);font-size:9px;letter-spacing:.06em;text-transform:uppercase;border:1px solid var(--line);border-radius:5px;padding:0 4px;margin-left:6px;color:var(--ink-2)}
+  @media(max-width:480px){.cv{grid-template-columns:44px minmax(0,1fr)}.cv .cgo{grid-column:2}}
+  /* blind steps */
+  .steps{display:flex;flex-direction:column;gap:10px}
+  .steps a{text-decoration:none;color:inherit;display:block;border-radius:8px;padding:2px 4px}.steps a:hover{background:var(--panel-2)}
+  .steps .hd{display:flex;justify-content:space-between;gap:10px;font-size:12.5px} .steps .hd .n{font-family:var(--mono);color:var(--ink-2);white-space:nowrap}
+  .steps .trk{display:flex;height:14px;border-radius:4px;overflow:hidden;margin-top:4px;gap:2px;background:var(--line-soft)}
+  .steps .seen{background:var(--ok);border-radius:4px 0 0 4px}
+  .steps .gap{background:repeating-linear-gradient(135deg,var(--crit-bg) 0 4px,transparent 4px 8px);border:1px solid color-mix(in srgb,var(--crit) 45%,transparent);border-radius:0 4px 4px 0;box-sizing:border-box}
+  .steps .gl{font-size:10.5px;color:var(--crit);margin-top:2px}.steps .own{font-size:10px;color:var(--ink-3);font-family:var(--mono)}
+  .bt{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr));gap:8px}
+  .bt a{border:1px solid var(--line);border-radius:10px;padding:9px 11px;background:var(--panel-2);text-decoration:none;color:inherit}
+  .bt a:hover{border-color:var(--accent)} .bt .v{font-family:var(--display);font-weight:700;font-size:20px} .bt .l{font-size:11.5px;color:var(--ink)} .bt .o{font-size:10px;color:var(--ink-3);font-family:var(--mono)}
+  .bt a.na .v{color:var(--ink-3);font-size:15px}
+  /* next moves */
+  .nx{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(270px,100%),1fr));gap:10px}
+  .nx a{display:grid;grid-template-columns:28px minmax(0,1fr);gap:4px 10px;border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--panel-2);text-decoration:none;color:inherit}
+  .nx a:hover{border-color:var(--accent)}
+  .nx .rk{grid-row:span 3;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:12px;font-weight:700;background:var(--line);color:var(--ink)}
+  .nx a.crit .rk{background:var(--crit);color:#fff} .nx a.warn .rk{background:var(--high);color:#111}
+  .nx .vb{font-weight:700;font-size:13.5px}.nx .nn{font-family:var(--display);font-size:22px;font-weight:700;line-height:1.1}.nx .nn small{font-size:11.5px;color:var(--ink-3);font-weight:400;font-family:var(--body);margin-left:5px}
+  .nx .dt{font-size:11.5px;color:var(--ink-2);overflow-wrap:anywhere} .nx .hh{grid-column:2;font-family:var(--mono);font-size:10.5px;color:var(--accent)}
+  .ladder{display:flex;flex-direction:column;gap:7px;margin-top:8px}
+  .ladder>a{display:grid;grid-template-columns:150px minmax(0,1fr) 70px;gap:10px;align-items:center;text-decoration:none;color:inherit;font-size:12px}
+  .ladder>a:hover span:first-child{color:var(--accent)}
+  .ladder i{display:block;height:16px;border-radius:4px;background:var(--accent2)} .ladder .n{font-family:var(--mono);text-align:right}
+  .ladder .champ a{color:var(--accent)}
+  @media(max-width:480px){.ladder>a{grid-template-columns:110px minmax(0,1fr) 54px}}
+  /* pack coverage */
+  .pack{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(200px,100%),1fr));gap:8px}
+  .pack a{display:grid;grid-template-columns:14px minmax(0,1fr);gap:2px 9px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:8px 10px;background:var(--panel-2);text-decoration:none;color:inherit}
+  .pack a:hover{border-color:var(--accent)} .pack .d{width:12px;height:12px;border-radius:4px;border:1px solid transparent}
+  .pack .nm{font-size:12.5px;font-weight:600} .pack .mt{grid-column:2;font-size:10.5px;color:var(--ink-3);font-family:var(--mono);overflow-wrap:anywhere}
+  /* none state */
+  .cta{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+  .relbtn{background:linear-gradient(100deg,#c53b40,#e5484d);color:#fff;border:0;border-radius:10px;font-family:var(--display);font-weight:700;font-size:14px;padding:11px 17px;text-decoration:none;white-space:nowrap;cursor:pointer}
+  .ghost-board{opacity:.35;filter:grayscale(1);pointer-events:none}
+  @media(max-width:600px){.tmap{height:320px}.mk .v{font-size:19px}}
 </style>
-</head><body>
+</head><body data-page-cache="off">
 <div class="wrap">
   <header class="top" id="app-header"></header>
-  <section class="card" style="background:radial-gradient(120% 140% at 90% -20%,var(--amber-glow),transparent 60%),var(--panel)">
-    <div class="toolbar"><div><div class="acode">Sphinx</div><h2 style="margin:0">🐝 On the Scent</h2>
-      <p class="sub" style="margin:2px 0 0">The estate brain — not a wall of numbers. See <b>how bad it is</b>, <b>where the risk comes from</b> (attributed to the Hound that found it), <b>what you're blind to</b>, and the <b>cross-Hound surprises</b> no single agent sees. Then hand off to <b>Nemesis</b> to act.</p></div>
-      <button class="btn run sm" id="run" style="margin-left:auto">▶ Pick up the trail</button></div>
+  <section class="card" id="hero" style="background:radial-gradient(120% 140% at 90% -20%,var(--amber-glow),transparent 60%),var(--panel)">
+    <div class="acode">Sphinx · the estate brain</div>
+    <h2 style="margin:2px 0 0">🐝 On the Scent</h2>
+    <p class="story" id="story">Reading the pack's last release…</p>
+    <div class="fresh run" id="fresh"><span class="spin"></span><span>peeking the stored summary (reads the release's caches only)…</span></div>
     <div id="flash" class="flash"></div>
   </section>
-
-  <div class="lead" id="leadCard" style="display:none">
-    <span class="n" id="leadN">—</span>
-    <div><h3 style="margin:0;font-size:15px">assets scored CRITICAL by the pack</h3>
-      <div class="lstat" style="margin-top:6px" id="leadStat"></div></div>
-    <a class="go" href="/agents/fused_score/page.html">🎯 Act now in Nemesis →</a>
-  </div>
-
-  <section class="card" id="certCard" style="display:none;margin-top:16px">
-    <div class="toolbar" style="margin:0"><div><h3 class="ct">🔐 Certificates expiring — next 12 months</h3>
-      <p class="sub" style="margin:2px 0 0">Certania's expiry wall. Height = certificates failing that month; the red bar is <b>already expired</b>. <b>Click a month</b> to open the Certificate Dashboard scoped to exactly those certificates.</p></div>
-      <span class="chip" id="certChip" style="margin-left:auto;white-space:nowrap;margin-right:82px"></span></div>
-    <div class="certtl" id="certTl"></div>
-  </section>
-
-  <section class="card" id="reductionCard" style="display:none;margin-top:16px">
-    <h3 class="ct">📉 The reduction — CVE → Plugin → App → Path</h3>
-    <p class="sub" style="margin:2px 0 0">Most teams track <b>CVEs</b> — the most duplicated unit of work. Multiple CVEs roll up into one <b>plugin</b> (a single detection &amp; fix), plugins into one <b>app / route</b> (the owner-actionable unit), and each app spreads across many <b>paths</b>. Climb the ladder and the backlog collapses: own a handful of apps instead of tens of thousands of CVEs.</p>
-    <div id="funnel" style="margin:8px 0 2px"></div>
-    <div id="champion" style="margin:8px 0"></div>
-  </section>
-
-  <section class="card" id="convCard" style="display:none">
-    <h3 class="ct">🔗 Cross-Hound surprises — the unknown-unknowns</h3>
-    <p class="sub" style="margin:2px 0 0">Where two signals land on the <b>same</b> asset and multiply the risk — the correlations no single Hound flags. Click into Nemesis.</p>
-    <div class="conv" id="conv"></div>
-  </section>
-
-  <div class="g2" id="topRow" style="display:none">
-    <section class="card" id="distCard">
-      <h3 class="ct">📉 Exposure distribution — how bad is the estate?</h3>
-      <p class="sub" style="margin:2px 0 0">Every asset placed in a fused-score band. A fat red slice is a fire; a fat green slice is a healthy estate.</p>
-      <div class="dist" id="dist"></div>
-      <div class="distleg" id="distleg"></div>
-    </section>
-    <section class="card" id="covCard">
-      <h3 class="ct">👁 Coverage — what can the pack actually see?</h3>
-      <p class="sub" style="margin:2px 0 0">Each bar is a slice of the estate the pack has visibility into. The gaps are your risk-by-absence.</p>
-      <div class="cov" id="cov"></div>
-    </section>
-  </div>
-
-  <div class="gr" id="riskRow" style="display:none">
-    <section class="card" id="riskCard">
-      <div class="toolbar" style="margin:0"><div><h3 class="ct">🎯 Where the estate's risk comes from</h3>
-        <p class="sub" style="margin:2px 0 0">Fused exposure attributed to the Hound that detects it — the % share of total estate risk, and how saturated that signal is (0–100).</p></div></div>
-      <div class="hb" id="risk"></div>
-    </section>
-    <section class="card" id="radarCard">
-      <h3 class="ct">🕸 Pack detection radar</h3>
-      <p class="sub" style="margin:2px 0 6px">Every detection domain at once — a spike is a domain the pack is lighting up across the estate.</p>
-      <div class="radarwrap" id="radar"></div>
-    </section>
-  </div>
-
-  <section class="card" id="postureCard" style="display:none">
-    <h3 class="ct">📊 Estate posture — every Hound at a glance</h3>
-    <p class="sub" style="margin:2px 0 0">One tile per domain; click through to the Hound that owns it. Grey = that Hound hasn't run / no data yet.</p>
-    <div class="board" id="board"></div>
-  </section>
-
-  <section class="card" id="blindCard" style="display:none">
-    <h3 class="ct">🕳 Blind spots — what you can't see</h3>
-    <p class="sub" style="margin:2px 0 0">Risk by <b>absence</b>: the estate's dark matter. An asset the pack knows nothing about is scarier than one it does.</p>
-    <div class="blind" id="blind"></div>
-  </section>
-
-  <section class="card" id="moreCard" style="display:none">
-    <div class="toolbar" style="margin:0"><h3 class="ct">📇 More numbers</h3>
-      <a class="btn ghost sm" href="/agents/email/page.html" style="margin-left:auto" title="Hand this board to Gabriel to email">📧 Email this board</a></div>
-    <div class="mini" id="more"></div>
-  </section>
-  <footer>Sphinx · the estate brain · read-only rollup over every Hound's signal · leads into Nemesis to act</footer>
+  <div id="board"></div>
+  <footer>Sphinx · built from the pack's released results (page cache + snapshots) · never re-runs a hound, never reads navi.db</footer>
 </div>
 <script src="/static/console.js"></script>
 <script>
+/* On the Scent — every number here is the owning hound's own (as of the last Release the
+   Hounds) and links back to it. The page only PEEKS the stored digest; ↻ Rebuild re-reads
+   the caches (never navi.db). No data-run, no page cache (data-page-cache="off"). */
 const API=agentApi('insights');
-const SEVVAR={crit:'var(--crit)',high:'var(--high)',med:'var(--med)',low:'var(--low)',ok:'var(--ok)'};
-const AXSHORT={'Exploitability':'Exploit','Tenable AES':'AES','Severity (VPR)':'VPR','Business criticality':'Criticality','Attack path':'Path','Identity exposure':'Identity','Compliance failure':'Compliance','Web-app exposure':'WAS','EOL / unsupported':'EOL','Internet exposure':'Exposed','AI risk':'AI','Weak / expiring crypto':'Crypto','SLA breach (aging)':'SLA','Finding volume':'Volume','Ownership gap':'Ownership','ATT&CK technique':'ATT&CK'};
-const shortAxis=a=>AXSHORT[a]||String(a).split(/[ (/]/)[0];
+let D=null, POLL=null;
+const $=id=>document.getElementById(id);
+const fmt=n=>n==null?'—':Number(n).toLocaleString();
+const P=(a,s)=>'/agents/'+a+'/page.html'+(s?'#'+s:'');
+const SEVW={crit:'critical',warn:'warning'};
+const SEVC={crit:'var(--crit)',warn:'var(--high)'};
+const SL={fresh:'released',user:'your newer run',stale:'stale — navi.db changed',missing:'not run',error:'error',skipped:'skipped',live:'live page',
+          pending:'waiting',running:'running',done:'done',cancelled:'cancelled'};
+function ago(ms){ if(!ms) return '—'; const s=Math.max(0,(Date.now()-ms)/1000);
+  if(s<60) return 'just now'; if(s<3600) return Math.round(s/60)+' min ago'; if(s<86400) return Math.round(s/3600)+' h ago'; return Math.round(s/86400)+' d ago'; }
+const absT=ms=>ms?new Date(ms).toLocaleString():'';
+const cov=a=>(D&&D.coverage||[]).find(c=>c.agent===a)||{};
+const nm=a=>({fused_score:'Nemesis',acr:'Anubis',exproute:'Atlas'}[a]||cov(a).codename||a);
+const ic=a=>({fused_score:'🎯',acr:'🎯',exproute:'🧭'}[a]||cov(a).icon||'');
+const ph=(msg,a)=>`<div class="ph">${esc(msg)}${a?` — <a href="${esc(P(a))}">open ${esc(nm(a))} →</a>`:''}</div>`;
 
-function renderDist(bands,total){
-  const t=bands.reduce((s,b)=>s+b.count,0)||1;
-  document.getElementById('dist').innerHTML=bands.filter(b=>b.count>0).map(b=>{
-    const w=b.count/t*100; return `<i style="width:${w}%;background:${SEVVAR[b.sev]}" title="${esc(b.label)}: ${b.count}">${w>7?b.count:''}</i>`;}).join('')||'<i style="width:100%;background:var(--line)"></i>';
-  document.getElementById('distleg').innerHTML=bands.map(b=>
-    `<span class="lg"><span class="sw sev-${b.sev}"></span><b>${esc(b.label)}</b> ${b.count} <span class="sub">(${b.sub})</span></span>`).join('');
+/* ---------------------------------------------------------------- data */
+async function peek(){
+  let o; try{ o=await API.post('scent',{peek:true,_nocache:true}); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o||!o.ok||!o.result){ flash('flash','✗ '+esc((o&&o.error)||'could not read the summary'),'crit'); $('fresh').style.display='none'; return; }
+  D=o.result; render();
 }
-function renderCov(funnel){
-  const total=(funnel[0]&&funnel[0].count)||1;
-  document.getElementById('cov').innerHTML=funnel.map((f,i)=>{
-    const pct=Math.round(f.count/total*100), drop=(i>0)?(total-f.count):0;
-    return `<div class="covrow"><div class="cbh"><b>${esc(f.label)}</b><span class="n">${f.count.toLocaleString()} · ${pct}%</span></div>`+
-      `<div class="covtrack"><i style="width:${pct}%"></i></div>`+
-      (i>0&&f.note?`<div class="drop">▹ ${esc(f.note)}</div>`:'')+`</div>`;}).join('');
+async function rebuild(btn){
+  if(btn) btn.disabled=true;
+  flash('flash','<span class="spin"></span> rebuilding the summary from the cached release (no navi.db reads)…','run');
+  let o; try{ o=await API.post('scent',{force:true,_nocache:true}); }catch(e){ o={ok:false,error:e.message}; }
+  if(btn) btn.disabled=false;
+  if(!o||!o.ok){ flash('flash','✗ '+esc((o&&o.error)||'rebuild failed'),'crit'); return; }
+  flashClear('flash'); D=o.result; render();
 }
-function renderRisk(rows){
-  const max=Math.max(1,...rows.map(r=>r.total));
-  document.getElementById('risk').innerHTML=rows.map(r=>{
-    const w=r.total/max*100, satcol=r.sat>=60?'var(--crit)':r.sat>=30?'var(--high)':'var(--accent)';
-    return `<div class="hbrow"><div class="nm"><b>${esc(r.label)}</b><span>${esc(r.hound)}</span></div>`+
-      `<div class="hbtrack"><i style="width:${w}%;background:${satcol}"></i></div>`+
-      `<div class="rt"><b>${r.pct}%</b> · sat ${r.sat}</div></div>`;}).join('');
+function schedule(){ clearTimeout(POLL);
+  if(D&&D.running) POLL=setTimeout(pollRelease,2000);
+  else if(D&&D.building&&D.building.job_id) POLL=setTimeout(pollJob,1500); }
+async function pollRelease(){
+  let o; try{ o=await jpost('/api/hub/release_status',{}); }catch(e){ o=null; }
+  const st=o&&o.state;
+  if(st&&st.status==='running'){ D.progress={id:st.id,items:(st.items||[]).map(i=>({agent:i.agent,label:i.label,status:i.status}))}; renderFresh(); POLL=setTimeout(pollRelease,2000); }
+  else peek();
 }
-function radarSVG(axes){
-  const N=axes.length, cx=180, cy=175, R=118;
-  const ptAt=(i,r)=>{const a=-Math.PI/2+i*2*Math.PI/N;return [cx+Math.cos(a)*r, cy+Math.sin(a)*r];};
-  let rings='';[25,50,75,100].forEach(v=>{const pts=axes.map((_,i)=>ptAt(i,R*v/100).join(',')).join(' ');rings+=`<polygon points="${pts}" fill="none" stroke="var(--line)" stroke-width="1" opacity="${v===100?'.8':'.4'}"/>`;});
-  let spokes='',labels='';
-  axes.forEach((ax,i)=>{const [x,y]=ptAt(i,R);spokes+=`<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="var(--line)" stroke-width="1" opacity=".45"/>`;
-    const [lx,ly]=ptAt(i,R+15);const anc=Math.abs(lx-cx)<8?'middle':(lx>cx?'start':'end');
-    labels+=`<text x="${lx}" y="${ly+3}" font-size="8.5" fill="var(--ink-3)" text-anchor="${anc}">${esc(shortAxis(ax.axis))}</text>`;});
-  const val=ax=>Math.max(0,Math.min(100,ax.value));
-  const poly=axes.map((ax,i)=>ptAt(i,R*val(ax)/100).join(',')).join(' ');
-  const dots=axes.map((ax,i)=>{const [x,y]=ptAt(i,R*val(ax)/100);return `<circle cx="${x}" cy="${y}" r="2.1" fill="var(--accent)"/>`;}).join('');
-  return `<svg viewBox="0 0 360 350" width="100%" style="max-width:420px;display:block">${rings}${spokes}`+
-    `<polygon points="${poly}" fill="rgba(109,112,230,.22)" stroke="var(--accent)" stroke-width="1.6"/>${dots}${labels}</svg>`;
+async function pollJob(){
+  let j=null; try{ const r=await jget('/api/jobs/'+encodeURIComponent(D.building.job_id)); j=r&&r.job; }catch(e){}
+  if(j&&!/^(done|error)$/.test(j.status)){ POLL=setTimeout(pollJob,1500); return; }
+  if(j&&j.status==='error') flash('flash','✗ summary build failed: '+esc(j.message||''),'crit');
+  peek();
 }
-const _fmt=n=>Number(n||0).toLocaleString();
-const _pctDown=(v,base)=>base>0?Math.round((base-v)/base*1000)/10:0;
-function drawReduction(b){
-  const F=b.reduction||{}, card=document.getElementById('reductionCard');
-  const has=(F.cves||F.plugins); card.style.display=has?'block':'none'; if(!has) return;
-  const stages=[
-    {k:'CVE line-items',v:F.cves||0,c:'var(--cx-f43f5e)',note:'what most teams track — the most duplicated work'},
-    {k:'Findings (asset × plugin)',v:F.findings||0,c:'var(--cx-fb923c)',note:'the raw ticket backlog'},
-    {k:'Plugins — unique fixes',v:F.plugins||0,c:'var(--cx-e7c66b)',note:'one patch clears many CVEs'},
-    {k:'Apps / routes — own here',v:F.routes||0,c:'var(--ok)',note:'owner-actionable units'}];
-  const mx=Math.max(1,...stages.map(s=>s.v)), W=980,h=52,gap=12,padT=14,labelW=300,cx=(W-labelW)/2;
-  const sc=v=>70+Math.sqrt(v/mx)*((W-labelW)-80), H=padT+stages.length*(h+gap)+8;
-  let svg='<svg viewBox="0 0 '+W+' '+H+'" width="100%" style="min-width:560px;font-family:inherit;overflow:visible;display:block">';
-  stages.forEach((s,i)=>{
-    const y=padT+i*(h+gap), wTop=sc(s.v), wBot=sc(i<stages.length-1?stages[i+1].v:s.v);
-    const x1=cx-wTop/2,x2=cx+wTop/2,x3=cx+wBot/2,x4=cx-wBot/2;
-    svg+='<polygon points="'+x1+','+y+' '+x2+','+y+' '+x3+','+(y+h)+' '+x4+','+(y+h)+'" fill="'+s.c+'" fill-opacity="0.85" stroke="'+s.c+'" stroke-width="1"/>';
-    const fits=wTop>(s.k.length*5.6+16);
-    svg+='<text x="'+cx+'" y="'+(y+h/2+(fits?-2:6))+'" text-anchor="middle" font-size="16" font-weight="700" fill="#0d0f08">'+_fmt(s.v)+'</text>';
-    if(fits) svg+='<text x="'+cx+'" y="'+(y+h/2+14)+'" text-anchor="middle" font-size="10.5" fill="#0d0f08" fill-opacity="0.8">'+esc(s.k)+'</text>';
-    svg+='<text x="'+(W-labelW+8)+'" y="'+(y+h/2-2)+'" font-size="11.5" fill="var(--ink)">'+esc(s.k)+'</text>';
-    svg+='<text x="'+(W-labelW+8)+'" y="'+(y+h/2+13)+'" font-size="10.5" fill="var(--ink-3)">'+esc(s.note)+'</text>';
-    if(i>0){ const drop=_pctDown(s.v,stages[i-1].v); svg+='<text x="'+cx+'" y="'+(y-1)+'" text-anchor="middle" font-size="10" fill="var(--ink-3)">▼ '+drop+'% fewer</text>'; }
-  });
-  svg+='</svg>';
-  const top=stages[0].v,end=stages[stages.length-1].v,cut=_pctDown(end,top);
-  document.getElementById('funnel').innerHTML=svg+'<div style="text-align:center;margin-top:4px;font-size:13px"><b style="color:var(--accent)">'+_fmt(top)+' CVEs → '+_fmt(end)+' apps</b> — <b>'+cut+'% fewer things to track</b> if you own at the app level. Those '+_fmt(end)+' apps span <b>'+_fmt(F.paths||0)+' paths</b>.</div>';
-  const c=b.champion, el=document.getElementById('champion');
-  el.innerHTML=c?('<div class="callbox" style="border-left:3px solid var(--accent);background:rgba(214,248,76,.06)"><b>🏆 One fix, '+_fmt(c.cve_count)+' CVEs</b>'+
-    '<p class="sub" style="margin:4px 0 0">Patching <b>'+esc(c.name)+'</b> <span class="mono">(plugin '+esc(String(c.plugin_id||''))+')</span> clears <b>'+_fmt(c.cve_count)+' CVEs</b> in a single action — on just '+c.assets+' asset'+(c.assets===1?'':'s')+'. Not the riskiest finding, but the biggest <b>workload collapse per fix</b>.</p></div>'):'';
+
+/* ---------------------------------------------------------------- hero */
+function renderStory(){
+  const s=D.story||[];
+  $('story').innerHTML=s.length?s.map(x=>x.href?`<a class="${x.sev==='crit'?'c':x.sev==='warn'?'w':''}" href="${esc(x.href)}">${esc(x.t)}</a>`:esc(x.t)).join('')
+    :'The pack\'s released results, rolled up into one picture — every number links to the hound that owns it.';
 }
-/* 12-month certificate expiry wall — click a month → certdash scoped to it.
-   Series comes from scent_board().certs (same buckets Certania renders). */
-function renderCerts(b){
-  const C=b.certs||{}, months=C.months||[], expN=C.expired||0, card=document.getElementById('certCard');
-  const failing=(C.failing!=null)?C.failing:months.reduce((s,m)=>s+(m.count||0),0);
-  // no certs anywhere in navi.db → hide the card rather than draw an empty wall
-  const has=(expN||failing); card.style.display=has?'block':'none'; if(!has) return;
-  const H=104, max=Math.max(1,expN,...months.map(m=>m.count||0));
-  const bar=(key,label,n,cls)=>{
-    const h=Math.max(3,Math.round((n||0)/max*H));
-    return `<a class="cb ${cls||''} ${n?'':'zero'}" href="/web/certdash.html?month=${encodeURIComponent(key)}"`+
-      ` title="${n||0} certificate(s) — open the Certificate Dashboard scoped to ${esc(label)}">`+
-      `<span class="col" style="height:${h}px"><span class="cnt">${n||''}</span></span>`+
-      `<span class="lab">${esc(label)}</span></a>`;
-  };
-  document.getElementById('certTl').innerHTML=
-    bar('expired','Expired',expN,'exp')+months.map(m=>bar(m.key,m.label,m.count||0)).join('');
-  document.getElementById('certChip').textContent=expN+' expired · '+failing+' failing ≤12mo';
+function dots(items){ return `<div class="dots">${items.map(c=>`<a class="st-${esc(c.status)}" href="${esc(c.href||P(c.agent))}" title="${esc(c.label)} — ${esc(SL[c.status]||c.status)}"></a>`).join('')}</div>`; }
+function tally(rows){ const n={}; rows.forEach(c=>{ n[c.status]=(n[c.status]||0)+1; });
+  return Object.keys(n).map(k=>`${n[k]} ${esc(SL[k]||k)}`).join(' · '); }
+function renderFresh(){
+  const f=$('fresh'), R=D.release||{}, C=(D.coverage||[]).filter(c=>c.kind!=='live');
+  const again='<a class="btn sm" href="/?release=1">🐾 Release again</a>';
+  if(D.running){ const it=(D.progress&&D.progress.items)||[], todo=it.filter(i=>i.status!=='skipped'), fin=todo.filter(i=>/^(done|error|cancelled)$/.test(i.status)), cur=it.find(i=>i.status==='running');
+    f.className='fresh run'; f.innerHTML=`<span class="spin"></span><span>Releasing the hounds… <b>${fin.length} / ${todo.length}</b>${cur?' · '+esc(cur.label)+' running':''} — this page refreshes when the pack is back.</span><span class="sp"></span>`+
+      dots(it.map(i=>({agent:i.agent,label:i.label,status:i.status,href:P(i.agent)}))); return; }
+  if(D.building&&D.building.job_id){ f.className='fresh run'; f.innerHTML='<span class="spin"></span><span>Summarising the release from its caches (large inputs run on the job queue)…</span>'; return; }
+  if(D.state==='none'){ f.style.display='none'; return; }
+  f.style.display='';
+  const when=`<b title="${esc(absT(R.at||R.built_at))}">${esc(ago(R.at||R.built_at))}</b>`;
+  let msg, cls='fresh';
+  if(D.state==='stale'){ cls+=' warn';
+    msg=`⚠ Built from a release ${when} — <b>navi.db has been updated since</b> (new scan data isn't reflected here).`; }
+  else if(D.state==='partial'){ cls+=' warn';
+    const miss=C.filter(c=>!/^(fresh|user|stale)$/.test(c.status));
+    msg=`<b>${R.hounds_present} of ${R.hounds_total}</b> hounds in this picture · released ${when}`+(miss.length?` · missing: `+miss.map(c=>`<a href="${esc(c.href)}">${esc(c.label)}</a>${c.note?' ('+esc(c.note)+')':' ('+esc(SL[c.status])+')'}`).join(', '):'')+'. Cards that need them say so.'; }
+  else msg=`🐾 Released ${when} · <b>${R.hounds_present} of ${R.hounds_total}</b> hounds · ${R.stale?'':'navi.db unchanged since · '}built in ${esc(R.built_sec)} s from cache`;
+  let out=`<span>${msg}</span>`;
+  if(D.outdated&&D.state!=='stale'){ cls+=' warn';
+    const ch=(D.changed||[]);
+    out+=`<span style="flex-basis:100%">↻ ${ch.length?ch.map(c=>`<a href="${esc(c.href)}">${esc(c.label)}</a>`).join(', ')+(ch.length>1?' were':' was')+' re-run'+(ch.every(c=>c.by==='release')?' by a later release':ch.some(c=>c.by==='release')?'':' by you'):'The cached results changed'} after this summary. <button class="btn sm" type="button" data-act="rebuild">↻ Rebuild from cache</button></span>`; }
+  out+=dots(C)+`<span class="sub" style="margin:0;font-size:11px">${tally(C)}</span><span class="sp"></span><a class="btn ghost sm" href="#secPack">Coverage</a>`+again;
+  f.className=cls; f.innerHTML=out;
 }
-function renderBoard(b){
-  const nem=b.nemesis||{}, total=b.asset_total||0;
-  document.getElementById('leadN').textContent=nem.critical||0;
-  document.getElementById('leadN').style.color=(nem.critical?'var(--crit)':'var(--ok)');
-  const worst=(nem.top||[]).slice(0,3).map(t=>esc(t.host)+' ('+t.score+')').join(', ');
-  document.getElementById('leadStat').innerHTML=
-    `<div><div class="v">${(nem.estate||0).toLocaleString()}</div><div class="l">estate exposure</div></div>`+
-    `<div><div class="v">${nem.avg||0}</div><div class="l">avg score</div></div>`+
-    `<div><div class="v">${nem.high||0}</div><div class="l">high ≥60</div></div>`+
-    `<div><div class="v">${total.toLocaleString()}</div><div class="l">assets</div></div>`+
-    (worst?`<div><div class="v" style="font-size:13px;font-weight:600">${worst}</div><div class="l">worst offenders</div></div>`:'');
-  renderDist(b.bands||[], total);
-  renderCov(b.funnel||[]);
-  renderRisk(b.risk_by_hound||[]);
-  renderCerts(b);
-  drawReduction(b);
-  document.getElementById('radar').innerHTML=(b.radar&&b.radar.length)?radarSVG(b.radar):'<p class="sub">Run the pack to light up the radar.</p>';
-  const conv=b.convergence||[];
-  document.getElementById('conv').innerHTML=conv.length?conv.map(x=>
-    `<a class="cv ${x.sev}" href="${x.href||'/agents/fused_score/page.html'}"><span class="cn">${x.count}</span><span>${esc(x.text)}</span><span class="cgo">→ Nemesis</span></a>`).join('')
-    :'<p class="sub">No cross-Hound surprises surfaced yet — run more Hounds (they light up as tags land).</p>';
-  document.getElementById('board').innerHTML=(b.posture||[]).map(t=>
-    `<a class="dt ${t.status}" href="${t.href}"><div class="dh">${t.icon} ${esc(t.domain)}</div>`+
-    `<div class="dv">${esc(String(t.value))}</div><div class="ds">${esc(t.sub||'')}</div><div class="hn">${esc(t.hound||'')}</div></a>`).join('');
-  document.getElementById('blind').innerHTML=(b.blind||[]).map(x=>
-    `<div class="bt ${x.sev}"><div class="bv">${x.count}</div><div class="bl">${esc(x.label)}</div><div class="bs">${esc(x.sub||'')}</div></div>`).join('');
-  const c=b.classic||{};
-  const mn=(v,l,href)=>`<a class="mn" href="${href}"><div class="mv">${v==null?'—':v}</div><div class="ml">${l}</div></a>`;
-  document.getElementById('more').innerHTML=
-    mn(c.certs_failing,'certs failing 12mo','/agents/certificate/page.html')+
-    mn(c.certs_expired,'certs expired','/agents/certificate/page.html')+
-    mn(c.iot_devices,'IoT devices','/agents/iot_squad/page.html')+
-    mn(c.identities,'identities','/agents/identity/page.html')+
-    mn(c.shadow_assets,'no software inv.','/agents/software/page.html')+
-    mn(c.custom_apps,'exposure routes','/agents/exproute/page.html')+
-    mn(c.cloud_assets,'cloud assets','/agents/classify/page.html')+
-    mn(c.mitre_high_acr,'ATT&CK on high-ACR','/agents/mitre/page.html');
-  ['leadCard','topRow','riskRow','convCard','postureCard','blindCard','moreCard'].forEach(id=>{
-    const el=document.getElementById(id); el.style.display=(id==='leadCard')?'flex':(id==='topRow'||id==='riskRow')?'grid':'block';});
-  LASTB=b; mountMail();
-}
-/* ---- per-widget email — sends THIS card's data via Gabriel's `data` action
-   (same payload as the Custom Dashboard widgets: {to,title,note,columns,rows,confirm}) ---- */
-const EMAIL=agentApi('email');
-let LASTB=null;
-const _SECT={
-  leadCard:{title:'Act now — Nemesis lead',rows:b=>{const n=b.nemesis||{};
-    return [{metric:'assets scored CRITICAL',value:n.critical||0},
-            {metric:'estate exposure',value:n.estate||0},
-            {metric:'average score',value:n.avg||0},
-            {metric:'high (score ≥60)',value:n.high||0},
-            {metric:'assets',value:b.asset_total||0}]
-      .concat((n.top||[]).slice(0,3).map(t=>({metric:'worst offender — '+t.host,value:t.score})));}},
-  certCard:{title:'Certificates expiring — next 12 months',rows:b=>{const C=b.certs||{};
-    return [{month:'Already expired',certificates:C.expired||0}]
-      .concat((C.months||[]).map(m=>({month:m.label,certificates:m.count||0})));}},
-  reductionCard:{title:'The reduction — CVE → Plugin → App → Path',rows:b=>{const F=b.reduction||{},c=b.champion;
-    const r=[{stage:'CVE line-items',count:F.cves||0},
-             {stage:'Findings (asset × plugin)',count:F.findings||0},
-             {stage:'Plugins — unique fixes',count:F.plugins||0},
-             {stage:'Apps / routes — own here',count:F.routes||0},
-             {stage:'Paths',count:F.paths||0}];
-    if(c) r.push({stage:'🏆 champion fix — '+c.name+' (plugin '+(c.plugin_id||'')+')',count:c.cve_count||0});
-    return r;}},
-  convCard:{title:'Cross-Hound surprises',rows:b=>(b.convergence||[]).map(x=>({assets:x.count,surprise:x.text,severity:x.sev||''}))},
-  distCard:{title:'Exposure distribution',rows:b=>(b.bands||[]).map(x=>({band:x.label,assets:x.count,range:x.sub||''}))},
-  covCard:{title:'Coverage — what the pack can see',rows:b=>(b.funnel||[]).map(f=>({coverage:f.label,assets:f.count,note:f.note||''}))},
-  riskCard:{title:'Where the risk comes from',rows:b=>(b.risk_by_hound||[]).map(r=>({signal:r.label,hound:r.hound,share_pct:r.pct,saturation:r.sat}))},
-  radarCard:{title:'Pack detection radar',rows:b=>(b.radar||[]).map(a=>({domain:a.axis,intensity:a.value}))},
-  postureCard:{title:'Estate posture',rows:b=>(b.posture||[]).map(t=>({domain:t.domain,hound:t.hound||'',value:String(t.value),detail:t.sub||'',status:t.status}))},
-  blindCard:{title:'Blind spots',rows:b=>(b.blind||[]).map(x=>({blind_spot:x.label,count:x.count,detail:x.sub||'',severity:x.sev||''}))},
-  moreCard:{title:'More numbers',rows:b=>{const c=b.classic||{};
-    return [['certs failing 12mo',c.certs_failing],['certs expired',c.certs_expired],['IoT devices',c.iot_devices],
-            ['identities',c.identities],['no software inventory',c.shadow_assets],['exposure routes',c.custom_apps],
-            ['cloud assets',c.cloud_assets],['ATT&CK on high-ACR',c.mitre_high_acr]]
-      .map(([m,v])=>({metric:m,value:v==null?'—':v}));}},
+
+/* ---------------------------------------------------------------- sections */
+const SECT={  // per-section rows: the "table view" (⬇ CSV) and 📧 Email (Gabriel `data`) of each chart
+  secGlance:{title:'At a glance',rows:()=>D.glance.flatMap(g=>g.cards.map(c=>({chart:g.group,item:c.l,value:c.v==null?'—':c.v,detail:c.v==null?'not in this release':c.u.replace(/\s*→$/,'')})))},
+  secExposure:{title:'How exposed',rows:()=>{const E=D.exposure||{};
+    return [{chart:'Estate score',item:'average exposure / 100',value:E.avg,detail:'estate '+fmt(E.estate)+' pts over '+fmt(E.assets)+' assets'}]
+      .concat((E.bands||[]).map(b=>({chart:'Score bands',item:b.label+' ('+b.range+')',value:b.count,detail:'assets'})))
+      .concat((E.factors||[]).filter(f=>f.total>0).map(f=>({chart:'What the risk is made of',item:f.label,value:f.pct+'%',detail:f.hound+' · '+f.total+' pts'})));}},
+  secWhere:{title:'Where it concentrates',rows:()=>(D.footprint||[]).map(f=>({chart:'Footprint by hound',item:f.label,value:f.n,detail:f.codename+(f.crown!=null?' · '+f.crown+' crown jewels ('+f.crown_rule+')':'')}))
+      .concat((D.worst||[]).map(a=>({chart:'Worst assets',item:a.host,value:a.score,detail:Object.entries(a.factors).map(([k,v])=>k+':'+v).join(' ')})))
+      .concat(D.clock&&D.clock.certs.have?[{chart:'Cert expiry',item:'Expired',value:D.clock.certs.expired,detail:'certificates'}].concat(D.clock.certs.months.map(m=>({chart:'Cert expiry',item:m.label,value:m.count,detail:'certificates'}))):[])},
+  secConverge:{title:'Converging',rows:()=>(D.stack||[]).map(s=>({chart:'Signal stack',item:s.label+' hounds firing',value:s.assets,detail:'assets'}))
+      .concat((D.convergence||[]).map(c=>({chart:'Cross-hound surprises',item:c.text,value:c.n,detail:(c.rule||'')+' · '+c.pair})))},
+  secBlind:{title:'Blind spots',rows:()=>(D.blind.funnel||[]).map(f=>({chart:'Coverage steps',item:f.label,value:f.n==null?'—':f.n,detail:f.gap==null?f.gap_label:(f.gap+' '+f.gap_label+' · '+f.codename)}))
+      .concat((D.blind.tiles||[]).map(t=>({chart:'More dark matter',item:t.label,value:t.n==null?'—':t.n,detail:t.codename+(t.note?' · '+t.note:'')})))},
+  secNext:{title:'Next moves',rows:()=>(D.next||[]).map((x,i)=>({chart:'Next moves',item:(i+1)+'. '+x.verb,value:x.n+' '+x.unit,detail:x.detail+' · '+x.codename}))
+      .concat(D.reduction&&D.reduction.cves!=null?['cves','findings','plugins','routes','paths'].map(k=>({chart:'Reduction ladder',item:k,value:D.reduction[k],detail:'Atlas'})):[])},
+  secPack:{title:'Pack coverage',rows:()=>(D.coverage||[]).map(c=>({chart:'Pack coverage',item:c.label,value:SL[c.status]||c.status,detail:(c.kb?c.kb+' KB':'')+(c.note?' · '+c.note:'')}))},
 };
-function mountMail(){
-  Object.keys(_SECT).forEach(id=>{
-    const card=document.getElementById(id); if(!card||card.querySelector('.embtn')) return;
-    const btn=document.createElement('button'); btn.className='embtn'; btn.title='Email this widget\'s data (Gabriel)'; btn.textContent='📧 Email';
-    const row=document.createElement('div'); row.className='emrow';
-    row.innerHTML='<input type="email" placeholder="recipient@company.com"><button class="btn run sm">▶ Send</button>'+
-      '<button class="btn ghost sm">✕</button><span class="res"></span>';
-    card.appendChild(btn); card.appendChild(row);
-    const [inp,send,cancel]=[row.querySelector('input'),row.querySelectorAll('button')[0],row.querySelectorAll('button')[1]];
-    btn.onclick=()=>{ const show=row.style.display!=='flex'; row.style.display=show?'flex':'none'; if(show)inp.focus(); };
-    cancel.onclick=()=>{ row.style.display='none'; row.querySelector('.res').innerHTML=''; };
-    const go=async()=>{
-      const to=(inp.value||'').trim(), res=row.querySelector('.res');
-      if(!to){ res.innerHTML='<span style="color:var(--crit)">enter a recipient</span>'; return; }
-      const rows=(LASTB?_SECT[id].rows(LASTB):[])||[];
-      if(!rows.length){ res.innerHTML='<span style="color:var(--crit)">no data on this widget yet</span>'; return; }
-      send.disabled=true; res.innerHTML='<span class="spin"></span> sending…';
-      const payload={to,title:'On the Scent — '+_SECT[id].title,note:'Sphinx estate rollup · point-in-time navi.db snapshot',
-                     columns:Object.keys(rows[0]),rows,confirm:true};
-      let o; try{ o=await EMAIL.post('data',payload); }catch(e){ o={ok:false,error:e.message}; }
-      send.disabled=false;
-      if(o&&o.ok){ const how=o.mode==='attachment'?('CSV attached ('+esc(o.attached||'data.csv')+')'):'inline table';
-        res.innerHTML='<span style="color:var(--ok)">✓ sent '+rows.length+' row(s) to '+esc(to)+' — '+how+'</span>'; }
-      else if(o&&o.blocked){ res.innerHTML='<span style="color:var(--cx-e7c66b)">email disabled — '+esc(o.reason||'set NAVI_ALLOW_WRITES=1 and NAVI_EMAIL=1')+'</span>'; }
-      else { res.innerHTML='<span style="color:var(--crit)">✗ '+esc((o&&(o.error||o.message))||'failed')+'</span>'; }
-    };
-    send.onclick=go; inp.addEventListener('keydown',e=>{ if(e.key==='Enter')go(); });
-  });
+const COLS=['chart','item','value','detail'];
+function sec(id,nav,icon,title,sub,body){
+  return `<section class="card" id="${id}" data-nav="${esc(nav)}" data-nav-icon="${icon}"><h2>${icon} ${esc(title)}</h2><p class="sub">${sub}</p>`+
+    `<div class="sact" id="act_${id}"><button class="btn ghost sm" type="button" data-csv="${id}" title="Download this section's numbers (the table view of its charts)">⬇ CSV</button></div>${body}</section>`;
 }
-async function load(){
-  const b=document.getElementById('run'); b.disabled=true;
-  flash('flash','<span class="spin"></span> picking up the trail — rolling every Hound up to the estate…','run');
-  let o; try{ o=await API.post('board'); }catch(e){ o={ok:false,error:e.message}; }
-  b.disabled=false; const res=o.result||o;
-  if(!res||!res.ok){ flash('flash','✗ '+esc((res&&res.error)||o.error||'failed'),'crit'); return; }
-  flashClear('flash'); renderBoard(res);
+function boardHtml(){
+  const E=D.exposure||{}, T=E.assets||0;
+  return sec('secGlance','At a glance','📊','At a glance','Every number comes from the hound that owns it, as of the last release — click to open that hound.','<div id="glance"></div>')+
+  sec('secExposure','How exposed','🎯','How exposed are we?','Nemesis fuses every hound\'s signal into one 0–100 score per asset. Left: where the estate sits. Right: which hound\'s signal the risk is made of.',
+    E.available?`<div class="g2 w"><div class="panel"><h3 class="ct">Estate score &amp; every asset by band</h3><p class="ctsub">one square = one asset · click → Nemesis leaderboard</p>
+      <div class="gwrap"><a class="gauge" id="gauge" href="${P('fused_score','sec-lb')}"></a><div class="waffle" id="waffle"></div></div><div class="leg" id="bandleg"></div></div>
+      <div class="panel"><h3 class="ct">What the risk is made of</h3><p class="ctsub">area = share of total fused exposure points, attributed to the hound that detects it · click → that hound</p><div class="tmap" id="tmap"></div></div></div>`
+      :ph('The Exposure Score (Nemesis) snapshot isn\'t in this release, so there is no fused score to show','fused_score'))+
+  sec('secWhere','Where it concentrates','🧭','Where is it concentrated?','Across hounds (how much of the estate each one lights up), on assets (the worst hosts and which hounds fire on them), and in time (what\'s about to expire).',
+    `<div class="g2"><div class="panel"><h3 class="ct">Footprint by hound</h3><p class="ctsub">bar = assets the hound flags, of ${fmt(T)} · solid = crown jewels among them (each by its hound's own ACR rule)</p><div class="fp" id="fp"></div></div>
+     <div class="panel"><h3 class="ct">The worst assets — who's barking</h3><p class="ctsub">fused score, and each hound's points on that host · 👑 = crown jewel (ACR ≥ 9) · click a host → Argos</p><div class="scroll" id="mx"></div></div></div>
+     <div class="panel" style="margin-top:16px"><h3 class="ct">On the clock</h3><p class="ctsub">Certania's expiry wall (click a month → Certificate Dashboard for that month) and the other deadlines the pack tracks</p>
+      <div class="certtl" id="certtl"></div><div class="clk" id="clk"></div></div>`)+
+  sec('secConverge','Converging','🔗','What\'s converging across hounds?','One hound is a finding. Several on the same asset is a story. These are the overlaps no single hound can see.',
+    `<div class="g2"><div class="panel"><h3 class="ct">Signal stack</h3><p class="ctsub">assets by how many hounds fire on them · click → Nemesis</p><div id="hist"></div></div>
+     <div class="panel"><h3 class="ct">Overlap map</h3><p class="ctsub" id="cobasis"></p><div class="scroll" id="cowrap"></div></div></div>
+     <h3 class="ct" style="margin-top:16px">Cross-hound surprises</h3><p class="ctsub">the number is Nemesis's (whole estate) → its page; the arrow opens the hound that fixes it</p><div class="conv" id="conv"></div>`)+
+  sec('secBlind','Blind spots','🕳','Blind spots — what can\'t the pack see?','Risk by absence. Each bar is what a hound can vouch for; the hatched part is the dark matter.',
+    `<div class="g2 w"><div class="panel"><h3 class="ct">Coverage steps</h3><p class="ctsub">of ${fmt(T)} assets · click → the hound that owns the gap</p><div class="steps" id="steps"></div></div>
+     <div class="panel"><h3 class="ct">More dark matter</h3><p class="ctsub">from the hounds that own each gap</p><div class="bt" id="bt"></div></div></div>`)+
+  sec('secNext','Next moves','➡️','What to do next','Ranked hand-offs — each opens the hound that does the work (writes stay gated on that hound\'s page).',
+    `<div class="nx" id="nx"></div><div class="panel" style="margin-top:16px"><h3 class="ct">The reduction — own fewer, bigger things</h3><p class="ctsub">Atlas's ladder: CVEs collapse into plugins (one fix each), plugins into routes (one owner each) · bar length is log-scaled</p><div class="ladder" id="ladder"></div></div>
+     <div style="margin-top:12px"><a class="btn ghost sm" href="/agents/email/page.html" title="Hand this board to Gabriel to email">📧 Email this board</a></div>`)+
+  sec('secPack','Pack coverage','🐾','Pack coverage — what this page was built from','One tile per hound in the release, its status spelled out: released for this navi.db · your newer run · stale (navi.db changed) · not run · error · skipped.','<div class="pack" id="pack"></div>');
 }
-document.getElementById('run').onclick=load;
-mountAgentHeader({id:'insights',icon:'🐝',name:'On the Scent',sub:'Sphinx · the estate brain · posture · blind spots · surprises'});
+function renderNone(){
+  const n=D.cached_hounds||0, est=D.est_s;
+  $('story').textContent='On the Scent is built from the pack\'s released results — it never re-computes a hound itself.';
+  $('board').innerHTML=`<section class="card"><div class="cta"><div style="flex:1;min-width:min(240px,100%)"><h3 class="ct" style="font-size:17px">The pack hasn't been released on this navi.db yet</h3>
+    <p class="sub" style="margin:4px 0 0">Release the Hounds runs every hound once (reads only — nothing is tagged, applied or sent${est?', about '+esc(Math.round(est))+' s last time':''}) and saves each result; this page then rolls them up into one story.${n?' <b>'+n+'</b> hound'+(n>1?'s have':' has')+' a cached run already — you can also summarise just those.':''}</p></div>
+    <a class="relbtn" href="/?release=1">🐾 Release the Hounds</a>${n?'<button class="btn ghost sm" type="button" data-act="build">Summarise what\'s cached</button>':''}</div>
+    <div class="ghost-board" style="margin-top:12px" aria-hidden="true"><div class="mkpi"><div class="mk"><div class="v">—</div><div class="l">avg exposure</div></div><div class="mk"><div class="v">—</div><div class="l">KEV assets</div></div><div class="mk"><div class="v">—</div><div class="l">crown jewels</div></div><div class="mk"><div class="v">—</div><div class="l">blind assets</div></div></div></div></section>`;
+  const nav=$('secNav'); if(nav) nav.remove();
+}
+function render(){
+  renderFresh(); schedule();
+  if(!D.glance){ renderNone(); if(D.state==='building') $('story').textContent='The pack is being released — this page fills in when it\'s back.'; return; }
+  renderStory();
+  $('board').innerHTML=boardHtml();
+  renderGlance(); renderExposure(); renderWhere(); renderConverge(); renderBlind(); renderNext(); renderPack();
+  mountSectionNav();
+  setNavCount('secConverge',(D.convergence||[]).length); setNavCount('secNext',(D.next||[]).length);
+  const C=(D.coverage||[]).filter(c=>c.kind!=='live'); setNavCount('secPack',C.filter(c=>c.status==='fresh').length+'/'+C.length);
+  Object.keys(SECT).forEach(id=>{ const box=$('act_'+id); if(box&&!box.querySelector('.hmbtn'))
+    hMail(box,()=>({title:'On the Scent — '+SECT[id].title,note:'Sphinx · built from the release of '+absT((D.release||{}).at||(D.release||{}).built_at),columns:COLS,rows:SECT[id].rows()})); });
+}
+function renderGlance(){
+  $('glance').innerHTML=D.glance.map(g=>`<div class="mhead">${esc(g.group)}</div><div class="mkpi">`+g.cards.map(c=>
+    `<a class="mk${c.zero?' zero':''}" href="${esc(c.href)}" style="--rc:${SEVC[c.sev]||'var(--line)'}" title="${esc(c.l)}: ${esc(c.v==null?'not in this release':c.v)}">${c.sev&&c.v?`<span class="sv">${SEVW[c.sev]}</span>`:''}<div class="v">${fmt(c.v)}</div><div class="l">${esc(c.l)}</div><div class="u">${esc(c.u)}</div></a>`).join('')+'</div>').join('');
+}
+function renderExposure(){
+  const E=D.exposure; if(!E.available) return;
+  const v=E.avg||0, R=80, cx=100, cy=96, ang=p=>Math.PI*(1-p/100), pt=(p,r)=>[cx+r*Math.cos(ang(p)),cy-r*Math.sin(ang(p))];
+  const arc=(a,b,col)=>{const [x1,y1]=pt(a,R),[x2,y2]=pt(b,R);return `<path d="M${x1.toFixed(1)} ${y1.toFixed(1)} A${R} ${R} 0 0 1 ${x2.toFixed(1)} ${y2.toFixed(1)}" fill="none" stroke="${col}" stroke-width="10"/>`;};
+  const [mx,my]=pt(Math.min(100,Math.max(0,v)),R);
+  $('gauge').title='Average exposure score '+v+' / 100 (estate '+fmt(E.estate)+' points) — open the Nemesis leaderboard';
+  $('gauge').innerHTML=`<svg viewBox="0 0 200 120" width="100%" role="img" aria-label="average exposure ${esc(v)} of 100">${arc(0,39.5,'var(--low)')}${arc(40.5,59.5,'var(--med)')}${arc(60.5,79.5,'var(--high)')}${arc(80.5,100,'var(--crit)')}`+
+    `<circle cx="${mx.toFixed(1)}" cy="${my.toFixed(1)}" r="7" fill="var(--ink)" stroke="var(--panel)" stroke-width="3"/>`+
+    `<text x="100" y="88" text-anchor="middle" font-size="30" font-weight="700" fill="var(--ink)" font-family="var(--display)">${esc(v)}</text>`+
+    `<text x="100" y="108" text-anchor="middle" font-size="10" fill="var(--ink-3)">avg score · estate ${esc(fmt(E.estate))} pts</text>`+
+    `<text x="14" y="117" font-size="9" fill="var(--ink-3)">0</text><text x="180" y="117" font-size="9" fill="var(--ink-3)">100</text></svg>`;
+  const n=E.bands.reduce((s,b)=>s+b.count,0), per=Math.max(1,Math.ceil(n/256)), lb=P('fused_score','sec-lb');
+  $('waffle').innerHTML=E.bands.map(b=>{ const k=b.count?Math.max(1,Math.round(b.count/per)):0; let h='';
+    for(let i=0;i<k;i++) h+=`<a class="b-${esc(b.id)}" href="${lb}" title="${esc(b.label)} (${esc(b.range)}): ${fmt(b.count)} assets"></a>`; return h; }).join('');
+  $('bandleg').innerHTML=E.bands.map(b=>`<a href="${lb}" title="${esc(b.label)} ${esc(b.range)}: ${fmt(b.count)} assets"><span class="sw b-${esc(b.id)}"></span><b>${fmt(b.count)}</b> ${esc(b.label)} <span style="color:var(--ink-3)">${esc(b.range)}</span></a>`).join('')+
+    (per>1?`<span class="sub" style="margin:0">1 ■ = ${per} assets</span>`:'');
+  treemap();
+}
+function treemap(){
+  const el=$('tmap'); if(!el||!D||!D.exposure) return;
+  const items=(D.exposure.factors||[]).filter(f=>f.total>0), tot=items.reduce((s,f)=>s+f.total,0);
+  if(!items.length){ el.innerHTML=ph('No fused exposure points yet'); el.style.height='auto'; return; }
+  const out=[]; const worst=(row,w)=>{const s=row.reduce((a,b)=>a+b.v,0),mx=Math.max(...row.map(r=>r.v)),mn=Math.min(...row.map(r=>r.v));return Math.max(w*w*mx/(s*s),(s*s)/(w*w*mn));};
+  function sq(list,x,y,w,h){ if(!list.length)return; const short=Math.min(w,h); let row=[list[0]],i=1;
+    while(i<list.length&&worst(row.concat(list[i]),short)<=worst(row,short)){row.push(list[i]);i++;}
+    const s=row.reduce((a,b)=>a+b.v,0);
+    if(w>=h){const rw=s/h;let yy=y;row.forEach(r=>{const rh=r.v/rw;out.push({...r,x,y:yy,w:rw,h:rh});yy+=rh;});sq(list.slice(i),x+rw,y,w-rw,h);}
+    else{const rh=s/w;let xx=x;row.forEach(r=>{const rw=r.v/rh;out.push({...r,x:xx,y,w:rw,h:rh});xx+=rw;});sq(list.slice(i),x,y+rh,w,h-rh);} }
+  const W=Math.max(60,el.clientWidth/Math.max(1,el.clientHeight)*100), H=100; sq(items.map(f=>({...f,v:f.total/tot*W*H})),0,0,W,H);
+  const mx=Math.max(...items.map(f=>f.pct))||1;
+  el.innerHTML=out.map(r=>{const a=(0.18+0.72*r.pct/mx), big=r.w*r.h/W*100>260&&r.h>22, mid=r.w*r.h/W*100>90;
+    return `<a href="${esc(P(r.agent))}" class="${a>0.6?'dk':''}" style="left:${(r.x/W*100).toFixed(2)}%;top:${r.y.toFixed(2)}%;width:${(r.w/W*100).toFixed(2)}%;height:${r.h.toFixed(2)}%;--a:${a.toFixed(2)}" title="${esc(r.label)} — ${r.pct}% of fused exposure (${fmt(r.total)} pts, ${esc(r.hound)})">`+
+      (mid?`<div class="tp">${r.pct}%</div>`:'')+(big?`<div class="tl">${esc(r.label)}</div><div class="th">${esc(r.hound)}</div>`:'')+`</a>`;}).join('');
+}
+function renderWhere(){
+  const T=Math.max(1,(D.exposure||{}).assets||D.blind.assets||0);
+  $('fp').innerHTML=(D.footprint||[]).length?D.footprint.map(f=>{const w=Math.min(100,f.n/T*100), c=f.crown==null?0:Math.min(f.crown,f.n)/T*100;
+    return `<a href="${esc(f.href)}" title="${esc(f.label)}: ${fmt(f.n)} of ${fmt(T)} assets${f.crown!=null?' · '+fmt(f.crown)+' crown jewels ('+esc(f.crown_rule)+')':''} — ${esc(f.codename)}"><div class="nm">${esc(f.icon)} ${esc(f.label)}<span>${esc(f.codename)}</span></div>`+
+      `<div class="trk"><i class="all" style="width:${w.toFixed(1)}%"></i>${c?`<i class="cr" style="width:${c.toFixed(1)}%"></i>`:''}</div>`+
+      `<div class="rt"><b>${fmt(f.n)}</b> · ${Math.round(w)}%${f.crown?`<small>${fmt(f.crown)} crown · ${esc(f.crown_rule||'')}</small>`:''}</div></a>`;}).join('')
+    :ph((D.footprint_quiet||[]).length?'None of the hounds in this release flags an asset here':'None of the footprint hounds is in this release');
+  if((D.footprint||[]).length&&(D.footprint_quiet||[]).length) $('fp').insertAdjacentHTML('beforeend',`<div class="ctsub" style="margin:4px 0 0">flag nothing on this estate: ${esc(D.footprint_quiet.join(', '))}</div>`);
+  const W=D.worst||[];
+  if(!W.length) $('mx').innerHTML=ph('The Exposure Score snapshot isn\'t in this release','fused_score');
+  else { const F=(D.exposure.factors||[]).filter(f=>W.some(a=>a.factors[f.id])), max={}; F.forEach(f=>max[f.id]=Math.max(...W.map(a=>a.factors[f.id]||0)));
+    $('mx').innerHTML=`<table class="mx norsz"><thead><tr><th></th><th></th>${F.map(f=>`<th title="${esc(f.label)} — ${esc(f.hound)}">${esc(f.label.replace(/ \(.*/,''))}</th>`).join('')}</tr></thead><tbody>`+
+      W.map(a=>`<tr><td class="h"><a href="/agents/argos/page.html?target=${encodeURIComponent(a.uuid||a.host)}" title="Open ${esc(a.host)} in Argos">${a.crown?'👑 ':''}${esc(a.host)}</a></td><td class="s" title="fused score">${esc(a.score)}</td>`+
+        F.map(f=>{const v=a.factors[f.id]||0;return `<td class="c" style="--a:${v?(0.25+0.75*v/max[f.id]).toFixed(2):0}" title="${esc(a.host)} · ${esc(f.label)}: ${v} pts"></td>`;}).join('')+'</tr>').join('')+'</tbody></table>'; }
+  const K=D.clock, C=K.certs;
+  if(!C.have) $('certtl').innerHTML=ph('Certificates (Certania) isn\'t in this release','certificate');
+  else { const mx=Math.max(1,C.expired,...C.months.map(m=>m.count)), H=96;
+    const bar=(key,lab,n,cls)=>`<a class="${cls||''} ${n?'':'zero'}" href="/web/certdash.html?month=${encodeURIComponent(key)}" title="${fmt(n)} certificate(s) — ${esc(lab)}"><span class="col" style="height:${Math.max(3,Math.round(n/mx*H))}px"><span class="cnt">${n||''}</span></span><span class="lab">${esc(lab)}</span></a>`;
+    $('certtl').innerHTML=bar('expired','Expired',C.expired,'exp')+C.months.map(m=>bar(m.key,String(m.label||'').replace(/ (\d\d)(\d\d)$/," '$2"),m.count)).join(''); }
+  const t=(have,v,l,href,a)=>have?`<a href="${esc(href)}" title="${esc(l)}: ${esc(v)}"><div class="v">${esc(v==null?'—':v)}</div><div class="l">${esc(l)}</div></a>`
+    :`<a class="na" href="${esc(P(a))}"><div class="v">—</div><div class="l">${esc(l)} · not in this release</div></a>`;
+  $('clk').innerHTML=
+    t(C.have,fmt(C.due30),'certs expire ≤ 30 days',P('certificate','secCerts'),'certificate')+
+    t(K.eol.have,K.eol.median_years==null?'—':K.eol.median_years+' y','median time past EOL',P('eol','secTl'),'eol')+
+    t(K.pq.have,fmt(K.pq.past2030_assets),'assets with certs past 2030 (PQ deadline)',P('postquantum','secHn'),'postquantum')+
+    t(K.kev_have,fmt(K.kev_dates.length),'KEV catalog dates on your CVEs',P('cisakev','datesCard'),'cisakev')+
+    t(K.sla.have,K.sla.set?fmt(K.sla.breached):'not set',K.sla.set?'SLA breaches (Sköll)':'SLA breaches — set thresholds in Sköll',P('sla'),'sla');
+}
+function renderConverge(){
+  const S=D.stack||[];
+  if(!S.length) $('hist').innerHTML=ph('The Exposure Score snapshot isn\'t in this release','fused_score');
+  else { const mx=Math.max(1,...S.map(s=>s.assets));
+    $('hist').innerHTML=`<div class="hist">`+S.map(s=>`<a href="${P('fused_score','sec-lb')}" title="${fmt(s.assets)} assets with ${esc(s.label)} hound signals"><div class="bar" style="height:${(s.assets/mx*100).toFixed(1)}%;--a:${(0.15+0.85*s.signals/7).toFixed(2)}"><span>${fmt(s.assets)}</span></div><div class="x">${esc(s.label)}</div></a>`).join('')+
+      `</div><div class="axisn">hounds firing on the asset →</div>`; }
+  const CO=D.cooccur||{}, SG=CO.signals||[], M=CO.matrix||[];
+  if(!SG.length){ $('cobasis').textContent=''; $('cowrap').innerHTML=ph('No overlapping signals to map'); }
+  else { let off=0; M.forEach((r,i)=>r.forEach((v,j)=>{ if(j<i) off=Math.max(off,v); }));
+    $('cobasis').textContent='assets carrying both signals · basis: '+CO.basis+' (Nemesis snapshot) · diagonal = assets with that signal · click → Nemesis';
+    const lb=P('fused_score','sec-lb'); let h='';
+    SG.forEach((s,i)=>{ h+=`<tr><th class="r">${esc(s.label)}</th>`;
+      for(let j=0;j<=i;j++){ const v=M[i][j];
+        if(i===j) h+=`<td><a class="dg" href="${lb}" title="${esc(s.label)}: ${fmt(v)} assets">${fmt(v)}</a></td>`;
+        else { const a=v&&off?(0.12+0.78*v/off):0; h+=`<td><a class="${a>0.55?'dk':''}" style="--a:${a.toFixed(2)}" href="${lb}" title="${esc(SG[j].label)} + ${esc(s.label)}: ${fmt(v)} assets">${v?fmt(v):''}</a></td>`; } }
+      h+='</tr>'; });
+    h+='<tr><th></th>'+SG.map(s=>`<th title="${esc(s.label)}">${esc(s.label.slice(0,5))}</th>`).join('')+'</tr>';
+    $('cowrap').innerHTML=`<table class="co norsz">${h}</table>`; }
+  const CV=D.convergence||[];
+  $('conv').innerHTML=CV.length?CV.map(c=>`<div class="cv ${esc(c.sev)}"><a class="cn" href="${esc(c.href)}" title="${esc(c.text)}: ${fmt(c.n)} (${esc(c.rule||'Nemesis')}) — open Nemesis">${fmt(c.n)}</a>`+
+      `<span>${esc(c.text)}<span class="sevt">${esc(SEVW[c.sev]||c.sev)}</span><div class="pair">${esc(c.pair)}${c.rule?' · '+esc(c.rule):''}</div></span>`+
+      `<a class="cgo" href="${esc(c.fix_href)}">fix → ${esc(nm(c.a))}</a></div>`).join('')
+    :ph((D.exposure||{}).available?'No cross-hound overlaps on this estate — nothing converges':'The Exposure Score snapshot isn\'t in this release','fused_score');
+}
+function renderBlind(){
+  const T=Math.max(1,D.blind.assets||0);
+  $('steps').innerHTML=D.blind.funnel.map(f=>{ if(f.n==null) return `<a href="${esc(f.href)}"><div class="hd"><b>${esc(f.label)}</b><span class="n">—</span></div><div class="gl" style="color:var(--ink-3)">${esc(f.codename)} · not in this release</div></a>`;
+    const p=Math.min(100,f.n/T*100);
+    return `<a href="${esc(f.href)}" title="${esc(f.label)}: ${fmt(f.n)} of ${fmt(T)} assets — ${esc(f.codename)}"><div class="hd"><b>${esc(f.label)}</b><span class="n">${fmt(f.n)} · ${Math.round(p)}%</span></div>`+
+      `<div class="trk"><div class="seen" style="width:${p.toFixed(1)}%"></div>${f.gap?`<div class="gap" style="width:${(100-p).toFixed(1)}%"></div>`:''}</div>`+
+      (f.gap?`<div class="gl">▹ ${fmt(f.gap)} ${esc(f.gap_label)} <span class="own">· ${esc(f.codename)}</span></div>`:'')+'</a>';}).join('');
+  $('bt').innerHTML=D.blind.tiles.map(t=>`<a class="${t.n==null?'na':''}" href="${esc(t.href)}" title="${esc(t.label)}${t.note?' — '+esc(t.note):''}"><div class="v">${t.n==null?'no data':fmt(t.n)}</div><div class="l">${esc(t.label)}</div><div class="o">${esc(ic(t.agent))} ${esc(t.codename)}${t.note?' · '+esc(String(t.note).split(' — ')[0]):''}</div></a>`).join('');
+}
+function renderNext(){
+  const X=D.next||[];
+  $('nx').innerHTML=X.length?X.map((x,i)=>`<a class="${esc(x.sev)}" href="${esc(x.href)}" title="${esc(x.verb)} — ${esc(SEVW[x.sev]||'')}"><span class="rk">${i+1}</span><span class="vb">${esc(x.verb)}</span><span class="nn">${fmt(x.n)}<small>${esc(x.unit)}</small></span><span class="dt">${esc(x.detail)}</span><span class="hh">${esc(SEVW[x.sev]||'')} · ${esc(x.icon)} ${esc(x.codename)} →</span></a>`).join('')
+    :ph('Nothing to hand off from this release');
+  const R=D.reduction||{};
+  if(R.cves==null){ $('ladder').innerHTML=ph('Exposure Routes (Atlas) isn\'t in this release','exproute'); return; }
+  const st=[['CVE line-items',R.cves,'/agents/ex_vulns/page.html'],['Findings',R.findings,'/agents/ex_vulns/page.html'],['Plugins — one fix each',R.plugins,'/agents/ex_plugins/page.html'],['Routes — one owner each',R.routes,P('exproute','secMap')],['Paths',R.paths,'/agents/ex_paths/page.html']];
+  const mx=Math.log10(Math.max(1,...st.map(s=>s[1]||0))+1)||1;
+  $('ladder').innerHTML=st.map(s=>`<a href="${s[2]}" title="${esc(s[0])}: ${fmt(s[1])}"><span>${esc(s[0])}</span><i style="width:${Math.max(2,Math.log10((s[1]||0)+1)/mx*100).toFixed(1)}%"></i><span class="n">${fmt(s[1])}</span></a>`).join('')+
+   (R.champion&&R.champion.plugin_id?`<p class="sub champ" style="margin:6px 0 0;font-size:12px">🏆 One fix, ${fmt(R.champion.cve_count)} CVEs — <a href="/web/vuln.html?plugin=${encodeURIComponent(R.champion.plugin_id)}">${esc(R.champion.name)}</a></p>`:'');
+}
+function renderPack(){
+  $('pack').innerHTML=(D.coverage||[]).map(c=>`<a href="${esc(c.href)}" title="${esc(c.label)} — ${esc(SL[c.status]||c.status)}${c.note?' · '+esc(c.note):''}"><span class="d st-${esc(c.status)}"></span><span class="nm">${esc(c.icon)} ${esc(c.label)}</span>`+
+    `<span class="mt">${esc(SL[c.status]||c.status)}${c.at?' · '+esc(ago(c.at)):''}${c.kb?' · '+esc(c.kb)+' KB':''}${c.note?' · '+esc(c.note):''}</span></a>`).join('');
+}
+
+/* one delegated listener for every action (no inline JS built from data) */
+document.addEventListener('click',e=>{
+  const b=e.target.closest('[data-act],[data-csv]'); if(!b) return;
+  if(b.dataset.csv){ const s=SECT[b.dataset.csv]; if(s&&D) downloadCSV('on_the_scent_'+b.dataset.csv.slice(3).toLowerCase(),COLS,s.rows()); return; }
+  if(b.dataset.act==='rebuild'||b.dataset.act==='build') rebuild(b);
+});
+let _rz=null; window.addEventListener('resize',()=>{ clearTimeout(_rz); _rz=setTimeout(treemap,150); });
+mountAgentHeader({id:'insights',icon:'🐝',name:'On the Scent',sub:'Sphinx · the estate brain'});
+peek();
 </script>
 </body></html>

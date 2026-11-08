@@ -23,24 +23,85 @@
   .cli .ok{color:var(--ok)} .cli .err{color:var(--crit)}
   .kpis{display:flex;flex-wrap:wrap;gap:18px;margin-top:10px}
   .kpi .v{font-size:26px;font-weight:800} .kpi .l{font-size:11px;color:var(--mut)}
+  .storebar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:var(--panel-2)}
+  .storebar .lbl{font-size:12px;color:var(--mut);text-transform:uppercase;letter-spacing:.05em}
+  .storebar .miniseg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .storebar .miniseg button{border:0;background:transparent;color:var(--ink);padding:6px 12px;font-size:12.5px;cursor:pointer}
+  .storebar .miniseg button.on{background:var(--accent);color:#fff}
+  .storebar .miniseg button:disabled{opacity:.5;cursor:not-allowed}
+  .src{display:inline-block;margin-left:6px;padding:0 6px;border-radius:6px;font-size:10px;letter-spacing:.03em;text-transform:none;border:1px solid var(--line);color:var(--mut)}
+  .src.shell{border-color:var(--cx-e7c66b);color:var(--cx-e7c66b)} .src.config{border-color:var(--ok);color:var(--ok)} .src.session{border-color:var(--accent);color:var(--accent)}
+  /* navi job buttons: press in on click, stay lit while their job runs */
+  [data-kind].btn{transition:transform .06s ease, box-shadow .12s ease}
+  [data-kind].btn:active,[data-kind].btn.pressed{transform:translateY(1px) scale(.98);box-shadow:inset 0 2px 6px rgba(0,0,0,.35)}
+  [data-kind].btn.running{border:1px solid var(--accent);color:var(--accent);background:transparent;box-shadow:inset 0 2px 6px rgba(0,0,0,.25);transform:translateY(1px)}
+  [data-kind].btn.running .spin{width:10px;height:10px;margin-right:4px;vertical-align:-1px}
+  .cli:focus{outline:none}
+  .cli.cli-focus{box-shadow:0 0 0 2px var(--accent);transition:box-shadow .2s ease}
   .slagrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-top:6px}
+  .dlrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:12px}
+  .dlrow select.fld{width:auto;min-width:260px}
+  #dlTbl{table-layout:fixed;width:100%}
+  #dlTbl td{white-space:normal;vertical-align:top}
+  #dlTbl td .mono{font-size:11.5px;word-break:break-all}
+  #dlTbl a{color:var(--accent);text-decoration:none}
+  .trgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(300px,100%),1fr));gap:14px;margin-top:12px}
+  #trEx{word-break:break-word}
+  #trPhrase.bad{border-color:var(--crit)}
 </style>
 </head><body>
 <div class="wrap">
   <header class="top">
     <div class="logo"><span class="hcrest brand" role="img" aria-label="The Hounds"></span></div>
-    <h1>Settings <small>ENVIRONMENT · NAVI.DB · CLI · USAGE</small></h1>
+    <h1>Settings <small>ENVIRONMENT · DOWNLOADS · TEST RUN · NAVI.DB · CLI · USAGE</small></h1>
     <div class="meta" id="meta"></div>
   </header>
 
   <!-- ENV VARS -->
   <section class="card">
     <div class="toolbar"><div><h2 style="margin:0">🔑 Environment</h2>
-      <p class="sub" style="margin:2px 0 0">Read &amp; set the variables the app uses. Changes take effect <b>live for this running server</b> — to persist them across restarts, put them in a <span class="mono">.env</span> in the repo root (run.py loads it). A blank API-key field leaves the existing key unchanged.</p></div>
+      <p class="sub" style="margin:2px 0 0">AI model, keys, write/email/remote-exec gates and paths. Changes take effect <b>live</b> the moment you save; the <b>storage</b> switch below decides whether they also survive a restart. A blank API-key field leaves the existing key unchanged.</p></div>
       <button class="btn run" id="saveEnv" style="margin-left:auto">💾 Save</button></div>
+    <div class="storebar" id="storeBar">
+      <span class="lbl">Storage</span>
+      <span class="miniseg" id="storeSeg">
+        <button type="button" data-mode="file" title="Save to hounds.config.json and re-apply on every start">💾 Config file</button>
+        <button type="button" data-mode="ephemeral" title="Keep values in memory only — nothing written to disk, forgotten on restart">⏳ Ephemeral</button>
+      </span>
+      <span class="sub" id="storeNote"></span>
+    </div>
     <div class="statline" id="statChips"></div>
     <div class="envgrid" id="envGrid"></div>
     <div id="envFlash" class="flash" style="margin-top:10px"></div>
+  </section>
+
+  <!-- EXTERNAL DOWNLOADS -->
+  <section class="card" id="dlCard">
+    <div class="toolbar"><div><h2 style="margin:0">⬇ External downloads <span id="dlChip" class="chip" style="margin-left:6px"></span></h2>
+      <p class="sub" style="margin:2px 0 0">Some hounds enrich navi.db with a public, <b>read-only</b> data source from outside Tenable. By default each one stops at a <b>Human approval — external download</b> card before fetching. <b>Auto-approve downloads</b> skips that card: pressing <b>▶ Run</b> downloads straight away and the page shows a one-line <i>“Auto-approved download: &lt;url&gt; (Settings)”</i> note instead. Nothing runs on page open, tag writes stay gated, and offline every source still falls back to its bundled snapshot. Without approval the server uses the snapshot only — no network.</p></div>
+      <button class="btn run" id="dlSave" style="margin-left:auto">💾 Save</button></div>
+    <div class="dlrow envf"><label class="lbl" style="margin:0">Auto-approve downloads<span id="dlSrc"></span></label>
+      <select class="fld" id="dlSel"><option value="0">0 — ask every time (default)</option><option value="1">1 — auto-approve, show the source</option></select>
+      <span class="sub" id="dlShell"></span></div>
+    <table id="dlTbl" class="norsz nocsv" style="margin-top:12px"><colgroup><col style="width:30%"><col style="width:9%"><col style="width:33%"><col style="width:16%"><col style="width:12%"></colgroup><thead><tr><th>Source</th><th>Hound</th><th>URL(s)</th><th>Offline fallback</th><th>Covered</th></tr></thead><tbody><tr><td colspan="5" class="sub">Loading…</td></tr></tbody></table>
+    <div id="dlFlash" class="flash" style="margin-top:10px"></div>
+  </section>
+
+  <!-- TEST RUN (core/tagname.py + NAVI_TAG_TEST_RUN / NAVI_TAG_PREFIX) -->
+  <section class="card" id="trCard">
+    <div class="toolbar"><div><h2 style="margin:0">🧪 Test run <span id="trChip" class="chip" style="margin-left:6px"></span></h2>
+      <p class="sub" style="margin:2px 0 0">Try the Hounds without touching your real tag taxonomy. While <b>Test run</b> is on, every tag <b>category</b> a Hound creates gets your prefix phrase and a <span class="mono">-</span> — the value is never changed, and a category that already carries the prefix is left as is. Everything that reads tags back (What the Hounds know, Done so far, Owner / SLA dispositions, Exposure Score…) recognises both the plain and the prefixed name. Clean up afterwards in <a href="/agents/tagremoval/page.html">Tag Removal</a> (its <b>test-run tags</b> filter). Removals and ACR on a category you type are always exact.</p></div>
+      <button class="btn run" id="trSave" style="margin-left:auto">💾 Save</button></div>
+    <div class="trgrid">
+      <div class="envf"><label class="lbl" for="trSel">Test run — prefix every tag the Hounds create<span id="trSrc"></span></label>
+        <select class="fld" id="trSel"><option value="0">0 — off: normal tag names (default)</option><option value="1">1 — on: prefix every tag category</option></select></div>
+      <div class="envf"><label class="lbl" for="trPhrase">Prefix phrase<span id="trPSrc"></span></label>
+        <input class="fld" id="trPhrase" maxlength="30" placeholder="Hounds" autocomplete="off" spellcheck="false">
+        <p class="help">1–24 letters, digits, spaces or _. The <span class="mono">-</span> separator is added for you.</p></div>
+    </div>
+    <p class="sub" style="margin:10px 0 0">Example: <span class="mono" id="trEx"></span></p>
+    <span class="sub" id="trShell"></span>
+    <div id="trFlash" class="flash" style="margin-top:10px"></div>
   </section>
 
   <!-- NAVI.DB CHECKS -->
@@ -49,8 +110,8 @@
       <p class="sub" style="margin:2px 0 0">Is each table populated? <span class="dot ok" style="display:inline-block"></span> has rows · <span class="dot empty" style="display:inline-block"></span> exists but empty · <span class="dot missing" style="display:inline-block"></span> missing. Routes &amp; Paths aren't part of a normal full sync — update them here. <span class="mono" id="dbmeta"></span></p></div>
       <span style="margin-left:auto;display:flex;gap:6px">
         <button class="btn ghost sm" id="dbRefresh">↻ Re-check</button>
-        <button class="btn run sm" id="updEverything" title="navi config update everything — refresh every table in one run (~30+ min)">☕ Update everything</button>
-        <button class="btn ghost sm" id="optimize" title="navi config optimize — build SQL indexes for faster tagging">⚙ Optimize indexes</button></span></div>
+        <button class="btn run sm" id="updEverything" data-kind="everything" title="navi config update everything — refresh every table in one run (~30+ min)">☕ Update everything</button>
+        <button class="btn ghost sm" id="optimize" data-kind="optimize" title="navi config optimize — build SQL indexes for faster tagging">⚙ Optimize indexes</button></span></div>
     <div class="dbgrid" id="dbGrid"></div>
   </section>
 
@@ -61,8 +122,8 @@
     <div class="slagrid" id="slaGrid"></div>
     <div class="toolbar" style="margin-top:12px">
       <button class="btn run sm" id="slaSave">💾 Save SLA</button>
-      <button class="btn ghost sm" id="slaBuildFixed" title="navi config update fixed">🧱 Build Fixed table</button>
-      <button class="btn ghost sm" id="slaCalc" title="navi config sla calculate">🧮 Recalculate SLA</button>
+      <button class="btn ghost sm" id="slaBuildFixed" data-kind="fixed" title="navi config update fixed">🧱 Build Fixed table</button>
+      <button class="btn ghost sm" id="slaCalc" data-kind="sla_calc" title="navi config sla calculate">🧮 Recalculate SLA</button>
       <span id="slaFlash" class="sub" style="margin-left:auto"></span>
     </div>
   </section>
@@ -72,7 +133,7 @@
     <div class="toolbar"><div><h2 style="margin:0">🖥 navi CLI <span id="cliStatus" class="chip" style="margin-left:6px;display:none"></span></h2>
       <p class="sub" style="margin:2px 0 0">Long <span class="mono">navi config update &lt;table&gt;</span> runs stream here. They run <b>in the background on the server</b> — a vulns sync can take hours, so you can close this tab or reload and the job keeps going. Come back and reattach from <b>Recent runs</b> below.</p></div>
       <button class="btn ghost sm" id="cliClear" style="margin-left:auto">Clear</button></div>
-    <div class="cli" id="cli"><span class="sub">Pick a table above and click <b>↻ Update</b>, or <b>⚙ Optimize indexes</b>, to run navi here.</span></div>
+    <div class="cli" id="cli" tabindex="-1"><span class="sub">Pick a table above and click <b>↻ Update</b>, or <b>⚙ Optimize indexes</b>, to run navi here.</span></div>
     <div id="naviJobs" style="margin-top:12px"></div>
   </section>
 
@@ -84,7 +145,7 @@
     <div class="kpis" id="usageKpis"></div>
   </section>
 
-  <footer>Settings · repo-only control panel · env vars are process-live · navi updates stream from <span class="mono">navi config update</span></footer>
+  <footer>Settings · repo-only control panel · env vars are process-live, persisted by the config store · navi updates stream from <span class="mono">navi config update</span></footer>
 </div>
 
 <script src="/static/console.js"></script>
@@ -98,6 +159,11 @@ function chip(label, good, txt){ const c=good===true?'var(--ok)':good===false?'v
 
 function renderStat(){
   const s=STAT; if(!s)return;
+  // a key pasted into a model field breaks every AI call — say so loudly
+  { let mw=document.getElementById('modelWarn'); const msg=s.llm&&s.llm.model_warning;
+    if(msg){ if(!mw){ mw=document.createElement('div'); mw.id='modelWarn'; mw.className='flash crit show'; const sc=document.getElementById('statChips'); sc.parentNode.insertBefore(mw, sc.nextSibling); }
+      mw.innerHTML='⚠ '+esc(msg); }
+    else if(mw) mw.remove(); }
   const w=s.writes_enabled, em=s.email_enabled, ai=s.llm&&s.llm.available;
   const ssh=s.ssh||{};
   const sshGood = ssh.configured ? (ssh.plaintext_password ? null : true) : false;
@@ -116,30 +182,160 @@ function renderStat(){
     + (s.navi_available?'':' <span class="chip" style="border-color:var(--cx-e7c66b);color:var(--cx-e7c66b)">'+esc(s.write_gate_reason||'')+'</span>');
 }
 function renderEnv(){
-  const g=document.getElementById('envGrid'); g.innerHTML=STAT.env.map(f=>{
+  const g=document.getElementById('envGrid'); g.innerHTML=STAT.env.filter(f=>!f.section).map(f=>{   // sectioned fields have their own card
     let input;
-    if(f.bool){ const on=/^(1|true|yes|on|y|t|enabled)$/i.test(f.masked||'');
+    if(f.env_only){   // never settable over HTTP (server refuses it) — show it read-only
+      input='<input class="fld" value="'+esc(f.value||'')+'" placeholder="(not set)" readonly disabled title="Set in the environment / hounds.config.json and restart">'; }
+    else if(f.bool){ const on=/^(1|true|yes|on|y|t|enabled)$/i.test(f.masked||'');
       input='<select class="fld" data-k="'+f.key+'"><option value="1"'+(on?' selected':'')+'>1 — writes allowed</option><option value="0"'+(!on?' selected':'')+'>0 — gated</option></select>'; }
     else if(f.choices){ const cur=(f.value||'');   // provider picker — blank = auto-detect
       input='<select class="fld" data-k="'+f.key+'"><option value=""'+(cur?'':' selected')+'>auto-detect</option>'
         +f.choices.map(c=>'<option value="'+esc(c)+'"'+(cur===c?' selected':'')+'>'+esc(c)+'</option>').join('')+'</select>'; }
-    else if(f.secret){ input='<input class="fld" type="password" data-k="'+f.key+'" placeholder="'+(f.set?('•••• '+esc(f.masked)+' — leave blank to keep'):'not set')+'">'; }
+    else if(f.secret){ input='<input class="fld" type="password" data-k="'+f.key+'" placeholder="'+(f.set?'•••••••• set — leave blank to keep':'not set')+'" autocomplete="off">'; }
     else if(f.num){ input='<input class="fld" type="number" min="1" data-k="'+f.key+'" value="'+esc(f.value||'')+'" placeholder="8000">'; }
     else { input='<input class="fld" data-k="'+f.key+'" value="'+esc(f.value||'')+'" placeholder="'+(f.key==='NAVI_DB_PATH'?'blank = bundled sample':'')+'">'; }
-    return '<div class="envf"><label class="lbl">'+esc(f.label)+'</label>'+input+'<p class="help">'+f.help+'</p></div>';
+    const shellNote = (STAT.config&&STAT.config.shell_keys||[]).includes(f.key)
+      ? ' <b style="color:var(--cx-e7c66b)">Exported in the server\'s shell — that value wins again on restart.</b>' : '';
+    const roNote = f.env_only ? ' <b style="color:var(--cx-e7c66b)">Read-only here — set in the environment / hounds.config.json and restart.</b>' : '';
+    const guardNote = f.guarded ? ' <span class="sub">🔒 Turning this on / changing it asks you to confirm (and only works from this machine).</span>' : '';
+    const keyNote = (f.key==='NAVI_LLM_BASE_URL'||f.key==='NAVI_LLM_PROVIDER') ? ' <b style="color:var(--cx-e7c66b)">Changing the endpoint/provider clears the stored model API key(s) unless you re-enter the key in the same save.</b>' : '';
+    return '<div class="envf"><label class="lbl">'+esc(f.label)+srcBadge(f.source)+'</label>'+input+'<p class="help">'+f.help+shellNote+roNote+guardNote+keyNote+'</p></div>';
   }).join('');
 }
+const SRC_LABEL={shell:'shell',config:'config file','.env':'.env',session:'this session',default:'default'};
+const SRC_TIP={shell:'Exported in the shell that started the server',config:'Saved in the config file',
+  '.env':'From .env in the repo root',session:'Set on this page — ephemeral, gone on restart',default:'run.py default'};
+function srcBadge(s){ return s?'<span class="src '+esc(s.replace('.',''))+'" title="'+esc(SRC_TIP[s]||'')+'">'+esc(SRC_LABEL[s]||s)+'</span>':''; }
+function renderStore(){
+  const c=STAT.config||{}; const seg=document.getElementById('storeSeg'), note=document.getElementById('storeNote');
+  seg.querySelectorAll('button').forEach(b=>{ b.classList.toggle('on', b.dataset.mode===c.mode); b.disabled=(c.mode==='disabled'); });
+  let t;
+  if(c.mode==='disabled') t='<b>Off</b> — <span class="mono">HOUNDS_CONFIG=off</span> is set, so nothing is read or written. Values are live for this server only; use the shell or <span class="mono">.env</span> to persist.';
+  else if(c.mode==='file') t='Saved to <span class="mono">'+esc(c.path||'')+'</span>'+(c.saved_at?' · last saved '+esc(c.saved_at.replace('T',' ').replace('Z',' UTC')):' · created on your first Save')+' · re-applied on every start (keys stored in plain text, file mode 600, git-ignored).';
+  else t='Nothing is written to disk — values last until the server restarts. Switching here deleted any saved values.';
+  if(c.error) t+=' <b style="color:var(--crit)">'+esc(c.error)+'</b>';
+  note.innerHTML=t;
+  document.getElementById('saveEnv').textContent = c.mode==='file' ? '💾 Save' : '✓ Apply';
+}
+document.querySelectorAll('#storeSeg button').forEach(b=>b.onclick=async()=>{
+  const mode=b.dataset.mode; if(STAT&&STAT.config&&STAT.config.mode===mode) return;
+  if(mode==='ephemeral' && !confirm('Switch to ephemeral?\n\nThis deletes the saved values (including API keys) from the config file. Current values stay live until the server restarts, then they are gone.')) return;
+  flash('envFlash','<span class="spin"></span> switching storage…','run');
+  let o; try{ o=await API.post('config_mode',{mode}); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o||!o.ok){ flash('envFlash','✗ '+esc((o&&o.error)||'failed'),'crit'); return; }
+  STAT=o; renderStat(); renderEnv(); renderStore(); renderDl(); renderTr(); flash('envFlash','✓ '+esc(o.message||'switched'),'ok');
+});
 async function loadStatus(){
   let o; try{ o=await API.post('status'); }catch(e){ return; }
-  if(!o||!o.ok)return; STAT=o; renderStat(); renderEnv(); renderUsage(o.usage);
+  if(!o||!o.ok)return; STAT=o; renderStat(); renderEnv(); renderStore(); renderUsage(o.usage); renderDl(); renderTr();
 }
+
+// ---- external downloads (core/downloads.py registry + NAVI_AUTO_APPROVE_DOWNLOADS) ----
+function renderDl(){
+  const d=STAT.downloads||{}, f=(STAT.env||[]).find(x=>x.section==='downloads')||{}, on=!!d.auto_approve;
+  document.getElementById('dlSel').value=on?'1':'0';
+  document.getElementById('dlSrc').innerHTML=srcBadge(f.source);
+  document.getElementById('dlShell').innerHTML=(STAT.config&&STAT.config.shell_keys||[]).includes(f.key)
+    ? '<b style="color:var(--cx-e7c66b)">Exported in the server\'s shell — that value wins again on restart.</b>' : '';
+  const c=document.getElementById('dlChip'); c.textContent=on?'auto-approve ON':'approval required';
+  c.style.borderColor=c.style.color=on?'var(--cx-e7c66b)':'var(--ok)';
+  const rows=d.sources||[];
+  document.getElementById('dlTbl').querySelector('tbody').innerHTML=rows.length?rows.map(r=>
+    '<tr><td><b>'+esc(r.name)+'</b><div class="sub">'+esc(r.purpose||'')+'</div></td>'
+    +'<td><a href="/agents/'+encodeURIComponent(r.agent)+'/page.html">'+esc(r.agent)+'</a></td>'
+    +'<td>'+(r.urls||[]).map(u=>'<div class="mono">'+esc(u)+'</div>').join('')+'</td>'
+    +'<td class="sub">'+esc(r.fallback||'—')+'</td>'
+    +'<td>'+(r.approval?(on?'<span style="color:var(--cx-e7c66b)">✓ auto-approved</span>':'✓ asks first')
+      :'<span class="sub" title="No approval card — fetched only when you press its own ▶ button">— no approval step</span>')+'</td></tr>').join('')
+    :'<tr><td colspan="5" class="sub">No external sources registered.</td></tr>';
+}
+/* set_env with the guarded-field round-trip: the server lists what needs an explicit
+   confirmation in needs_confirm (a gate turned ON, NAVI_DB_PATH changed); we name exactly
+   what changes and resend with confirm:true (JSON boolean). Turning a gate OFF needs none. */
+async function postEnv(env){
+  let o; try{ o=await API.post('set_env',{env}); }catch(e){ return {ok:false,error:e.message}; }
+  const need=(o&&Array.isArray(o.needs_confirm))?o.needs_confirm.filter(k=>Object.prototype.hasOwnProperty.call(env,k)):[];
+  if(!need.length) return o;
+  const lines=need.map(k=>{ const v=String(env[k]==null?'':env[k]); return '• '+k+' → '+(v===''?'(cleared)':v.slice(0,200)); });
+  if(!confirm('Confirm this security-sensitive change?\n\n'+lines.join('\n')+'\n\nThis turns on real writes / sends or switches the database the console reads.')) return o;
+  const env2={}; need.forEach(k=>{ env2[k]=env[k]; });
+  let o2; try{ o2=await API.post('set_env',{env:env2, confirm:true}); }catch(e){ return {ok:false,error:e.message}; }
+  if(o2&&o2.ok){ o2.applied=[...new Set([...(o.applied||[]),...(o2.applied||[])])];
+    const w=[o.warning&&!/needs an explicit confirmation/.test(o.warning)?o.warning:'', o2.warning||''].filter(Boolean).join(' ');
+    if(w) o2.warning=w; else delete o2.warning;
+    if(o.cleared_keys&&!o2.cleared_keys) o2.cleared_keys=o.cleared_keys; }
+  return o2;
+}
+document.getElementById('dlSave').onclick=async()=>{
+  const f=(STAT&&STAT.env||[]).find(x=>x.section==='downloads'); if(!f) return;
+  const v=document.getElementById('dlSel').value;
+  flash('dlFlash','<span class="spin"></span> applying…','run');
+  const o=await postEnv({[f.key]:v});
+  if(!o||!o.ok){ flash('dlFlash','✗ '+esc((o&&o.error)||'failed'),'crit'); return; }
+  STAT=o; renderStat(); renderEnv(); renderStore(); renderDl(); renderTr();
+  if(!(o.applied||[]).length){ flash('dlFlash','Nothing changed.','run'); return; }
+  const where = o.store_error ? ' — <b>'+esc(o.store_error)+'</b>'
+    : (o.persisted ? ' — live now and saved to the config file' : ' — live now (ephemeral: gone on restart)');
+  flash('dlFlash','✓ Auto-approve downloads '+(o.downloads&&o.downloads.auto_approve?'ON':'OFF')+where, o.store_error?'crit':'ok');
+};
 document.getElementById('saveEnv').onclick=async()=>{
   const env={}; document.querySelectorAll('#envGrid [data-k]').forEach(el=>{ env[el.dataset.k]=el.value; });
   flash('envFlash','<span class="spin"></span> applying…','run');
-  let o; try{ o=await API.post('set_env',{env}); }catch(e){ o={ok:false,error:e.message}; }
+  const o=await postEnv(env);
   if(!o||!o.ok){ flash('envFlash','✗ '+esc((o&&o.error)||'failed'),'crit'); return; }
-  STAT=o; renderStat(); renderEnv(); renderUsage(o.usage);
-  flash('envFlash','✓ applied '+(o.applied||[]).join(', ')+' — live now'+((o.applied||[]).some(k=>k==='ANTHROPIC_MODEL'||k==='ANTHROPIC_MAX_TOKENS')?' (model/cap changes apply to new calls)':''),'ok');
+  STAT=o; renderStat(); renderEnv(); renderStore(); renderUsage(o.usage); renderDl(); renderTr();
+  const ap=(o.applied||[]).filter(k=>!(o.cleared_keys||[]).includes(k));
+  if(o.warning && !ap.length){ flash('envFlash','⚠ '+esc(o.warning),'crit'); return; }
+  if(!ap.length){ flash('envFlash','Nothing changed.','run'); return; }
+  const where = o.store_error ? ' — <b>'+esc(o.store_error)+'</b>'
+    : (o.persisted ? ' — live now and saved to the config file' : ' — live now (ephemeral: gone on restart)');
+  flash('envFlash',(o.warning?'⚠ '+esc(o.warning)+'<br>':'')+'✓ applied '+esc(ap.join(', '))+where+(ap.some(k=>k==='ANTHROPIC_MODEL'||k==='ANTHROPIC_MAX_TOKENS')?' (model/cap changes apply to new calls)':''), o.store_error?'crit':'ok');
+};
+
+// ---- test run (core/tagname.py: NAVI_TAG_TEST_RUN + NAVI_TAG_PREFIX) ----
+const TR_RE=/^[A-Za-z0-9 _]{1,24}$/;
+function trNorm(raw){ const s=String(raw||'').trim().replace(/[-–\s]+$/,'').trim();   // the '-' is ours
+  if(!s) return {ok:true, phrase:'Hounds'};
+  return TR_RE.test(s)?{ok:true, phrase:s}:{ok:false, phrase:s, error:'Prefix phrase must be 1–24 characters: letters, digits, spaces or _ only (the - separator is added for you).'}; }
+function trExample(){
+  const n=trNorm(document.getElementById('trPhrase').value), on=document.getElementById('trSel').value==='1';
+  const inp=document.getElementById('trPhrase'); inp.classList.toggle('bad', !n.ok);
+  document.getElementById('trEx').textContent = n.ok
+    ? 'Lifecycle : EOL → '+(on?n.phrase+'-Lifecycle : EOL':'Lifecycle : EOL (test run off — would be '+n.phrase+'-Lifecycle : EOL)')
+    : '✗ '+n.error;
+}
+function renderTr(){
+  const t=STAT.tag_prefix||{}, env=STAT.env||[], on=!!t.enabled;
+  const fOn=env.find(x=>x.key===(t.env||'NAVI_TAG_TEST_RUN'))||{}, fP=env.find(x=>x.key===(t.env_phrase||'NAVI_TAG_PREFIX'))||{};
+  document.getElementById('trSel').value=on?'1':'0';
+  const inp=document.getElementById('trPhrase'); if(document.activeElement!==inp) inp.value=(fP.value||'');
+  inp.placeholder=t.default_phrase||'Hounds';
+  document.getElementById('trSrc').innerHTML=srcBadge(fOn.source);
+  document.getElementById('trPSrc').innerHTML=srcBadge(fP.source);
+  const sh=(STAT.config&&STAT.config.shell_keys||[]).filter(k=>k===fOn.key||k===fP.key);
+  document.getElementById('trShell').innerHTML=sh.length?'<b style="color:var(--cx-e7c66b)">'+esc(sh.join(', '))+' exported in the server\'s shell — that value wins again on restart.</b>':'';
+  const c=document.getElementById('trChip'); c.textContent=on?'ON · '+(t.prefix||'')+'…':'off';
+  c.style.borderColor=c.style.color=on?'var(--cx-e7c66b)':'var(--mut)';
+  trExample();
+}
+document.getElementById('trPhrase').addEventListener('input', trExample);
+document.getElementById('trSel').addEventListener('change', trExample);
+document.getElementById('trSave').onclick=async()=>{
+  const t=(STAT&&STAT.tag_prefix)||{}; if(!STAT) return;
+  const n=trNorm(document.getElementById('trPhrase').value);
+  if(!n.ok){ flash('trFlash','✗ '+esc(n.error),'crit'); return; }
+  const on=document.getElementById('trSel').value;
+  flash('trFlash','<span class="spin"></span> applying…','run');
+  const o=await postEnv({[t.env||'NAVI_TAG_TEST_RUN']:on,[t.env_phrase||'NAVI_TAG_PREFIX']:document.getElementById('trPhrase').value});
+  if(!o||!o.ok){ flash('trFlash','✗ '+esc((o&&o.error)||'failed'),'crit'); return; }
+  STAT=o; renderStat(); renderEnv(); renderStore(); renderDl(); renderTr();
+  if(o.invalid&&Object.keys(o.invalid).length){ flash('trFlash','✗ '+esc(Object.values(o.invalid).join(' ')),'crit'); return; }
+  if(!(o.applied||[]).length){ flash('trFlash','Nothing changed.','run'); return; }
+  const tp=o.tag_prefix||{};
+  const where = o.store_error ? ' — <b>'+esc(o.store_error)+'</b>'
+    : (o.persisted ? ' — live now and saved to the config file' : ' — live now (ephemeral: gone on restart)');
+  flash('trFlash','✓ Test run '+(tp.enabled?'ON — new tags are written as <span class="mono">'+esc(tp.prefix)+'&lt;category&gt;</span>':'OFF — normal tag names')+where, o.store_error?'crit':'ok');
+  try{ if(typeof mountTestRunChip==='function') mountTestRunChip(true); }catch(e){}
 };
 
 // ---- navi.db table checks ----
@@ -158,6 +354,7 @@ async function loadDb(){
       +'<button class="btn ghost sm updbtn" data-kind="'+esc(t.update)+'">↻ Update</button></div>';
   }).join('');
   g.querySelectorAll('.updbtn').forEach(b=>b.onclick=()=>startNavi({kind:b.dataset.kind}, b));
+  markRunning();
 }
 
 // ---- live CLI window (background jobs; reattachable) ----
@@ -172,12 +369,37 @@ function attachJob(jobId){
   document.getElementById('cli').innerHTML='<span id="cliHead" style="color:var(--accent)"></span><span id="cliOut"></span><span id="cliHint" style="color:var(--mut)"></span><span id="cliLive"></span>';
   pollNavi(tok);
 }
+/* ---- job buttons: pressed → running → back to normal when the job ends ---- */
+let RUNNING={};                                   // kind → running job id
+function focusCli(){
+  const cli=document.getElementById('cli'), card=cli.closest('section');
+  (card||cli).scrollIntoView({behavior:'smooth', block:'start'});
+  try{ cli.focus({preventScroll:true}); }catch(e){}
+  cli.classList.add('cli-focus'); setTimeout(()=>cli.classList.remove('cli-focus'), 1400);
+}
+function markRunning(){
+  document.querySelectorAll('[data-kind].btn').forEach(b=>{
+    if(!b.dataset.label) b.dataset.label=b.innerHTML;
+    const jid=RUNNING[b.dataset.kind];
+    if(jid!=null){
+      b.classList.add('running'); b.classList.remove('pressed');
+      b.innerHTML='<span class="spin"></span>Running…';
+      b.title='Running (job #'+jid+') — click to watch it in the navi CLI window';
+    } else if(b.classList.contains('running')){
+      b.classList.remove('running'); b.innerHTML=b.dataset.label; b.removeAttribute('title');
+    }
+  });
+}
 async function startNavi(payload, btn, note){
-  const lbl=btn&&btn.textContent;
-  if(btn){ btn.disabled=true; btn.textContent='⏳ starting…'; }
+  const kind=payload.optimize?'optimize':payload.kind;
+  if(RUNNING[kind]!=null){ attachJob(RUNNING[kind]); focusCli(); return; }   // already running → just show it
+  if(btn){ if(!btn.dataset.label) btn.dataset.label=btn.innerHTML;
+    btn.classList.add('pressed'); btn.disabled=true; btn.innerHTML='<span class="spin"></span>Starting…'; }
+  focusCli();
   let o; try{ o=await API.post('navi_start',payload); }catch(e){ o={ok:false,error:e.message}; }
-  if(btn){ btn.disabled=false; btn.textContent=lbl; }   // re-enable — the job runs in the background
+  if(btn){ btn.disabled=false; btn.classList.remove('pressed'); btn.innerHTML=btn.dataset.label; }
   if(!o||!o.ok){ document.getElementById('cli').innerHTML='<span style="color:var(--crit)">✗ '+esc((o&&o.error)||'failed to start')+'</span>'; return; }
+  RUNNING[kind]=o.job.id; markRunning();
   attachJob(o.job.id);
   // upfront expectation-setter — the job runs in the background and can be quiet for a while
   const h=document.getElementById('cliHint');
@@ -220,6 +442,7 @@ async function loadJobs(){
   const box=document.getElementById('naviJobs'); if(!box)return;
   let o; try{ o=await API.post('navi_jobs'); }catch(e){ return; }
   const jobs=(o&&o.jobs)||[];
+  RUNNING={}; jobs.forEach(j=>{ if(j.status==='running' && j.kind) RUNNING[j.kind]=j.id; }); markRunning();
   if(!jobs.length){ box.innerHTML=''; return; }
   const now=Date.now()/1000;
   box.innerHTML='<div class="sub" style="font-weight:600;margin:0 0 5px">Recent runs <span class="sub">· click to reattach</span></div>'+jobs.map(j=>{
@@ -227,7 +450,7 @@ async function loadJobs(){
     const st=run?'<span style="color:var(--accent)"><span class="spin"></span> running</span>':(j.returncode===0?'<span style="color:var(--ok)">✓ done</span>':'<span style="color:var(--crit)">✗ exit '+esc(String(j.returncode))+'</span>');
     const dur=fmtDur((j.finished||now)-j.started);
     const on=(j.id===CLI_JOB)?'border-color:var(--accent);':'';
-    return '<div class="jrow" data-j="'+j.id+'" data-run="'+(run?1:0)+'" style="display:flex;gap:10px;align-items:center;padding:6px 9px;border:1px solid var(--line);'+on+'border-radius:8px;margin-bottom:5px;cursor:pointer"><b class="mono" style="font-size:12px">#'+j.id+'</b><span style="flex:1">'+esc(j.label)+'</span>'+st+'<span class="sub jdur" data-start="'+j.started+'">'+dur+'</span></div>';
+    return '<div class="jrow" data-j="'+esc(j.id)+'" data-run="'+(run?1:0)+'" style="display:flex;gap:10px;align-items:center;padding:6px 9px;border:1px solid var(--line);'+on+'border-radius:8px;margin-bottom:5px;cursor:pointer"><b class="mono" style="font-size:12px">#'+esc(j.id)+'</b><span style="flex:1">'+esc(j.label)+'</span>'+st+'<span class="sub jdur" data-start="'+esc(j.started)+'">'+dur+'</span></div>';
   }).join('');
   box.querySelectorAll('.jrow').forEach(r=>r.onclick=()=>attachJob(+r.dataset.j));
   const running=jobs.find(j=>j.status==='running');

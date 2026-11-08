@@ -5,7 +5,7 @@
   "order": 15,
   "category": "Risk",
   "codename": "Arachne",
-  "summary": "Arachne — consolidated WAS overview + per-app scan reports: severity, OWASP Top-10, tech stack, scan coverage. Two dashboards over the apps/findings tables.",
+  "summary": "Arachne — consolidated WAS overview + per-app scan reports: severity, OWASP Top-10, tech stack, scan coverage. Two dashboards over the apps/findings tables, with a jump nav; every metric, severity/OWASP bar, tech chip and tag cohort opens the matching apps in Web App Recon.",
   "needs_backend": true,
   "page": "page.html",
   "actions": ["overview", "report", "plugin_output", "tag_plan", "tag"]

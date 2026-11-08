@@ -1,8 +1,10 @@
 """Exposure Routes agent — self-contained HTTP actions."""
-from core import navi_cli, llm
+from core import navi_cli, llm, jobq
 from .agent import (ExpRouteAgent, owners, routes, paths, tag_owner, coverage,
                     ownership_map, path_detail, resolve_owner,
-                    parse_dispositions, disposition_label)
+                    parse_dispositions, disposition_label,
+                    snapshot_state, start_build, _base, retag_owner_tags)
+from core.gates import confirmed
 
 AGENT = ExpRouteAgent()
 
@@ -11,14 +13,46 @@ def load(p):
     return {"ok": True, "agent": AGENT.meta(), "result": AGENT.run()}, 200
 
 
+def _submit(fn):
+    return jobq.submit(fn, {"agent": "exproute", "action": "snapshot", "label": "Ownership snapshot"})
+
+
+def snapshot(p):
+    """Everything the page shows — owners, routes, paths, coverage and the ownership map —
+    from one pass, cached on disk per navi.db signature.
+      {peek:true}            what's cached / building right now; never computes
+      {}                     cached result if navi.db is unchanged, else start a background build
+      {force:true}           rebuild even if cached
+      {refresh_owners:true}  re-pull the owner directory from Tenable, then rebuild
+    A build answers {building:{job_id, started}}; poll /api/jobs/<id>, then peek."""
+    force, ro = bool(p.get("force")), bool(p.get("refresh_owners"))
+    st = snapshot_state()
+    if st["snap"] and not force and not ro:
+        return {"ok": True, "result": st["snap"], "cached": True}, 200
+    if p.get("peek"):
+        return {"ok": True, "result": None, "building": st["building"]}, 200
+    if st["building"]:
+        return {"ok": True, "result": None, "building": st["building"]}, 200
+    b = start_build(_submit, refresh_owners=ro)
+    return {"ok": True, "result": None, "building": b}, 200
+
+
 def omap(p):
-    """The Ownership Map dashboard — routes/paths ↔ owners graph + gaps + per-owner load."""
+    """The Ownership Map dashboard — routes/paths ↔ owners graph + gaps + per-owner load.
+    Served from the snapshot when navi.db hasn't changed."""
+    st = snapshot_state()
+    if st["snap"] and not p.get("refresh"):
+        return {"ok": True, "result": st["snap"]["map"], "cached": True}, 200
     return {"ok": True, "result": ownership_map()}, 200
 
 
 def cover(p):
-    """Ownership coverage — recompute after tagging + a navi.db refresh."""
-    return {"ok": True, "result": coverage()}, 200
+    """Ownership coverage — served from the snapshot when navi.db hasn't changed."""
+    st = snapshot_state()
+    if st["snap"] and not p.get("refresh"):
+        return {"ok": True, "result": st["snap"]["coverage"], "cached": True}, 200
+    b = _base()
+    return {"ok": True, "result": coverage(base=b, om=ownership_map(base=b))}, 200
 
 
 def refresh(p):
@@ -49,7 +83,8 @@ def interpret(p):
                 "route' work without it)", "llm_available": False}, 200
     # Current state so 'assign the remaining' / 'keep it balanced' are exact, not guessed:
     # which routes/paths already have an owner, and each owner's current item count.
-    om = ownership_map()
+    _st = snapshot_state()
+    om = _st["snap"]["map"] if _st["snap"] else ownership_map()   # reuse the cached map
     assigned = {"routes": {r["name"]: ", ".join(r["owners"]) for r in om.get("routes", []) if r.get("owners")},
                 "paths": {p["name"]: ", ".join(p["owners"]) for p in om.get("paths", []) if p.get("owners")}}
     owner_load = {e["owner"]: e.get("routes", 0) + e.get("paths", 0) for e in om.get("owner_load", [])}
@@ -93,7 +128,7 @@ def interpret(p):
 
 
 def apply(p):
-    if not p.get("confirm"):
+    if not confirmed(p):
         return {"ok": False, "error": "confirm=true required to write tags"}, 400
     owner_in = (p.get("owner") or "").strip()
     if not owner_in:
@@ -116,10 +151,19 @@ def apply(p):
             "writes_enabled": navi_cli.writes_enabled()}, 200
 
 
+def retag(p):
+    """Gated: move an unmatched Owner tag name onto an exact route/path name — only the
+    assets that carry the old tag, per owner."""
+    if not confirmed(p):
+        return {"ok": False, "error": "confirm=true required to write tags"}, 400
+    r = retag_owner_tags(p.get("from") or "", p.get("to") or "")
+    return {**r, "writes_enabled": navi_cli.writes_enabled()}, (200 if r.get("ok") else 400)
+
+
 def pdetail(p):
     """Path drill-down — assets + findings on a single path (a newly-found gap)."""
     return {"ok": True, "result": path_detail((p or {}).get("path", ""))}, 200
 
 
-ACTIONS = {"load": load, "run": load, "interpret": interpret, "apply": apply,
-           "coverage": cover, "refresh": refresh, "map": omap, "path_detail": pdetail}
+ACTIONS = {"snapshot": snapshot, "load": load, "run": load, "interpret": interpret, "apply": apply,
+           "coverage": cover, "refresh": refresh, "map": omap, "path_detail": pdetail, "retag": retag}

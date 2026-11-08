@@ -27,6 +27,7 @@ def load_dotenv():
     path = os.path.join(HERE, ".env")
     if not os.path.exists(path):
         return
+    loaded = []
     try:
         with open(path, encoding="utf-8") as f:
             for raw in f:
@@ -40,14 +41,21 @@ def load_dotenv():
                 val = val.strip().strip('"').strip("'")
                 if key and key not in os.environ:   # shell env wins
                     os.environ[key] = val
+                    loaded.append(key)
+        # tell core.config_store which keys came from .env (the Settings config file may
+        # override those; a value exported in the shell is never overridden)
+        os.environ["HOUNDS_DOTENV_KEYS"] = ",".join(loaded)
         print("loaded .env")
     except Exception as e:
         print("  could not read .env:", e)
 
 
 load_dotenv()
+_defaulted = [k for k in ("NAVI_DB_PATH", "NAVI_ALLOW_WRITES") if k not in os.environ]
 os.environ.setdefault("NAVI_DB_PATH", os.path.join(HERE, "sample_navi.db"))
 os.environ.setdefault("NAVI_ALLOW_WRITES", "0")
+# defaults, like .env values, may be overridden by the Settings config file
+os.environ["HOUNDS_DEFAULT_KEYS"] = ",".join(_defaulted)
 
 
 def have(mod):

@@ -17,7 +17,7 @@ Read-only; the tag writes are gated (navi_cli). scan() returns structured JSON.
 """
 import re
 
-from core import db
+from core import db, tagname
 
 FAMILY = "Artificial Intelligence"
 
@@ -70,7 +70,7 @@ ENDPOINTS = [
     {"name": "MLflow", "port": "5000", "role": "MLOps", "distinct": False, "kw": ["mlflow"]},
     {"name": "text-generation-webui", "port": "7860", "role": "Model Serving", "distinct": False, "kw": ["text-generation-webui", "oobabooga"]},
     {"name": "vLLM", "port": "8000", "role": "Model Serving", "distinct": False, "kw": ["vllm"]},
-    {"name": "Triton", "port": "8000", "role": "Model Serving", "distinct": False, "kw": ["triton inference"]},
+    {"name": "Triton Server", "port": "8000", "role": "Model Serving", "distinct": False, "kw": ["triton inference"]},
     {"name": "Open WebUI", "port": "8080", "role": "Model Serving", "distinct": False, "kw": ["open-webui", "open webui"]},
 ]
 CPE_EXTRA = [
@@ -228,53 +228,92 @@ def _like_where(col, kws):
 
 
 def _atlas_for(x):
-    """AI-specific ATLAS techniques implied by an asset's role/exposure/egress."""
+    """AI-specific ATLAS techniques implied by an asset's role/exposure/egress.
+
+    Each entry: id, name, tactic, `why` (the first reason — kept for older callers),
+    `whys` (every reason that implied it) and `ev` (the concrete navi.db evidence behind
+    those reasons: endpoint:port, framework, egress destination, …), so a drill-down can
+    show exactly why an asset sits under a technique."""
     t = {}
 
-    def add(i, why):
-        t.setdefault(i, why)
+    def add(i, why, ev=()):
+        d = t.setdefault(i, {"whys": [], "ev": []})
+        if why not in d["whys"]:
+            d["whys"].append(why)
+        for e in ev or ():
+            if e and e not in d["ev"]:
+                d["ev"].append(e)
     role = x.get("role", "")
-    fw = " ".join(x.get("frameworks", [])).lower()
-    exposed = bool(x.get("exposed"))
-    unauth = exposed and any(e.get("auth") == "unauth" for e in x["exposed"])
+    fws = list(x.get("frameworks", []))
+    fw = " ".join(fws).lower()
+    exp = x.get("exposed") or []
+    exposed = bool(exp)
+    unauth_eps = [e for e in exp if e.get("auth") == "unauth"]
+    unauth = exposed and bool(unauth_eps)
     kev = bool(x.get("risk", {}).get("kev"))
-    egress = bool(x.get("egress"))
-    shadow = egress and any(not e.get("sanctioned") for e in x["egress"])
-    is_llm = (bool(re.search(r"ollama|vllm|llama|gpt|openai|anthropic|localai|text-generation|lm studio|open webui|"
-                             r"mistral|cohere|gemini|langchain|llamaindex|litellm|cursor|copilot|claude|tabnine|"
-                             r"codeium|windsurf|aider|cody", fw))
-              or role in ("LLM API Client", "Model Serving", "AI Dev Tool"))
-    model_hub = bool(re.search(r"hugging|transformers|sentencetransformers", fw)) or \
-        any(e.get("cat") == "Model Hub" for e in x.get("egress", []))
-    add("AML.T0047", "Runs an ML-enabled service")
-    add("AML.T0043", "Model can be probed with adversarial inputs")
+    eg = x.get("egress") or []
+    egress = bool(eg)
+    shadow_eg = [e for e in eg if not e.get("sanctioned")]
+    shadow = egress and bool(shadow_eg)
+    llm_rx = (r"ollama|vllm|llama|gpt|openai|anthropic|localai|text-generation|lm studio|open webui|"
+              r"mistral|cohere|gemini|langchain|llamaindex|litellm|cursor|copilot|claude|tabnine|"
+              r"codeium|windsurf|aider|cody")
+    llm_fws = [f for f in fws if re.search(llm_rx, f.lower())]
+    is_llm = bool(re.search(llm_rx, fw)) or role in ("LLM API Client", "Model Serving", "AI Dev Tool")
+    hub_fws = [f for f in fws if re.search(r"hugging|transformers|sentencetransformers", f.lower())]
+    hub_eg = [e for e in eg if e.get("cat") == "Model Hub"]
+    model_hub = bool(hub_fws) or bool(hub_eg)
+    ep = lambda e: f"{e.get('name')}:{e.get('port')}" + (" unauth" if e.get("auth") == "unauth" else "")
+    dst = lambda e: f"→ {e.get('dest')}" + ("" if e.get("sanctioned") else " (shadow)")
+    exp_ev = [ep(e) for e in exp]
+    add("AML.T0047", "Runs an ML-enabled service", fws[:4])
+    add("AML.T0043", "Model can be probed with adversarial inputs", fws[:4])
     if role == "Model Serving" or exposed:
-        add("AML.T0040", "Serves/exposes a model inference API")
-        add("AML.T0031", "Model integrity can be eroded via the serving path")
+        ev = exp_ev or [f"role: {role}"]
+        add("AML.T0040", "Serves/exposes a model inference API", ev)
+        add("AML.T0031", "Model integrity can be eroded via the serving path", ev)
     if exposed:
-        add("AML.T0049", "Public-facing AI endpoint is an initial-access vector")
+        add("AML.T0049", "Public-facing AI endpoint is an initial-access vector", exp_ev)
     if unauth:
-        add("AML.T0012", "Unauthenticated endpoint = access without valid accounts")
-        add("AML.T0034", "Open inference API can be abused for cost/resource harvesting")
+        add("AML.T0012", "Unauthenticated endpoint = access without valid accounts", [ep(e) for e in unauth_eps])
+        add("AML.T0034", "Open inference API can be abused for cost/resource harvesting", [ep(e) for e in unauth_eps])
     if kev:
-        add("AML.T0049", "Carries a CISA-KEV (actively exploited) vuln")
+        add("AML.T0049", "Carries a CISA-KEV (actively exploited) vuln", ["CISA KEV finding"])
     if is_llm:
-        add("AML.T0051", "LLM is susceptible to prompt injection")
-        add("AML.T0054", "LLM can be jailbroken past guardrails")
+        ev = llm_fws[:4] or [f"role: {role}"]
+        add("AML.T0051", "LLM is susceptible to prompt injection", ev)
+        add("AML.T0054", "LLM can be jailbroken past guardrails", ev)
     if role == "Vector DB / RAG":
-        add("AML.T0057", "RAG/vector store can leak embedded sensitive data")
+        add("AML.T0057", "RAG/vector store can leak embedded sensitive data", fws[:4] or [f"role: {role}"])
     if egress:
-        add("AML.T0024", "Egress path enables exfiltration via the inference API")
+        add("AML.T0024", "Egress path enables exfiltration via the inference API", [dst(e) for e in eg][:4])
     if shadow:
-        add("AML.T0025", "Unsanctioned egress = exfiltration via cyber means")
+        add("AML.T0025", "Unsanctioned egress = exfiltration via cyber means", [dst(e) for e in shadow_eg][:4])
     if model_hub:
-        add("AML.T0010", "Pulls models from a public hub (supply-chain risk)")
-        add("AML.T0018", "Downloaded models could be backdoored")
+        ev = hub_fws[:3] + [dst(e) for e in hub_eg][:2]
+        add("AML.T0010", "Pulls models from a public hub (supply-chain risk)", ev)
+        add("AML.T0018", "Downloaded models could be backdoored", ev)
     if role == "GPU / Training":
-        add("AML.T0002", "Uses public ML artifacts in training")
-        add("AML.T0018", "Training pipeline could embed a model backdoor")
-    return [{"id": i, "why": why, "name": ATLAS_TECH.get(i, (i, ""))[0],
-             "tactic": ATLAS_TECH.get(i, ("", "Other"))[1]} for i, why in t.items()]
+        add("AML.T0002", "Uses public ML artifacts in training", fws[:4] or [f"role: {role}"])
+        add("AML.T0018", "Training pipeline could embed a model backdoor", fws[:4] or [f"role: {role}"])
+    return [{"id": i, "why": d["whys"][0], "whys": d["whys"], "ev": d["ev"],
+             "name": ATLAS_TECH.get(i, (i, ""))[0],
+             "tactic": ATLAS_TECH.get(i, ("", "Other"))[1]} for i, d in t.items()]
+
+
+def atlas_sets(assets):
+    """The asset set behind every ATLAS technique and tactic, from scan() output.
+    Returns {"tech": {id: set(uuid)}, "tactic": {tactic: set(uuid)}} — the single source
+    the page's drill-down and the server-side tag_atlas action both use."""
+    tech, tac = {}, {}
+    for x in assets or []:
+        u = x.get("asset_uuid")
+        if not u:
+            continue
+        for t in x.get("atlas") or []:
+            tech.setdefault(t["id"], set()).add(u)
+            tac.setdefault(t.get("tactic") or "Other", set()).add(u)
+    return {"tech": tech, "tactic": tac}
 
 
 def scan(db_path=None, fp=None, allow=None):
@@ -357,7 +396,8 @@ def scan(db_path=None, fp=None, allow=None):
             if ep["distinct"]:
                 clauses.append(f"output LIKE '%{ep['port']}%'")
         try:
-            for r in db.query("SELECT asset_uuid, plugin_id, plugin_name, output FROM vulns WHERE "
+            pcol = "port" if "port" in vcols else "NULL AS port"
+            for r in db.query(f"SELECT asset_uuid, plugin_id, plugin_name, output, {pcol} FROM vulns WHERE "
                               + " OR ".join(clauses), path=db_path):
                 u = r.get("asset_uuid")
                 if not u:
@@ -365,15 +405,27 @@ def scan(db_path=None, fp=None, allow=None):
                 hay = ((r.get("plugin_name") or "") + " " + (r.get("output") or "")).lower()
                 auth = "unauth" if re.search(r"no authentication|unauthenticated|without credentials|anonymous access|"
                                              r"default password|requires no auth|no login required", hay) else ""
+                try:
+                    rport = int(r.get("port") or 0)
+                except (TypeError, ValueError):
+                    rport = 0
                 for ep in ENDPOINTS:
                     kw_hit = any(w in hay for w in ep["kw"])
                     port_hit = ep["distinct"] and _port_hit(hay, ep["port"])
+                    # EXPOSED needs a network observation: the finding sits on a real port, or the output
+                    # names the service port. A keyword in local output alone is presence, not exposure.
+                    seen_port = str(rport) if rport else (ep["port"] if _port_hit(hay, ep["port"]) else "")
+                    if kw_hit and not (seen_port or port_hit):
+                        add_ev(u, {"src": "output", "term": ep["name"], "role": ep["role"],
+                                   "pid": r.get("plugin_id") or "", "pname": r.get("plugin_name") or "",
+                                   "snip": _snip((r.get("plugin_name") or "") + " — " + (r.get("output") or ""), ep["kw"][0])})
+                        continue
                     if kw_hit or port_hit:
                         add_ev(u, {"src": "endpoint", "term": ep["name"], "role": ep["role"],
                                    "pid": r.get("plugin_id") or "", "pname": r.get("plugin_name") or "",
                                    "snip": _snip((r.get("plugin_name") or "") + " — " + (r.get("output") or ""),
                                                  ep["kw"][0] if kw_hit else ep["port"]),
-                                   "port": ep["port"], "auth": auth,
+                                   "port": seen_port or ep["port"], "auth": auth,
                                    "sig": "service name" if kw_hit else "port " + ep["port"]})
         except Exception:
             pass
@@ -448,8 +500,8 @@ def scan(db_path=None, fp=None, allow=None):
         mit, eol_tag = {}, set()
         try:
             for r in db.query(f"SELECT asset_uuid, tag_key, tag_value FROM tags WHERE asset_uuid IN ({inl}) "
-                              "AND tag_key IN ('Mitre','Lifecycle')", path=db_path):
-                if (r.get("tag_key") or "") == "Mitre":
+                              "AND " + tagname.sql_lit("tag_key", "Mitre", "Lifecycle"), path=db_path):
+                if tagname.base(r.get("tag_key") or "") == "Mitre":     # plain or test-run name
                     mit.setdefault(r["asset_uuid"], []).append((r.get("tag_value") or "").strip())
                 else:
                     eol_tag.add(r.get("asset_uuid"))

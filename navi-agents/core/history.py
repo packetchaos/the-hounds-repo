@@ -22,6 +22,8 @@ Public API:
 import datetime
 import json
 import os
+import threading
+from core.security import private_open as _popen
 
 _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _DATA_DIR = os.environ.get("NAVI_HISTORY_DIR") or os.path.join(_REPO_ROOT, "data")
@@ -63,6 +65,9 @@ def _read_all(agent):
     return out
 
 
+_REC_LOCK = threading.Lock()   # record() is read-modify-write through one .tmp — serialise it
+
+
 def record(agent, metrics, dims=None, date=None):
     """Store today's (or `date`'s) snapshot for `agent`, replacing any existing point
     for that day. Best-effort: never raises — history is a nice-to-have, not load-bearing."""
@@ -70,18 +75,23 @@ def record(agent, metrics, dims=None, date=None):
              "metrics": {k: v for k, v in (metrics or {}).items() if v is not None},
              "dims": dims or {}}
     try:
-        os.makedirs(_DATA_DIR, exist_ok=True)
-        rows = [r for r in _read_all(agent) if r.get("date") != point["date"]]
-        rows.append(point)
-        rows.sort(key=lambda r: r.get("date", ""))
-        tmp = _path(agent) + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            for r in rows:
-                f.write(json.dumps(r) + "\n")
-        os.replace(tmp, _path(agent))
+        with _REC_LOCK:
+            _record_locked(agent, point)
     except Exception:
         pass
     return point
+
+
+def _record_locked(agent, point):
+    os.makedirs(_DATA_DIR, mode=0o700, exist_ok=True)
+    rows = [r for r in _read_all(agent) if r.get("date") != point["date"]]
+    rows.append(point)
+    rows.sort(key=lambda r: r.get("date", ""))
+    tmp = _path(agent) + ".tmp"
+    with _popen(tmp, "w", encoding="utf-8") as f:
+        for r in rows:
+            f.write(json.dumps(r) + "\n")
+    os.replace(tmp, _path(agent))
 
 
 def series(agent, keys=None, since=None, limit=None):

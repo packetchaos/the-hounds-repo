@@ -38,6 +38,22 @@
 .badge.b-err{background:rgba(251,113,133,.14);color:var(--crit);border:1px solid rgba(251,113,133,.4)}
 .badge.b-run{background:rgba(62,166,255,.14);color:var(--accent);border:1px solid rgba(62,166,255,.4)}
 #trustLog{max-height:260px;overflow:auto}
+/* Release the Hounds — run the whole pack (reads only) in the background */
+.relbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:12px 0 0;padding:11px 13px;border:1px solid var(--line);border-left:4px solid var(--amber);border-radius:11px;background:var(--panel-2)}
+.relbar .rl{flex:1;min-width:240px;font-size:12.5px;color:var(--ink-2)}
+.relbtn{font-family:var(--display);font-weight:700;font-size:13.5px;padding:9px 16px;border-radius:10px;border:1px solid var(--amber);background:linear-gradient(100deg,#b07a14,#e0a526);color:#1a1206;cursor:pointer}
+.relbtn:disabled{opacity:.55;cursor:default}
+.relmodal{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:80;padding:20px}
+.relbox{background:var(--panel);border:1px solid var(--line);border-radius:14px;max-width:640px;width:100%;max-height:88vh;display:flex;flex-direction:column;box-shadow:0 18px 60px rgba(0,0,0,.45)}
+.relbox .rh{padding:14px 18px 6px}.relbox .rb{padding:4px 18px;overflow:auto}.relbox .rf{padding:12px 18px;border-top:1px solid var(--line);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.reltbl{width:100%;font-size:12.5px;border-collapse:collapse}.reltbl td{padding:5px 6px;border-top:1px solid var(--line)}
+.reltbl td.e{font-family:var(--mono);text-align:right;white-space:nowrap;color:var(--ink-2)}.reltbl tr.off td{opacity:.55}
+.relprog{margin:12px 0 0;padding:12px 14px;border:1px solid var(--line);border-radius:11px;background:var(--panel)}
+.relprog .pbar{height:8px;border-radius:5px;background:var(--panel-2);overflow:hidden;margin:8px 0}.relprog .pbar>i{display:block;height:100%;background:var(--amber);transition:width .4s}
+.rchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+.rchip{font-size:11.5px;border:1px solid var(--line);border-radius:999px;padding:3px 9px;text-decoration:none;color:var(--ink-2);background:var(--panel-2);white-space:nowrap}
+.rchip.done{border-color:var(--ok);color:var(--ok)}.rchip.running{border-color:var(--amber);color:var(--amber)}.rchip.error{border-color:var(--crit);color:var(--crit)}
+.rchip.skipped,.rchip.cancelled{opacity:.6}
 </style>
 </head>
 <body>
@@ -61,6 +77,11 @@
       <button class="btn run sm" id="askgo">✨ Ask</button>
     </div>
     <div id="askout" style="margin-top:8px"></div>
+    <div class="relbar" id="relbar">
+      <div class="rl"><b>🐾 Release the Hounds</b> — run every hound in the sidebar's order (On the Scent last — it summarises the rest), in the background, so each page is already populated when you open it. Reads only: nothing is tagged, applied or sent. Search hounds, Argos, ACR, the AI Contract, Dashboards and the other hands-on tools are left out.</div>
+      <button class="relbtn" id="relBtn" type="button">🐾 Release the Hounds</button>
+    </div>
+    <div id="relProg" class="relprog" style="display:none"></div>
     <div class="no-llm-note sub" style="display:none;margin-top:8px;color:var(--warn,var(--cx-e7c66b))">Set <span class="mono">ANTHROPIC_API_KEY</span> on the server to enable “ask which agent can help”.</div>
 
     <div class="toolbar" style="margin:10px 0 6px;gap:10px;flex-wrap:wrap;align-items:center">
@@ -126,14 +147,14 @@ function card(a){
   const inPack=TAGGERS.includes(a.id);
   const glyph=(a.icon||'🐾').replace(/'/g,'');
   const tags=tagsFor(a);
-  const crestImg=`<img src="/static/crests/${a.id}.png" alt="${esc(cn.name||a.name||'')}" onerror="this.replaceWith(document.createTextNode('${glyph}'))">`;
+  const crestImg=`<img src="${esc(crestSrc(a.id))}" alt="${esc(cn.name||a.name||'')}" data-fb="${esc(glyph)}">`;
   const tagsHtml=tags.map(t=>`<span class="atag">${esc(t)}</span>`).join('');
   const search=((cn.name||'')+' '+(a.name||'')+' '+(a.summary||'')+' '+tags.join(' ')).toLowerCase();
   const dd=(typeof deepDive==='function')?deepDive(a.id):null;
   const yr=dd&&dd.year?`📖 Origin story · ${dd.year}`:'';
-  return `<div class="agent agentcard ${a.deployed?'':'dim'}" data-cat="${esc(tags.join(' '))}" data-search="${esc(search)}" data-id="${a.id}">
+  return `<div class="agent agentcard ${a.deployed?'':'dim'}" data-cat="${esc(tags.join(' '))}" data-search="${esc(search)}" data-id="${esc(a.id)}">
     <div class="ah">
-      <div class="ico">${a.deployed&&a.page?`<a href="${a.page}" title="Open ${esc(a.name||'')}" style="display:block;line-height:0;width:100%;height:100%">${crestImg}</a>`:crestImg}</div>
+      <div class="ico">${a.deployed&&a.page?`<a href="${esc(safeHref(a.page))}" title="Open ${esc(a.name||'')}" style="display:block;line-height:0;width:100%;height:100%">${crestImg}</a>`:crestImg}</div>
       <div style="min-width:0;flex:1">
         <div class="nm">${esc(a.name||a.id)}</div>
         ${yr?`<div class="ameta">${yr}</div>`:''}
@@ -142,9 +163,9 @@ function card(a){
     </div>
     ${tagsHtml?`<div class="atags">${tagsHtml}${inPack?'<span class="atag" style="color:var(--amber);border-color:var(--amber)">in the pack</span>':''}</div>`:''}
     <div class="acts">
-      ${a.deployed&&a.page?`<a class="btn ghost sm" href="${a.page}">Open</a>`:''}
-      ${a.hound?`<a class="btn ghost sm" href="${a.hound}" target="_blank" title="Details — the hound's one-pager (printable)">Info ↗</a>`
-               :(a.readme?`<a class="btn ghost sm" href="${a.readme}" target="_blank">Info ↗</a>`:'')}
+      ${a.deployed&&a.page?`<a class="btn ghost sm" href="${esc(safeHref(a.page))}">Open</a>`:''}
+      ${a.hound?`<a class="btn ghost sm" href="${esc(safeHref(a.hound))}" target="_blank" rel="noopener" title="Details — the hound's one-pager (printable)">Info ↗</a>`
+               :(a.readme?`<a class="btn ghost sm" href="${esc(safeHref(a.readme))}" target="_blank" rel="noopener">Info ↗</a>`:'')}
       ${(typeof deepDiveCode==='function')?deepDiveCode(a.id):''}
       ${!a.deployed&&!a.hound&&!a.readme?`<button class="btn sm" disabled>unavailable</button>`:''}
     </div>
@@ -199,7 +220,9 @@ function runAll(){
   location.href=pg+(pg.indexOf('?')>=0?'&':'?')+'plan=1';
 }
 async function trust(){
-  if(!confirm('Run Tag Sequence will run every tagging agent and APPLY all proposed tags live (gated writes). ACR is never run; Ownership Assignment and Software are skipped. Continue?')) return;
+  let skipped=[]; try{ const r=await jpost('/api/hub/roster',{}); skipped=(r&&r.skipped)||[]; }catch(e){}
+  const nm=id=>{ const a=(AGENTS||[]).find(x=>x.id===id); return (a&&(a.name||a.title))||id; };
+  if(!confirm('Run Tag Sequence will run every tagging agent and APPLY all proposed tags live (gated writes). ACR is never run'+(skipped.length?'; skipped (they need human input): '+skipped.map(nm).join(', '):'')+'. Continue?')) return;
   const btn=document.getElementById('trustBtn'); btn.disabled=true; const old=btn.textContent; btn.textContent='Running…';
   const box=document.getElementById('trustLog'); box.style.display='block'; box.textContent='';
   const tlog=m=>{ box.textContent='['+new Date().toLocaleTimeString()+'] '+m+'\n'+box.textContent; };
@@ -217,17 +240,97 @@ async function trust(){
   }catch(e){ tlog('✗ '+e.message); }
   btn.disabled=false; btn.textContent=old;
 }
+/* ===== Release the Hounds — run the pack (reads only) in the background ================
+   ▶ the button → an estimate per hound (Continue / Cancel) → a background release on the
+   server (core/release.py). Each hound's result is saved as that page's cache entry, so
+   opening any page later shows its run. Progress survives leaving this page. */
+const fmtDur=s=>{ s=Math.max(0,Math.round(s||0)); if(s<60) return s+' s'; const m=Math.floor(s/60), r=s%60; if(m<60) return m+' min'+(r?' '+r+' s':''); return Math.floor(m/60)+' h '+(m%60)+' min'; };
+let REL_POLL=null;
+async function releasePlan(approve){
+  let o; try{ o=await jpost('/api/hub/release_plan', approve==null?{}:{approve_downloads:!!approve}); }catch(e){ o={ok:false,error:e.message}; }
+  return o;
+}
+function relModal(pl){
+  const old=document.getElementById('relModal'); if(old) old.remove();
+  const m=document.createElement('div'); m.id='relModal'; m.className='relmodal';
+  const run=pl.items.filter(i=>i.run), dl=pl.items.some(i=>i.download);
+  m.innerHTML=`<div class="relbox" role="dialog" aria-modal="true" aria-labelledby="relTitle">
+    <div class="rh"><h2 id="relTitle" style="margin:0;font-size:17px">🐾 Release the Hounds</h2>
+      <p class="sub" style="margin:4px 0 0">Runs <b>${run.length}</b> hound${run.length===1?'':'s'} in the sidebar's order (On the Scent last — it summarises the rest), in the background — you can leave this page. Estimated <b>${fmtDur(pl.total_s)}</b> for ${Number(pl.vuln_rows||0).toLocaleString()} findings in navi.db. Reads only: nothing is tagged, applied or sent.</p></div>
+    <div class="rb"><table class="reltbl"><tbody>${pl.items.map(i=>`<tr class="${i.run?'':'off'}"><td>${esc(i.label)}</td><td class="sub">${i.run?esc(i.basis||''):esc(i.note||'skipped')}</td><td class="e">${i.run?'~'+fmtDur(i.est_s):'—'}</td></tr>`).join('')}</tbody></table>
+      ${dl?`<label style="display:flex;gap:8px;align-items:flex-start;margin:12px 0 4px;font-size:12.5px"><input type="checkbox" id="relDl" ${pl.approve_downloads?'checked':''} ${pl.auto_approve_downloads?'disabled':''}>
+        <span>Approve the public catalog downloads MITRE ATT&amp;CK and CISA KEV need (the ATT&amp;CK→CVE map and the KEV list)${pl.auto_approve_downloads?' — already auto-approved in <a href="/web/settings.html">Settings</a>':' for this release — unticked, those two are skipped'}.</span></label>`:''}
+      <p class="sub" style="font-size:11.5px;margin:8px 0 2px">Left out on purpose: ${Object.values(pl.excluded||{}).map(v=>esc(String(v).split(' — ')[0])).join(', ')}.</p></div>
+    <div class="rf"><button class="relbtn" id="relGo" type="button" ${run.length?'':'disabled'}>Continue — release ${run.length}</button>
+      <button class="btn ghost sm" id="relNo" type="button">Cancel</button><span class="sub" id="relMsg" style="margin-left:auto"></span></div></div>`;
+  document.body.appendChild(m);
+  const close=()=>m.remove();
+  m.addEventListener('click',e=>{ if(e.target===m) close(); });
+  document.getElementById('relNo').onclick=close;
+  document.addEventListener('keydown',function esck(e){ if(e.key==='Escape'){ close(); document.removeEventListener('keydown',esck); } });
+  const dlb=document.getElementById('relDl');
+  if(dlb) dlb.onchange=async()=>{ const p2=await releasePlan(dlb.checked); if(p2&&p2.ok) relModal(p2); };
+  document.getElementById('relGo').onclick=async function(){
+    this.disabled=true; document.getElementById('relMsg').innerHTML='<span class="spin"></span> starting…';
+    let o; try{ o=await jpost('/api/hub/release_start',{confirm:true, approve_downloads:dlb?dlb.checked:undefined}); }catch(e){ o={ok:false,error:e.message}; }
+    if(!o||!o.ok){ document.getElementById('relMsg').textContent='✗ '+((o&&o.error)||'failed'); this.disabled=false; return; }
+    close(); relShow(o.state); relPoll();
+  };
+  setTimeout(()=>{ const g=document.getElementById('relGo'); if(g) g.focus(); },30);
+}
+function relShow(st){
+  const box=document.getElementById('relProg'), btn=document.getElementById('relBtn');
+  if(!st||!st.id){ box.style.display='none'; btn.disabled=false; return; }
+  const items=st.items||[], todo=items.filter(i=>i.status!=='skipped'), fin=todo.filter(i=>/^(done|error|cancelled)$/.test(i.status));
+  const running=st.status==='running', cur=items.find(i=>i.status==='running');
+  const spent=((running?Date.now()/1000:(st.finished||Date.now()/1000))-(st.started||Date.now()/1000));
+  const left=running?todo.filter(i=>i.status==='pending'||i.status==='running').reduce((s,i)=>s+(i.est_s||0),0):0;
+  const pct=todo.length?Math.round(100*fin.length/todo.length):100;
+  const done=items.filter(i=>i.status==='done').length, errs=items.filter(i=>i.status==='error').length;
+  box.style.display='block'; btn.disabled=running;
+  box.innerHTML=`<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">${running?'<span class="spin"></span>':''}<b>${running?'Releasing the hounds':(st.status==='cancelled'?'Release cancelled':'Released')}</b>
+     <span class="sub">${fin.length}/${todo.length} · ${fmtDur(spent)} elapsed${running&&cur?' · now: '+esc(cur.label):''}${running&&left?' · ~'+fmtDur(left)+' left':''}${!running?' · finished '+new Date((st.finished||0)*1000).toLocaleString():''}</span>
+     <span style="margin-left:auto"></span>${running?'<button class="btn ghost sm" id="relCancel" type="button">✕ Cancel</button>':''}</div>
+    <div class="pbar"><i style="width:${pct}%"></i></div>
+    ${!running?`<div class="sub" style="margin:0 0 4px">${done} hound${done===1?'':'s'} populated${errs?' · <span style="color:var(--crit)">'+errs+' failed</span>':''} — open any of them to see the run.</div>`:''}
+    <div class="rchips">${items.map(i=>`<a class="rchip ${esc(i.status)}" href="${esc(i.page)}" title="${esc((i.note||i.status)+(i.sec!=null?' · '+i.sec+' s':''))}">${{done:'✓',running:'⟳',error:'✗',skipped:'–',cancelled:'⊘',pending:'·'}[i.status]||'·'} ${esc(i.label)}</a>`).join('')}</div>`;
+  const c=document.getElementById('relCancel');
+  if(c) c.onclick=async()=>{ c.disabled=true; try{ const o=await jpost('/api/hub/release_cancel',{}); relShow(o.state); }catch(e){} };
+  // the cards on this page follow along
+  items.forEach(i=>{ const el=cardEls(i.agent); if(!el) return;
+    if(i.status==='running') el.badge.innerHTML='<span class="badge b-run">releasing…</span>';
+    else if(i.status==='done'){ el.badge.innerHTML='<span class="badge b-live">released ✓</span>'; el.lastrun.textContent=new Date(((i.started||0)+(i.sec||0))*1000).toLocaleString(); }
+    else if(i.status==='error'){ el.badge.innerHTML='<span class="badge b-err">error</span>'; el.metric.textContent=' '+(i.note||''); } });
+}
+async function relPoll(){
+  clearTimeout(REL_POLL);
+  let o; try{ o=await jpost('/api/hub/release_status',{}); }catch(e){ o=null; }
+  if(o&&o.ok){ relShow(o.state); if(o.state&&o.state.status==='running') REL_POLL=setTimeout(relPoll,1500); }
+  else REL_POLL=setTimeout(relPoll,4000);
+}
+document.getElementById('relBtn').onclick=async function(){
+  this.disabled=true; const pl=await releasePlan(); this.disabled=false;
+  if(!pl||!pl.ok){ flash('flash','✗ '+esc((pl&&pl.error)||'could not plan the release'),'crit'); return; }
+  if(pl.state&&pl.state.status==='running'){ relShow(pl.state); relPoll(); return; }
+  relModal(pl);
+};
+/* "last run" on each card = when its page was last run or released (server page cache) */
+async function lastRuns(){
+  let o; try{ o=await jpost('/api/hub/pc_list',{}); }catch(e){ return; }
+  ((o&&o.pages)||[]).forEach(p=>{ const m=String(p.key||'').match(/^\/agents\/([^/]+)\/page\.html$/); if(!m) return;
+    const el=cardEls(m[1]); if(el&&p.at&&el.lastrun.textContent==='never') el.lastrun.textContent=new Date(p.at).toLocaleString()+(p.released?' · released':''); });
+}
 async function askAgent(){
   const q=document.getElementById('askq'), out=document.getElementById('askout');
   const prompt=(q.value||'').trim(); if(!prompt){ out.innerHTML='<div class="callbox" style="color:var(--crit)">Type a question first.</div>'; return; }
   out.innerHTML='<div class="callbox"><span class="spin"></span> matching your task to the right Hound…</div>';
   let o; try{ o=await jpost('/api/explore/which_agent',{prompt,agents:AGENTS.map(a=>({id:a.id,name:a.name,summary:a.summary||'',codename:codenameFor(a).name}))}); }catch(e){ o={ok:false,message:e.message}; }
   if(!o||!o.ok){ out.innerHTML='<div class="callbox" style="color:var(--crit)">✗ '+esc((o&&(o.message||o.error))||'failed')+'</div>'; return; }
-  const picks=o.picks||[]; if(!picks.length){ out.innerHTML='<div class="callbox">No clear match — try describing the task differently.</div>'; return; }
+  const byId0={}; AGENTS.forEach(a=>byId0[a.id]=a); const picks=(Array.isArray(o.picks)?o.picks:[]).filter(p=>p&&typeof p.id==='string'&&byId0[p.id]); if(!picks.length){ out.innerHTML='<div class="callbox">No clear match — try describing the task differently.</div>'; return; }
   const byId={}; AGENTS.forEach(a=>byId[a.id]=a);
   out.innerHTML='<div class="callbox"><b>Recommended Hounds</b>'+picks.map(p=>{ const a=byId[p.id]||{}; const nm=codenameFor(a).name||a.name||p.id;
-    const img='<img src="/static/crests/'+p.id+'.png?v=2" style="width:32px;height:32px;border-radius:8px;object-fit:cover;vertical-align:middle;margin-right:8px" onerror="this.replaceWith(document.createTextNode(\'🐾 \'))">';
-    const open=(a.deployed&&a.page)?(' <a class="btn ghost sm" href="'+a.page+'" style="margin-left:6px">Open →</a>'):'';
+    const img='<img src="'+esc(crestSrc(p.id))+'?v=2" style="width:32px;height:32px;border-radius:8px;object-fit:cover;vertical-align:middle;margin-right:8px" data-fb="🐾 ">';
+    const open=(a.deployed&&a.page)?(' <a class="btn ghost sm" href="'+esc(safeHref(a.page))+'" style="margin-left:6px">Open →</a>'):'';
     return '<div style="display:flex;align-items:center;gap:6px;margin-top:8px">'+img+'<div style="flex:1"><b>'+esc(nm)+'</b> — '+esc(p.why||'')+open+'</div></div>'; }).join('')+
     (o.note?'<div class="sub" style="margin-top:8px">'+esc(o.note)+'</div>':'')+'</div>';
 }
@@ -256,6 +359,10 @@ async function askAgent(){
   document.getElementById('intro').innerHTML=`The pack — <b>${dep} of ${AGENTS.length}</b> agents deployed. <b>Open</b> jumps to a Hound's page; <b>‹ › Code</b> opens its source in the-hounds-repo. Ask below to find the right Hound fast.`;
   if(!AGENTS.length){ document.getElementById('grid').innerHTML='<div class="agent"><div class="ds">No agent modules found in <span class="mono">agents/</span>. Start the launcher from the repo root that contains <span class="mono">agents/</span> and <span class="mono">app_fastapi.py</span>.</div></div>'; return; }
   render();
+  lastRuns(); relPoll();      // a release still running (or just finished) shows its progress
+  // /?release=1 (On the Scent's "Release the Hounds" button) opens the Release dialog — the
+  // button's own handler: a plan + Continue/Cancel (or the progress strip if one is running)
+  try{ if(new URLSearchParams(location.search).get('release')==='1'){ history.replaceState(null,'',location.pathname); document.getElementById('relBtn').click(); } }catch(e){}
   document.getElementById('filter').addEventListener('input',applyFilter);
   const g=document.getElementById('askgo'), qq=document.getElementById('askq');
   if(g){ g.onclick=askAgent; qq.addEventListener('keydown',e=>{if(e.key==='Enter')askAgent();}); }

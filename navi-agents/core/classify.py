@@ -16,7 +16,7 @@ Two distinct layers — the same split the IoT squad uses (detect → HITL tag �
 """
 import re
 
-from core import db, software as _sw
+from core import db, software as _sw, tagname
 from core.iot_common import SOFTWARE_ENUM_PLUGINS
 
 # --- signal keyword sets (for os_signals detection) ------------------------------
@@ -181,13 +181,13 @@ def _os_to_class(osv):
 def _read_tags(db_path=None):
     """{uuid: {facet: value}} across every accepted scheme."""
     out = {}
-    incat = ",".join("'" + c + "'" for c in _TAG_CATS)
+    incat = tagname.sql_lit("tag_key", *_TAG_CATS)          # + test-run names (core.tagname)
     try:
-        rows = db.query(f"SELECT asset_uuid, tag_key, tag_value FROM tags WHERE tag_key IN ({incat})", path=db_path)
+        rows = db.query(f"SELECT asset_uuid, tag_key, tag_value FROM tags WHERE {incat}", path=db_path)
     except Exception:
         return out
     for r in rows:
-        u = r.get("asset_uuid"); k = (r.get("tag_key") or "").strip().lower(); v = (r.get("tag_value") or "").strip()
+        u = r.get("asset_uuid"); k = tagname.base((r.get("tag_key") or "").strip()).lower(); v = (r.get("tag_value") or "").strip()
         if not u or not v:
             continue
         d = out.setdefault(u, {})
@@ -243,22 +243,62 @@ def _tag_class(th):
     return None
 
 
-def classify(db_path=None):
-    """GROUND TRUTH from tags. Untagged assets → Unclassified."""
+def _asset_select(acols, extra=()):
+    """SELECT list over the assets columns that exist — a navi.db missing hostname /
+    ip_address / operating_system must not crash the read (absent columns read as '')."""
+    want = ["uuid", "hostname", "ip_address", "operating_system"] + list(extra)
+    return ", ".join(c for c in want if c in acols)
+
+
+def _vuln_cols(db_path=None):
+    try:
+        return {r["name"] for r in db.query('PRAGMA table_info("vulns")', path=db_path)}
+    except Exception:
+        return set()
+
+
+def _open_clause(db_path=None):
+    """' AND <open>' when vulns has a state column — fixed findings never count as risk."""
+    return (" AND lower(COALESCE(state,'open')) IN ('open','reopened')"
+            if "state" in _vuln_cols(db_path) else "")
+
+
+# OS-fingerprint confidence below this is a "low-confidence classification" (At a glance).
+LOW_CONF = 70
+
+
+def _eol_os_assets(db_path=None):
+    """Assets with an OPEN unsupported / end-of-life OPERATING SYSTEM finding — the same
+    plugin-name selector and OS-vs-application split the EOL hound (Charon) uses."""
+    try:
+        from core import eol as _eol
+        pats = sorted({p for _, ps in _eol.DEFAULT_GROUPS for p in ps})
+        rows = db.query("SELECT DISTINCT asset_uuid, plugin_name FROM vulns WHERE ("
+                        + _eol._clause(pats) + ")" + _open_clause(db_path), path=db_path)
+    except Exception:
+        return set()
+    return {r["asset_uuid"] for r in rows
+            if r.get("asset_uuid") and _eol.kind_of(r.get("plugin_name") or "") == "Operating system"}
+
+
+def classify(db_path=None, glance=False):
+    """GROUND TRUTH from tags. Untagged assets → Unclassified.
+
+    glance=True (the agent's ▶ Run) adds the read-only "At a glance" extras: per-asset /
+    per-class unsupported-OS counts and a ``glance`` summary (ownership, risk leaders,
+    OS-fingerprint confidence). topology / insights call it without them to stay cheap."""
     acols = _asset_cols(db_path)
     if "uuid" not in acols:
         return {"ok": False, "error": "no assets table in navi.db"}
-    os_sel = ", operating_system" if "operating_system" in acols else ""
-    acr_sel = ", acr" if "acr" in acols else ""
-    aes_sel = ", aes" if "aes" in acols else ""
     cloud_cols = [c for c, _ in _CLOUD_COLS if c in acols]
-    cloud_sel = "".join(", " + c for c in cloud_cols)
-    assets = db.query(f"SELECT uuid, hostname, ip_address{os_sel}{acr_sel}{aes_sel}{cloud_sel} FROM assets;", path=db_path)
+    assets = db.query(f"SELECT {_asset_select(acols, ['acr', 'aes'] + cloud_cols)} FROM assets;", path=db_path)
 
     tags = _read_tags(db_path)
-    owned = _uuids("SELECT DISTINCT asset_uuid FROM tags WHERE tag_key='Owner'", db_path)
-    kev = _uuids("SELECT DISTINCT asset_uuid FROM vulns WHERE xrefs LIKE '%CISA-KNOWN-EXPLOITED%'", db_path)
-    crit = _uuids("SELECT DISTINCT asset_uuid FROM vulns WHERE lower(severity)='critical'", db_path)
+    owned = _uuids("SELECT DISTINCT asset_uuid FROM tags WHERE " + tagname.sql_lit("tag_key", "Owner"), db_path)
+    op = _open_clause(db_path)
+    kev = _uuids("SELECT DISTINCT asset_uuid FROM vulns WHERE xrefs LIKE '%CISA-KNOWN-EXPLOITED%'" + op, db_path)
+    crit = _uuids("SELECT DISTINCT asset_uuid FROM vulns WHERE lower(severity)='critical'" + op, db_path)
+    eol_os = _eol_os_assets(db_path) if glance else set()
 
     def _cloud_of(a):
         for c, prov in _CLOUD_COLS:
@@ -282,13 +322,15 @@ def classify(db_path=None):
                     "cls": cls, "sub": sub, "method": method, "confidence": conf, "reason": reason,
                     "cloud": prov, "os": (a.get("operating_system") or "").strip(),
                     "acr": a.get("acr"), "aes": a.get("aes"),
-                    "owned": u in owned, "kev": u in kev, "critical": u in crit})
+                    "owned": u in owned, "kev": u in kev, "critical": u in crit,
+                    **({"eol_os": u in eol_os} if glance else {})})
 
     classes = {}
     for r in out:
         c = classes.setdefault(r["cls"], {"cls": r["cls"], "count": 0, "owned": 0, "unowned": 0,
-                                          "kev": 0, "critical": 0, "cloud": 0, "subs": {}})
+                                          "kev": 0, "critical": 0, "cloud": 0, "eol_os": 0, "subs": {}})
         c["count"] += 1
+        c["eol_os"] += 1 if r.get("eol_os") else 0
         c["owned" if r["owned"] else "unowned"] += 1
         c["kev"] += 1 if r["kev"] else 0
         c["critical"] += 1 if r["critical"] else 0
@@ -327,10 +369,46 @@ def classify(db_path=None):
         elif c == "Linux":
             stats["servers"] += 1
     stats["unclassified_pct"] = round(100.0 * unclassified / total, 1) if total else 0.0
-    return {"ok": True, "total": total, "classified": classified, "unclassified": unclassified,
-            "coverage_pct": round(100.0 * classified / total, 1) if total else 0.0,
-            "tagged_any": classified > 0, "stats": stats, "classes": class_list, "assets": out,
-            "unclassified_reasons": [{"reason": "not tagged", "count": unclassified}] if unclassified else []}
+    res = {"ok": True, "total": total, "classified": classified, "unclassified": unclassified,
+           "coverage_pct": round(100.0 * classified / total, 1) if total else 0.0,
+           "tagged_any": classified > 0, "stats": stats, "classes": class_list, "assets": out,
+           "unclassified_reasons": [{"reason": "not tagged", "count": unclassified}] if unclassified else []}
+    if glance:
+        res["glance"] = _glance(out, class_list, db_path)
+    return res
+
+
+def _glance(out, class_list, db_path=None):
+    """Read-only headline numbers for the page's 📊 At a glance section. The *_class
+    leaders rank CLASSIFIED classes only (Unclassified has its own cards)."""
+    def lead(key):
+        c = max((c for c in class_list if c[key] and c["cls"] != "Unclassified"), key=lambda c: (c[key], c["count"]), default=None)
+        return {"cls": c["cls"], "n": c[key], "of": c["count"]} if c else None
+    conf = {r["uuid"]: r for r in os_confidence(db_path)}
+    known = {r["uuid"] for r in out}
+    fp = [r for u, r in conf.items() if u in known]
+    low = [r for r in fp if r["confidence"] < LOW_CONF]
+    # riskiest unclassified asset → Argos (KEV, then critical, then ACR)
+    unk = [r for r in out if r["cls"] == "Unclassified" and (r["kev"] or r["critical"])]
+    unk.sort(key=lambda r: (-int(bool(r["kev"])), -int(bool(r["critical"])), -float(r.get("acr") or 0), r["hostname"]))
+    top = unk[0] if unk else None
+    classified = [r for r in out if r["cls"] != "Unclassified"]
+    eol = sum(1 for r in out if r.get("eol_os"))
+    return {"owned": sum(1 for r in out if r["owned"]),
+            "unowned_classified": sum(1 for r in classified if not r["owned"]),
+            "tagged": sum(1 for r in out if r["confidence"] == "tagged"),
+            "cloud_detected": sum(1 for r in out if r["method"] == "cloud metadata"),
+            "kev_assets": sum(1 for r in out if r["kev"]),
+            "critical_assets": sum(1 for r in out if r["critical"]),
+            "unclassified_kev": sum(1 for r in out if r["cls"] == "Unclassified" and r["kev"]),
+            "unclassified_critical": sum(1 for r in out if r["cls"] == "Unclassified" and r["critical"]),
+            "eol_os": eol, "eol_os_pct": round(100.0 * eol / len(out), 1) if out else 0.0,
+            "top_kev_class": lead("kev"), "top_crit_class": lead("critical"),
+            "top_eol_class": lead("eol_os"),
+            "riskiest_unclassified": ({"uuid": top["uuid"], "hostname": top["hostname"] or top["ip"],
+                                       "kev": top["kev"], "critical": top["critical"]} if top else None),
+            "os_fingerprinted": len(fp), "low_conf": len(low), "low_conf_threshold": LOW_CONF,
+            "high_conf": sum(1 for r in fp if r["confidence"] >= 80)}
 
 
 # ------------------------------------------------------------------ SIGNALS = suggestions
@@ -388,8 +466,7 @@ def os_breakdown(db_path=None, only_untagged=True):
     acols = _asset_cols(db_path)
     if "uuid" not in acols:
         return {"ok": False, "error": "no assets table"}
-    os_sel = ", operating_system" if "operating_system" in acols else ""
-    assets = db.query(f"SELECT uuid, hostname, ip_address{os_sel} FROM assets;", path=db_path)
+    assets = db.query(f"SELECT {_asset_select(acols)} FROM assets;", path=db_path)
     tags = _read_tags(db_path) if only_untagged else {}
     S = _gather_signals(db_path, {a["uuid"] for a in assets})
     plugin_os = _os_from_plugins(db_path)          # OS from uncredentialed OS-ID plugin output
@@ -426,8 +503,7 @@ def os_signals(db_path=None, only_untagged=True):
     acols = _asset_cols(db_path)
     if "uuid" not in acols:
         return {"ok": False, "error": "no assets table"}
-    os_sel = ", operating_system" if "operating_system" in acols else ""
-    assets = db.query(f"SELECT uuid, hostname, ip_address{os_sel} FROM assets;", path=db_path)
+    assets = db.query(f"SELECT {_asset_select(acols)} FROM assets;", path=db_path)
     keep = {a["uuid"] for a in assets}
     tags = _read_tags(db_path) if only_untagged else {}
     S = _gather_signals(db_path, keep)

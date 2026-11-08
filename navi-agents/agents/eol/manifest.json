@@ -1,15 +1,16 @@
 {
   "id": "eol",
   "name": "EOL / Unsupported Tagging",
-  "icon": "\u23cf\ufe0f",
+  "icon": "⏏️",
   "order": 6,
   "category": "Tagging",
-  "summary": "Tags assets running Unsupported or End-of-Life software by matching lifecycle text in the plugin name (navi tag-by-name) \u2014 expands automatically as new EOL plugins appear.",
+  "summary": "Charon — finds the assets running Unsupported or End-of-Life software (lifecycle text in the plugin name, so it expands as new EOL plugins appear) and tags them: Lifecycle:<Unsupported|End of Life> (navi tag-by-name) and by end-of-life date Lifecycle EOL:<YYYY-MM-DD>. Product view: OS vs application, years past end of life, crown jewels, KEV and critical overlap.",
   "needs_backend": true,
   "page": "page.html",
   "actions": [
     "run",
-    "apply"
+    "apply",
+    "tag_eol_date"
   ],
   "codename": "Charon"
 }

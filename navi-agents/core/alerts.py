@@ -17,7 +17,8 @@ import os
 import re
 import time
 
-from core import db, navi_cli
+from core import db, navi_cli, tagname
+from core.security import private_open as _popen
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ALERT_DIR = os.environ.get("ALERT_DIR", os.path.join(HERE, "alerts"))
@@ -145,7 +146,7 @@ TEMPLATES = [
          "Alerts when the number of assets with no Owner tag rises since the last cycle.",
          "rise_abs", 1, unit="asset(s)",
          metric_sql="SELECT COUNT(uuid) FROM assets WHERE uuid NOT IN "
-                    "(SELECT DISTINCT asset_uuid FROM tags WHERE tag_key='Owner')"),
+                    "(SELECT DISTINCT asset_uuid FROM tags WHERE " + tagname.sql_lit("tag_key", "Owner") + ")"),
     _tpl("eol_rise", "End-of-life / unsupported software rising", "warning",
          "Alerts when the count of assets running End-of-Life or unsupported software rises.",
          "rise_abs", 1, unit="asset(s)",
@@ -168,8 +169,8 @@ def _load_defs():
 
 
 def _save_defs(defs):
-    os.makedirs(ALERT_DIR, exist_ok=True)
-    with open(DEFS_PATH, "w", encoding="utf-8") as f:
+    os.makedirs(ALERT_DIR, mode=0o700, exist_ok=True)
+    with _popen(DEFS_PATH, "w", encoding="utf-8") as f:
         json.dump(defs, f, indent=2)
 
 
@@ -184,8 +185,8 @@ def _load_state():
 
 
 def _save_state(s):
-    os.makedirs(ALERT_DIR, exist_ok=True)
-    with open(STATE_PATH, "w", encoding="utf-8") as f:
+    os.makedirs(ALERT_DIR, mode=0o700, exist_ok=True)
+    with _popen(STATE_PATH, "w", encoding="utf-8") as f:
         json.dump(s, f, indent=2)
 
 
@@ -220,7 +221,7 @@ def _metric_of(alert, db_path):
     if not sql:
         return {"value": None, "unit": alert.get("unit", ""), "affected": [], "note": "metric query must be a read-only SELECT"}
     try:
-        rows = db.query(sql, path=db_path)
+        rows = db.user_query(sql, path=db_path)      # user/LLM SQL: secret tables unreadable
     except Exception as e:
         return {"value": None, "unit": alert.get("unit", ""), "affected": [], "note": "query error: %s" % e}
     value = None
@@ -235,7 +236,7 @@ def _metric_of(alert, db_path):
     det = _read_only(alert.get("detail_sql"))
     if det:
         try:
-            drows = db.query(det, path=db_path)
+            drows = db.user_query(det, path=db_path)
             for r in drows[:_MAX_DETAIL]:
                 vs = list(r.values())
                 affected.append({"host": str(vs[0]) if vs else "", "ip": str(vs[1]) if len(vs) > 1 else "",
@@ -382,6 +383,34 @@ def default_recipient():
     return (os.environ.get("NAVI_ALERT_EMAIL") or os.environ.get("NAVI_EMAIL_TO") or "").strip()
 
 
+def allowed_recipients():
+    """The only addresses Alert Raven mails: NAVI_ALERT_EMAIL / NAVI_EMAIL_TO (comma lists),
+    configured by the operator — a request can't redirect alerts to an arbitrary inbox."""
+    out = []
+    for k in ("NAVI_ALERT_EMAIL", "NAVI_EMAIL_TO"):
+        for a in re.split(r"[,;]", os.environ.get(k) or ""):
+            a = a.strip()
+            if a and a.lower() not in [x.lower() for x in out]:
+                out.append(a)
+    return out
+
+
+def recipient_allowed(recipient):
+    """(ok, reason). Blank = the configured default (must exist)."""
+    allowed = allowed_recipients()
+    r = (recipient or "").strip()
+    if not r:
+        return (True, "") if allowed else (False, "no recipient — set a default alert email "
+                                                  "(NAVI_ALERT_EMAIL) on Settings first")
+    want = [x.strip().lower() for x in re.split(r"[,;]", r) if x.strip()]
+    low = {a.lower() for a in allowed}
+    bad = [x for x in want if x not in low]
+    if bad:
+        return False, ("recipient not allowed: " + ", ".join(bad) + " — Alert Raven only mails the "
+                       "configured alert address(es) (NAVI_ALERT_EMAIL).")
+    return True, ""
+
+
 def evaluate_all(db_path=None, send=False, recipient=None, source="manual"):
     """Evaluate every enabled alert. Fire (notify) only alerts whose condition just
     flipped false→true since the last run. Update snapshots + fired-state. When `send`
@@ -419,6 +448,9 @@ def evaluate_all(db_path=None, send=False, recipient=None, source="manual"):
 def _send_digest(newly, recipient):
     if not recipient:
         return {"ok": False, "reason": "no recipient — set a default alert email (NAVI_ALERT_EMAIL) or pass one"}
+    ok_r, why = recipient_allowed(recipient)
+    if not ok_r:
+        return {"ok": False, "reason": why}
     if not navi_cli.email_enabled():
         return {"ok": False, "reason": navi_cli.email_gate_reason()
                 if hasattr(navi_cli, "email_gate_reason") else "email disabled (set NAVI_EMAIL=1)"}
@@ -486,7 +518,7 @@ def suggest(db_path=None):
         "kev_new": (scalar("SELECT COUNT(DISTINCT asset_uuid) FROM vulns WHERE xrefs LIKE '%CISA-KNOWN-EXPLOITED%'"), "assets with a CISA KEV today"),
         "new_criticals": (scalar("SELECT COUNT(DISTINCT asset_uuid) FROM vulns WHERE lower(severity)='critical'"), "assets with a critical finding"),
         "certs_expiring": (scalar("SELECT COUNT(*) FROM certs WHERE not_valid_after IS NOT NULL AND date(not_valid_after)<=date('now','+30 day')") if has_table("certs") else 0, "certificates expiring ≤30d"),
-        "ownerless_rise": (scalar("SELECT COUNT(uuid) FROM assets WHERE uuid NOT IN (SELECT DISTINCT asset_uuid FROM tags WHERE tag_key='Owner')"), "assets with no Owner tag"),
+        "ownerless_rise": (scalar("SELECT COUNT(uuid) FROM assets WHERE uuid NOT IN (SELECT DISTINCT asset_uuid FROM tags WHERE " + tagname.sql_lit("tag_key", "Owner") + ")"), "assets with no Owner tag"),
         "eol_rise": (scalar("SELECT COUNT(DISTINCT asset_uuid) FROM vulns WHERE lower(plugin_name) LIKE '%unsupported%' OR lower(plugin_name) LIKE '%end of life%'"), "assets on EOL/unsupported software"),
     }
     for t in TEMPLATES:
@@ -720,6 +752,9 @@ def send_test(alert, recipient=None, db_path=None):
     rcpt = (recipient or default_recipient()).strip()
     if not rcpt:
         return {"ok": False, "reason": "no recipient — set a default alert email (NAVI_ALERT_EMAIL) above, or pass one"}
+    ok_r, why = recipient_allowed(rcpt)
+    if not ok_r:
+        return {"ok": False, "reason": why, "recipient": rcpt}
     if not navi_cli.email_enabled():
         return {"ok": False, "reason": navi_cli.email_gate_reason()
                 if hasattr(navi_cli, "email_gate_reason") else "email disabled (set NAVI_EMAIL=1)"}

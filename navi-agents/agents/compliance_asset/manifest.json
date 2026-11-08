@@ -5,7 +5,7 @@
   "order": 18,
   "category": "Explore",
   "codename": "Tiresias",
-  "summary": "Tiresias — the compliance detective, two lenses over the same data. By Asset: point it at one asset for every audit check it passed/failed/warned (actual vs expected, framework mappings) plus the inferred link between a failed control and the real vulns backing it, which you can tag. By Audit File: the same estate through the benchmark — an audit-file leaderboard, per-file adherence, the checks and assets each file covers, and the real vulns backing its failing controls, at aggregate and per file. Launched from Minos.",
+  "summary": "Tiresias — the compliance detective, two lenses over the same data. By Asset: point it at one asset for every audit check it passed/failed/warned (actual vs expected, framework mappings) plus the inferred link between a failed control and the real vulns backing it, which you can tag. By Audit File: the same estate through the benchmark — an audit-file leaderboard, per-file adherence, the checks and assets each file covers, and the real vulns backing its failing controls, at aggregate and per file. Launched from Minos — a widget link (?f=st:failed, check:<id>, fw:<framework>, audit:<file>, pct:lt50) narrows the asset list to that group and opens its worst asset.",
   "needs_backend": true,
   "page": "page.html",
   "actions": ["run", "detail", "tag", "audit_files", "audit_file"]

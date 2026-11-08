@@ -106,7 +106,8 @@ def discover(db_path=None) -> dict:
     for pid, name, role in PLUGINS:
         s = _uuid_set("SELECT DISTINCT asset_uuid FROM vulns WHERE plugin_id='" + pid + "'", db_path)
         out.append({"plugin_id": pid, "plugin_name": name, "role": role, "assets": len(s), "kind": "plugin"})
-        all_uuids |= s
+        if pid == "277650":   # 277652 is inventory, 277653 = USING PQ ciphers — neither is exposure
+            all_uuids |= s
 
     plugin_assets = _uuid_set("SELECT DISTINCT asset_uuid FROM vulns WHERE plugin_id IN ('"
                               + "','".join(_IDS) + "')", db_path)
@@ -310,6 +311,8 @@ def cert_analysis(db_path=None) -> dict:
                                 "url": a.get("url", ""), "cn": c.get("common_name") or "",
                                 "algo": algo, "fam": cls["fam"], "key": c.get("key_length") or "",
                                 "expiry": c.get("not_valid_after") or "", "years": round(yrs, 1),
+                                "exp_year": int(re.search(r"(\d{4})", str(c.get("not_valid_after"))).group(1))
+                                            if re.search(r"(\d{4})", str(c.get("not_valid_after") or "")) else None,
                                 "acr": a.get("acr", 0.0),
                                 "urgency": round(yrs * max(a.get("acr", 0.0), 1))})
     inventory = []
@@ -380,6 +383,91 @@ def transport_analysis(db_path=None) -> dict:
             "kpi": {"signals": sum(1 for s in signals if s["assets"]),
                     "high_assets": high, "legacy": tiers.get("Legacy", 0),
                     "ready": tiers.get("PQC-ready", 0)}}
+
+
+def _years_until(year):
+    return (datetime(year, 1, 1, tzinfo=timezone.utc) - datetime.now(timezone.utc)).total_seconds() / 31557600.0
+
+
+# CNSA 2.0 milestones the lifetime view lines certificates up against
+CNSA = [(2027, "PQC preferred for software / firmware signing"),
+        (2030, "PQC required for signing; hybrid / PQ key exchange by default"),
+        (2033, "CNSA 2.0 exclusive — classical RSA / ECC deprecated")]
+
+
+def overview(db_path=None) -> dict:
+    """One pass for the page: the surface (discover), certificate crypto, transport +
+    agility, the roadmap, and the headline metrics that tie them together. Read-only."""
+    surf = discover(db_path)
+    cert = cert_analysis(db_path)
+    trans = transport_analysis(db_path)
+    road = roadmap(db_path)
+    amap = _amap(db_path)
+    total = len(amap)
+
+    fam = {}
+    broken_certs = 0
+    for r in cert.get("inventory", []):
+        f = fam.setdefault(r["fam"], {"fam": r["fam"], "verdict": r["verdict"], "certs": 0, "assets": set()})
+        f["certs"] += r["certs"]
+        f["assets"] |= set(r.get("uuids") or [])
+        if r["verdict"] == "broken":
+            broken_certs += r["certs"]
+    families = sorted(({**f, "assets": len(f["assets"])} for f in fam.values()),
+                      key=lambda f: ({"broken": 0, "unknown": 1, "safe": 2}.get(f["verdict"], 9), -f["certs"]))
+    safe_cert_assets = set().union(*[set(r.get("uuids") or []) for r in cert.get("inventory", [])
+                                     if r["verdict"] == "safe"]) if cert.get("inventory") else set()
+
+    # broken certs still valid at each CNSA 2.0 milestone
+    hn = cert.get("harvest_now", [])
+    this_year = datetime.now(timezone.utc).year
+    life = [{"key": "expired", "label": "Already expired", "certs": broken_certs - len(hn), "assets": None}]
+    edges = [(None, 2027, f"Expire in {this_year}" if this_year == 2026 else "Expire before 2027"),
+             (2027, 2030, "Expire 2027–2029"), (2030, 2033, "Expire 2030–2032"), (2033, None, "Valid into 2033+")]
+    for lo, hi, label in edges:
+        rows = [h for h in hn if h.get("exp_year") and (lo is None or h["exp_year"] >= lo) and (hi is None or h["exp_year"] < hi)]
+        life.append({"key": f"{lo or ''}-{hi or ''}", "label": label, "certs": len(rows),
+                     "assets": len({h["uuid"] for h in rows})})
+    past = lambda y: [h for h in hn if h.get("exp_year") and h["exp_year"] >= y]
+
+    plugin_ready = _uuid_set("SELECT DISTINCT asset_uuid FROM vulns WHERE plugin_id='277653'", db_path)
+    ag = trans.get("agility", {})
+    ready_stack = {h["uuid"] for h in ag.get("hosts", []) if h["tier"] == "PQC-ready"}
+    sig = {s["key"]: s for s in trans.get("signals", [])}
+    kex = set(sig.get("TLS classical-only key exchange", {}).get("uuids", [])) | \
+        set(sig.get("SSH classical-only key exchange", {}).get("uuids", [])) | \
+        set(sig.get("TLS no post-quantum ciphers", {}).get("uuids", []))
+    rows = road.get("rows", [])
+    m = {
+        "assets_total": total,
+        "exposed": surf.get("assets", 0),
+        "exposed_pct": round(100.0 * surf.get("assets", 0) / total, 1) if total else None,
+        "cert_assets": surf.get("cert_assets", 0), "transport_assets": surf.get("transport_assets", 0),
+        "pqc_plugin_assets": surf.get("pqc_plugin_assets", 0),
+        "ready_assets": len(plugin_ready | ready_stack | safe_cert_assets),
+        "ready_plugin": len(plugin_ready), "ready_stack": len(ready_stack), "ready_cert": len(safe_cert_assets),
+        "certs": cert.get("kpi", {}).get("certs", 0), "broken_certs": broken_certs,
+        "broken_pct": round(100.0 * broken_certs / cert["kpi"]["certs"], 1) if cert.get("kpi", {}).get("certs") else None,
+        "safe_certs": cert.get("kpi", {}).get("safe", 0),
+        "harvest_5y": sum(1 for h in hn if h["years"] >= 5),
+        "past2030_certs": len(past(2030)), "past2030_assets": len({h["uuid"] for h in past(2030)}),
+        "past2033_certs": len(past(2033)), "past2033_assets": len({h["uuid"] for h in past(2033)}),
+        "kex_assets": len(kex), "kex_uuids": sorted(kex),
+        "weak_assets": len(set(sig.get("SSH SHA-1 HMAC enabled", {}).get("uuids", [])) |
+                           set(sig.get("TLS deprecated version (1.0/1.1)", {}).get("uuids", []))),
+        "sha1_assets": sig.get("SSH SHA-1 HMAC enabled", {}).get("assets", 0),
+        "oldtls_assets": sig.get("TLS deprecated version (1.0/1.1)", {}).get("assets", 0),
+        "legacy": ag.get("tiers", {}).get("Legacy", 0), "upgradable": ag.get("tiers", {}).get("Upgradable", 0),
+        "ready": ag.get("tiers", {}).get("PQC-ready", 0),
+        "crown": sum(1 for p in rows if p["acr"] >= 7),
+        "crown_past2030": sum(1 for p in rows if p["acr"] >= 7 and p.get("past2030")),
+        "kev": sum(1 for p in rows if p["kev"]),
+        "legacy_crown": sum(1 for p in rows if p["acr"] >= 7 and p["agility"] == "Legacy"),
+        "top_score": rows[0]["score"] if rows else None,
+    }
+    return {"ok": True, "surface": surf, "cert": cert, "transport": trans, "roadmap": road,
+            "families": families, "lifetime": life, "cnsa": [{"year": y, "milestone": t} for y, t in CNSA],
+            "metrics": m}
 
 
 def roadmap(db_path=None) -> dict:
@@ -464,7 +552,7 @@ def roadmap(db_path=None) -> dict:
             a = ag.setdefault(u, {})
             if not a.get("ssl") or v["maj"] > a["ssl"]["maj"] or (v["maj"] == a["ssl"]["maj"] and v["min"] > a["ssl"]["min"]):
                 a["ssl"] = v
-    if "software" in _cols("software", db_path):
+    if "software_string" in _cols("software", db_path):
         for r in _rows("SELECT asset_uuid, software_string FROM software "
                        "WHERE lower(software_string) LIKE '%openssl%'", db_path):
             v = _ssl_ver(r.get("software_string"))
@@ -488,6 +576,8 @@ def roadmap(db_path=None) -> dict:
                            + (3 if p["agility"] == "Legacy" else 0) + (4 if p["kev"] else 0))
         if p["brokenCerts"] or p["transport"] or p["agility"] == "Legacy":
             p.pop("algos", None)
+            p["past2030"] = p["maxYears"] >= _years_until(2030)
+            p["past2033"] = p["maxYears"] >= _years_until(2033)
             p["maxYears"] = round(p["maxYears"], 1)
             rows.append(p)
     rows.sort(key=lambda p: p["score"], reverse=True)

@@ -378,6 +378,96 @@ def plugin_carries_term(plugin_id, term, db_path=None, total=None) -> dict:
     return {"count": n, "prevalence": round(n / total, 4), "asset_uuids": uuids}
 
 
+# ---- page metrics (read-only) ----------------------------------------------
+# The identity signals a scan must collect for IoT discovery to see anything. When a
+# tenant is all credentialed agent/SSH scans of VMs these are absent and the squad is
+# empty by design (scan coverage, not a bug) — the page shows "N of 7 present".
+IDENTITY_SIGNALS = (("54615", "Device Type"), ("35716", "Ethernet OUI"),
+                    ("66717", "mDNS (local network)"), ("10863", "SSL certificate info"),
+                    ("22964", "Service Detection"), ("24260", "HTTP Information"),
+                    ("86420", "Ethernet MAC addresses"))
+
+
+def table_cols(table, db_path=None) -> set:
+    """Column names of a navi.db table — empty set when the table is missing."""
+    try:
+        return {r["name"] for r in db.query(f'PRAGMA table_info("{table}")', path=db_path)}
+    except Exception:
+        return set()
+
+
+def identity_signal_coverage(db_path=None) -> list[dict]:
+    """Assets carrying each IoT identity-signal plugin (0 when absent). One GROUP BY."""
+    ids = ",".join("'" + p + "'" for p, _ in IDENTITY_SIGNALS)
+    try:
+        rows = db.query(f"SELECT plugin_id, COUNT(DISTINCT asset_uuid) AS n FROM vulns "
+                        f"WHERE plugin_id IN ({ids}) GROUP BY plugin_id;", path=db_path)
+    except Exception:
+        rows = []
+    got = {str(r["plugin_id"]): r.get("n") or 0 for r in rows}
+    return [{"plugin_id": p, "name": nm, "assets": got.get(p, 0)} for p, nm in IDENTITY_SIGNALS]
+
+
+def device_exposure(asset_uuids, db_path=None, chunk=500) -> dict:
+    """Per discovered device: open findings by severity, CISA KEV hits, and the asset's
+    ACR / AES (when navi.db carries them). Read-only; tolerant of older schemas."""
+    uuids = list(dict.fromkeys(u for u in (asset_uuids or []) if u))
+    vcols, acols = table_cols("vulns", db_path), table_cols("assets", db_path)
+    per = {u: {"asset_uuid": u, "critical": 0, "high": 0, "medium": 0, "low": 0,
+               "kev": 0, "acr": None, "aes": None} for u in uuids}
+    if uuids and "severity" in vcols:
+        kev = ("MAX(CASE WHEN xrefs LIKE '%CISA-KNOWN-EXPLOITED%' THEN 1 ELSE 0 END)"
+               if "xrefs" in vcols else "0")
+        # navi keeps fixed rows in vulns with state='fixed' — count OPEN findings only
+        st = (" AND lower(COALESCE(state,'open')) IN ('open','reopened')" if "state" in vcols else "")
+        for i in range(0, len(uuids), chunk):
+            part = uuids[i:i + chunk]
+            ph = ",".join("?" * len(part))
+            for r in db.query(f"SELECT asset_uuid, lower(COALESCE(severity,'')) AS sev, "
+                              f"COUNT(*) AS n, {kev} AS kev FROM vulns WHERE asset_uuid IN ({ph}){st} "
+                              f"GROUP BY asset_uuid, sev;", tuple(part), path=db_path):
+                d = per.get(r["asset_uuid"])
+                if not d:
+                    continue
+                # navi stores severity as text or as Tenable's number (4 critical … 1 low)
+                sv = {"4": "critical", "3": "high", "2": "medium", "1": "low"}.get(r["sev"], r["sev"])
+                if sv in ("critical", "high", "medium", "low"):
+                    d[sv] += r["n"] or 0
+                if r.get("kev"):
+                    d["kev"] = 1
+    want = [c for c in ("acr", "aes") if c in acols]
+    if uuids and want and "uuid" in acols:
+        for i in range(0, len(uuids), chunk):
+            part = uuids[i:i + chunk]
+            ph = ",".join("?" * len(part))
+            for r in db.query(f"SELECT uuid, {', '.join(want)} FROM assets WHERE uuid IN ({ph});",
+                              tuple(part), path=db_path):
+                d = per.get(r["uuid"])
+                for c in want:
+                    try:
+                        d[c] = None if r.get(c) in (None, "") else int(float(r[c]))
+                    except (TypeError, ValueError):
+                        d[c] = None
+    rows = list(per.values())
+    scored = [d for d in rows if d["aes"] is not None]
+    top = max(scored, key=lambda d: d["aes"]) if scored else None
+    acrs = [d["acr"] for d in rows if d["acr"] is not None]
+    summary = {
+        "devices": len(rows),
+        "with_critical": sum(1 for d in rows if d["critical"]),
+        "with_high": sum(1 for d in rows if d["high"]),
+        "with_kev": sum(1 for d in rows if d["kev"]),
+        "critical_findings": sum(d["critical"] for d in rows),
+        "high_findings": sum(d["high"] for d in rows),
+        "aes_high": sum(1 for d in scored if d["aes"] >= 650),
+        "max_aes": top["aes"] if top else None,
+        "max_aes_uuid": top["asset_uuid"] if top else None,
+        "avg_acr": round(sum(acrs) / len(acrs), 1) if acrs else None,
+        "has_kev_column": "xrefs" in vcols, "has_scores": bool(want),
+    }
+    return {"assets": rows, "summary": summary}
+
+
 # ---- retained for backward-compat (older callers/tests) --------------------
 def plugins_mentioning(name: str, db_path=None) -> list[dict]:
     """Whole-db plugins whose NAME or OUTPUT mentions a term, with guardrail

@@ -11,7 +11,7 @@
 """
 import re
 
-from core import db, identity as _identity
+from core import db, identity as _identity, tagname
 
 AGENT = None
 
@@ -102,7 +102,7 @@ _FACET_INTEL = {
 
 
 def _decipher(cat, val):
-    c = (cat or "").lower()
+    c = tagname.base(cat or "").lower()      # 'Hounds-Lifecycle' reads as 'lifecycle' (core.tagname)
     # Unified inventory scheme → split the facet out of the value and map it.
     if c == "asset inventory" and ": " in (val or ""):
         facet, sub = (val or "").split(": ", 1)
@@ -126,7 +126,7 @@ def _ownership(tags_raw):
     owner, so the Argos ownership pie shows WHO is accountable and for which apps/routes."""
     owners = {}
     for t in tags_raw:
-        if (t.get("tag_key") or "").strip().lower() != "owner":
+        if tagname.base((t.get("tag_key") or "").strip()).lower() != "owner":     # Owner or Hounds-Owner
             continue
         v = (t.get("tag_value") or "").strip()
         if ": " in v:
@@ -235,7 +235,7 @@ def _tags_for(uuid):
 def _software_for(uuid):
     sc = _cols("software")
     if not sc or "asset_uuid" not in sc or "software_string" not in sc:
-        return []
+        return [], "none"          # callers unpack (rows, source) — a bare [] crashed the lookup
     try:
         from core import software as _sw
     except Exception:
@@ -274,7 +274,7 @@ def _certs_for(uuid):
     if not cc or "asset_uuid" not in cc:
         return []
     sel = [c for c in ("common_name", "not_valid_after", "signature_algorithm",
-                       "key_length", "organization") if c in cc]
+                       "key_length", "organization", "algorithm") if c in cc]
     if not sel:
         return []
     try:
@@ -286,12 +286,13 @@ def _certs_for(uuid):
         d = parse_cert_date(c.get("not_valid_after")) if c.get("not_valid_after") else None
         c["expiry_iso"] = d.isoformat() if hasattr(d, "isoformat") else (d or None)
         sig = (c.get("signature_algorithm") or "").lower()
-        kl = c.get("key_length")
-        try:
-            kl = int(kl) if kl not in (None, "") else None
-        except Exception:
-            kl = None
-        c["weak"] = bool(("sha1" in sig or "md5" in sig) or (kl is not None and kl < 2048))
+        # navi stores key_length as text like '1024 bits'; only RSA keys under 2048 are weak
+        # (a 256-bit ECDSA key is strong) — the same rule as the Exposure Score's crypto factor
+        m = re.search(r"\d+", str(c.get("key_length") or ""))
+        kl = int(m.group(0)) if m else None
+        kalg = str(c.get("algorithm") or sig).lower()
+        rsa = "rsa" in kalg and "ecdsa" not in kalg
+        c["weak"] = bool(("sha1" in sig or "sha-1" in sig or "md5" in sig) or (rsa and kl is not None and kl < 2048))
     return rows
 
 
@@ -313,6 +314,176 @@ def _host_profile(uuid):
         return hostprofile.profile(uuid)
     except Exception:
         return {}
+
+
+# --------------------------------------------------------------------------- #
+#  At a glance — the numbers that decide what to do with this asset, each owned by
+#  another Hound. Every block is best-effort: a missing table leaves its card empty.
+# --------------------------------------------------------------------------- #
+_GLANCE_HOUNDS = None
+_CERT_SOON = 30
+
+
+def _days_since(text):
+    """Days since a navi timestamp ('2024-01-15T10:00:00.000Z', '2026/4/9 20:40 EDT')."""
+    import datetime
+    m = re.search(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})", str(text or ""))
+    if not m:
+        return None
+    try:
+        d = datetime.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+    except ValueError:
+        return None
+    return (datetime.date.today() - d).days
+
+
+def _iso_date(text):
+    m = re.search(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})", str(text or ""))
+    return "%s-%02d-%02d" % (m.group(1), int(m.group(2)), int(m.group(3))) if m else None
+
+
+def _glance(uuid, tags):
+    global _GLANCE_HOUNDS
+    g = {}
+    vc = _cols("vulns")
+    opened = ("lower(COALESCE(state,'open')) IN ('open','reopened')" if "state" in vc else "1=1")
+    # ---- Exposure Score (Nemesis): this asset's score now + its rank from the cached estate snapshot
+    try:
+        from core import fused_score as _fs
+        a = _fs.asset_score(uuid)
+        if a:
+            g["nemesis"] = {"score": a["score"], "band": a["band"]}
+            try:
+                from agents.fused_score import api as _fapi
+                snap = _fapi.SNAP.state(extra=_fapi._extra(None))["snap"]
+                if snap:
+                    res = snap.get("result") or {}
+                    rows = res.get("assets") or []
+                    idx = next((i for i, r in enumerate(rows) if r.get("uuid") == uuid), None)
+                    g["nemesis"].update({"of": res.get("total"), "rank": (idx + 1) if idx is not None else None,
+                                         "beyond": len(rows) if idx is None else None})
+            except Exception:
+                pass
+    except Exception:
+        pass
+    # ---- open critical / high, KEV, past-SLA, oldest open critical (open findings only)
+    if vc and "asset_uuid" in vc:
+        sev = "severity" if "severity" in vc else "''"
+        xr = "xrefs" if "xrefs" in vc else "''"
+        ff = "first_found" if "first_found" in vc else None
+        pidc = "plugin_id" if "plugin_id" in vc else "''"
+        try:
+            from core import sla as _sla
+            agesql = _sla._age_days(ff) if ff else None
+        except Exception:
+            _sla, agesql = None, None
+        try:
+            # age in fractional days, in SQL, exactly as the SLA page measures it
+            rows = db.query(f"SELECT {sev} AS sev, {xr} AS xr, {pidc} AS pid"
+                            f"{', ' + ff + ' AS ff' if ff else ''}{', ' + agesql + ' AS age' if agesql else ''} "
+                            f"FROM vulns WHERE asset_uuid=? AND {opened}", (uuid,))
+        except Exception:
+            rows = []
+        # findings on a route/path the operator marked Accepted / Mitigated / Ignored don't
+        # count against SLA (core.sla.dispositions — the SLA page's rule)
+        disp = set()
+        try:
+            if _sla is not None and db.scalar(
+                    "SELECT 1 FROM tags WHERE asset_uuid=? AND " + tagname.sql_in("tag_key", _sla.OWNER_KEY)[0]
+                    + " AND (" + " OR ".join("tag_value LIKE ?" for _ in _sla.DISPOSITIONS) + ") LIMIT 1",
+                    (uuid, *tagname.names(_sla.OWNER_KEY), *("%: " + d for d in _sla.DISPOSITIONS))):
+                con = db.connect()
+                try:
+                    disp = _sla.dispositions(con).get(uuid, set())
+                finally:
+                    con.close()
+        except Exception:
+            disp = set()
+        try:
+            from core import fused_score as _fs
+            th = _fs._sla_days(None)
+        except Exception:
+            th = {"critical": 15, "high": 30}
+        crit = high = kev = past = 0
+        oldest = None
+        for r in rows:
+            sn = _sev_name(r.get("sev"))
+            crit += sn == "critical"
+            high += sn == "high"
+            kev += "CISA-KNOWN-EXPLOITED" in str(r.get("xr") or "").upper()
+            age = r.get("age") if agesql else (_days_since(r.get("ff")) if ff else None)
+            try:
+                age = float(age) if age is not None else None
+            except (TypeError, ValueError):
+                age = None
+            if age is not None and sn in th and float(th[sn]) > 0 and age > float(th[sn]) \
+                    and str(r.get("pid")) not in disp:
+                past += 1
+            if sn == "critical" and age is not None and (oldest is None or age > oldest[0]):
+                oldest = (age, str(r.get("ff"))[:10])
+        g["findings"] = {"critical": crit, "high": high, "kev": kev}
+        g["sla"] = {"past": past, "windows": th, "first_found": bool(ff),
+                    "oldest_critical_days": int(oldest[0]) if oldest else None,
+                    "oldest_critical_since": oldest[1] if oldest else None}
+        # EOL / unsupported software findings (Charon's signal), plus a Lifecycle tag
+        try:
+            pn = "plugin_name" if "plugin_name" in vc else "''"
+            n = db.scalar(f"SELECT COUNT(DISTINCT plugin_id) FROM vulns WHERE asset_uuid=? AND {opened} AND "
+                          f"(lower({pn}) LIKE '%unsupported%' OR lower({pn}) LIKE '%end of life%' OR "
+                          f"lower({pn}) LIKE '%end-of-life%' OR lower({pn}) LIKE '%no longer supported%')", (uuid,))
+        except Exception:
+            n = None
+        g["eol"] = {"findings": int(n or 0),
+                    "tagged": any(str(t.get("category") or "").lower().startswith("lifecycle") for t in tags)}
+        # last scan + credentialed (plugin 19506 — the most recent scan's own report)
+        try:
+            out = db.query("SELECT output FROM vulns WHERE asset_uuid=? AND plugin_id='19506' "
+                           "ORDER BY last_found DESC LIMIT 1" if "last_found" in vc else
+                           "SELECT output FROM vulns WHERE asset_uuid=? AND plugin_id='19506' LIMIT 1", (uuid,))
+        except Exception:
+            out = []
+        if out:
+            o = str(out[0].get("output") or "")
+            ms = re.search(r"Scan Start Date\s*:\s*([^\n]+)", o)
+            mn = re.search(r"Scan name\s*:\s*([^\n]+)", o)
+            mc = re.search(r"Credentialed checks\s*:\s*(\w+)", o, re.I)
+            g["scan"] = {"days": _days_since(ms.group(1)) if ms else None,
+                         "date": _iso_date(ms.group(1)) if ms else None,
+                         "name": mn.group(1).strip()[:60] if mn else None,
+                         "credentialed": (mc.group(1).lower() == "yes") if mc else None}
+    # ---- compliance (Minos / Tiresias)
+    if "asset_uuid" in _cols("compliance"):
+        try:
+            r = db.query("SELECT SUM(CASE WHEN upper(status) LIKE 'PASS%' THEN 1 ELSE 0 END) p, "
+                         "SUM(CASE WHEN upper(status) LIKE 'FAIL%' THEN 1 ELSE 0 END) f, COUNT(*) n "
+                         "FROM compliance WHERE asset_uuid=?", (uuid,))[0]
+            p_, f_ = int(r.get("p") or 0), int(r.get("f") or 0)
+            if r.get("n"):
+                g["compliance"] = {"pass_pct": round(100.0 * p_ / (p_ + f_), 1) if (p_ + f_) else None,
+                                   "failed": f_, "checks": int(r.get("n") or 0)}
+        except Exception:
+            pass
+    # ---- certificates: expired / expiring soon (same parser as the Certificates card)
+    certs = _certs_for(uuid)
+    if certs:
+        import datetime
+        today = datetime.date.today()
+        days = []
+        for c in certs:
+            try:
+                days.append((datetime.date.fromisoformat(str(c.get("expiry_iso"))[:10]) - today).days)
+            except Exception:
+                pass
+        soon = [d for d in days if 0 <= d <= _CERT_SOON]
+        g["certs"] = {"total": len(certs), "expired": sum(1 for d in days if d < 0), "soon": len(soon),
+                      "soonest_days": min(soon) if soon else None, "window": _CERT_SOON}
+    # ---- the pack: how many tagging Hounds have said something about this asset
+    if _GLANCE_HOUNDS is None:
+        _GLANCE_HOUNDS = sorted({m["hound"] for _, m in _TAG_INTEL if m.get("hound")}
+                                | {m["hound"] for m in _FACET_INTEL.values() if m.get("hound")})
+    seen = sorted({t.get("hound") for t in tags if t.get("hound")})
+    g["pack"] = {"hounds": seen, "of": len(_GLANCE_HOUNDS)}
+    return g
 
 
 def lookup(p):
@@ -404,7 +575,8 @@ def lookup(p):
             # synced yet" and name the exact command to build it.
             "tables": {"software": bool(_cols("software")), "certs": bool(_cols("certs"))},
             "counts": {"vulns": len(vulns), "tags": len(tags),
-                       "software": len(software), "certs": len(certs)}}, 200
+                       "software": len(software), "certs": len(certs)},
+            "glance": _glance(uuid, tags)}, 200
 
 
 def live(p):
