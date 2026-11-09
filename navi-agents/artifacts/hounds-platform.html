@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Hounds — Platform / Operations</title>
+<style>
+/* ============================================================================
+   HOUNDS ARTIFACT TEMPLATE  ·  the shared shell every persona artifact rides on.
+   Data plane  : window.cowork.callMcpTool(mcp__navi__*)   (navi MCP)
+   Reasoning   : window.cowork.askClaude()  (Haiku — NL->SQL only)
+   Writes      : gated confirm modal -> navi_enrich_tag / navi_enrich_acr,
+                 recorded to a SESSION tag log (no durable MCP history exists —
+                 FUTURE NAVI IMPROVEMENT: expose tagq job history over MCP).
+   Theme       : light (Cowork renders in light mode) + Tenable/iris accent.
+   ========================================================================== */
+:root{color-scheme:dark;
+  --bg:#0b0c0e;--card:#141519;--panel:#1b1d22;--line:#2a2c33;--ink:#f4f5f2;--ink2:#a7abbd;--ink3:#71768a;
+  --accent:#6d70e6;--accent2:#8f92f0;
+  --crit:#ff5b6e;--high:#ff9a4d;--med:#ffd24a;--low:#82bbff;--ok:#43b98a;--mono:ui-monospace,SFMono-Regular,Menlo,monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5}
+.wrap{max-width:1040px;margin:0 auto;padding:18px 20px 60px}
+.top{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.logo{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800}
+h1{font-size:19px;margin:0;font-weight:700}.top .sub{font-size:12px;color:var(--ink2);margin:1px 0 0}
+.meta{margin-left:auto;display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+.chip{font-size:11.5px;border:1px solid var(--line);border-radius:999px;padding:3px 10px;color:var(--ink2);background:var(--card);white-space:nowrap;cursor:default}
+.chip.live{color:var(--ok);border-color:rgba(67,185,138,.45);background:rgba(67,185,138,.12)}
+.chip.demo{color:var(--med);border-color:rgba(255,210,74,.4);background:rgba(255,210,74,.1)}
+.chip.gate{color:var(--crit);border-color:rgba(255,91,110,.45);background:rgba(255,91,110,.12)}
+.chip.gate.on{color:var(--ok);border-color:rgba(67,185,138,.45);background:rgba(67,185,138,.12)}
+.chip.btn{cursor:pointer}.chip.btn:hover{border-color:var(--accent);color:var(--ink)}
+nav.tabs{display:flex;gap:6px;flex-wrap:wrap;margin:16px 0 0;position:sticky;top:0;background:linear-gradient(var(--bg) 70%,transparent);padding:8px 0;z-index:5}
+nav.tabs button{border:1px solid var(--line);background:var(--card);color:var(--ink2);border-radius:10px;padding:7px 13px;font-size:13px;font-weight:600;cursor:pointer}
+nav.tabs button:hover{border-color:var(--accent);color:var(--ink)}
+nav.tabs button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.view{display:none}.view.on{display:block}
+.card{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:15px 17px;margin-top:14px}
+h2.ct{font-size:15px;margin:0}.sub{color:var(--ink2)}
+.err{display:none;font-size:12px;color:#ffd98a;background:rgba(255,210,74,.08);border:1px solid rgba(255,210,74,.3);border-radius:8px;padding:8px 11px;margin-top:10px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+textarea,input[type=text]{width:100%;border:1px solid var(--line);border-radius:9px;padding:9px 11px;font-family:var(--mono);font-size:12.5px;background:#0e0f14;color:var(--ink);resize:vertical}
+.btn{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:9px;padding:8px 13px;font-size:13px;font-weight:600;cursor:pointer}
+.btn:hover{border-color:var(--accent)} .btn.pri{background:var(--accent);border-color:var(--accent);color:#fff} .btn.pri:hover{background:var(--accent2)}
+.btn.sm{padding:5px 10px;font-size:12px} .btn:disabled{opacity:.5;cursor:default}
+.btn.danger{color:var(--crit);border-color:#f2c9c9}.btn.danger:hover{background:#fdeeee}
+.callbox{font-family:var(--mono);font-size:11.5px;background:#0f1020;color:#d7d9f5;border-radius:9px;padding:10px 12px;margin-top:10px;overflow-x:auto;white-space:pre-wrap;word-break:break-word}
+.callbox .k{color:#8fe3c4}.callbox .t{color:#c6b6ff}
+table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:8px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--ink3);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+td.mono,.mono{font-family:var(--mono)}
+.tablewrap{overflow-x:auto;max-height:420px;overflow-y:auto;border:1px solid var(--line);border-radius:10px;margin-top:8px}
+.tablewrap table{margin:0}.tablewrap th{position:sticky;top:0;background:var(--panel)}
+.pill{font-family:var(--mono);font-size:10px;border:1px solid var(--line);border-radius:999px;padding:1px 7px;white-space:nowrap}
+.pill.ok{color:var(--ok);border-color:rgba(67,185,138,.45)}.pill.err{color:var(--crit);border-color:rgba(255,91,110,.45)}.pill.run{color:var(--low);border-color:rgba(130,187,255,.45)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-top:12px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:11px 12px;border-left:3px solid var(--accent)}
+.kpi .v{font-size:22px;font-weight:800}.kpi .l{font-size:11px;color:var(--ink3);margin-top:2px}
+.kpi.warn{border-left-color:var(--high)}.kpi.crit{border-left-color:var(--crit)}.kpi.ok{border-left-color:var(--ok)}
+.matrix td:first-child{font-weight:600}
+.selrow{display:flex;align-items:center;gap:9px;padding:7px 9px;border:1px solid var(--line);border-radius:9px;margin-top:6px}
+.selrow input{width:auto}.selrow .nm b{color:var(--ink)}.selrow .nm span{font-family:var(--mono);font-size:10.5px;color:var(--ink3)}
+.selrow .ct{margin-left:auto;font-family:var(--mono);color:var(--ink2)}
+/* gated write modal */
+.modal{position:fixed;inset:0;background:rgba(20,22,40,.45);display:none;align-items:center;justify-content:center;z-index:40;padding:20px}
+.modal.on{display:flex}
+.mbox{background:var(--card);border-radius:14px;max-width:520px;width:100%;padding:18px 20px;box-shadow:0 12px 40px rgba(0,0,0,.25)}
+.mbox h3{margin:0 0 6px;font-size:16px}
+.foot{color:var(--ink3);font-size:11.5px;margin-top:22px;text-align:center}
+.note{font-size:11.5px;color:var(--ink3);margin-top:8px}
+</style>
+</head><body>
+<div class="wrap">
+  <header class="top">
+    <div class="logo">🐾</div>
+    <div><h1>The Hounds — Platform / Operations</h1>
+      <div class="sub">The shared shell for every Hounds artifact · runs on the navi MCP, in Claude, no repo</div></div>
+    <div class="meta">
+      <span class="chip" id="freshChip" title="navi.db freshness">db —</span>
+      <span class="chip gate" id="gateChip" title="Tag/ACR writes require NAVI_MCP_ALLOW_WRITES on the navi MCP">writes: gated</span>
+      <span class="chip" id="srcChip">…</span>
+      <span class="chip btn" id="retry">⟳ recheck</span>
+    </div>
+  </header>
+  <div class="err" id="err"></div>
+
+  <nav class="tabs" id="tabs">
+    <button data-v="query" class="on">Runs &amp; queries</button>
+    <button data-v="taglog">Tag log</button>
+    <button data-v="tagrm">Tag removal</button>
+    <button data-v="compare">MCP compare</button>
+    <button data-v="status">Status</button>
+  </nav>
+
+  <!-- ===================== RUNS & QUERIES ===================== -->
+  <section class="view on" id="v-query">
+    <div class="card">
+      <h2 class="ct">Ask in plain English</h2>
+      <p class="sub" style="font-size:12.5px;margin:2px 0 8px">Describe what you want; Haiku turns it into a navi.db <code>SELECT</code> you review before running. Reasoning runs through your Claude session — no API key.</p>
+      <textarea id="nlBox" rows="2" placeholder="e.g. count assets by operating system, or top 20 hosts with KEV-exploitable criticals"></textarea>
+      <div class="row" style="margin-top:8px"><button class="btn pri" id="nlGo">✨ Draft SQL</button><span class="sub" id="nlMsg" style="font-size:12px"></span></div>
+    </div>
+    <div class="card">
+      <div class="row"><h2 class="ct">SQL</h2><span class="chip" style="margin-left:auto">navi_explore_query · read-only</span></div>
+      <textarea id="sql" rows="4" style="margin-top:8px">SELECT COUNT(uuid) AS assets FROM assets;</textarea>
+      <div class="row" style="margin-top:8px"><button class="btn pri" id="runSql">▶ Run</button>
+        <input type="text" id="limit" value="500" style="width:90px;font-size:12px" title="row limit">
+        <span class="sub" id="runMsg" style="font-size:12px"></span></div>
+      <div id="callbox"></div>
+      <div id="results"></div>
+    </div>
+  </section>
+
+  <!-- ===================== TAG LOG ===================== -->
+  <section class="view" id="v-taglog">
+    <div class="card">
+      <div class="row"><h2 class="ct">Session tag log</h2>
+        <button class="btn sm" id="tlClear" style="margin-left:auto">Clear</button></div>
+      <p class="sub" style="font-size:12.5px;margin:2px 0 0">Every gated write this artifact makes — tag, ACR, removal — with the exact call and result. <b>Session-scoped:</b> durable, cross-session history lives in navi's tag-job store and would need a future navi MCP capability to surface here.</p>
+      <div id="tlBody"></div>
+    </div>
+    <div class="card">
+      <div class="row"><h2 class="ct">Current tags in the tenant</h2>
+        <button class="btn sm" id="curTagsBtn" style="margin-left:auto">Load</button></div>
+      <p class="sub" style="font-size:12.5px;margin:2px 0 0">Live from <code>navi_explore_info · tags</code> — what exists now (state, not history).</p>
+      <div id="curTags"></div>
+    </div>
+  </section>
+
+  <!-- ===================== TAG REMOVAL ===================== -->
+  <section class="view" id="v-tagrm">
+    <div class="card">
+      <div class="row"><h2 class="ct">Tag removal (Garmr)</h2><button class="btn sm" id="rmLoad" style="margin-left:auto">Load tags</button></div>
+      <p class="sub" style="font-size:12.5px;margin:2px 0 6px">Strip a <code>category:value</code> off every asset carrying it. Uses <code>navi_enrich_tag&nbsp;remove=true</code> — a <b>clear</b> that <b>preserves the tag UUID</b> (not a delete). Gated + confirmed.</p>
+      <div class="row" id="rmTools" style="display:none;margin-bottom:6px"><input type="text" id="rmFilter" class="val" placeholder="filter by category or value…" style="max-width:260px"><label class="sub" style="font-size:12px"><input type="checkbox" id="rmAll"> select all (filtered)</label><span class="sub" id="rmSel" style="font-size:12px;margin-left:auto"></span></div>
+      <div id="rmList"></div>
+      <div class="row" id="rmMore" style="display:none;margin-top:6px"><button class="btn sm" id="rmMoreBtn">Show more</button></div>
+      <div class="row" style="margin-top:10px"><button class="btn danger" id="rmGo" disabled>🗑 Remove selected</button><button class="btn sm" id="rmToContract" disabled>📜 Copy removal roster → AI Contract</button><span class="sub" id="rmMsg" style="font-size:12px"></span></div>
+      <p class="note" style="margin-top:6px">Removal roster copies a JSON block you paste into the Data Enrichment artifact's <b>AI Contract → Import</b> to run these clears on every cycle (30-min pause between clear and re-tag). A shared navi-side removal roster is a future engine improvement.</p>
+    </div>
+  </section>
+
+  <!-- ===================== MCP COMPARE ===================== -->
+  <section class="view" id="v-compare">
+    <div class="card">
+      <h2 class="ct">Same-account snapshot</h2>
+      <p class="sub" style="font-size:12.5px;margin:2px 0 0">Who navi is pointed at, and whether the local navi.db is fresh. If navi and the Tenable MCP ever disagree, suspect a stale navi.db first — run <code>navi update -d</code>.</p>
+      <div class="kpis" id="snap"></div>
+    </div>
+    <div class="card">
+      <h2 class="ct">navi MCP vs Tenable MCP — who does what</h2>
+      <p class="sub" style="font-size:12.5px;margin:2px 0 6px">Use both as one toolkit. navi is the enrichment writer; the Tenable MCP is the platform-object + validator surface.</p>
+      <div class="tablewrap"><table class="matrix"><thead><tr><th>Capability</th><th>Best surface</th><th>Why</th></tr></thead><tbody id="matrix"></tbody></table></div>
+    </div>
+  </section>
+
+  <!-- ===================== STATUS ===================== -->
+  <section class="view" id="v-status">
+    <div class="card">
+      <h2 class="ct">Platform status</h2>
+      <p class="sub" style="font-size:12.5px;margin:2px 0 6px">Health only. Env, API keys, and the write/email/RCE gates are host/tenant authority — enforced server-side by the navi MCP, never set from an artifact.</p>
+      <div class="kpis" id="statusKpis"></div>
+      <div class="row" style="margin-top:12px"><button class="btn sm" id="dbCheck">Check navi.db tables</button></div>
+      <div id="dbTables"></div>
+      <p class="note">Data-freshness caveat: <code>navi_explore_query</code>/<code>_data</code> read the local navi.db snapshot; <code>navi_explore_info</code> reads live from Tenable. Refresh with <code>navi update</code> before acting on stale reads.</p>
+    </div>
+  </section>
+
+  <div class="foot" id="foot">The Hounds · platform template · data via navi MCP · reasoning via your Claude session · writes gated + confirmed</div>
+</div>
+
+<!-- gated write confirm modal -->
+<div class="modal" id="modal"><div class="mbox">
+  <h3 id="mTitle">Confirm write</h3>
+  <p class="sub" id="mBody" style="font-size:13px"></p>
+  <div id="mCall"></div>
+  <div class="row" style="margin-top:14px;justify-content:flex-end"><button class="btn" id="mCancel">Cancel</button><button class="btn pri" id="mOk">Confirm write</button></div>
+</div></div>
+
+<script>
+/* ---------- constants ---------- */
+const NAVI='mcp__navi__';
+const SCHEMA='navi.db tables: assets(uuid,hostname,ip_address,operating_system,acr,aes,aws_id,azure_vm_id,gcp_instance_id), '+
+  'vulns(asset_uuid,plugin_id,plugin_name,severity,state,first_found,last_found,vpr,cvss3_base_score,cves,xrefs,output), '+
+  'tags(asset_uuid,tag_key,tag_value), plugins(plugin_id,name,cves), certs(asset_uuid,common_name,not_valid_after,signature_algorithm,key_length), '+
+  'software(...), compliance(asset_uuid,status,...), fixed(...), epss(cve,epss_value), vuln_route(app_name,plugin_list,total_vulns), vuln_paths(path,plugin_id,asset_uuid). '+
+  'CISA KEV = xrefs LIKE \'%CISA-KNOWN-EXPLOITED%\'.';
+const MATRIX=[
+  ['Tag at scale (>1024 IP / 1999 UUID)','navi','rule-tag asset-count cap; navi tags by plugin/query/CPE'],
+  ['OS / app / device tagging','navi','plugin-output fingerprinting; Tenable rule tags see only the coarse OS field'],
+  ['ACR / AES writes','navi','navi is the sole writer of Asset Criticality'],
+  ['Local SQL / ad-hoc joins / EPSS','navi','navi_explore_query over navi.db'],
+  ['CSV export with ACR + AES','navi','navi_export bytag is the only export carrying both'],
+  ['WAS / DAST','navi','navi_was'],
+  ['Agent + policy management','Tenable MCP','platform objects navi does not own'],
+  ['Native dashboards / widgets / reports','Tenable MCP','Tenable-only surface'],
+  ['Asset / finding lookup, small tags, scan control','either','both work — pick by context'],
+];
+/* ---------- state ---------- */
+let LIVE=false, WRITES=false, LASTERR='', TAGLOG=[];
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt=n=>Number(n||0).toLocaleString();
+
+/* ---------- MCP bridge ---------- */
+async function mcp(tool,args){
+  if(!window.cowork||!window.cowork.callMcpTool){ LASTERR='Not running inside Cowork (no callMcpTool bridge).'; return {ok:false,error:LASTERR}; }
+  try{
+    const r=await window.cowork.callMcpTool(NAVI+tool,args||{});
+    if(r&&r.isError){ LASTERR=NAVI+tool+' → '+((r.content&&r.content[0]&&r.content[0].text)||'tool error'); return {ok:false,error:LASTERR}; }
+    const d=r.structuredContent??(r.content&&r.content[0]?JSON.parse(r.content[0].text):null);
+    return {ok:true,data:d};
+  }catch(e){ LASTERR=NAVI+tool+' → '+(e&&e.message||e); return {ok:false,error:LASTERR}; }
+}
+async function query(sql,limit){ return mcp('navi_explore_query',{sql,limit:limit||500}); }
+async function info(sub){ return mcp('navi_explore_info',{subcommand:sub}); }
+/* rows helper: navi returns various shapes; normalise to array-of-objects */
+function rows(d){ if(!d) return []; if(Array.isArray(d)) return d; if(Array.isArray(d.rows)) return d.rows;
+  if(Array.isArray(d.results)) return d.results; if(Array.isArray(d.data)) return d.data; if(d.result&&Array.isArray(d.result)) return d.result; return []; }
+
+/* ---------- reasoning (Haiku, no key) ---------- */
+async function askSQL(nl){
+  if(!window.cowork||!window.cowork.askClaude) return null;
+  const prompt='You convert a request into ONE read-only SQLite SELECT for a Tenable navi.db. '+SCHEMA+
+    ' Request: "'+nl+'". Return ONLY the SQL, no prose, no code fences, single statement, SELECT/WITH only.';
+  try{ let r=await window.cowork.askClaude(prompt,[]); r=(typeof r==='string')?r:(r&&(r.text||r.output||''))+'';
+    return r.replace(/```sql|```/gi,'').trim().replace(/;+\s*$/,'')+';';
+  }catch(e){ return null; }
+}
+
+/* ---------- gated write modal ---------- */
+let _resolve=null;
+function confirmWrite(title,body,callPreview){
+  $('mTitle').textContent=title; $('mBody').innerHTML=body; $('mCall').innerHTML=callPreview||'';
+  $('modal').classList.add('on');
+  return new Promise(res=>{_resolve=res;});
+}
+$('mCancel').onclick=()=>{ $('modal').classList.remove('on'); if(_resolve)_resolve(false); };
+$('mOk').onclick=()=>{ $('modal').classList.remove('on'); if(_resolve)_resolve(true); };
+
+/* every write goes through here: confirm -> call -> record to session log */
+async function gatedWrite(meta, tool, args){
+  const call=callHTML(tool,args);
+  const okc=await confirmWrite(meta.title, meta.body, call);
+  if(!okc) return {ok:false,cancelled:true};
+  const entry={ts:new Date().toLocaleTimeString(),op:meta.op,category:args.category,value:args.value,
+    selector:meta.selector||'',status:'running',detail:''};
+  TAGLOG.unshift(entry); renderTagLog();
+  const r=await mcp(tool, Object.assign({confirm:true}, args));
+  entry.status=r.ok?'done':'error'; entry.detail=r.ok?(meta.doneNote||'applied'):(r.error||'failed');
+  if(r.ok && r.data && (r.data.writes_enabled===false)){ entry.status='blocked'; entry.detail='writes gated on the navi MCP (NAVI_MCP_ALLOW_WRITES not set)'; }
+  renderTagLog();
+  return r;
+}
+function callHTML(tool,args){
+  return '<div class="callbox"><span class="k">callMcpTool</span>(<span class="t">"'+NAVI+tool+'"</span>, '+esc(JSON.stringify(args))+')</div>';
+}
+
+/* ---------- results table ---------- */
+function tableHTML(rs){
+  if(!rs.length) return '<p class="sub" style="margin-top:8px">No rows.</p>';
+  const cols=Object.keys(rs[0]);
+  return '<div class="tablewrap"><table><thead><tr>'+cols.map(c=>'<th>'+esc(c)+'</th>').join('')+'</tr></thead><tbody>'+
+    rs.slice(0,500).map(r=>'<tr>'+cols.map(c=>'<td class="mono">'+esc(r[c])+'</td>').join('')+'</tr>').join('')+
+    '</tbody></table></div>'+(rs.length>500?'<p class="sub">Showing first 500 of '+fmt(rs.length)+'.</p>':'');
+}
+
+/* ============================ RUNS & QUERIES ============================ */
+$('nlGo').onclick=async()=>{
+  const nl=$('nlBox').value.trim(); if(!nl){ return; }
+  $('nlMsg').textContent='drafting…'; const sql=await askSQL(nl);
+  if(!sql){ $('nlMsg').innerHTML='<span style="color:var(--crit)">reasoning unavailable here</span>'; return; }
+  $('sql').value=sql; $('nlMsg').textContent='drafted — review, then Run.';
+};
+$('runSql').onclick=async()=>{
+  const sql=$('sql').value.trim(); const lim=parseInt($('limit').value,10)||500;
+  $('callbox').innerHTML=callHTML('navi_explore_query',{sql,limit:lim});
+  $('runMsg').textContent='running…'; $('results').innerHTML='';
+  const r=await query(sql,lim);
+  if(!r.ok){ $('runMsg').innerHTML='<span style="color:var(--crit)">✗ '+esc(r.error)+'</span>'; return; }
+  const rs=rows(r.data); $('runMsg').textContent=rs.length+' row(s)'; $('results').innerHTML=tableHTML(rs);
+};
+
+/* ============================ TAG LOG ============================ */
+function renderTagLog(){
+  const b=$('tlBody');
+  if(!TAGLOG.length){ b.innerHTML='<p class="sub" style="margin-top:8px">No writes yet this session.</p>'; return; }
+  b.innerHTML='<div class="tablewrap"><table><thead><tr><th>Time</th><th>Op</th><th>Tag</th><th>Selector</th><th>Result</th></tr></thead><tbody>'+
+    TAGLOG.map(e=>{const p=e.status==='done'?'ok':e.status==='error'?'err':e.status==='running'?'run':'err';
+      return '<tr><td class="mono">'+esc(e.ts)+'</td><td>'+esc(e.op)+'</td><td class="mono">'+esc((e.category||'')+(e.value?' : '+e.value:''))+'</td>'+
+      '<td class="mono">'+esc(e.selector)+'</td><td><span class="pill '+p+'">'+esc(e.status)+'</span> <span class="sub">'+esc(e.detail)+'</span></td></tr>';}).join('')+
+    '</tbody></table></div>';
+}
+$('tlClear').onclick=()=>{ TAGLOG=[]; renderTagLog(); };
+$('curTagsBtn').onclick=async()=>{
+  $('curTags').innerHTML='<p class="sub">loading…</p>';
+  const r=await info('tags'); if(!r.ok){ $('curTags').innerHTML='<p class="sub" style="color:var(--crit)">✗ '+esc(r.error)+'</p>'; return; }
+  $('curTags').innerHTML=tableHTML(rows(r.data));
+};
+
+/* ============================ TAG REMOVAL (Garmr) — full parity ============================
+   Repo parity: list every tag with asset count, filter, select-all across the filtered set,
+   paginate large taxonomies, tally the total asset impact, clear via navi_enrich_tag
+   remove=true (UUID-preserving), and hand the selection to the AI Contract removal phase.
+   Cross-artifact handoff is an exported JSON roster (paste into Enrich → AI Contract → Import)
+   until a shared navi-side removal roster exists (commented needs-navi). */
+let RMROWS=[], RMSEL=new Set(), RMSHOWN=100;
+function rmFiltered(){ const q=($('rmFilter').value||'').trim().toLowerCase();
+  return RMROWS.map((t,i)=>({t,i})).filter(({t})=>!q||((t.category+' '+t.value).toLowerCase().includes(q))); }
+function rmRender(){ const flt=rmFiltered(); const view=flt.slice(0,RMSHOWN);
+  $('rmList').innerHTML=flt.length?view.map(({t,i})=>
+    '<label class="selrow"><input type="checkbox" class="rmck" data-i="'+i+'"'+(RMSEL.has(i)?' checked':'')+'><span class="nm"><b>'+esc(t.value)+'</b><span>'+esc(t.category)+'</span></span><span class="ct">'+fmt(t.assets)+' assets</span></label>').join('')
+    :'<p class="sub">No tags match the filter.</p>';
+  document.querySelectorAll('.rmck').forEach(c=>c.onchange=()=>{ const i=+c.dataset.i; c.checked?RMSEL.add(i):RMSEL.delete(i); rmSummary(); });
+  $('rmMore').style.display=flt.length>RMSHOWN?'flex':'none';
+  rmSummary();
+}
+function rmSummary(){ const picks=[...RMSEL].map(i=>RMROWS[i]).filter(Boolean);
+  const impact=picks.reduce((a,t)=>a+(parseInt(t.assets,10)||0),0);
+  $('rmSel').textContent=picks.length?(fmt(picks.length)+' selected · ~'+fmt(impact)+' asset-clears'):'';
+  $('rmGo').disabled=!picks.length; $('rmToContract').disabled=!picks.length;
+}
+$('rmLoad').onclick=async()=>{
+  $('rmList').innerHTML='<p class="sub">loading tags + counts…</p>';
+  const r=await query("SELECT tag_key AS category, tag_value AS value, COUNT(DISTINCT asset_uuid) AS assets FROM tags GROUP BY tag_key, tag_value ORDER BY assets DESC",5000);
+  if(!r.ok){ $('rmList').innerHTML='<p class="sub" style="color:var(--crit)">✗ '+esc(r.error)+'</p>'; return; }
+  RMROWS=rows(r.data); RMSEL=new Set(); RMSHOWN=100;
+  $('rmTools').style.display=RMROWS.length?'flex':'none'; $('rmAll').checked=false;
+  rmRender();
+};
+$('rmFilter').oninput=()=>{ RMSHOWN=100; $('rmAll').checked=false; rmRender(); };
+$('rmMoreBtn').onclick=()=>{ RMSHOWN+=200; rmRender(); };
+$('rmAll').onchange=()=>{ const flt=rmFiltered(); if($('rmAll').checked)flt.forEach(({i})=>RMSEL.add(i)); else flt.forEach(({i})=>RMSEL.delete(i)); rmRender(); };
+$('rmToContract').onclick=async()=>{ const picks=[...RMSEL].map(i=>RMROWS[i]).filter(Boolean); if(!picks.length)return;
+  const roster={removal:{enabled:true,pause_minutes:30,navi_update:true,tags:picks.map(t=>({category:t.category,value:t.value}))}};
+  const txt=JSON.stringify(roster,null,2);
+  try{ await navigator.clipboard.writeText(txt); $('rmMsg').innerHTML='<span style="color:var(--ok)">✓ roster copied ('+picks.length+' tags) — paste into Enrich → AI Contract → Import</span>'; }
+  catch(e){ $('rmMsg').innerHTML='copy failed — roster:<br><textarea rows="4" style="width:100%">'+esc(txt)+'</textarea>'; } };
+$('rmGo').onclick=async()=>{
+  const picks=[...RMSEL].map(i=>RMROWS[i]).filter(Boolean);
+  if(!picks.length) return;
+  let done=0;
+  for(const t of picks){
+    const r=await gatedWrite(
+      {op:'remove',title:'Remove tag from all assets',selector:'remove=true',doneNote:'cleared (UUID preserved)',
+       body:'Strip <b>'+esc(t.category)+' : '+esc(t.value)+'</b> off all <b>'+fmt(t.assets)+'</b> assets? This preserves the tag UUID. Gated navi write.'},
+      'navi_enrich_tag',{category:t.category,value:t.value,remove:true});
+    if(r.cancelled) break; if(r.ok) done++;
+  }
+  $('rmMsg').textContent=done?('✓ queued removal on '+done+' tag(s) — see Tag log. Allow ~30 min propagation.'):'nothing removed';
+};
+
+/* ============================ MCP COMPARE ============================ */
+$('matrix').innerHTML=MATRIX.map(m=>'<tr><td>'+esc(m[0])+'</td><td><span class="pill '+(m[1]==='navi'?'ok':m[1]==='either'?'run':'')+'">'+esc(m[1])+'</span></td><td class="sub">'+esc(m[2])+'</td></tr>').join('');
+async function loadSnapshot(){
+  const k=(l,v,cls)=>'<div class="kpi '+(cls||'')+'"><div class="v">'+v+'</div><div class="l">'+l+'</div></div>';
+  let html='';
+  const a=await query("SELECT COUNT(uuid) AS c FROM assets"); html+=k('Assets in navi.db',a.ok?fmt((rows(a.data)[0]||{}).c):'—');
+  const t=await query("SELECT COUNT(DISTINCT tag_key) AS c FROM tags"); html+=k('Tag categories',t.ok?fmt((rows(t.data)[0]||{}).c):'—');
+  const f=await query("SELECT MAX(last_found) AS m FROM vulns"); const mv=f.ok?((rows(f.data)[0]||{}).m||'—'):'—';
+  html+=k('navi.db freshness',(''+mv).slice(0,10));
+  const who=await mcp('navi_explore_api',{}); // identity/which-key probe (best-effort)
+  html+=k('navi identity',who.ok?'resolved':'—', who.ok?'ok':'');
+  $('snap').innerHTML=html;
+}
+
+/* ============================ STATUS ============================ */
+async function loadStatus(){
+  const k=(l,v,cls)=>'<div class="kpi '+(cls||'')+'"><div class="v">'+v+'</div><div class="l">'+l+'</div></div>';
+  let html=k('navi MCP',LIVE?'connected':'not reachable',LIVE?'ok':'crit');
+  html+=k('Tag / ACR writes',WRITES?'enabled':'gated',WRITES?'ok':'warn');
+  const f=await query("SELECT MAX(last_found) AS m FROM vulns"); const mv=f.ok?(''+((rows(f.data)[0]||{}).m||'')).slice(0,10):'—';
+  html+=k('navi.db freshness',mv||'—');
+  $('statusKpis').innerHTML=html;
+}
+$('dbCheck').onclick=async()=>{
+  const tbls=['assets','vulns','tags','plugins','certs','software','compliance','fixed','epss','vuln_route','vuln_paths','agents'];
+  $('dbTables').innerHTML='<p class="sub">checking…</p>';
+  const out=[];
+  for(const t of tbls){ const r=await query("SELECT COUNT(*) AS c FROM "+t); out.push({table:t, rows:r.ok?((rows(r.data)[0]||{}).c):'—', ok:r.ok}); }
+  $('dbTables').innerHTML='<div class="tablewrap"><table><thead><tr><th>Table</th><th>Rows</th><th></th></tr></thead><tbody>'+
+    out.map(o=>'<tr><td class="mono">'+o.table+'</td><td class="mono">'+fmt(o.rows)+'</td><td><span class="pill '+((o.ok&&o.rows>0)?'ok':(o.ok?'run':'err'))+'">'+((o.ok&&o.rows>0)?'populated':(o.ok?'empty':'error'))+'</span></td></tr>').join('')+'</tbody></table></div>';
+};
+
+/* ============================ SHELL / BOOT ============================ */
+$('tabs').querySelectorAll('button').forEach(b=>b.onclick=()=>{
+  $('tabs').querySelectorAll('button').forEach(x=>x.classList.remove('on')); b.classList.add('on');
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('on')); $('v-'+b.dataset.v).classList.add('on');
+  if(b.dataset.v==='compare') loadSnapshot(); if(b.dataset.v==='status') loadStatus();
+});
+async function probe(){
+  LASTERR='';
+  const r=await query("SELECT COUNT(uuid) AS c FROM assets",1);
+  LIVE=r.ok;
+  // freshness + a write probe are best-effort
+  const f=LIVE?await query("SELECT MAX(last_found) AS m FROM vulns"):{ok:false};
+  const fresh=(f.ok&&rows(f.data)[0])?(''+rows(f.data)[0].m).slice(0,10):'—';
+  $('freshChip').textContent='db '+(LIVE?fresh:'—');
+  const s=$('srcChip'); s.className='chip '+(LIVE?'live':'demo');
+  s.textContent=LIVE?('● live · '+fmt((rows(r.data)[0]||{}).c)+' assets'):'not connected to navi';
+  // we can't read the gate directly; assume gated until a write reports enabled. Show gated by default.
+  $('gateChip').className='chip gate'; $('gateChip').textContent='writes: gated';
+  const eb=$('err');
+  if(!LIVE){ eb.style.display='block'; eb.innerHTML='<b>navi MCP not reachable in this session.</b> Last error: <code>'+esc(LASTERR)+'</code>. Install/connect the navi plugin (the same one that gives you the <code>navi_*</code> tools), then hit <b>⟳ recheck</b>.'; }
+  else eb.style.display='none';
+  renderTagLog();
+}
+$('retry').onclick=probe;
+renderTagLog();
+probe();
+</script>
+</body></html>

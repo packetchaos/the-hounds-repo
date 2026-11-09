@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>ACR Log — The Hounds</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>
+.kpi{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0}
+.kpi .k{flex:1 1 120px;border:1px solid var(--line);border-radius:10px;background:var(--panel);padding:10px 12px;color:inherit;text-decoration:none}
+a.k:hover{border-color:var(--accent)}
+.kpi .v{font-size:22px;font-weight:800}.kpi .l{font-size:11px;color:var(--mut)}
+.st{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700;border:1px solid var(--line);white-space:nowrap}
+.st.applied{color:var(--ok);background:rgba(52,211,153,.14)}
+.st.blocked{color:var(--cx-e7c66b);background:rgba(251,191,36,.12)}
+.st.failed{color:var(--crit);background:rgba(251,113,133,.14)}
+.st.skipped_protected{color:var(--cx-7cc4ff);background:rgba(96,165,250,.14)}
+.st.skipped_no_acr{color:var(--mut);background:var(--panel)}
+.st.no_assets{color:var(--mut);background:var(--panel)}
+td .mono,.dim{color:var(--mut)}
+#tbl th[data-k]{cursor:pointer;white-space:nowrap;user-select:none}#tbl th[data-k]:hover{color:var(--accent)}
+#tbl th .ar{font-size:10px;color:var(--accent);margin-left:3px}
+.flt{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 8px}
+.flt select,.flt input{padding:5px 8px;border-radius:6px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink);max-width:100%}
+.flt select{max-width:min(260px,58vw)}
+.bc{font-size:11.5px;white-space:normal;max-width:260px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="logo"><span class="hcrest brand" role="img" aria-label="The Hounds"></span></div>
+    <h1>ACR Log <small>THE HOUNDS · EVERY ACR CHANGE, PER ASSET</small></h1>
+    <div class="meta"><a class="btn ghost sm" href="/agents/acr/page.html">🎯 ACR agent</a> <a class="btn ghost sm" href="/web/tags-log.html">🏷️ Tagging log</a></div>
+  </header>
+  <p class="sub" style="margin:14px 0 0">A durable registry of every Asset Criticality Rating change the Hounds made — one row per asset per change: when, which hound (<b>acr</b> · <b>contract</b> · <b>ai</b> · <b>mcp</b>), the tag it targeted, the ACR <b>before → after</b>, the <b>business case</b> (Change Reasons + justification) and the result. Assets navi skipped are recorded too: <span class="st skipped_protected">skipped_protected</span> means the asset carries <span class="mono">NO : UPDATE</span> and navi left its ACR alone; <span class="st skipped_no_acr">skipped_no_acr</span> means navi.db had no ACR for it. <span class="st blocked">blocked</span> rows were never sent (writes are gated).</p>
+  <div class="kpi" id="kpi"></div>
+  <div class="flt">
+    <label class="sub">Hound <select id="fAgent"><option value="">(any)</option></select></label>
+    <label class="sub">Result <select id="fResult"><option value="">(any)</option></select></label>
+    <label class="sub">Business case <select id="fBc"><option value="">(any)</option></select></label>
+    <label class="sub">From <input id="fFrom" type="date"></label>
+    <label class="sub">To <input id="fTo" type="date"></label>
+    <input id="fQ" placeholder="host / IP / asset uuid…" style="flex:1;min-width:180px">
+    <button class="btn ghost sm" id="reset">✕ Clear filters</button>
+    <button class="btn ghost sm" id="refresh">↻ Refresh</button>
+    <button class="btn ghost sm" id="exportCsv" title="Download the rows matching the filters as CSV">⬇ Export CSV</button>
+  </div>
+  <p class="sub" id="fCount" style="margin:0 0 6px"></p>
+  <div id="flash" class="flash"></div>
+  <div style="overflow-x:auto">
+  <table id="tbl" class="norsz" style="table-layout:auto;width:100%"><thead><tr>
+    <th data-k="ts">When</th><th data-k="agent">Hound</th><th data-k="tag">Tag</th><th data-k="change">Change</th>
+    <th data-k="host">Host</th><th data-k="asset_uuid">Asset</th><th data-k="acr_before">ACR before → after</th>
+    <th data-k="result">Result</th><th data-k="business_case">Business case</th><th data-k="message">navi</th></tr></thead>
+    <tbody><tr><td colspan="10" class="sub">loading…</td></tr></tbody></table></div>
+  <footer>ACR Log · stored next to the Tagging log (<span class="mono">tag_jobs.db</span> · <span class="mono">acr_log</span>) · survives restarts · read-only page</footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('acr');
+let ROWS=[], TOTAL=0, LIMIT=5000, SORT={k:'ts',dir:-1};
+const N=n=>Number(n||0).toLocaleString();
+const ts=t=>t?new Date(t*1000).toLocaleString():'—';
+const P=new URLSearchParams(location.search);
+function filters(){ const f={agent:fAgent.value,result:fResult.value,business_case:fBc.value,q:fQ.value.trim()};
+  if(fFrom.value) f.since=new Date(fFrom.value+'T00:00:00').getTime()/1000;
+  if(fTo.value) f.until=new Date(fTo.value+'T00:00:00').getTime()/1000+86400;
+  if(P.get('batch')) f.batch=P.get('batch');
+  return f; }
+/* an empty value (e.g. no business case) is the '__none' sentinel — '' means "(any)" */
+const fv=v=>(v==null||v==='')?'__none':String(v);
+function fillSel(sel, list, cur, label){ const o=['<option value="">(any)</option>'].concat((list||[]).map(x=>
+  '<option value="'+esc(fv(x.v))+'">'+esc(label?label(x.v):(x.v||'(none)'))+' ('+N(x.n)+')</option>'));
+  if(cur && !(list||[]).some(x=>fv(x.v)===cur)) o.push('<option value="'+esc(cur)+'">'+esc(cur==='__none'?'(none)':(label?label(cur):cur))+' (0)</option>');
+  sel.innerHTML=o.join(''); sel.value=cur||''; }
+function sv(r,k){ if(k==='ts') return +r.ts||0; if(k==='tag') return ((r.category||'')+' : '+(r.value||'')).toLowerCase();
+  if(k==='change') return (r.mod||'')+String(r.score||'').padStart(3,'0'); if(k==='acr_before') return +r.acr_before||0;
+  if(k==='host') return String(r.host||r.ip||'').toLowerCase(); return String(r[k]==null?'':r[k]).toLowerCase(); }
+function render(){
+  const k=SORT.k,d=SORT.dir; const v=ROWS.slice().sort((a,b)=>{ const x=sv(a,k),y=sv(b,k); return x<y?-d:x>y?d:(b.id-a.id); });
+  document.querySelectorAll('#tbl th[data-k]').forEach(th=>{ const a=th.querySelector('.ar'); if(a) a.remove();
+    if(th.dataset.k===k) th.insertAdjacentHTML('beforeend','<span class="ar">'+(d>0?'▲':'▼')+'</span>'); });
+  document.getElementById('fCount').textContent=N(TOTAL)+' row(s) match'+(TOTAL>ROWS.length?' — showing the newest '+N(ROWS.length)+' (narrow the filters, or ⬇ Export CSV for all)':'')+'.';
+  const chg=r=>r.mod==='set'?'set '+esc(r.score):(r.mod==='inc'?'+':'−')+esc(r.score);
+  document.querySelector('#tbl tbody').innerHTML = v.length ? v.map(r=>`<tr>
+    <td class="dim" style="font-size:11px;white-space:nowrap">${esc(ts(r.ts))}</td><td>${esc(r.agent||'')}</td>
+    <td>${esc(r.category||'')} : <b>${esc(r.value||'')}</b></td><td class="mono" style="white-space:nowrap">${chg(r)}</td>
+    <td>${esc(r.host||'')}${r.ip?'<div class="dim mono" style="font-size:11px">'+esc(r.ip)+'</div>':''}</td>
+    <td class="mono" style="font-size:11px;word-break:break-all">${r.asset_uuid?'<a href="/agents/argos/page.html?target='+encodeURIComponent(r.asset_uuid)+'" title="Open this asset in Argos" style="color:var(--accent)">'+esc(r.asset_uuid)+'</a>':'<span class="dim">(no asset detail)</span>'}</td>
+    <td class="mono" style="white-space:nowrap">${esc(r.acr_before||'—')} → ${r.acr_after?'<b>'+esc(r.acr_after)+'</b>':'<span class="dim">—</span>'}</td>
+    <td><span class="st ${esc(r.result||'')}">${esc(r.result||'')}</span></td>
+    <td class="bc">${r.business_case?esc(r.business_case):'<span class="dim">—</span>'}</td>
+    <td style="font-size:11px;color:var(--mut);white-space:normal;max-width:280px">${esc((r.message||'').slice(0,200))}</td></tr>`).join('')
+    : '<tr><td colspan="10" class="sub">'+(TOTAL||Object.values(filters()).some(x=>x)?'No rows match the filters.':'No ACR changes yet. Apply one on the <a href="/agents/acr/page.html">ACR agent</a> (or let the AI Contract run its ACR rules) and every asset it touched appears here.')+'</td></tr>';
+}
+function kpis(fc){ const R={}; (fc.result||[]).forEach(x=>R[x.v]=x.n); const tot=Object.values(R).reduce((a,b)=>a+b,0);
+  const card=(v,l,res)=>`<a class="k" href="?result=${encodeURIComponent(res)}" data-res="${esc(res)}"><div class="v">${N(v)}</div><div class="l">${esc(l)}</div></a>`;
+  document.getElementById('kpi').innerHTML=card(tot,'rows in the ACR log','')+card(R.applied,'applied','applied')
+    +card(R.skipped_protected,'skipped — NO : UPDATE respected','skipped_protected')+card(R.skipped_no_acr,'skipped — no ACR in navi.db','skipped_no_acr')
+    +card(R.blocked,'blocked (writes gated)','blocked')+card(R.failed,'failed','failed');
+  document.querySelectorAll('#kpi a[data-res]').forEach(a=>a.onclick=e=>{ e.preventDefault(); fResult.value=a.dataset.res; load(); }); }
+let LOADING=0;
+async function load(){
+  const my=++LOADING; let o;
+  try{ o=await API.post('log',Object.assign({limit:LIMIT},filters())); }catch(e){ flash('flash','✗ '+esc(e.message),'crit'); return; }
+  if(my!==LOADING) return;
+  if(!o||!o.ok){ flash('flash','✗ '+esc((o&&o.error)||'could not read the ACR log'),'crit'); return; }
+  flashClear('flash'); ROWS=o.rows||[]; TOTAL=o.total||0; const fc=o.facets||{};
+  fillSel(fAgent,fc.agent,fAgent.value); fillSel(fResult,fc.result,fResult.value); fillSel(fBc,fc.business_case,fBc.value);
+  kpis(fc); render();
+}
+document.querySelectorAll('#tbl th[data-k]').forEach(th=>th.onclick=()=>{ const k=th.dataset.k;
+  SORT=SORT.k===k?{k,dir:-SORT.dir}:{k,dir:(k==='ts'||k==='acr_before')?-1:1}; render(); });
+['fAgent','fResult','fBc','fFrom','fTo'].forEach(id=>document.getElementById(id).onchange=load);
+let qt=null; fQ.oninput=()=>{ clearTimeout(qt); qt=setTimeout(load,300); };
+document.getElementById('refresh').onclick=load;
+document.getElementById('reset').onclick=()=>{ ['fAgent','fResult','fBc','fFrom','fTo','fQ'].forEach(id=>document.getElementById(id).value=''); history.replaceState(null,'',location.pathname); P.delete('batch'); load(); };
+document.getElementById('exportCsv').onclick=async()=>{ let o; try{ o=await API.post('log_export',Object.assign({refresh:true},filters())); }catch(e){ o=null; }
+  if(!o||!o.ok){ flash('flash','✗ export failed','crit'); return; }
+  if(!o.count){ flash('flash','Nothing to export — no rows match the filters.','warn'); return; }
+  downloadText(o.filename||'hounds-acr-log.csv',o.csv,'text/csv'); flash('flash','✓ exported '+N(o.count)+' row(s) → '+esc(o.filename),'ok'); };
+/* deep links from the ACR agent's metric cards: ?result=…&business_case=…&agent=…&q=…&batch=… */
+(function(){ const pre=(sel,k)=>{ const v=P.get(k); if(v!=null){ sel.innerHTML='<option value="">(any)</option><option value="'+esc(v)+'">'+esc(v||'(none)')+'</option>'; sel.value=v; } };
+  pre(fAgent,'agent'); pre(fResult,'result'); pre(fBc,'business_case'); if(P.get('q')) fQ.value=P.get('q'); })();
+load();
+</script>
+</body>
+</html>

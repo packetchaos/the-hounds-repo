@@ -1,0 +1,764 @@
+{
+  "id": "cis_ubuntu_linux",
+  "name": "CIS Ubuntu Linux Benchmark",
+  "platform": "Unix",
+  "version": "22.04 LTS v1.0 (approx; verify against the official CIS PDF)",
+  "aliases": [
+    "ubuntu",
+    "cis ubuntu",
+    "ubuntu linux",
+    "debian",
+    "ubuntu 22.04",
+    "ubuntu server"
+  ],
+  "note": "Control-index only (numbers, short titles, framework mappings) \u2014 not CIS's copyrighted text. The model writes the check logic; verify numbering against the official CIS Ubuntu Linux Benchmark.",
+  "sections": [
+    {
+      "num": "1",
+      "title": "Initial Setup"
+    },
+    {
+      "num": "2",
+      "title": "Services"
+    },
+    {
+      "num": "3",
+      "title": "Network Configuration"
+    },
+    {
+      "num": "4",
+      "title": "Host Based Firewall"
+    },
+    {
+      "num": "5",
+      "title": "Access, Authentication and Authorization"
+    },
+    {
+      "num": "6",
+      "title": "Logging and Auditing"
+    },
+    {
+      "num": "7",
+      "title": "System Maintenance"
+    }
+  ],
+  "controls": [
+    {
+      "num": "1.1.1.1",
+      "title": "Ensure cramfs kernel module is not available",
+      "topic": "kernel",
+      "level": 1,
+      "hint": "modprobe -n -v cramfs"
+    },
+    {
+      "num": "1.1.1.2",
+      "title": "Ensure freevxfs kernel module is not available",
+      "topic": "kernel",
+      "level": 1
+    },
+    {
+      "num": "1.1.1.3",
+      "title": "Ensure jffs2 kernel module is not available",
+      "topic": "kernel",
+      "level": 1
+    },
+    {
+      "num": "1.1.1.4",
+      "title": "Ensure hfs kernel module is not available",
+      "topic": "kernel",
+      "level": 1
+    },
+    {
+      "num": "1.1.1.5",
+      "title": "Ensure hfsplus kernel module is not available",
+      "topic": "kernel",
+      "level": 1
+    },
+    {
+      "num": "1.1.1.6",
+      "title": "Ensure usb-storage kernel module is not available",
+      "topic": "kernel",
+      "level": 2
+    },
+    {
+      "num": "1.1.2.1",
+      "title": "Ensure /tmp is a separate partition",
+      "topic": "filesystem",
+      "level": 1,
+      "hint": "findmnt /tmp"
+    },
+    {
+      "num": "1.1.2.2",
+      "title": "Ensure nodev,nosuid,noexec options set on /tmp partition",
+      "topic": "filesystem",
+      "level": 1
+    },
+    {
+      "num": "1.1.2.3",
+      "title": "Ensure /dev/shm is a separate partition with nodev,nosuid,noexec",
+      "topic": "filesystem",
+      "level": 1
+    },
+    {
+      "num": "1.1.2.4",
+      "title": "Ensure separate partition exists for /var",
+      "topic": "filesystem",
+      "level": 2
+    },
+    {
+      "num": "1.1.2.5",
+      "title": "Ensure separate partition exists for /var/tmp",
+      "topic": "filesystem",
+      "level": 2
+    },
+    {
+      "num": "1.1.2.6",
+      "title": "Ensure separate partition exists for /var/log",
+      "topic": "filesystem",
+      "level": 2
+    },
+    {
+      "num": "1.1.2.7",
+      "title": "Ensure separate partition exists for /var/log/audit",
+      "topic": "filesystem",
+      "level": 2
+    },
+    {
+      "num": "1.1.2.8",
+      "title": "Ensure separate partition exists for /home",
+      "topic": "filesystem",
+      "level": 2
+    },
+    {
+      "num": "1.2.1",
+      "title": "Ensure GPG keys are configured for package manager",
+      "topic": "tls",
+      "level": 1
+    },
+    {
+      "num": "1.2.2",
+      "title": "Ensure package manager repositories are configured",
+      "topic": "filesystem",
+      "level": 1
+    },
+    {
+      "num": "1.3.1",
+      "title": "Ensure AppArmor is installed",
+      "topic": "kernel",
+      "level": 1,
+      "hint": "dpkg -s apparmor"
+    },
+    {
+      "num": "1.3.2",
+      "title": "Ensure AppArmor is enabled in the bootloader configuration",
+      "topic": "kernel",
+      "level": 1
+    },
+    {
+      "num": "1.3.3",
+      "title": "Ensure all AppArmor profiles are in enforce or complain mode",
+      "topic": "kernel",
+      "level": 1
+    },
+    {
+      "num": "1.4.1",
+      "title": "Ensure bootloader password is set",
+      "topic": "auth",
+      "level": 1
+    },
+    {
+      "num": "1.4.2",
+      "title": "Ensure access to bootloader config is configured",
+      "topic": "filesystem",
+      "level": 1
+    },
+    {
+      "num": "1.5.1",
+      "title": "Ensure address space layout randomization is enabled",
+      "topic": "kernel",
+      "level": 1,
+      "hint": "sysctl kernel.randomize_va_space"
+    },
+    {
+      "num": "1.5.2",
+      "title": "Ensure ptrace_scope is restricted",
+      "topic": "kernel",
+      "level": 1
+    },
+    {
+      "num": "1.5.3",
+      "title": "Ensure core dumps are restricted",
+      "topic": "kernel",
+      "level": 1
+    },
+    {
+      "num": "1.5.4",
+      "title": "Ensure prelink is not installed",
+      "topic": "filesystem",
+      "level": 1
+    },
+    {
+      "num": "1.6.1",
+      "title": "Ensure message of the day is configured properly",
+      "topic": "auth",
+      "level": 1
+    },
+    {
+      "num": "1.7.1",
+      "title": "Ensure GDM is removed or login banner configured",
+      "topic": "auth",
+      "level": 2
+    },
+    {
+      "num": "2.1.1",
+      "title": "Ensure autofs services are not in use",
+      "topic": "filesystem",
+      "level": 1
+    },
+    {
+      "num": "2.1.2",
+      "title": "Ensure avahi daemon services are not in use",
+      "topic": "firewall",
+      "level": 1
+    },
+    {
+      "num": "2.1.3",
+      "title": "Ensure dhcp server services are not in use",
+      "topic": "firewall",
+      "level": 1
+    },
+    {
+      "num": "2.1.4",
+      "title": "Ensure dns server services are not in use",
+      "topic": "firewall",
+      "level": 1
+    },
+    {
+      "num": "2.1.5",
+      "title": "Ensure ftp server services are not in use",
+      "topic": "firewall",
+      "level": 1
+    },
+    {
+      "num": "2.1.6",
+      "title": "Ensure ldap server services are not in use",
+      "topic": "auth",
+      "level": 1
+    },
+    {
+      "num": "2.1.7",
+      "title": "Ensure message access server services are not in use",
+      "topic": "firewall",
+      "level": 1
+    },
+    {
+      "num": "2.1.8",
+      "title": "Ensure network file system services are not in use",
+      "topic": "filesystem",
+      "level": 1
+    },
+    {
+      "num": "2.1.9",
+      "title": "Ensure nis server services are not in use",
+      "topic": "auth",
+      "level": 1
+    },
+    {
+      "num": "2.1.10",
+      "title": "Ensure print server services are not in use",
+      "topic": "firewall",
+      "level": 1
+    },
+    {
+      "num": "2.1.11",
+      "title": "Ensure rpcbind services are not in use",
+      "topic": "firewall",
+      "level": 1
+    },
+    {
+      "num": "2.1.12",
+      "title": "Ensure rsync services are not in use",
+      "topic": "firewall",
+      "level": 1
+    },
+    {
+      "num": "2.1.13",
+      "title": "Ensure web server services are not in use",
+      "topic": "firewall",
+      "level": 1
+    },
+    {
+      "num": "2.2.1",
+      "title": "Ensure NIS Client is not installed",
+      "topic": "auth",
+      "level": 1
+    },
+    {
+      "num": "2.2.2",
+      "title": "Ensure rsh client is not installed",
+      "topic": "ssh",
+      "level": 1
+    },
+    {
+      "num": "2.2.3",
+      "title": "Ensure talk client is not installed",
+      "topic": "firewall",
+      "level": 1
+    },
+    {
+      "num": "2.2.4",
+      "title": "Ensure telnet client is not installed",
+      "topic": "ssh",
+      "level": 1,
+      "hint": "dpkg -s telnet"
+    },
+    {
+      "num": "2.2.5",
+      "title": "Ensure ldap client is not installed",
+      "topic": "auth",
+      "level": 1
+    },
+    {
+      "num": "2.3.1.1",
+      "title": "Ensure a single time synchronization daemon is in use",
+      "topic": "time",
+      "level": 1
+    },
+    {
+      "num": "2.3.2.1",
+      "title": "Ensure chrony is configured with authorized timeserver",
+      "topic": "time",
+      "level": 1
+    },
+    {
+      "num": "3.1.1",
+      "title": "Ensure IPv6 status is identified",
+      "topic": "firewall",
+      "level": 1
+    },
+    {
+      "num": "3.1.2",
+      "title": "Ensure wireless interfaces are disabled",
+      "topic": "firewall",
+      "level": 1
+    },
+    {
+      "num": "3.2.1",
+      "title": "Ensure dccp kernel module is not available",
+      "topic": "kernel",
+      "level": 1
+    },
+    {
+      "num": "3.2.2",
+      "title": "Ensure tipc kernel module is not available",
+      "topic": "kernel",
+      "level": 1
+    },
+    {
+      "num": "3.2.3",
+      "title": "Ensure rds kernel module is not available",
+      "topic": "kernel",
+      "level": 1
+    },
+    {
+      "num": "3.2.4",
+      "title": "Ensure sctp kernel module is not available",
+      "topic": "kernel",
+      "level": 1
+    },
+    {
+      "num": "3.3.1",
+      "title": "Ensure ip forwarding is disabled",
+      "topic": "kernel",
+      "level": 1,
+      "hint": "sysctl net.ipv4.ip_forward"
+    },
+    {
+      "num": "3.3.2",
+      "title": "Ensure packet redirect sending is disabled",
+      "topic": "kernel",
+      "level": 1
+    },
+    {
+      "num": "3.3.3",
+      "title": "Ensure bogus icmp responses are ignored",
+      "topic": "kernel",
+      "level": 1
+    },
+    {
+      "num": "3.3.4",
+      "title": "Ensure broadcast icmp requests are ignored",
+      "topic": "kernel",
+      "level": 1
+    },
+    {
+      "num": "3.3.5",
+      "title": "Ensure icmp redirects are not accepted",
+      "topic": "kernel",
+      "level": 1
+    },
+    {
+      "num": "3.3.6",
+      "title": "Ensure secure icmp redirects are not accepted",
+      "topic": "kernel",
+      "level": 1
+    },
+    {
+      "num": "3.3.7",
+      "title": "Ensure reverse path filtering is enabled",
+      "topic": "kernel",
+      "level": 1
+    },
+    {
+      "num": "3.3.8",
+      "title": "Ensure source routed packets are not accepted",
+      "topic": "kernel",
+      "level": 1
+    },
+    {
+      "num": "3.3.9",
+      "title": "Ensure suspicious packets are logged",
+      "topic": "logging",
+      "level": 1
+    },
+    {
+      "num": "3.3.10",
+      "title": "Ensure tcp syn cookies is enabled",
+      "topic": "kernel",
+      "level": 1
+    },
+    {
+      "num": "3.3.11",
+      "title": "Ensure ipv6 router advertisements are not accepted",
+      "topic": "kernel",
+      "level": 1
+    },
+    {
+      "num": "4.1.1",
+      "title": "Ensure a single firewall configuration utility is in use",
+      "topic": "firewall",
+      "level": 1
+    },
+    {
+      "num": "4.2.1",
+      "title": "Ensure ufw is installed",
+      "topic": "firewall",
+      "level": 1,
+      "hint": "dpkg -s ufw"
+    },
+    {
+      "num": "4.2.2",
+      "title": "Ensure iptables-persistent is not installed with ufw",
+      "topic": "firewall",
+      "level": 1
+    },
+    {
+      "num": "4.2.3",
+      "title": "Ensure ufw service is enabled",
+      "topic": "firewall",
+      "level": 1
+    },
+    {
+      "num": "4.2.4",
+      "title": "Ensure ufw loopback traffic is configured",
+      "topic": "firewall",
+      "level": 1
+    },
+    {
+      "num": "4.2.5",
+      "title": "Ensure ufw default deny firewall policy",
+      "topic": "firewall",
+      "level": 1
+    },
+    {
+      "num": "5.1.1",
+      "title": "Ensure permissions on /etc/ssh/sshd_config are configured",
+      "topic": "ssh",
+      "level": 1,
+      "hint": "FILE_CHECK /etc/ssh/sshd_config 600"
+    },
+    {
+      "num": "5.1.2",
+      "title": "Ensure permissions on SSH private host key files are configured",
+      "topic": "ssh",
+      "level": 1
+    },
+    {
+      "num": "5.1.3",
+      "title": "Ensure permissions on SSH public host key files are configured",
+      "topic": "ssh",
+      "level": 1
+    },
+    {
+      "num": "5.1.4",
+      "title": "Ensure sshd access is configured",
+      "topic": "ssh",
+      "level": 1
+    },
+    {
+      "num": "5.1.5",
+      "title": "Ensure sshd Banner is configured",
+      "topic": "ssh",
+      "level": 1
+    },
+    {
+      "num": "5.1.6",
+      "title": "Ensure sshd Ciphers are configured",
+      "topic": "tls",
+      "level": 1
+    },
+    {
+      "num": "5.1.7",
+      "title": "Ensure sshd ClientAliveInterval and ClientAliveCountMax are configured",
+      "topic": "ssh",
+      "level": 1
+    },
+    {
+      "num": "5.1.8",
+      "title": "Ensure sshd DisableForwarding is enabled",
+      "topic": "ssh",
+      "level": 1
+    },
+    {
+      "num": "5.1.9",
+      "title": "Ensure sshd HostbasedAuthentication is disabled",
+      "topic": "ssh",
+      "level": 1
+    },
+    {
+      "num": "5.1.10",
+      "title": "Ensure sshd IgnoreRhosts is enabled",
+      "topic": "ssh",
+      "level": 1
+    },
+    {
+      "num": "5.1.11",
+      "title": "Ensure sshd KexAlgorithms is configured",
+      "topic": "tls",
+      "level": 1
+    },
+    {
+      "num": "5.1.12",
+      "title": "Ensure sshd LoginGraceTime is configured",
+      "topic": "ssh",
+      "level": 1
+    },
+    {
+      "num": "5.1.13",
+      "title": "Ensure sshd LogLevel is configured",
+      "topic": "ssh",
+      "level": 1
+    },
+    {
+      "num": "5.1.14",
+      "title": "Ensure sshd MACs are configured",
+      "topic": "tls",
+      "level": 1
+    },
+    {
+      "num": "5.1.15",
+      "title": "Ensure sshd MaxAuthTries is configured",
+      "topic": "ssh",
+      "level": 1
+    },
+    {
+      "num": "5.1.16",
+      "title": "Ensure sshd MaxSessions is configured",
+      "topic": "ssh",
+      "level": 1
+    },
+    {
+      "num": "5.1.17",
+      "title": "Ensure sshd MaxStartups is configured",
+      "topic": "ssh",
+      "level": 1
+    },
+    {
+      "num": "5.1.18",
+      "title": "Ensure sshd PermitEmptyPasswords is disabled",
+      "topic": "ssh",
+      "level": 1,
+      "hint": "FILE_CONTENT_CHECK PermitEmptyPasswords no"
+    },
+    {
+      "num": "5.1.19",
+      "title": "Ensure sshd PermitRootLogin is disabled",
+      "topic": "ssh",
+      "level": 1,
+      "hint": "FILE_CONTENT_CHECK PermitRootLogin no"
+    },
+    {
+      "num": "5.1.20",
+      "title": "Ensure sshd PermitUserEnvironment is disabled",
+      "topic": "ssh",
+      "level": 1
+    },
+    {
+      "num": "5.1.21",
+      "title": "Ensure sshd UsePAM is enabled",
+      "topic": "auth",
+      "level": 1
+    },
+    {
+      "num": "5.2.1",
+      "title": "Ensure sudo is installed",
+      "topic": "auth",
+      "level": 1
+    },
+    {
+      "num": "5.2.2",
+      "title": "Ensure sudo commands use pty",
+      "topic": "auth",
+      "level": 1
+    },
+    {
+      "num": "5.2.3",
+      "title": "Ensure sudo log file exists",
+      "topic": "logging",
+      "level": 1
+    },
+    {
+      "num": "5.2.4",
+      "title": "Ensure users must provide password for privilege escalation",
+      "topic": "auth",
+      "level": 1
+    },
+    {
+      "num": "5.3.1",
+      "title": "Ensure PAM libraries and modules are up to date",
+      "topic": "auth",
+      "level": 1
+    },
+    {
+      "num": "5.4.1.1",
+      "title": "Ensure password expiration is configured",
+      "topic": "auth",
+      "level": 1,
+      "hint": "login.defs PASS_MAX_DAYS"
+    },
+    {
+      "num": "5.4.1.2",
+      "title": "Ensure minimum password days is configured",
+      "topic": "auth",
+      "level": 1
+    },
+    {
+      "num": "5.4.1.3",
+      "title": "Ensure password expiration warning days is configured",
+      "topic": "auth",
+      "level": 1
+    },
+    {
+      "num": "5.4.1.4",
+      "title": "Ensure inactive password lock is configured",
+      "topic": "auth",
+      "level": 1
+    },
+    {
+      "num": "5.4.2.1",
+      "title": "Ensure root is the only UID 0 account",
+      "topic": "auth",
+      "level": 1,
+      "hint": "awk -F: '($3==0){print $1}' /etc/passwd"
+    },
+    {
+      "num": "6.1.1",
+      "title": "Ensure journald service is enabled and active",
+      "topic": "logging",
+      "level": 1
+    },
+    {
+      "num": "6.1.2",
+      "title": "Ensure journald log file access is configured",
+      "topic": "logging",
+      "level": 1
+    },
+    {
+      "num": "6.1.3",
+      "title": "Ensure journald log file rotation is configured",
+      "topic": "logging",
+      "level": 1
+    },
+    {
+      "num": "6.2.1.1",
+      "title": "Ensure auditd packages are installed",
+      "topic": "logging",
+      "level": 1,
+      "hint": "dpkg -s auditd"
+    },
+    {
+      "num": "6.2.1.2",
+      "title": "Ensure auditd service is enabled and active",
+      "topic": "logging",
+      "level": 1
+    },
+    {
+      "num": "6.2.1.3",
+      "title": "Ensure auditing for processes that start prior to auditd is enabled",
+      "topic": "logging",
+      "level": 1
+    },
+    {
+      "num": "6.2.1.4",
+      "title": "Ensure audit_backlog_limit is sufficient",
+      "topic": "logging",
+      "level": 2
+    },
+    {
+      "num": "6.2.2.1",
+      "title": "Ensure audit log storage size is configured",
+      "topic": "logging",
+      "level": 1
+    },
+    {
+      "num": "6.2.3.1",
+      "title": "Ensure changes to system administration scope (sudoers) is collected",
+      "topic": "logging",
+      "level": 1
+    },
+    {
+      "num": "7.1.1",
+      "title": "Ensure permissions on /etc/passwd are configured",
+      "topic": "filesystem",
+      "level": 1,
+      "hint": "FILE_CHECK /etc/passwd 644"
+    },
+    {
+      "num": "7.1.2",
+      "title": "Ensure permissions on /etc/passwd- are configured",
+      "topic": "filesystem",
+      "level": 1
+    },
+    {
+      "num": "7.1.3",
+      "title": "Ensure permissions on /etc/group are configured",
+      "topic": "filesystem",
+      "level": 1
+    },
+    {
+      "num": "7.1.4",
+      "title": "Ensure permissions on /etc/shadow are configured",
+      "topic": "filesystem",
+      "level": 1,
+      "hint": "FILE_CHECK /etc/shadow 640"
+    },
+    {
+      "num": "7.1.5",
+      "title": "Ensure permissions on /etc/gshadow are configured",
+      "topic": "filesystem",
+      "level": 1
+    },
+    {
+      "num": "7.2.1",
+      "title": "Ensure accounts in /etc/passwd use shadowed passwords",
+      "topic": "auth",
+      "level": 1
+    },
+    {
+      "num": "7.2.2",
+      "title": "Ensure /etc/shadow password fields are not empty",
+      "topic": "auth",
+      "level": 1
+    }
+  ]
+}

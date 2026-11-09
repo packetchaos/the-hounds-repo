@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Hounds — Executive Exposure Brief</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
+<style>
+:root{color-scheme:light;--bg:#f6f7fb;--card:#fff;--line:#e7e8ef;--ink:#1b1d2a;--ink2:#565a72;--ink3:#8a8fa8;
+  --accent:#5b52d6;--crit:#d64545;--high:#eb7434;--med:#e0a020;--low:#2a78d6;--ok:#1aa06d;--panel:#eef0f6}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5}
+.wrap{max-width:1000px;margin:0 auto;padding:20px 20px 48px}
+.hd{display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.hd h1{font-size:21px;margin:0;font-weight:700}
+.hd .sub{color:var(--ink2);font-size:13px;margin:3px 0 0}
+.chip{font-size:11.5px;border:1px solid var(--line);border-radius:999px;padding:3px 10px;color:var(--ink2);background:var(--card);white-space:nowrap}
+.chip.live{color:var(--ok);border-color:#bfe6d4;background:#eafaf2}
+.chip.demo{color:#9a6b00;border-color:#f0dca6;background:#fdf6e3}
+.card{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:15px 17px;margin-top:16px}
+h2.ct{font-size:15px;margin:0 0 2px}
+.sub{color:var(--ink2)}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:11px;margin-top:14px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 13px;border-left:3px solid var(--accent)}
+.kpi .kv{font-size:25px;font-weight:800;line-height:1.05}.kpi .kl{font-size:11px;color:var(--ink3);margin-top:3px}
+.kpi.crit{border-left-color:var(--crit)}.kpi.crit .kv{color:var(--crit)}
+.kpi.ok{border-left-color:var(--ok)}
+.worstchips{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}
+.wc{display:inline-flex;align-items:center;gap:7px;border:1px solid var(--line);border-radius:9px;padding:5px 10px;font-size:12.5px;background:var(--card)}
+.wc b{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.g2{display:grid;grid-template-columns:1.1fr .9fr;gap:16px;margin-top:16px}@media(max-width:820px){.g2{grid-template-columns:1fr}}
+.dist{display:flex;height:32px;border-radius:8px;overflow:hidden;border:1px solid var(--line);margin:12px 0 10px}
+.dist>i{height:100%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:11.5px}
+.leg{display:flex;flex-wrap:wrap;gap:7px}
+.lg{display:inline-flex;align-items:center;gap:6px;font-size:12px;border:1px solid var(--line);border-radius:999px;padding:3px 9px}
+.lg .sw{width:10px;height:10px;border-radius:3px}
+.hb{display:flex;flex-direction:column;gap:7px;margin-top:10px}
+.hbrow{display:grid;grid-template-columns:150px 1fr 96px;gap:10px;align-items:center;font-size:12.5px}
+@media(max-width:560px){.hbrow{grid-template-columns:112px 1fr 78px}}
+.hbrow .nm b{color:var(--ink)}.hbrow .nm span{display:block;font-family:ui-monospace,Menlo,monospace;font-size:9.5px;color:var(--ink3)}
+.hbtrack{height:16px;border-radius:6px;background:var(--panel);overflow:hidden}.hbtrack>i{display:block;height:100%;border-radius:6px}
+.hbrow .rt{font-family:ui-monospace,Menlo,monospace;text-align:right;color:var(--ink2)}.hbrow .rt b{color:var(--ink)}
+table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:6px}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line)}
+th{color:var(--ink3);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+td.mono{font-family:ui-monospace,Menlo,monospace}
+.pill{font-family:ui-monospace,Menlo,monospace;font-size:10px;border:1px solid var(--line);border-radius:999px;padding:1px 7px;white-space:nowrap}
+.board{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin-top:12px}
+.dt{border:1px solid var(--line);border-left:3px solid var(--line);border-radius:11px;background:var(--card);padding:11px 12px}
+.dt .dh{font-size:12px;color:var(--ink2)}.dt .dv{font-size:23px;font-weight:800;margin-top:4px}.dt .ds{font-size:11px;color:var(--ink3)}
+.dt.crit{border-left-color:var(--crit)}.dt.crit .dv{color:var(--crit)}
+.dt.warn{border-left-color:var(--high)}.dt.warn .dv{color:var(--high)}
+.dt.ok{border-left-color:var(--ok)}.dt.ok .dv{color:var(--ok)}
+.dt.off{opacity:.6}.dt.off .dv{font-size:18px;color:var(--ink3)}
+.blind{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px;margin-top:8px}
+.bt{border:1px solid var(--line);border-radius:11px;background:var(--card);padding:10px 12px}
+.bt.crit{box-shadow:inset 3px 0 0 var(--crit)}.bt.warn{box-shadow:inset 3px 0 0 var(--high)}
+.bt .bv{font-size:22px;font-weight:800}.bt.crit .bv{color:var(--crit)}.bt .bl{font-size:12px;font-weight:600;margin-top:2px}.bt .bs{font-size:11px;color:var(--ink3)}
+.callbox{border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:10px;background:#f3f2fd;padding:11px 13px;margin-top:12px;font-size:13px}
+.foot{color:var(--ink3);font-size:11.5px;margin-top:22px;text-align:center}
+</style>
+</head><body>
+<div class="wrap">
+  <div class="hd">
+    <div><h1>The Hounds — Executive Exposure Brief</h1>
+      <p class="sub">Sphinx + Nemesis · the whole estate at a glance — how bad, where the risk comes from, and what you're blind to.</p></div>
+    <span style="margin-left:auto;display:inline-flex;gap:8px;align-items:center">
+      <span class="chip" id="src">…</span>
+      <button id="tryLive" style="font-size:12px;border:1px solid var(--line);background:var(--card);color:var(--ink2);border-radius:999px;padding:4px 11px;cursor:pointer">⟳ Try live</button>
+    </span>
+  </div>
+  <div id="err" style="display:none;font-size:12px;color:#9a6b00;background:#fdf6e3;border:1px solid #f0dca6;border-radius:8px;padding:8px 11px;margin-top:10px"></div>
+
+  <div class="kpis" id="kpis"></div>
+  <div class="worstchips" id="worst"></div>
+
+  <div class="g2">
+    <div class="card"><h2 class="ct">Exposure distribution — how bad is the estate?</h2>
+      <p class="sub" style="font-size:12.5px;margin:2px 0 0">Every asset placed in a fused-score band.</p>
+      <div class="dist" id="dist"></div><div class="leg" id="distleg"></div></div>
+    <div class="card"><h2 class="ct">Pack detection radar</h2>
+      <p class="sub" style="font-size:12.5px;margin:2px 0 6px">Every detection domain's saturation across the estate.</p>
+      <div style="position:relative;height:260px"><canvas id="radar" role="img" aria-label="Radar of detection domains"></canvas></div></div>
+  </div>
+
+  <div class="card"><h2 class="ct">Where the estate's risk comes from</h2>
+    <p class="sub" style="font-size:12.5px;margin:2px 0 0">Fused exposure attributed to the Hound that detects it — % share of total, and saturation (0–100).</p>
+    <div class="hb" id="risk"></div></div>
+
+  <div class="card"><h2 class="ct">The reduction — CVE &rarr; Plugin &rarr; App &rarr; Path</h2>
+    <p class="sub" style="font-size:12.5px;margin:2px 0 0">Own a handful of apps instead of tens of thousands of CVEs.</p>
+    <div id="funnel" style="margin:8px 0 0"></div><div id="champion"></div></div>
+
+  <div class="card"><h2 class="ct">Worst assets right now</h2>
+    <div style="overflow-x:auto"><table id="worstTbl"><thead><tr><th>Host</th><th>Score</th><th>Signals</th><th>AES</th></tr></thead><tbody></tbody></table></div></div>
+
+  <div class="card"><h2 class="ct">Estate posture — every Hound at a glance</h2><div class="board" id="board"></div></div>
+
+  <div class="card"><h2 class="ct">Blind spots — what you can't see</h2>
+    <p class="sub" style="font-size:12.5px;margin:2px 0 0">Risk by absence — the estate's dark matter.</p>
+    <div class="blind" id="blindWrap"></div></div>
+
+  <div class="foot" id="foot"></div>
+</div>
+<script>
+const SAMPLE_SCENT={"ok":true,"asset_total":128,"nemesis":{"critical":0,"high":0,"estate":2426,"avg":19.0,"top":[{"host":"tenable.io","score":50},{"host":"ubuntutwo","score":50},{"host":"scanhost-03","score":48},{"host":"scanhost-01","score":48},{"host":"scanhost-00","score":48}]},"bands":[{"label":"Critical","sub":"\u2265 80","count":0,"sev":"crit"},{"label":"High","sub":"60\u201379","count":0,"sev":"high"},{"label":"Elevated","sub":"40\u201359","count":8,"sev":"med"},{"label":"Low","sub":"1\u201339","count":120,"sev":"low"},{"label":"Clean","sub":"0","count":0,"sev":"ok"}],"risk_by_hound":[{"id":"crit","label":"Business criticality","hound":"Anubis \u00b7 ACR","total":662,"pct":27.3,"sat":64.6},{"id":"aes","label":"Tenable AES","hound":"Tenable One \u00b7 Asset Exposure","total":471,"pct":19.4,"sat":46.0},{"id":"comp","label":"Compliance failure","hound":"Minos \u00b7 audit controls","total":344,"pct":14.2,"sat":44.8},{"id":"sev","label":"Severity (VPR)","hound":"Tenable VPR","total":318,"pct":13.1,"sat":31.1},{"id":"own","label":"Ownership gap","hound":"Terminus","total":213,"pct":8.8,"sat":55.5},{"id":"expl","label":"Exploitability","hound":"Laelaps \u00b7 KEV / EPSS","total":199,"pct":8.2,"sat":7.8},{"id":"sla","label":"SLA breach (aging)","hound":"Sk\u00f6ll \u00b7 overdue","total":160,"pct":6.6,"sat":31.2},{"id":"vol","label":"Finding volume","hound":"open crit / KEV density","total":32,"pct":1.3,"sat":6.2},{"id":"eol","label":"EOL / unsupported","hound":"Charon","total":15,"pct":0.6,"sat":2.3},{"id":"cry","label":"Weak / expiring crypto","hound":"Certania + Heimdall","total":12,"pct":0.5,"sat":2.3},{"id":"path","label":"Attack path","hound":"Fenrir","total":0,"pct":0.0,"sat":0.0},{"id":"ident","label":"Identity exposure","hound":"Janus \u00b7 NHI / reuse","total":0,"pct":0.0,"sat":0.0},{"id":"was","label":"Web-app exposure","hound":"Arachne \u00b7 WAS","total":0,"pct":0.0,"sat":0.0},{"id":"exp","label":"Internet exposure","hound":"Cerberus / exposed","total":0,"pct":0.0,"sat":0.0},{"id":"ai","label":"AI risk","hound":"Pythia \u00b7 shadow/exposed","total":0,"pct":0.0,"sat":0.0},{"id":"mit","label":"ATT&CK technique","hound":"Orthrus","total":0,"pct":0.0,"sat":0.0}],"radar":[{"axis":"Exploitability","hound":"Laelaps \u00b7 KEV / EPSS","value":7.8},{"axis":"Tenable AES","hound":"Tenable One \u00b7 Asset Exposure","value":46.0},{"axis":"Severity (VPR)","hound":"Tenable VPR","value":31.1},{"axis":"Business criticality","hound":"Anubis \u00b7 ACR","value":64.6},{"axis":"Attack path","hound":"Fenrir","value":0.0},{"axis":"Identity exposure","hound":"Janus \u00b7 NHI / reuse","value":0.0},{"axis":"Compliance failure","hound":"Minos \u00b7 audit controls","value":44.8},{"axis":"Web-app exposure","hound":"Arachne \u00b7 WAS","value":0.0},{"axis":"EOL / unsupported","hound":"Charon","value":2.3},{"axis":"Internet exposure","hound":"Cerberus / exposed","value":0.0},{"axis":"AI risk","hound":"Pythia \u00b7 shadow/exposed","value":0.0},{"axis":"Weak / expiring crypto","hound":"Certania + Heimdall","value":2.3},{"axis":"SLA breach (aging)","hound":"Sk\u00f6ll \u00b7 overdue","value":31.2},{"axis":"Finding volume","hound":"open crit / KEV density","value":6.2},{"axis":"Ownership gap","hound":"Terminus","value":55.5},{"axis":"ATT&CK technique","hound":"Orthrus","value":0.0}],"funnel":[{"label":"All assets","count":128,"note":"the whole estate"},{"label":"Seen by a Hound","count":100,"note":"28 truly dark"},{"label":"Credentialed","count":114,"note":"14 blind / uncredentialed"},{"label":"Classified","count":6,"note":"122 unclassified"},{"label":"Owned","count":57,"note":"71 unowned"},{"label":"Business-tiered","count":128,"note":"0 untiered"}],"certs":{"months":[{"key":"2026-08","label":"Aug 2026","count":0},{"key":"2026-09","label":"Sep 2026","count":0},{"key":"2026-10","label":"Oct 2026","count":1},{"key":"2026-11","label":"Nov 2026","count":0},{"key":"2026-12","label":"Dec 2026","count":0},{"key":"2027-01","label":"Jan 2027","count":0},{"key":"2027-02","label":"Feb 2027","count":0},{"key":"2027-03","label":"Mar 2027","count":0},{"key":"2027-04","label":"Apr 2027","count":1},{"key":"2027-05","label":"May 2027","count":0},{"key":"2027-06","label":"Jun 2027","count":0},{"key":"2027-07","label":"Jul 2027","count":0},{"key":"2027-08","label":"Aug 2027","count":0}],"failing":2,"expired":19},"reduction":{"cves":422,"findings":366,"plugins":54,"routes":6,"paths":10},"champion":{"name":"Google Chrome < 149.0.7827.53 Multiple Vulnerabilities","plugin_id":"319296","cve_count":90,"assets":1},"posture":[{"id":"exposure","domain":"Exposure score","hound":"Nemesis","icon":"\ud83c\udfaf","value":0,"sub":"0 critical \u00b7 estate 2426","status":"ok","href":"/agents/fused_score/page.html"},{"id":"kev","domain":"CISA KEV","hound":"Laelaps","icon":"\ud83d\udd25","value":8,"sub":"actively exploited","status":"crit","href":"/agents/cisakev/page.html"},{"id":"crown","domain":"Crown jewels","hound":"Anubis","icon":"\ud83d\udc51","value":6,"sub":"0 unowned","status":"warn","href":"/agents/acr/page.html"},{"id":"cert","domain":"Certificates","hound":"Certania","icon":"\ud83d\udd10","value":2,"sub":"19 already expired","status":"warn","href":"/agents/certificate/page.html"},{"id":"eol","domain":"EOL / crypto decay","hound":"Charon+Heimdall","icon":"\ud83d\udd29","value":6,"sub":"3 EOL \u00b7 3 weak crypto","status":"warn","href":"/agents/eol/page.html"},{"id":"ident","domain":"Identity exposure","hound":"Janus","icon":"\ud83e\udeaa","value":0,"sub":"NHI / credential reuse","status":"off","href":"/agents/identity/page.html"},{"id":"path","domain":"Attack paths","hound":"Fenrir","icon":"\ud83d\udd78","value":0,"sub":"foothold \u2192 crown jewel","status":"off","href":"/agents/attackpath/page.html"},{"id":"ai","domain":"AI exposure","hound":"Pythia","icon":"\ud83e\udde0","value":0,"sub":"0 shadow","status":"off","href":"/agents/ai/page.html"},{"id":"iot","domain":"IoT / OT","hound":"Cerberus","icon":"\ud83d\udc3e","value":9,"sub":"unmanageable devices","status":"warn","href":"/agents/iot_squad/page.html"},{"id":"own","domain":"Ownership coverage","hound":"Terminus","icon":"\ud83d\udccc","value":"44.5%","sub":"71 unclaimed","status":"crit","href":"/agents/asset_ownership/page.html"},{"id":"compliance","domain":"Compliance","hound":"Minos","icon":"\u2696\ufe0f","value":"54.2%","sub":"60 failing","status":"crit","href":"/agents/compliance/page.html"},{"id":"sla","domain":"SLA adherence","hound":"Sk\u00f6ll","icon":"\u23f1","value":"\u2014","sub":"no SLA set","status":"off","href":"/agents/sla/page.html"},{"id":"was","domain":"Web apps (WAS)","hound":"Arachne","icon":"\ud83d\udd78\ufe0f","value":"\u2014","sub":"no WAS data yet","status":"off","href":"/agents/was/page.html"},{"id":"c2","domain":"Remediation","hound":"Amarok","icon":"\ud83d\udc3a","value":"\u2014","sub":"no pushes yet \u2014 arm Amarok to fix at the source","status":"off","href":"/agents/c2/page.html"}],"blind":[{"label":"No Hound signal","count":28,"sub":"the pack found nothing \u2014 truly dark","sev":"crit"},{"label":"Uncredentialed / blind","count":14,"sub":"Chronos \u2014 scan can't see inside","sev":"crit"},{"label":"Unclassified","count":122,"sub":"Linnaeus \u2014 type unknown","sev":"warn"},{"label":"Unowned","count":71,"sub":"Terminus \u2014 nobody accountable","sev":"warn"},{"label":"No business tier","count":0,"sub":"Anubis \u2014 criticality unrated (no ACR / tier tag)","sev":"warn"},{"label":"Shadow AI","count":0,"sub":"Pythia \u2014 AI off the sanctioned list","sev":"warn"}],"convergence":[{"text":"crown jewels the scan can't see (blind)","count":1,"sev":"crit","href":"/agents/fused_score/page.html"}],"classic":{"certs_failing":2,"certs_expired":19,"cert_months":[{"key":"2026-08","label":"Aug 2026","count":0},{"key":"2026-09","label":"Sep 2026","count":0},{"key":"2026-10","label":"Oct 2026","count":1},{"key":"2026-11","label":"Nov 2026","count":0},{"key":"2026-12","label":"Dec 2026","count":0},{"key":"2027-01","label":"Jan 2027","count":0},{"key":"2027-02","label":"Feb 2027","count":0},{"key":"2027-03","label":"Mar 2027","count":0},{"key":"2027-04","label":"Apr 2027","count":1},{"key":"2027-05","label":"May 2027","count":0},{"key":"2027-06","label":"Jun 2027","count":0},{"key":"2027-07","label":"Jul 2027","count":0},{"key":"2027-08","label":"Aug 2027","count":0}],"shadow_assets":125,"iot_devices":9,"identities":10,"mitre_high_acr":2,"custom_apps":6,"docker_hosts":1,"web_apps":42,"cloud_assets":6,"ai_assets":2,"asset_total":128,"stories":{"severity":[{"sev":0,"count":44},{"sev":1,"count":68},{"sev":2,"count":209},{"sev":3,"count":38},{"sev":4,"count":7}],"kev":8,"acr_bands":{"crit":6,"high":50,"low":24,"med":48},"owned":57,"inventory":3,"credfail":7,"top_routes":[{"app":"CENTOS","vulns":316},{"app":"NGINX WEB SERVER","vulns":54},{"app":"JENKINS","vulns":50},{"app":"APACHE","vulns":5},{"app":"NAVI","vulns":3},{"app":"DOCKER ENGINE","vulns":1}],"funnel":{"cves":422,"findings":366,"plugins":54,"routes":6,"paths":10},"champion":{"name":"Google Chrome < 149.0.7827.53 Multiple Vulnerabilities","plugin_id":"319296","cve_count":90,"assets":1},"pq":{"vuln":33,"safe":0}}}};
+const SAMPLE_OVER={"ok":true,"kpi":{"assets":128,"critical":0,"high":0,"estate":2426,"avg":19.0},"total":128,"truncated":true,"assets":[{"host":"tenable.io","score":50,"band":"ELEVATED","kev":1,"crown":true,"unowned":false,"aes":240,"uuid":"17b20844-9c41-48ba-a0c2-242c685c9702"},{"host":"ubuntutwo","score":50,"band":"ELEVATED","kev":1,"crown":false,"unowned":false,"aes":400,"uuid":"5c422c07-9c09-438e-a422-9fdee65216d9"},{"host":"scanhost-03","score":48,"band":"ELEVATED","kev":1,"crown":true,"unowned":false,"aes":720,"uuid":"av-0003"},{"host":"scanhost-01","score":48,"band":"ELEVATED","kev":1,"crown":true,"unowned":false,"aes":720,"uuid":"av-0001"},{"host":"scanhost-00","score":48,"band":"ELEVATED","kev":1,"crown":true,"unowned":false,"aes":720,"uuid":"av-0000"},{"host":"scanhost-04","score":45,"band":"ELEVATED","kev":1,"crown":true,"unowned":false,"aes":720,"uuid":"av-0004"},{"host":"scanhost-02","score":45,"band":"ELEVATED","kev":1,"crown":true,"unowned":false,"aes":720,"uuid":"av-0002"},{"host":"scanhost-06","score":40,"band":"ELEVATED","kev":0,"crown":false,"unowned":false,"aes":400,"uuid":"av-0006"},{"host":"scanhost-05","score":38,"band":"LOW","kev":1,"crown":false,"unowned":false,"aes":240,"uuid":"av-0005"},{"host":"scanhost-07","score":38,"band":"LOW","kev":0,"crown":false,"unowned":false,"aes":480,"uuid":"av-0007"}]};
+const SEV={crit:'var(--crit)',high:'var(--high)',med:'var(--med)',low:'var(--low)',ok:'var(--ok)'};
+const AXSHORT={'Exploitability':'Exploit','Tenable AES':'AES','Severity (VPR)':'VPR','Business criticality':'Criticality','Attack path':'Path','Identity exposure':'Identity','Compliance failure':'Compliance','Web-app exposure':'WAS','EOL / unsupported':'EOL','Internet exposure':'Exposed','AI risk':'AI','Weak / expiring crypto':'Crypto','SLA breach (aging)':'SLA','Finding volume':'Volume','Ownership gap':'Ownership','ATT&CK technique':'ATT&CK'};
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt=n=>Number(n||0).toLocaleString();
+const shortAx=a=>AXSHORT[a]||String(a).split(/[ (/]/)[0];
+const pctDown=(v,b)=>b>0?Math.round((b-v)/b*1000)/10:0;
+
+let LASTERR='';
+async function fetchTool(names,args){
+  if(!window.cowork||!window.cowork.callMcpTool){ LASTERR='window.cowork.callMcpTool unavailable (open inside Cowork)'; return null; }
+  for(const name of names){
+    try{
+      const r=await window.cowork.callMcpTool(name,args||{});
+      if(r&&!r.isError){ const d=r.structuredContent??JSON.parse(r.content[0].text); if(d&&d.ok!==false) return d; }
+      if(r&&r.isError){ LASTERR=name+' → '+(r.content&&r.content[0]&&r.content[0].text||'tool error'); }
+    }catch(e){ LASTERR=name+' → '+(e&&e.message||e); }
+  }
+  return null;
+}
+async function load(){
+  LASTERR='';
+  document.getElementById('src').textContent='… checking live';
+  // try the fully-qualified name first, then a bare fallback in case the server namespace differs
+  let scent=await fetchTool(['mcp__hounds__hounds_scent_board','hounds_scent_board']);
+  let over=await fetchTool(['mcp__hounds__hounds_exposure_overview','hounds_exposure_overview'],{limit:10});
+  const live=!!(scent||over);
+  scent=scent||SAMPLE_SCENT; over=over||SAMPLE_OVER;
+  const s=document.getElementById('src');
+  s.className='chip '+(live?'live':'demo');
+  s.textContent=live?'● live · Hounds MCP':'demo data — not connected';
+  const eb=document.getElementById('err');
+  if(!live && LASTERR){ eb.style.display='block'; eb.innerHTML='<b>Live data unavailable</b> — showing the embedded sample. Last error: <code>'+esc(LASTERR)+'</code>. The Hounds MCP must be a <b>remote connector</b> to reach a Cowork artifact (local/desktop servers are Desktop &amp; Claude Code only).'; }
+  else{ eb.style.display='none'; }
+  render(scent||{},over||{});
+}
+function render(b,ov){
+  const nem=b.nemesis||{}, k=(ov.kpi||{});
+  const tile=(v,l,cls)=>`<div class="kpi ${cls||''}"><div class="kv">${v}</div><div class="kl">${l}</div></div>`;
+  document.getElementById('kpis').innerHTML=
+    tile(fmt(nem.critical||k.critical||0),'Assets CRITICAL',(nem.critical||k.critical)?'crit':'ok')+
+    tile(fmt(nem.estate||k.estate||0),'Estate exposure')+
+    tile(nem.avg||k.avg||0,'Avg score')+
+    tile(fmt(b.asset_total||k.assets||0),'Assets')+
+    tile(fmt(nem.high||k.high||0),'High ≥60','warn');
+  document.getElementById('worst').innerHTML=((nem.top)||[]).slice(0,5).map(t=>
+    `<span class="wc">${esc(t.host)} <b>${t.score}</b></span>`).join('');
+  // distribution
+  const bands=b.bands||[], tot=bands.reduce((a,x)=>a+x.count,0)||1;
+  document.getElementById('dist').innerHTML=bands.filter(x=>x.count>0).map(x=>{const w=x.count/tot*100;
+    return `<i style="width:${w}%;background:${SEV[x.sev]}" title="${esc(x.label)}: ${x.count}">${w>7?x.count:''}</i>`;}).join('')||'<i style="width:100%;background:var(--line)"></i>';
+  document.getElementById('distleg').innerHTML=bands.map(x=>`<span class="lg"><span class="sw" style="background:${SEV[x.sev]}"></span>${esc(x.label)} ${x.count}</span>`).join('');
+  // risk by hound
+  const rk=b.risk_by_hound||[], mx=Math.max(1,...rk.map(r=>r.total));
+  document.getElementById('risk').innerHTML=rk.map(r=>{const w=r.total/mx*100,c=r.sat>=60?'var(--crit)':r.sat>=30?'var(--high)':'var(--accent)';
+    return `<div class="hbrow"><div class="nm"><b>${esc(r.label)}</b><span>${esc(r.hound)}</span></div><div class="hbtrack"><i style="width:${w}%;background:${c}"></i></div><div class="rt"><b>${r.pct}%</b> · sat ${r.sat}</div></div>`;}).join('');
+  drawRadar(b.radar||[]);
+  drawReduction(b);
+  // worst assets
+  const rows=(ov.assets||[]);
+  document.querySelector('#worstTbl tbody').innerHTML=rows.length?rows.map(a=>{
+    const sig=[a.kev?'<span class="pill" style="color:var(--crit)">KEV</span>':'',a.crown?'<span class="pill" style="color:var(--med)">crown</span>':'',a.unowned?'<span class="pill">unowned</span>':''].filter(Boolean).join(' ');
+    return `<tr><td>${esc(a.host)}</td><td class="mono"><b>${a.score}</b></td><td>${sig||'—'}</td><td class="mono">${a.aes!=null?a.aes:'—'}</td></tr>`;}).join('')
+    :'<tr><td colspan="4" class="sub">No asset detail available.</td></tr>';
+  // posture
+  document.getElementById('board').innerHTML=(b.posture||[]).map(t=>
+    `<div class="dt ${t.status}"><div class="dh">${esc(t.domain)}</div><div class="dv">${esc(String(t.value))}</div><div class="ds">${esc(t.sub||'')}</div></div>`).join('');
+  // blind
+  document.getElementById('blindWrap').innerHTML=(b.blind||[]).map(x=>
+    `<div class="bt ${x.sev}"><div class="bv">${fmt(x.count)}</div><div class="bl">${esc(x.label)}</div><div class="bs">${esc(x.sub||'')}</div></div>`).join('');
+  document.getElementById('foot').textContent='Read-only rollup over every Hound · the Hounds MCP wraps the same engines the repo runs.';
+}
+let RADAR=null;
+function drawRadar(axes){
+  const el=document.getElementById('radar'); if(!axes.length){return;}
+  if(RADAR)RADAR.destroy();
+  RADAR=new Chart(el,{type:'radar',data:{labels:axes.map(a=>shortAx(a.axis)),
+    datasets:[{data:axes.map(a=>Math.max(0,Math.min(100,a.value))),fill:true,backgroundColor:'rgba(91,82,214,.16)',borderColor:'#5b52d6',borderWidth:1.6,pointRadius:2,pointBackgroundColor:'#5b52d6'}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},
+      scales:{r:{min:0,max:100,ticks:{display:false,stepSize:25},grid:{color:'#e7e8ef'},angleLines:{color:'#e7e8ef'},pointLabels:{font:{size:10},color:'#8a8fa8'}}}}});
+}
+function drawReduction(b){
+  const F=b.reduction||{}, wrap=document.getElementById('funnel');
+  if(!(F.cves||F.plugins)){ wrap.innerHTML='<p class="sub" style="font-size:12.5px">No CVE/plugin linkage in this dataset.</p>'; document.getElementById('champion').innerHTML=''; return; }
+  const stages=[{k:'CVE line-items',v:F.cves||0,c:'#d64545',note:'the most duplicated work'},
+    {k:'Findings (asset × plugin)',v:F.findings||0,c:'#eb7434',note:'the raw ticket backlog'},
+    {k:'Plugins — unique fixes',v:F.plugins||0,c:'#e0a020',note:'one patch clears many CVEs'},
+    {k:'Apps / routes — own here',v:F.routes||0,c:'#1aa06d',note:'owner-actionable units'}];
+  const mx=Math.max(1,...stages.map(s=>s.v)),W=940,h=50,gap=12,padT=14,labelW=290,cx=(W-labelW)/2;
+  const sc=v=>70+Math.sqrt(v/mx)*((W-labelW)-80),H=padT+stages.length*(h+gap)+6;
+  let svg=`<svg viewBox="0 0 ${W} ${H}" width="100%" style="overflow:visible;display:block">`;
+  stages.forEach((s,i)=>{const y=padT+i*(h+gap),wT=sc(s.v),wB=sc(i<stages.length-1?stages[i+1].v:s.v);
+    svg+=`<polygon points="${cx-wT/2},${y} ${cx+wT/2},${y} ${cx+wB/2},${y+h} ${cx-wB/2},${y+h}" fill="${s.c}" fill-opacity="0.9"/>`;
+    svg+=`<text x="${cx}" y="${y+h/2-1}" text-anchor="middle" font-size="15" font-weight="800" fill="#fff">${fmt(s.v)}</text>`;
+    svg+=`<text x="${cx}" y="${y+h/2+13}" text-anchor="middle" font-size="10" fill="#fff" fill-opacity=".9">${esc(s.k)}</text>`;
+    svg+=`<text x="${W-labelW+8}" y="${y+h/2-1}" font-size="11.5" fill="#1b1d2a">${esc(s.k)}</text>`;
+    svg+=`<text x="${W-labelW+8}" y="${y+h/2+13}" font-size="10" fill="#8a8fa8">${esc(s.note)}</text>`;
+    if(i>0)svg+=`<text x="${cx}" y="${y-2}" text-anchor="middle" font-size="10" fill="#8a8fa8">▼ ${pctDown(s.v,stages[i-1].v)}% fewer</text>`;});
+  svg+='</svg>';
+  const top=stages[0].v,end=stages[stages.length-1].v;
+  wrap.innerHTML=svg+`<div style="text-align:center;margin-top:4px;font-size:13px"><b style="color:var(--accent)">${fmt(top)} CVEs → ${fmt(end)} apps</b> — <b>${pctDown(end,top)}% fewer things to track</b> at the app level. Those ${fmt(end)} apps span <b>${fmt(F.paths||0)} paths</b>.</div>`;
+  const c=b.champion;
+  document.getElementById('champion').innerHTML=c?`<div class="callbox"><b>🏆 One fix, ${fmt(c.cve_count)} CVEs.</b> Patching <b>${esc(c.name)}</b> (plugin ${esc(String(c.plugin_id||''))}) clears <b>${fmt(c.cve_count)} CVEs</b> in a single action — on ${c.assets} asset${c.assets===1?'':'s'}. The biggest workload collapse per fix.</div>`:'';
+}
+document.getElementById('tryLive').onclick=load;
+load();
+</script>
+</body></html>
