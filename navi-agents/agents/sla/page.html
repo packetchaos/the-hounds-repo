@@ -12,16 +12,7 @@
 .seclbl{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
 .setupcard{text-align:center;padding:26px 18px}
 .setupcard .big{font-size:15px;font-weight:700;margin-bottom:6px}
-/* metric cards / at-a-glance — same look as Exposure Routes, Scan Evaluation, AI */
-.mkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-top:10px}
-.mk{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--panel-2)}
-.mk .v{font-size:22px;font-weight:800;color:var(--ink);line-height:1.1}.mk .v small{font-size:13px;font-weight:600;color:var(--mut)}
-.mk .l{font-size:11.5px;color:var(--mut);margin-top:2px}
-.mk .u{font-size:11.5px;color:var(--ink-2,var(--ink));margin-top:4px}.mk .u b{color:var(--ink)}
-.mk[data-f],.mk[data-j]{cursor:pointer;border-left:4px solid var(--rc,var(--line))}.mk[data-f]:hover,.mk[data-j]:hover{border-color:var(--accent)}.mk.on{box-shadow:0 0 0 2px var(--accent)}
-.mhead{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 0}
-.glance{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-top:10px}
-.gl{border:1px solid var(--line);border-radius:12px;padding:10px 12px}.gl h4{margin:0 0 6px;font-size:12.5px}
+/* 📊 At a glance: the shared renderGlance template (console.js / console.css); .sbar/.slg below are the crown-jewel split bar */
 .sbar{display:flex;height:16px;border-radius:6px;overflow:hidden;background:var(--panel-2)}
 .sbar span{display:block;height:100%}.sbar span+span{border-left:2px solid var(--panel,#fff)}
 .slg{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11.5px;margin-top:6px;color:var(--ink-2,var(--ink))}
@@ -59,9 +50,12 @@ details.defs ul{margin:6px 0 0;padding-left:18px;font-size:12px;color:var(--ink-
     <div id="flash" class="flash"></div>
     <div id="snapMeta" class="sub" style="font-size:11.5px;margin-top:4px"></div>
     <div id="scope"></div>
-    <div id="kpi"></div>
-    <div id="glance"></div>
     <div id="defs"></div>
+  </section>
+
+  <section class="card" id="secGlance" data-nav="At a glance" data-nav-icon="📊">
+    <h2 style="margin:0 0 2px;font-size:17px">📊 At a glance</h2>
+    <div id="kpi"><p class="sub">Press <b>▶ Run</b> to fill these numbers.</p></div>
   </section>
 
   <div id="body"></div>
@@ -148,53 +142,45 @@ function valOptions(){
 }
 
 /* ============================== metrics ============================== */
-function card(val,l,u,o){ o=o||{}; return `<div class="mk${o.f&&SEVF===o.f?' on':''}"${o.f?` data-f="${o.f}"`:''}${o.j?` data-j="${o.j}"`:''} style="${o.c?'--rc:'+o.c:''}"${o.t?` title="${esc(o.t)}"`:''}><div class="v">${val}</div><div class="l">${l}</div>${u?`<div class="u">${u}</div>`:''}</div>`; }
 function lastFull(){ const rows=((DASH.trend||{}).rows)||[]; return rows.length>1?rows[rows.length-2]:null; }
+/* 📊 At a glance (shared renderGlance template): headline numbers + the old glance split bars */
 function renderMetrics(){
   const m=DASH.metrics||{}, t=m.totals||{}, oa=DASH.open_aging||{}, vd=DASH.verdict||{}, rem=DASH.remediation||{};
   const th=(DASH.readiness||{}).thresholds||{}, ob=m.oldest_breach, cr=m.crown||{};
   const bo=(oa.by_owner||[]).filter(r=>+r.breached>0&&!/: (Ignored|Accepted|Mitigated)$/.test(String(r.seg||''))), wa=(m.worst_assets||[])[0], wp=(m.worst_plugins||[])[0];
   const lf=lastFull(), src=m.fixed_source==='fixed'?'navi’s fixed table (last_fixed)':m.fixed_source==='vulns'?'vulns.last_found on fixed rows (proxy)':'—';
-  let h='<div class="mhead">Compliance now — click a card to jump to it</div><div class="mkpi">'+
-    card(t.within_pct!=null?t.within_pct+'%':'—','open findings within SLA', `<b>${N((t.open||0)-(t.breached||0))}</b> of <b>${N(t.open)}</b> open`, {j:'secOpen',c:'var(--ok)',t:'open/reopened findings whose age (now − first found) is inside their severity’s SLA window'})+
-    card(N(t.breached),'open findings past SLA', `on <b>${N(t.assets_breached)}</b> assets · <b>${N(m.plugins_breached)}</b> plugins`, {j:'secOpen',c:'var(--crit)',t:'breached = open finding older than its severity’s SLA days'})+
-    card(N(t.due_7),'due within 7 days', `<b>${N(t.due_14)}</b> within 14 · <b>${N(t.due_30)}</b> within 30 — not breached yet`, {j:'secOutlook',c:'var(--high)',t:'open, inside SLA, with ≤ N days left on the clock'})+
-    card(ob?d1(ob.days_over):'—','oldest open breach — days past SLA', ob?`${esc(SEVL[ob.severity]||ob.severity)} · <b>${esc(short(ob.hostname||ob.ip||ob.asset_uuid,26))}</b> · ${esc(short(ob.plugin_name||ob.plugin_id,30))}`:'no open breaches', {j:'secOutlook',c:'var(--crit)'})+
-    '</div><div class="mhead">By severity — click to filter the worst-plugins table</div><div class="mkpi">'+
-    (m.by_severity||[]).filter(r=>r.open||r.fixed).map(r=>card(r.within_pct!=null?r.within_pct+'%':'—', `${SEVL[r.sev]} within SLA <span class="sub">(${r.sla_days!=null?r.sla_days+' d':'no SLA'})</span>`,
-      `<b>${N(r.breached)}</b> past SLA · <b>${N(r.due_7)}</b> due ≤ 7 d · median fix <b>${d1(r.mttr_median)}</b>`, {f:r.sev,c:SEVC[r.sev]})).join('')+
-    '</div><div class="mhead">Remediation</div><div class="mkpi">'+
-    card(t.fixed_in_sla_pct!=null?t.fixed_in_sla_pct+'%':'—','closed findings fixed within SLA', t.fixed?`<b>${N(t.fixed_in_sla)}</b> of <b>${N(t.fixed)}</b> · days to fix ≤ SLA days`:'no closed findings with a fix date', {j:'secRem',c:'var(--ok)',t:'our own math: fix date − first found ≤ SLA days. Fix date from '+src})+
-    card(vd.available&&vd.adherence_pct!=null?vd.adherence_pct+'%':'—','navi SLA verdict (Pass/Fail)', vd.available?`navi’s own verdict across <b>${N(vd.total)}</b> SLA-tracked findings`:'run Recalculate SLA in Settings', {j:'secRem',c:'var(--accent)'})+
-    card(d1(t.mttr_median),'median days to fix (MTTR)', t.fixed?`mean <b>${d1(t.mttr_mean)}</b> across <b>${N(t.fixed)}</b> fixes`:'', {j:'secRem',c:'var(--accent)',t:'fix date − first found, closed findings. Fix date from '+src})+
-    card(lf?((lf.fixed-lf.new)>=0?'−':'+')+N(Math.abs(lf.fixed-lf.new)):'—','backlog change, last full month', lf?`${esc(lf.month)}: <b>${N(lf.new)}</b> new · <b>${N(lf.fixed)}</b> fixed`:'', {j:'secTrend',c:lf&&lf.fixed>=lf.new?'var(--ok)':'var(--high)',t:'new findings (first found) minus fixed findings in the last complete month — reconstructed from finding dates'})+
-    '</div><div class="mhead">Where the breaches are</div><div class="mkpi">'+
-    card(cr.available?N(cr.breached):'—','breaches on crown jewels (ACR ≥ 7)', cr.available?`on <b>${N(cr.assets_breached)}</b> of <b>${N(cr.assets)}</b> crown-jewel assets with open findings`:'no ACR values in navi.db', {j:'secWorst',c:'var(--crit)'})+
-    card(bo.length?N(bo[0].breached):'—',`worst ${esc(DASH.tag_key||'owner')} by breaches`, bo.length?`<b>${esc(short(bo[0].seg,32))}</b> · ${bo[0].breach_pct}% of its open findings`:(m.has_owner_key?'no breaches':'no “'+esc(DASH.tag_key||'Owner')+'” tags'), {j:'secOwners',c:'#a78bfa'})+
-    card(wa?N(wa.breached):'—','worst asset by breaches', wa?`<b>${esc(short(wa.hostname||wa.ip||wa.asset_uuid,30))}</b>${wa.acr!=null?' · ACR '+wa.acr:''}`:'', {j:'secWorst',c:'#e0913a'})+
-    card(wp?N(wp.breached):'—','worst plugin by breaches', wp?`<b>${esc(short(wp.plugin_name||wp.plugin_id,32))}</b> · on <b>${N(wp.assets)}</b> assets`:'', {j:'secWorst',c:'#e0913a'})+
-    '</div>';
-  document.getElementById('kpi').innerHTML=h;
-  document.querySelectorAll('#kpi .mk[data-j]').forEach(x=>x.onclick=()=>{ const s=document.getElementById(x.dataset.j); if(s) s.scrollIntoView({behavior:'smooth',block:'start'}); });
-  document.querySelectorAll('#kpi .mk[data-f]').forEach(x=>x.onclick=()=>{ SEVF=SEVF===x.dataset.f?null:x.dataset.f; renderMetrics(); renderPlugins();
-    if(SEVF) document.getElementById('secWorst').scrollIntoView({behavior:'smooth',block:'start'}); });
+  const any=!!(t.open||t.fixed), within=(t.open||0)-(t.breached||0), nz=parts=>parts.filter(p=>p.value);
+  const SV={critical:'crit',high:'high',medium:'med',low:'low'}, BCK=['low','med','high','crit'];
+  document.getElementById('kpi').innerHTML='<p class="sub" style="margin:2px 0 0">Click a number to jump to it; a severity filters the worst-plugins table.</p><div id="glxSla"></div>';
+  renderGlance('glxSla', [
+    {title:'Compliance now', t:'Bar: open findings by SLA clock — days left = SLA days − age.',
+     hero:{v:t.within_pct!=null?t.within_pct+'%':'—', l:'open findings within SLA', u:`${N(within)} of ${N(t.open)} open`, t:'open/reopened findings whose age (now − first found) is inside their severity’s SLA window', sev:'none', zero:false, href:'#secOpen'},
+     bar:any?nz([{label:'past SLA',value:t.breached||0,color:'crit'},{label:'due ≤ 7 d',value:t.due_7||0,color:'high'},{label:'due 8–30 d',value:(t.due_30||0)-(t.due_7||0),color:'med'},{label:'> 30 d left',value:within-(t.due_30||0),color:'ok'}]):null,
+     chips:[{v:N(t.breached), l:'open findings past SLA', u:`on ${N(t.assets_breached)} assets · ${N(m.plugins_breached)} plugins`, t:`${N(t.breached)} open findings past SLA — on ${N(t.assets_breached)} assets · ${N(m.plugins_breached)} plugins · breached = open finding older than its severity’s SLA days`, sev:'crit', href:'#secOpen'},
+            {v:N(t.due_7), l:'due within 7 days', u:`${N(t.due_14)} within 14 · ${N(t.due_30)} within 30 — not breached yet`, t:`${N(t.due_7)} due within 7 days — ${N(t.due_14)} within 14 · ${N(t.due_30)} within 30 — not breached yet · open, inside SLA, with ≤ N days left on the clock`, sev:'high', href:'#secOutlook'},
+            {v:ob?String(d1(ob.days_over)):'—', l:'oldest open breach — days past SLA', u:ob?`${SEVL[ob.severity]||ob.severity} · ${short(ob.hostname||ob.ip||ob.asset_uuid,26)} · ${short(ob.plugin_name||ob.plugin_id,30)}`:'no open breaches', sev:'crit', zero:!ob, href:'#secOutlook'}]},
+    {title:'By severity', t:'Bar: open findings past their severity’s SLA. Click a severity to filter the worst-plugins table.',
+     bar:any?nz((m.by_severity||[]).map(r=>({label:SEVL[r.sev], value:r.breached||0, color:SV[r.sev]}))):null,
+     chips:(m.by_severity||[]).filter(r=>r.open||r.fixed).map(r=>({v:r.within_pct!=null?r.within_pct+'%':'—', l:`${SEVL[r.sev]} within SLA (${r.sla_days!=null?r.sla_days+' d':'no SLA'})`,
+       u:`${N(r.breached)} past SLA · ${N(r.due_7)} due ≤ 7 d · median fix ${d1(r.mttr_median)}`, sev:SV[r.sev], zero:false, filter:r.sev}))},
+    {title:'Remediation', t:'Bar: closed findings — days to fix vs SLA days.',
+     hero:{v:t.fixed_in_sla_pct!=null?t.fixed_in_sla_pct+'%':'—', l:'closed findings fixed within SLA', u:t.fixed?`${N(t.fixed_in_sla)} of ${N(t.fixed)} · days to fix ≤ SLA days`:'no closed findings with a fix date', t:'our own math: fix date − first found ≤ SLA days. Fix date from '+src, sev:'none', zero:!t.fixed, href:'#secRem'},
+     bar:t.fixed?nz([{label:'fixed in SLA',value:t.fixed_in_sla||0,color:'ok'},{label:'fixed late',value:(t.fixed||0)-(t.fixed_in_sla||0),color:'high'}]):null,
+     chips:[{v:vd.available&&vd.adherence_pct!=null?vd.adherence_pct+'%':'—', l:'navi SLA verdict (Pass/Fail)', u:vd.available?`navi’s own verdict across ${N(vd.total)} SLA-tracked findings`:'run Recalculate SLA in Settings', sev:'info', zero:!vd.available, href:'#secRem'},
+            {v:String(d1(t.mttr_median)), l:'median days to fix (MTTR)', u:t.fixed?`mean ${d1(t.mttr_mean)} across ${N(t.fixed)} fixes`:'', t:`${d1(t.mttr_median)} median days to fix (MTTR)${t.fixed?` — mean ${d1(t.mttr_mean)} across ${N(t.fixed)} fixes`:''} · fix date − first found, closed findings. Fix date from `+src, sev:'info', zero:!t.fixed, href:'#secRem'},
+            {v:lf?((lf.fixed-lf.new)>=0?'−':'+')+N(Math.abs(lf.fixed-lf.new)):'—', l:'backlog change, last full month', u:lf?`${lf.month}: ${N(lf.new)} new · ${N(lf.fixed)} fixed`:'', t:(lf?`${lf.month}: ${N(lf.new)} new · ${N(lf.fixed)} fixed · `:'')+'new findings (first found) minus fixed findings in the last complete month — reconstructed from finding dates', sev:lf&&lf.fixed>=lf.new?'ok':'high', zero:!lf, href:'#secTrend'}]},
+    {title:'Where the breaches are', t:'Bar: how late the breaches are — age − SLA days, open breaches.',
+     hero:{v:cr.available?N(cr.breached):'—', l:'breaches on crown jewels (ACR ≥ 7)', u:cr.available?`on ${N(cr.assets_breached)} of ${N(cr.assets)} crown-jewel assets with open findings`:'no ACR values in navi.db', sev:'crit', zero:cr.available?!cr.breached:true, href:'#secWorst'},
+     bar:any?nz((m.overdue_buckets||[]).map((b,i)=>({label:b.label, value:b.n, color:BCK[i]}))):null,
+     chips:[{v:bo.length?N(bo[0].breached):'—', l:`worst ${DASH.tag_key||'owner'} by breaches`, u:bo.length?`${short(bo[0].seg,32)} · ${bo[0].breach_pct}% of its open findings`:(m.has_owner_key?'no breaches':'no “'+(DASH.tag_key||'Owner')+'” tags'), sev:'info', zero:!bo.length, href:'#secOwners'},
+            {v:wa?N(wa.breached):'—', l:'worst asset by breaches', u:wa?`${short(wa.hostname||wa.ip||wa.asset_uuid,30)}${wa.acr!=null?' · ACR '+wa.acr:''}`:'', sev:'high', zero:!wa, href:'#secWorst'},
+            {v:wp?N(wp.breached):'—', l:'worst plugin by breaches', u:wp?`${short(wp.plugin_name||wp.plugin_id,32)} · on ${N(wp.assets)} assets`:'', sev:'high', zero:!wp, href:'#secWorst'}]}
+  ], {active:SEVF, onFilter:(f,_el,on)=>{ SEVF=on?f:null; renderMetrics(); renderPlugins();
+    if(SEVF) document.getElementById('secWorst').scrollIntoView({behavior:'smooth',block:'start'}); }});
 }
 function sbar(parts){ const tot=parts.reduce((s,p)=>s+p.n,0)||1;
   return `<div class="sbar">${parts.filter(p=>p.n).map(p=>`<span style="width:${(100*p.n/tot).toFixed(2)}%;background:${p.c}" title="${esc(p.l)}: ${N(p.n)}"></span>`).join('')}</div>`+
     `<div class="slg">${parts.filter(p=>p.n).map(p=>`<span><i style="background:${p.c}"></i>${esc(p.l)} <b>${N(p.n)}</b></span>`).join('')}</div>`; }
-function renderGlance(){
-  const m=DASH.metrics||{}, t=m.totals||{};
-  if(!t.open&&!t.fixed){ document.getElementById('glance').innerHTML=''; return; }
-  const within=(t.open||0)-(t.breached||0);
-  const gl=(tt,b,s)=>`<div class="gl"><h4>${tt}</h4>${b}${s?`<div class="sub" style="font-size:11px;margin-top:4px">${s}</div>`:''}</div>`;
-  const ob=m.overdue_buckets||[], BC=['#e7c66b','#e0913a','var(--crit)','#8b1e3f'];
-  document.getElementById('glance').innerHTML='<div class="mhead">At a glance</div><div class="glance">'+
-    gl('Open findings by SLA clock', sbar([{l:'past SLA',n:t.breached||0,c:'var(--crit)'},{l:'due ≤ 7 d',n:t.due_7||0,c:'var(--high)'},{l:'due 8–30 d',n:(t.due_30||0)-(t.due_7||0),c:'var(--med)'},{l:'> 30 d left',n:within-(t.due_30||0),c:'var(--ok)'}]), 'Days left = SLA days − age.')+
-    gl('Breaches by severity', sbar((m.by_severity||[]).map(r=>({l:SEVL[r.sev],n:r.breached||0,c:SEVC[r.sev]}))), 'Open findings past their severity’s SLA.')+
-    gl('How late the breaches are', sbar(ob.map((b,i)=>({l:b.label,n:b.n,c:BC[i]}))), 'Age − SLA days, open breaches.')+
-    gl('Closed findings vs SLA', t.fixed?sbar([{l:'fixed in SLA',n:t.fixed_in_sla||0,c:'var(--ok)'},{l:'fixed late',n:(t.fixed||0)-(t.fixed_in_sla||0),c:'var(--high)'}]):'<p class="sub" style="margin:0">No closed findings with a fix date.</p>', 'Days to fix vs SLA days.')+
-    '</div>';
-}
 function renderDefs(){
   const m=DASH.metrics||{};
   const src=m.fixed_source==='fixed'?'<b>fixed.last_fixed</b> (navi’s fixed table)':m.fixed_source==='vulns'?'<b>vulns.last_found</b> on state = fixed rows — the last time the finding was seen, a proxy for the fix date (build the Fixed table in Settings for the real date)':'— (no closed findings with dates)';
@@ -269,7 +255,7 @@ function sec(id,icon,nav,title,inner,extra){ return `<section class="card" id="$
 function render(){
   tagOptions(); valOptions();
   const rdy=DASH.readiness||{}, B=document.getElementById('body');
-  ['kpi','glance','defs','scope'].forEach(id=>document.getElementById(id).innerHTML='');
+  ['kpi','defs','scope'].forEach(id=>document.getElementById(id).innerHTML='');
   if(!rdy.sla_set){
     B.innerHTML=`<section class="card"><div class="setupcard"><div class="big">⏱ Set your SLA policy first</div>
       <p class="sub">Sköll needs per-severity remediation windows (days) before it can measure adherence. Set them in <a href="/web/settings.html"><b>Settings ▸ SLA policy</b></a> — one click runs <span class="mono">navi config sla reset</span>. Then <b>Build Fixed</b> + <b>Recalculate SLA</b> to unlock remediation history.</p>
@@ -284,7 +270,7 @@ function render(){
        :('🌐 All assets — headline numbers are the whole estate; use <b>Filter</b> to scope them to one '+esc(DASH.tag_key||'value')))
     +'</div>'+(DASH.tag_value?'<button class="btn ghost sm" id="clearScope" style="margin-left:auto">✕ clear filter</button>':'')+'</div>'
     +(oa.available&&oa.excluded?('<p class="sub" style="margin:6px 0 0">✓ <b>'+N(oa.excluded)+'</b> open finding'+(oa.excluded==1?'':'s')+' on <b>Ignored / Accepted / Mitigated</b> routes &amp; paths excluded from these SLA numbers — formally handled risk doesn\'t count against the clock.</p>'):'');
-  renderMetrics(); renderGlance(); renderDefs();
+  renderMetrics(); renderDefs();
 
   let h='';
   // ---- open aging (unchanged lens)

@@ -11,7 +11,7 @@
   /* Warm-dark ink base + Tenable lime accent (dark default) — matches the live console */
   --bg:#14161b; --bg-2:#16181e; --panel:#1b1e25; --panel-2:#232732;
   --line:#2c313b; --line-soft:#252a33;
-  --ink:#f2f4f8; --ink-2:#aeb5c1; --ink-3:#6b7280;
+  --ink:#f2f4f8; --ink-2:#aeb5c1; --ink-3:#9aa3b2;   /* was #6b7280 (3.1–3.7:1 on the panels — unreadable small text); now ≥ 5.9:1 */
   --amber:#6d70e6; --amber-dim:#5052c4; --amber-glow:rgba(109,112,230,.08);
   --cyan:#6ea8e6; --cyan-dim:#3f6f9b;
   --crit:#e5484d; --high:#e0913a; --med:#c9a83f; --low:#5d92d6; --info:#6b7280; --ok:#43b98a;
@@ -33,7 +33,7 @@
   /* Tenable product look: cool white, navy ink, Tenable product-blue accent */
   --bg:#f4f7fb; --bg-2:#eaf0f8; --panel:#ffffff; --panel-2:#f3f7fc;
   --line:#dbe3ef; --line-soft:#e9eef6;
-  --ink:#16213d; --ink-2:#3c486a; --ink-3:#5b6580;
+  --ink:#16213d; --ink-2:#3c486a; --ink-3:#4b5675;   /* was #5b6580; now ≥ 6.3:1 on every light surface */
   --amber:#5457cc; --amber-dim:#6d70e6; --amber-glow:rgba(84,87,204,.05);
   --cyan:#2a7d9c; --cyan-dim:#5bb8c4;
   --crit:#c81e3f; --high:#d9772b; --med:#b7791f; --low:#2f6fb0; --info:#5b6580; --ok:#0b6b47;
@@ -313,3 +313,70 @@ body.navcollapsed .wrap{padding-left:calc(62px + 26px)}
 }
 /* pressed state for multi-step buttons (▶ Run all) */
 .btn.pressed{transform:translateY(1px) scale(.98);box-shadow:inset 0 2px 6px rgba(0,0,0,.35)}
+/* ===== 📊 At a glance — shared template (design C · headline + chips) =====================
+   Rendered by renderGlance(target, groups, opts) in console.js — see CONTRIBUTING.md
+   "At a glance". Pages must not restyle these classes; colours come from tokens only.
+   .glx            responsive grid of group panels
+   .glx-p          one group panel        .glx-k  its small uppercase group label
+   .glx-h          headline (big number <b> + .glx-l label, one line)   .glx-d  muted detail line
+   .glx-bar/.glx-lg stacked mini-bar + legend
+   .glx-cs/.glx-c  chips (number + label; left border = severity)
+   .glx-rk/.glx-r  ranked mini-bar list (label · bar · count)
+   .glx-sev-{crit|high|med|low|ok|info|none}   severity colour (sets --glx-rc)
+   .glx-zero       value is 0 → dimmed        .on  the active filter       .glx-act  clickable */
+:root{
+  --glx-title:#46cbcb;   /* group + ranked-list titles: a colour of their own (≥ 7.5:1 on the panel) */
+  --glx-s1:#8b8fe6; --glx-s2:#3fb0c9; --glx-s3:#a97fd6; --glx-s4:#43b98a;
+  --glx-s5:#e0913a; --glx-s6:#5d92d6; --glx-s7:#e0607e; --glx-s8:#c9a83f;
+}
+[data-theme="light"]{
+  --glx-title:#1f6a85;   /* ≥ 5.7:1 on --panel-2 */
+  --glx-s1:#5457cc; --glx-s2:#1f8fa8; --glx-s3:#8a4fc4; --glx-s4:#0b6b47;
+  --glx-s5:#c05a25; --glx-s6:#2f6fb0; --glx-s7:#b23a72; --glx-s8:#b7791f;
+}
+.glx{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr));gap:10px;margin-top:10px;min-width:0}
+.glx-p{border:1px solid var(--line);border-radius:12px;background:var(--panel-2);padding:9px 11px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.glx-k{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--glx-title);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.glx-h{display:flex;align-items:baseline;gap:8px;min-width:0;color:inherit;text-decoration:none;border-radius:8px}
+.glx-h b{font-size:22px;font-weight:800;line-height:1.15;color:var(--ink);font-variant-numeric:tabular-nums;flex:0 0 auto}
+.glx-h .glx-l{font-size:12px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.glx-h.glx-sev-crit b{color:var(--crit)}.glx-h.glx-sev-high b{color:var(--high)}.glx-h.glx-sev-med b{color:var(--med)}
+.glx-h.glx-sev-low b{color:var(--low)}.glx-h.glx-sev-ok b{color:var(--ok)}
+.glx-d{font-size:10.5px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:-4px;min-width:0}
+.glx-bar{display:flex;height:6px;border-radius:4px;overflow:hidden;background:var(--line-soft)}
+.glx-bar i{display:block;height:100%;background:var(--glx-c,var(--glx-s1))}
+.glx-bar i+i{box-shadow:inset 1px 0 0 var(--panel-2)}
+.glx-lg{display:flex;flex-wrap:wrap;gap:2px 10px;font-size:10.5px;color:var(--ink-3);margin-top:-2px}
+.glx-lg span{white-space:nowrap}.glx-lg span::before{content:"";display:inline-block;width:7px;height:7px;border-radius:2px;background:var(--glx-c,var(--glx-s1));margin-right:4px}
+.glx-lg b{color:var(--ink-2);font-weight:600;font-variant-numeric:tabular-nums}
+.glx-cs{display:flex;flex-wrap:wrap;gap:5px;min-width:0}
+.glx-c{--glx-rc:var(--line);display:inline-flex;align-items:baseline;gap:5px;max-width:100%;min-width:0;border:1px solid var(--line);border-left:3px solid var(--glx-rc);border-radius:7px;padding:2px 7px;font-size:11.5px;color:var(--ink-2);background:var(--panel);text-decoration:none}
+.glx-c b{color:var(--ink);font-size:12.5px;font-variant-numeric:tabular-nums;flex:0 0 auto}
+/* a long text value (a hostname) truncates instead of spilling out and hiding its label */
+.glx-c b,.glx-h b{min-width:0;max-width:60%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.glx-c .glx-l{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.glx-sev-crit{--glx-rc:var(--crit)}.glx-sev-high{--glx-rc:var(--high)}.glx-sev-med{--glx-rc:var(--med)}
+.glx-sev-low{--glx-rc:var(--low)}.glx-sev-ok{--glx-rc:var(--ok)}.glx-sev-info{--glx-rc:var(--info)}.glx-sev-none{--glx-rc:var(--line)}
+.glx-rk{display:flex;flex-direction:column;gap:3px;margin-top:4px;min-width:0}
+.glx-rt{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--glx-title)}
+.glx-r{display:grid;grid-template-columns:minmax(0,1fr) 54px minmax(22px,auto);gap:6px;align-items:center;font-size:11.5px;color:var(--ink-2);text-decoration:none;border-radius:6px}
+.glx-r .glx-l{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.glx-r .glx-t{height:5px;border-radius:3px;background:var(--line-soft);overflow:hidden}
+.glx-r .glx-t i{display:block;height:100%;background:var(--glx-rc,var(--accent));border-radius:3px}
+.glx-r.glx-sev-none .glx-t i{background:var(--accent)}
+.glx-r b{text-align:right;color:var(--ink);font-variant-numeric:tabular-nums}
+.glx-empty{font-size:11.5px;color:var(--ink-3)}
+.glx-zero{opacity:.68}   /* dimmed, but still readable */
+.glx-act{cursor:pointer}
+.glx-c.glx-act:hover{border-color:var(--accent);border-left-color:var(--glx-rc)}
+.glx-h.glx-act:hover .glx-l,.glx-r.glx-act:hover .glx-l{color:var(--accent)}
+.glx-act:focus{outline:none}
+.glx-act:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.glx .on{box-shadow:0 0 0 2px var(--accent)}
+.glx-flash{box-shadow:0 0 0 2px var(--accent);transition:box-shadow .3s}
+
+/* At a glance — value suffix + ranked footer */
+.glx .glx-v2{font-size:11px;font-weight:600;color:var(--ink-3);margin-left:-2px}
+.glx .glx-h .glx-v2{font-size:12.5px}
+.glx .glx-more{display:block;font-size:11px;color:var(--ink-3);margin-top:3px}
+.glx a.glx-more,.glx .glx-more.glx-act{color:var(--accent);cursor:pointer}

@@ -69,11 +69,12 @@ def _db_init():
             con.execute("CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, val TEXT)")
             # business case (human-readable ACR Change Reasons + note) — added in build 442; an
             # older tag_jobs.db gains the column in place (existing rows read as '').
-            try:
-                if "business_case" not in [r[1] for r in con.execute("PRAGMA table_info(jobs)")]:
-                    con.execute("ALTER TABLE jobs ADD COLUMN business_case TEXT")
-            except sqlite3.OperationalError:
-                pass                    # another process added it first (duplicate column)
+            for col in ("business_case", "output"):   # output: tail of navi's own output (build 450)
+                try:
+                    if col not in [r[1] for r in con.execute("PRAGMA table_info(jobs)")]:
+                        con.execute("ALTER TABLE jobs ADD COLUMN %s TEXT" % col)
+                except sqlite3.OperationalError:
+                    pass                # another process added it first (duplicate column)
             con.commit()
         finally:
             con.close()
@@ -122,16 +123,36 @@ def _db_insert(job):
          json.dumps(job.get("spec") or {}), job.get("business_case", "")), want="id")
 
 
+def _output_tail(res, n=3000):
+    """The last part of navi's stdout + stderr for one job — kept so a write that 'succeeded'
+    but did nothing can be diagnosed later. Secrets are scrubbed like every API response."""
+    if not isinstance(res, dict):
+        return ""
+    t = ((res.get("cmd") and ("$ " + str(res["cmd"]) + "\n")) or "") + str(res.get("stdout") or "")
+    if res.get("stderr"):
+        t += "\n[stderr]\n" + str(res["stderr"])
+    t = t.strip()
+    if not t:
+        return ""
+    try:
+        from core import redact
+        t = redact.text(t)
+    except Exception:
+        pass
+    return t[-n:]
+
+
 def _db_update(job):
-    _dbexec("UPDATE jobs SET status=?,ok=?,message=?,started=?,finished=? WHERE id=?",
+    _dbexec("UPDATE jobs SET status=?,ok=?,message=?,started=?,finished=?,output=? WHERE id=?",
             (job.get("status"), _b(job.get("ok")), job.get("message", ""),
-             job.get("started"), job.get("finished"), job.get("id")))
+             job.get("started"), job.get("finished"), job.get("output", ""), job.get("id")))
 
 
 def _db_all(limit=2000):
     rows = _dbexec(
         "SELECT id,status,ok,message,created,started,finished,op,agent,category,"
-        "value,selector,detail,spec,business_case FROM jobs ORDER BY id DESC LIMIT ?", (limit,), want="all")
+        "value,selector,detail,spec,business_case,(output IS NOT NULL AND output<>'') FROM jobs ORDER BY id DESC LIMIT ?",
+        (limit,), want="all")
     if rows is None:
         return None
     out = []
@@ -142,7 +163,7 @@ def _db_all(limit=2000):
                     "op": r[7], "agent": r[8], "category": r[9], "value": r[10],
                     "selector": r[11], "detail": r[12],
                     "spec": (json.loads(r[13]) if r[13] else {}),
-                    "business_case": r[14] or ""})
+                    "business_case": r[14] or "", "has_output": bool(r[15])})
     return out
 
 
@@ -246,6 +267,7 @@ def _run(idx):
                 job["status"] = "done" if ok else "error"
                 job["ok"] = ok
                 job["result"] = res
+                job["output"] = _output_tail(res)
                 job["message"] = (res.get("warning") or res.get("message")
                                   or res.get("stderr") or ("applied" if ok else "failed"))
                 job["finished"] = _now()
@@ -319,6 +341,19 @@ def record(meta, result) -> dict:
     return dict(job)
 
 
+def job_output(job_id) -> str:
+    """The tail of navi's output for one job ('' if none was kept)."""
+    try:
+        jid = int(job_id)
+    except (TypeError, ValueError):
+        return ""
+    rows = _dbexec("SELECT output FROM jobs WHERE id=?", (jid,), want="all")
+    if rows:
+        return rows[0][0] or ""
+    j = _get(jid)
+    return (j or {}).get("output", "") if j else ""
+
+
 def list_jobs() -> list:
     """Newest-first. Reads the durable sidecar (shared + restart-proof); falls back
     to this process's in-memory mirror only if the DB is unavailable."""
@@ -326,7 +361,9 @@ def list_jobs() -> list:
     if db is not None:
         return db
     with _LOCK:
-        jobs = [dict(j) for j in _JOBS]
+        jobs = [{k: v for k, v in j.items() if k not in ("output", "result")} for j in _JOBS]
+        for j, src in zip(jobs, _JOBS):
+            j["has_output"] = bool(src.get("output"))
     jobs.reverse()
     return jobs
 

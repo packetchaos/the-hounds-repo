@@ -369,6 +369,12 @@ def tag_jobs(p):
     return {"ok": True, "jobs": tagq.list_jobs(), "counts": tagq.counts()}, 200
 
 
+def tag_job_output(p):
+    """The tail of navi's own output for one tag job — why a write did (or didn't) land."""
+    from core import tagq
+    return {"ok": True, "id": p.get("id"), "output": tagq.job_output(p.get("id"))}, 200
+
+
 def tag_clear(p):
     """Drop finished jobs from the log (keeps queued/running)."""
     from core import tagq
@@ -564,4 +570,4 @@ ACTIONS = {"activity": activity, "asset": asset, "vuln": vuln, "cert_month": cer
            "schema": schema, "advanced_translate": advanced_translate,
            "navi_refresh": navi_refresh, "navi_optimize": navi_optimize,
            "tag_workers": tag_workers,
-           "tag_jobs": tag_jobs, "tag_clear": tag_clear, "tag_export": tag_export}
+           "tag_jobs": tag_jobs, "tag_job_output": tag_job_output, "tag_clear": tag_clear, "tag_export": tag_export}

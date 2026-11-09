@@ -52,14 +52,7 @@
   .pieLegend{display:flex;flex-wrap:wrap;gap:6px 14px;justify-content:center;margin-top:12px}
   .pieLegend span{font-size:13.5px;color:var(--ink);display:inline-flex;align-items:center;gap:6px}
   .pieLegend i{width:13px;height:13px;border-radius:3px;display:inline-block}
-  /* ---- 📊 At a glance (same metric cards as WAS / Compliance) ---- */
   .seclbl{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
-  .mkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(160px,100%),1fr));gap:10px;margin-top:10px}
-  .mk{display:block;border:1px solid var(--line);border-left:4px solid var(--rc,var(--line));border-radius:12px;padding:10px 12px;background:var(--panel-2);color:inherit;text-decoration:none;min-width:0}
-  .mk .v{font-size:22px;font-weight:800;color:var(--ink);line-height:1.1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.mk .l{font-size:11.5px;color:var(--mut);margin-top:2px}
-  .mk .u{font-size:11px;color:var(--accent);margin-top:4px}
-  a.mk:hover{border-color:var(--accent)} .mk.zero{opacity:.55}
-  .mhead{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 0}
   .covleg{display:flex;flex-wrap:wrap;gap:4px 12px;margin-top:6px;font-size:11.5px;color:var(--mut)}
   .covleg i{width:10px;height:10px;border-radius:3px;display:inline-block;margin-right:5px;vertical-align:middle}
   @media(max-width:600px){ #osPrompt{min-width:0!important;width:100%} #osExplorer .piePanel{flex-basis:100%!important} #osExplorer > div > div:last-child{flex:1 1 100%!important} }
@@ -79,7 +72,7 @@
 
   <section class="card" id="secMetrics" data-nav-label="At a glance" data-nav-icon="📊" style="display:none">
     <h2 style="margin:0 0 2px;font-size:17px">📊 At a glance</h2>
-    <p class="sub" style="margin:2px 0 0">Every card opens the matching place — a class's asset list on this page, the OS Signals / Ask sections, or the hound that acts on it (Argos, IoT Discovery, EOL, Exposure Score, Atlas).</p>
+    <p class="sub" style="margin:2px 0 0">Every number opens the matching place — a class's asset list on this page, the OS Signals / Ask sections, or the hound that acts on it (Argos, IoT Discovery, EOL, Exposure Score, Atlas).</p>
     <div id="glance"></div>
   </section>
 
@@ -193,7 +186,7 @@ function render(){
     +`<div class="cbar">${(DATA.classes||[]).map(c=>`<i style="width:${tot?(c.count/tot*100).toFixed(2):0}%;background:${col(c.cls)}" title="${esc(c.cls)}: ${fnum(c.count)}"></i>`).join('')}</div>`
     +`<div class="covleg">${(DATA.classes||[]).map(c=>`<span><i style="background:${col(c.cls)}"></i>${esc(c.cls)} · ${fnum(c.count)}</span>`).join('')}</div></div>`
     +(!DATA.tagged_any?`<div class="callbox" style="width:100%;border-left:3px solid var(--warn,var(--cx-e7c66b));margin-top:10px"><b style="color:var(--warn,var(--cx-e7c66b))">No classification tags yet.</b> Classification is driven only by tags. Use <b>📡 OS Signals</b> below to detect and tag your environment — everything fills in as you tag.</div>`:'');
-  renderGlance();
+  renderPageGlance();
   renderSignals();
   ['secMetrics','signalsCard','classCard'].forEach(id=>showSec(id));   // OS Signals + the class list
   document.getElementById('clsMeta').textContent='('+(DATA.classes||[]).length+')';
@@ -212,56 +205,58 @@ function render(){
   }).join('');
   document.querySelectorAll('#classes .clsrow').forEach(el=>el.onclick=()=>drill(el.dataset.c));
 }
-/* ---------- 📊 At a glance — every card links somewhere useful ---------- */
-function renderGlance(){
+/* ---------- 📊 At a glance — shared renderGlance template; every number links somewhere useful ---------- */
+function renderPageGlance(){
   const host=document.getElementById('glance'); if(!host||!DATA) return;
   const s=DATA.stats||{}, g=DATA.glance||{}, cls=n=>((DATA.classes||[]).find(c=>c.cls===n)||{}).count||0;
-  // o: {n, c (rail colour), t (title), u (where it goes), j (#section), cls (drill a class), href, prompt}
+  // o: {sev, t (title), u (where it goes), j (#section), cls (drill a class), href, prompt, zero}
+  const goto=(id,prompt)=>{ const t=document.getElementById(id);
+    if(prompt){ const ip=document.getElementById('osPrompt'); if(ip){ ip.value=prompt; } }   // pre-fill only — ✨ Ask stays explicit
+    if(t&&t.style.display!=='none') t.scrollIntoView({behavior:'smooth',block:'start'}); };
   const mk=(v,l,o)=>{ o=o||{};
-    const href=o.href||('#'+(o.cls?'drillCard':(o.j||'secMetrics')));
     const u=o.u||(o.cls?('🖥 '+o.cls+' assets ↓'):o.j?'↓':'→');
-    return `<a class="mk${o.n===0?' zero':''}" href="${esc(href)}"${o.j?` data-j="${esc(o.j)}"`:''}${o.cls?` data-cls="${esc(o.cls)}"`:''}${o.prompt?` data-prompt="${esc(o.prompt)}"`:''} style="--rc:${o.c||'var(--line)'}"${o.t?` title="${esc(o.t)}"`:''}><div class="v">${v}</div><div class="l">${esc(l)}</div><div class="u">${esc(u)}</div></a>`; };
-  const pend='<span class="spin"></span>';
+    const m={v, l, u, sev:o.sev||'none', t:o.t?o.t+' · '+u:undefined};
+    if(o.zero!=null) m.zero=o.zero;
+    if(o.href) m.href=o.href;
+    else if(o.cls) m.onClick=()=>drill(o.cls);
+    else if(o.prompt) m.onClick=()=>goto(o.j,o.prompt);
+    else m.href='#'+(o.j||'secMetrics');
+    return m; };
+  const pend='…';
   const sig=SIGRES&&SIGRES.ok?SIGRES:null, osb=OSBRES&&OSBRES.ok?OSBRES:null;
-  const lead=(x,what,c)=>x?mk(fnum(x.n),what+' in '+x.cls+' — the most of any class ('+fnum(x.of)+' assets)',{cls:x.cls,n:x.n,c:c})
-                          :mk('0',what+' on classified assets',{j:'classCard',n:0,c:c,u:'classes ↓'});
+  const lead=(x,what,sev)=>x?mk(fnum(x.n),what+' in '+x.cls+' — the most of any class ('+fnum(x.of)+' assets)',{cls:x.cls,sev})
+                            :mk('0',what+' on classified assets',{j:'classCard',sev,u:'classes ↓'});
   const ru=g.riskiest_unclassified;
-  let h='<div class="mhead">Classification</div><div class="mkpi">'
-    +mk(fnum(DATA.total),'assets in navi.db',{j:'classCard',n:DATA.total,c:'var(--accent)',u:'🗂 classes ↓'})
-    +mk(fnum(DATA.classified),'classified · '+(DATA.coverage_pct||0)+'% coverage',{j:'sunCard',n:DATA.classified,c:'var(--ok)',u:'🌐 Environment Explorer ↓',t:'Assets carrying a classification tag (or cloud metadata)'})
-    +mk(fnum(DATA.unclassified),'unclassified · '+(s.unclassified_pct||0)+'% — the worklist',{cls:'Unclassified',n:DATA.unclassified,c:'var(--crit)',u:'🖥 classify them by hand ↓'})
-    +mk(sig?fnum(sig.assets_with_signal):pend,'untagged assets with an OS / device signal',{j:'signalsCard',n:sig?sig.assets_with_signal:undefined,c:'var(--cx-a78bfa)',u:'📡 tag them in OS Signals ↓'})
-    +mk(fnum(g.cloud_detected),'cloud assets from navi metadata',{cls:'Cloud',n:g.cloud_detected||0,c:'#38bdf8',t:'AWS / Azure / GCP provenance columns — no tag needed'})
-    +'</div><div class="mhead">Class breakdown</div><div class="mkpi">'
-    +mk(fnum(s.servers),'servers',{j:'classCard',n:s.servers||0,c:'var(--cx-6ea8ff)',u:'🗂 classes ↓',t:'Windows Server, Linux, Network, Cloud, Virtual Infrastructure'})
-    +mk(fnum(s.workstations),'workstations',{j:'classCard',n:s.workstations||0,c:'var(--cx-e7c66b)',u:'🗂 classes ↓',t:'Windows (non-server) and macOS'})
-    +mk(fnum(s.network),'network devices',{cls:'Network',n:s.network||0,c:'var(--cx-3fb0c9)'})
-    +mk(fnum(s.iot),'IoT devices',{href:'/agents/iot_squad/page.html',n:s.iot||0,c:'var(--cx-a78bfa)',u:'🐾 IoT Discovery →',t:'Classified IoT — discover more with the IoT Discovery Squad'})
-    +mk(fnum(s.ot),'OT devices',{cls:'OT',n:s.ot||0,c:'var(--cx-f43f5e)'})
-    +mk(fnum(s.virtual),'hypervisors',{cls:'Virtual Infrastructure',n:s.virtual||0,c:'var(--ok)'})
-    +'</div><div class="mhead">Operating systems</div><div class="mkpi">'
-    +['Windows','Linux','macOS'].map(f=>mk(fnum(cls(f)),f+' (classified)',{cls:f,n:cls(f),c:col(f)})).join('')
-    +mk(osb?fnum(osb.total_detected):pend,'untagged OS hosts detected'+(osb&&osb.families&&osb.families.length?' · '+osb.families.map(f=>f.family).join(' / '):''),{j:'signalsCard',n:osb?osb.total_detected:undefined,c:'var(--accent)',u:'📡 OS pies ↓'})
-    +mk(fnum(g.eol_os),'on an unsupported / EOL OS · '+(g.eol_os_pct||0)+'% of assets',{href:'/agents/eol/page.html',n:g.eol_os||0,c:'var(--crit)',u:'🐾 EOL / Unsupported →',t:'Open unsupported / end-of-life operating-system findings (same selector as Charon)'})
-    +mk(fnum(g.low_conf),'low-confidence OS fingerprints (< '+(g.low_conf_threshold||70)+'%) · '+fnum(g.os_fingerprinted)+' fingerprinted',{j:'osAsk',n:g.low_conf||0,c:'var(--cx-e7c66b)',prompt:'tag all my assets by OS with a confidence of at least '+(g.low_conf_threshold||70)+'%',u:'✨ Ask with a '+(g.low_conf_threshold||70)+'% floor ↓',t:'Plugin 11936 confidence — tag only the confident ones'})
-    +'</div><div class="mhead">Risk &amp; ownership</div><div class="mkpi">'
-    +lead(g.top_kev_class,'KEV assets','var(--crit)')
-    +lead(g.top_crit_class,'assets with criticals','var(--high,var(--cx-fb923c))')
-    +mk(fnum(g.unclassified_kev),'unclassified assets with a CISA KEV',{cls:'Unclassified',n:g.unclassified_kev||0,c:'var(--crit)',t:'Exploited-in-the-wild exposure on assets nobody has named'})
-    +(ru?mk(esc(ru.hostname||ru.uuid),'riskiest unclassified asset · '+(ru.kev?'KEV':'critical'),{href:'/agents/argos/page.html?target='+encodeURIComponent(ru.uuid),c:'var(--crit)',u:'🐾 Argos deep-dive →'})
-        :mk('—','no unclassified asset with KEV / critical',{n:0,j:'classCard',u:'classes ↓'}))
-    +mk(fnum(g.critical_assets),'assets with open critical findings',{href:'/agents/fused_score/page.html',n:g.critical_assets||0,c:'var(--high,var(--cx-fb923c))',u:'🐾 Exposure Score →'})
-    +mk(fnum(g.unowned_classified),'classified assets without an Owner',{href:'/web/ownermap.html',n:g.unowned_classified||0,c:'var(--cx-e7c66b)',u:'🗺 Ownership Map →',t:'Classified → now assign owners in Atlas'})
-    +'</div>';
-  host.innerHTML=h;
+  renderGlance(host, [
+    {title:'Classification',
+     hero:mk(fnum(DATA.classified),'classified · '+(DATA.coverage_pct||0)+'% coverage',{j:'sunCard',sev:'ok',u:'🌐 Environment Explorer ↓',t:'Assets carrying a classification tag (or cloud metadata)'}),
+     bar:[{label:'Classified',value:DATA.classified||0,color:'ok'},{label:'Unclassified',value:DATA.unclassified||0,color:'crit'}], legend:false,
+     chips:[mk(fnum(DATA.total),'assets in navi.db',{j:'classCard',sev:'info',u:'🗂 classes ↓'}),
+            mk(fnum(DATA.unclassified),'unclassified · '+(s.unclassified_pct||0)+'% — the worklist',{cls:'Unclassified',sev:'crit',u:'🖥 classify them by hand ↓'}),
+            mk(sig?fnum(sig.assets_with_signal):pend,'untagged assets with an OS / device signal',{j:'signalsCard',sev:'info',u:'📡 tag them in OS Signals ↓',zero:sig?undefined:false}),
+            mk(fnum(g.cloud_detected),'cloud assets from navi metadata',{cls:'Cloud',sev:'info',t:'AWS / Azure / GCP provenance columns — no tag needed'})]},
+    {title:'Class breakdown',
+     hero:mk(fnum(s.servers),'servers',{j:'classCard',sev:'info',u:'🗂 classes ↓',t:'Windows Server, Linux, Network, Cloud, Virtual Infrastructure'}),
+     chips:[mk(fnum(s.workstations),'workstations',{j:'classCard',u:'🗂 classes ↓',t:'Windows (non-server) and macOS'}),
+            mk(fnum(s.network),'network devices',{cls:'Network'}),
+            mk(fnum(s.iot),'IoT devices',{href:'/agents/iot_squad/page.html',u:'🐾 IoT Discovery →',t:'Classified IoT — discover more with the IoT Discovery Squad'}),
+            mk(fnum(s.ot),'OT devices',{cls:'OT'}),
+            mk(fnum(s.virtual),'hypervisors',{cls:'Virtual Infrastructure'})]},
+    {title:'Operating systems',
+     hero:mk(fnum(g.eol_os),'on an unsupported / EOL OS · '+(g.eol_os_pct||0)+'% of assets',{href:'/agents/eol/page.html',sev:'crit',u:'🐾 EOL / Unsupported →',t:'Open unsupported / end-of-life operating-system findings (same selector as Charon)'}),
+     chips:['Windows','Linux','macOS'].map(f=>mk(fnum(cls(f)),f+' (classified)',{cls:f}))
+       .concat([mk(osb?fnum(osb.total_detected):pend,'untagged OS hosts detected'+(osb&&osb.families&&osb.families.length?' · '+osb.families.map(f=>f.family).join(' / '):''),{j:'signalsCard',sev:'info',u:'📡 OS pies ↓',zero:osb?undefined:false}),
+                mk(fnum(g.low_conf),'low-confidence OS fingerprints (< '+(g.low_conf_threshold||70)+'%) · '+fnum(g.os_fingerprinted)+' fingerprinted',{j:'osAsk',sev:'med',prompt:'tag all my assets by OS with a confidence of at least '+(g.low_conf_threshold||70)+'%',u:'✨ Ask with a '+(g.low_conf_threshold||70)+'% floor ↓',t:'Plugin 11936 confidence — tag only the confident ones'})])},
+    {title:'Risk & ownership',
+     hero:mk(fnum(g.unclassified_kev),'unclassified assets with a CISA KEV',{cls:'Unclassified',sev:'crit',t:'Exploited-in-the-wild exposure on assets nobody has named'}),
+     chips:[lead(g.top_kev_class,'KEV assets','crit'),
+            lead(g.top_crit_class,'assets with criticals','high'),
+            ru?mk(ru.hostname||ru.uuid,'riskiest unclassified asset · '+(ru.kev?'KEV':'critical'),{href:'/agents/argos/page.html?target='+encodeURIComponent(ru.uuid),sev:'crit',u:'🐾 Argos deep-dive →',zero:false})
+              :mk('—','no unclassified asset with KEV / critical',{j:'classCard',u:'classes ↓',zero:true}),
+            mk(fnum(g.critical_assets),'assets with open critical findings',{href:'/agents/fused_score/page.html',sev:'high',u:'🐾 Exposure Score →'}),
+            mk(fnum(g.unowned_classified),'classified assets without an Owner',{href:'/web/ownermap.html',sev:'med',u:'🗺 Ownership Map →',t:'Classified → now assign owners in Atlas'})]}
+  ]);
 }
-document.getElementById('glance').addEventListener('click',e=>{
-  const a=e.target.closest&&e.target.closest('a.mk'); if(!a) return;
-  if(a.dataset.cls){ e.preventDefault(); drill(a.dataset.cls); return; }
-  if(a.dataset.j){ e.preventDefault(); const t=document.getElementById(a.dataset.j);
-    if(a.dataset.prompt){ const ip=document.getElementById('osPrompt'); if(ip){ ip.value=a.dataset.prompt; } }   // pre-fill only — ✨ Ask stays explicit
-    if(t&&t.style.display!=='none') t.scrollIntoView({behavior:'smooth',block:'start'}); }
-});
 function drill(cls){
   CUR=cls;
   const c=(DATA.classes||[]).find(x=>x.cls===cls)||{};
@@ -631,7 +626,7 @@ async function loadOsBreakdown(){
   a.innerHTML='<div class="pieGrey">detecting…</div>';
   let o; try{ o=await API.post('os_breakdown'); }catch(e){ o={ok:false}; }
   OSFAM=(o&&o.ok&&o.result&&o.result.families)||[]; OSSEL=null;
-  OSBRES=(o&&o.ok&&o.result)||{ok:false}; renderGlance();
+  OSBRES=(o&&o.ok&&o.result)||{ok:false}; renderPageGlance();
   const exp=document.getElementById('osExplorer');
   if(!OSFAM.length){ exp.querySelector('#osPieA').innerHTML='<div class="pieGrey" style="opacity:.9">No OS fingerprints on the untagged set.<br><span class="sub">Reads OS-ID plugin output (11936), credentialed software-enum, and the OS field. Run <span class="mono">navi update</span> if this looks empty.</span></div>';
     document.getElementById('osPieB').innerHTML=''; document.getElementById('osFocus').innerHTML=''; document.getElementById('osTitleB').textContent='Version / type'; return; }
@@ -703,8 +698,8 @@ let COHORTS=[];
 async function renderOtherSignals(){
   const body=document.getElementById('sigBody'); body.innerHTML='<span class="spin"></span> detecting…';
   let o; try{ o=await API.post('signals'); }catch(e){ o={ok:false}; }
-  if(!o||!o.ok||!o.result||o.result.ok===false){ body.innerHTML='<span class="sub">detection failed'+(o&&o.result&&o.result.error?' — '+esc(o.result.error):'')+'</span>'; SIGRES={ok:false}; renderGlance(); return; }
-  SIGRES=o.result; renderGlance(); setNavCount('signalsCard', fnum(o.result.assets_with_signal||0));
+  if(!o||!o.ok||!o.result||o.result.ok===false){ body.innerHTML='<span class="sub">detection failed'+(o&&o.result&&o.result.error?' — '+esc(o.result.error):'')+'</span>'; SIGRES={ok:false}; renderPageGlance(); return; }
+  SIGRES=o.result; renderPageGlance(); setNavCount('signalsCard', fnum(o.result.assets_with_signal||0));
   COHORTS=(o.result.cohorts||[]).filter(c=>c.facet!=='OS');   // OS handled by the pies above
   document.getElementById('otherMeta').textContent='('+COHORTS.length+')';
   if(!COHORTS.length){ body.innerHTML='<p class="sub">No non-OS device signals on the untagged set.</p>'; return; }

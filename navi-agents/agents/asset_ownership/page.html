@@ -4,14 +4,6 @@
 <title>Asset Ownership · Navi Agents</title>
 <link rel="stylesheet" href="/static/console.css"/>
 <style>
-  /* metric cards (same look as WAS / Compliance) — each opens a filter, a section or another hound */
-  .mkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr));gap:10px;margin-top:10px}
-  .mk{display:block;border:1px solid var(--line);border-left:4px solid var(--rc,var(--line));border-radius:12px;padding:10px 12px;background:var(--panel-2);color:inherit;text-decoration:none}
-  .mk .v{font-size:22px;font-weight:800;color:var(--ink);line-height:1.1}.mk .v small{font-size:12px;font-weight:600;color:var(--mut)}
-  .mk .l{font-size:11.5px;color:var(--mut);margin-top:2px}
-  .mk .u{font-size:11px;color:var(--accent);margin-top:4px}
-  a.mk:hover{border-color:var(--accent)} .mk.zero{opacity:.55}
-  .mhead{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 0}
   .seclbl{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
   .setupcard{text-align:center;padding:26px 18px}.setupcard .big{font-size:15px;font-weight:700;margin-bottom:6px}
   .applink{color:var(--accent);text-decoration:none;font-weight:600;cursor:pointer}.applink:hover{text-decoration:underline}
@@ -47,7 +39,7 @@
   <!-- At a glance -->
   <section class="card" id="secMetrics" data-nav="At a glance" data-nav-icon="📊" style="display:none">
     <h2 style="margin:0 0 2px;font-size:17px">📊 At a glance</h2>
-    <p class="sub" style="margin:2px 0 0">Every card opens what it counts — a filter on the <b>per-asset table</b> below (assign an owner right there), a section of this page, or the hound that owns the data (<b>Exposure Routes</b>, <b>Argos</b>, <b>Exposure Score</b>, <b>SLA Adherence</b>).</p>
+    <p class="sub" style="margin:2px 0 0">Every number opens what it counts — a filter on the <b>per-asset table</b> below (assign an owner right there), a section of this page, or the hound that owns the data (<b>Exposure Routes</b>, <b>Argos</b>, <b>Exposure Score</b>, <b>SLA Adherence</b>).</p>
     <div id="glance"></div>
   </section>
 
@@ -169,55 +161,54 @@ function jumpTo(id){ const t=document.getElementById(id); if(t) t.scrollIntoView
 
 /* ---- 📊 At a glance ---- */
 const fnum=n=>(n==null?'—':Number(n).toLocaleString());
-const sm=t=>' <small>'+esc(t)+'</small>';
-function renderGlance(k){
-  // o.s = table scope (filters the per-asset table) · o.j = section on this page · o.h = another page
+function renderPageGlance(k){
+  // shared renderGlance template. o.s = table scope (filters the per-asset table) · o.j = section on this page · o.h = another page
   const mk=(v,l,o)=>{ o=o||{};
-    const href=o.h||('#'+(o.j||'tblCard'));
     const u=o.u||(o.s?'filter the table ↓':'jump to it ↓');
-    const data=(o.s?' data-s="'+esc(o.s)+'"':'')+(o.sort?' data-sort="'+esc(o.sort)+'"':'')+(!o.h?' data-j="'+esc(o.j||'tblCard')+'"':'');
-    return '<a class="mk'+(o.n===0?' zero':'')+'" href="'+esc(href)+'"'+data+' style="--rc:'+(o.c||'var(--line)')+'"'+(o.t?' title="'+esc(o.t)+'"':'')+'>'+
-      '<div class="v">'+v+'</div><div class="l">'+esc(l)+'</div><div class="u">'+u+'</div></a>'; };
-  const P=x=>(x==null?'—':esc(x)+'%');
+    const m={v, l, u, sev:o.sev||'none', t:o.t?o.t+' · '+u:undefined};
+    if(o.zero!=null) m.zero=o.zero; else if(o.n!==undefined) m.zero=o.n===0; else m.zero=false;
+    if(o.h) m.href=o.h;
+    else if(o.s) m.onClick=()=>{ setScope(o.s,{sort:o.sort||null,clearText:true}); jumpTo(o.j||'tblCard'); };
+    else m.href='#'+(o.j||'tblCard');
+    return m; };
+  const P=x=>(x==null?'—':x+'%');
+  const bad=(n,sev)=>n?sev:'ok';
   const hv=!!k.has_vulns, tu=k.top_unowned;
-  let h='<div class="mhead">Coverage</div><div class="mkpi">'
-    +mk(fnum(k.assets),'assets in navi.db',{s:'all',n:k.assets,c:'var(--accent)',u:'all assets ↓',t:fnum(k.with_surface)+' sit on an exposure route or path'})
-    +mk(fnum(k.owned)+sm(P(k.owned_pct)),'owned at any layer',{s:'owned',n:k.owned,c:'var(--ok)',t:'Business Owner, route/path Owner or a single Asset Owner'})
-    +mk(fnum(k.no_owner)+sm(P(k.no_owner_pct)),'no owner at any layer',{s:'noowner',n:k.no_owner,c:k.no_owner?'var(--crit)':'var(--ok)',u:'assign owners ↓'})
-    +mk(fnum(k.fully_claimed)+sm(P(k.fully_claimed_pct)),'fully claimed · every route & path',{s:'full',n:k.fully_claimed,c:'var(--ok)',t:'of the '+fnum(k.with_surface)+' assets on the exposure surface'})
-    +mk(P(k.avg_claimed_pct),'average claimed per asset',{s:'all',sort:'claimed',c:'var(--accent)',u:'least-claimed first ↓'})
-    +mk(fnum(k.unclaimed)+sm(P(k.unclaimed_pct)),'unclaimed on the surface',{s:'unclaimed',n:k.unclaimed,c:k.unclaimed?'var(--crit)':'var(--ok)',t:'Exposed (routes/paths) with no owner and no disposition'})
-    +'</div><div class="mhead">Ownership layers</div><div class="mkpi">'
-    +mk(fnum(k.business_owned)+sm(P(k.business_owned_pct)),'with a Business Owner',{s:'biz',n:k.business_owned,c:'var(--accent)',t:'Business leaders accountable for groups of assets'})
-    +mk(fnum(k.no_business)+sm(P(k.no_business_pct)),'no Business Owner',{s:'nobiz',n:k.no_business,c:k.no_business?'var(--high)':'var(--ok)',u:'assign one with ✨ Ask ↓'})
-    +mk(fnum(k.asset_owned),'single Asset Owner',{s:'asset',n:k.asset_owned,c:'var(--accent)',t:'One owner for the whole asset — closes it at 100%'})
-    +mk(fnum(k.asset_owned_complete)+sm('/ '+fnum(k.asset_owned_remainder)+' rest'),'Asset Owner · everything / the rest',{s:k.asset_owned_remainder&&!k.asset_owned_complete?'remainder':'complete',n:k.asset_owned,c:'var(--line)',t:'complete mode owns every route & path; remainder mode only what was unowned'})
-    +mk(fnum(k.tech_owned),'with route/path owners',{h:'/agents/exproute/page.html',n:k.tech_owned,c:'var(--accent)',u:'🧭 Exposure Routes (Atlas) →',t:'Technology owners on routes & paths (Owner tags) — assigned in Atlas'})
-    +mk(fnum(k.owners_distinct),'distinct owners',{j:'secOwners',n:k.owners_distinct,c:'var(--accent)',u:'owners by asset count ↓'})
-    +'</div><div class="mhead">Routes &amp; paths</div><div class="mkpi">'
-    +mk(fnum(k.surface_items),'route/path items across assets',{h:'/agents/exproute/page.html',n:k.surface_items,c:'var(--line)',u:'🧭 Exposure Routes →'})
-    +mk(P(k.surface_handled_pct),'handled — owned, dispositioned or closed',{h:'/agents/exproute/page.html',n:k.surface_handled,c:'var(--ok)',u:'🧭 Exposure Routes →',t:fnum(k.surface_handled)+' of '+fnum(k.surface_items)+' items'})
-    +mk(fnum(k.surface_owned),'items with an owner tag',{h:'/agents/exproute/page.html',n:k.surface_owned,c:'var(--accent)',u:'🧭 Exposure Routes →'})
-    +mk(fnum(k.mitigated)+sm('/ '+fnum(k.accepted)+' / '+fnum(k.ignored)),'mitigated / accepted / ignored',{h:'/agents/exproute/page.html',n:(k.mitigated||0)+(k.accepted||0)+(k.ignored||0),c:'var(--line)',u:'🧭 Exposure Routes →',t:'Route/path dispositions — they count as handled'})
-    +'</div><div class="mhead">Risk without an owner</div><div class="mkpi">'
-    +mk(fnum(k.crown),'crown jewels · ACR ≥ '+k.crown_acr,{j:'cjCard',n:k.crown,c:'#e6c34a',u:'what the Hounds know ↓'})
-    +mk(fnum(k.crown_no_owner),'crown jewels with no owner',{s:'crownnone',n:k.crown_no_owner,c:k.crown_no_owner?'var(--crit)':'var(--ok)',u:'assign owners ↓'})
-    +mk(fnum(k.blind),'blind spots · unclaimed crown / ACR ≥ 7',{j:'blindCard',n:k.blind,c:k.blind?'var(--crit)':'var(--ok)',u:'claim them ↓'})
-    +(hv?mk(fnum(k.unowned_crit),'no owner · open critical findings',{s:'ucrit',n:k.unowned_crit,c:k.unowned_crit?'var(--crit)':'var(--ok)',u:'assign owners ↓'})
-        :mk('—','no owner · open critical findings',{n:0,u:'no vulns table in navi.db'}))
-    +(hv?mk(fnum(k.unowned_kev),'no owner · CISA KEV finding',{s:'ukev',n:k.unowned_kev,c:k.unowned_kev?'var(--crit)':'var(--ok)',u:'assign owners ↓',t:fnum(k.kev_finding_assets)+' assets have a known-exploited finding'})
-        :mk('—','no owner · CISA KEV finding',{n:0,u:'no vulns table in navi.db'}))
-    +(hv?mk(fnum(k.unowned_crit_findings),'critical findings nobody owns',{h:'/agents/sla/page.html',n:k.unowned_crit_findings,c:k.unowned_crit_findings?'var(--high)':'var(--ok)',u:'⏱ who fixes them? SLA Adherence →'})
-        :mk('—','critical findings nobody owns',{h:'/agents/sla/page.html',n:0,u:'⏱ SLA Adherence →'}))
-    +(tu?mk(esc(String(tu.hostname||'').trim()||tu.ip||String(tu.uuid).slice(0,12))+sm('ACR '+(tu.acr==null?'—':tu.acr)),'highest-ACR asset with no owner',{h:'/agents/argos/page.html?target='+encodeURIComponent(tu.uuid),c:'var(--high)',u:'🔦 open in Argos →'})
-        :mk('—','highest-ACR asset with no owner',{h:'/agents/argos/page.html',n:0,u:'every asset has an owner · 🔦 Argos →'}))
-    +mk(fnum(k.no_owner),'unowned assets weigh in the Exposure Score',{h:'/agents/fused_score/page.html',n:k.no_owner,c:'var(--accent)',u:'🎯 Exposure Score →',t:'Nemesis ranks unowned exposure higher — owning them lowers it'})
-    +mk(fnum(k.blind_no_signal),'no Hound signal · nothing known',{s:'nosig',n:k.blind_no_signal,c:'var(--line)',t:'No non-ownership tags — the pack has not tagged these yet'})
-    +'</div>';
-  const g=document.getElementById('glance'); g.innerHTML=h;
-  g.querySelectorAll('a.mk[data-j]').forEach(x=>x.onclick=e=>{ e.preventDefault();
-    if(x.dataset.s) setScope(x.dataset.s,{sort:x.dataset.sort||null,clearText:true});
-    jumpTo(x.dataset.j); });
+  const noV=l=>mk('—',l,{n:0,u:'no vulns table in navi.db'});
+  renderGlance('glance', [
+    {title:'Coverage',
+     hero:mk(fnum(k.owned),'owned at any layer · '+P(k.owned_pct),{s:'owned',n:k.owned,sev:'ok',t:'Business Owner, route/path Owner or a single Asset Owner'}),
+     bar:[{label:'Owned',value:k.owned||0,color:'ok'},{label:'No owner',value:k.no_owner||0,color:'crit'}], legend:false,
+     chips:[mk(fnum(k.assets),'assets in navi.db',{s:'all',n:k.assets,sev:'info',u:'all assets ↓',t:fnum(k.with_surface)+' sit on an exposure route or path'}),
+            mk(fnum(k.no_owner),'no owner at any layer · '+P(k.no_owner_pct),{s:'noowner',n:k.no_owner,sev:bad(k.no_owner,'crit'),u:'assign owners ↓'}),
+            mk(fnum(k.fully_claimed),'fully claimed · every route & path · '+P(k.fully_claimed_pct),{s:'full',n:k.fully_claimed,sev:'ok',t:'of the '+fnum(k.with_surface)+' assets on the exposure surface'}),
+            mk(P(k.avg_claimed_pct),'average claimed per asset',{s:'all',sort:'claimed',sev:'info',u:'least-claimed first ↓'}),
+            mk(fnum(k.unclaimed),'unclaimed on the surface · '+P(k.unclaimed_pct),{s:'unclaimed',n:k.unclaimed,sev:bad(k.unclaimed,'crit'),t:'Exposed (routes/paths) with no owner and no disposition'})]},
+    {title:'Ownership layers',
+     hero:mk(fnum(k.business_owned),'with a Business Owner · '+P(k.business_owned_pct),{s:'biz',n:k.business_owned,sev:'info',t:'Business leaders accountable for groups of assets'}),
+     chips:[mk(fnum(k.no_business),'no Business Owner · '+P(k.no_business_pct),{s:'nobiz',n:k.no_business,sev:bad(k.no_business,'high'),u:'assign one with ✨ Ask ↓'}),
+            mk(fnum(k.asset_owned),'single Asset Owner',{s:'asset',n:k.asset_owned,sev:'info',t:'One owner for the whole asset — closes it at 100%'}),
+            mk(fnum(k.asset_owned_complete)+' / '+fnum(k.asset_owned_remainder)+' rest','Asset Owner · everything / the rest',{s:k.asset_owned_remainder&&!k.asset_owned_complete?'remainder':'complete',n:k.asset_owned,t:'complete mode owns every route & path; remainder mode only what was unowned'}),
+            mk(fnum(k.tech_owned),'with route/path owners',{h:'/agents/exproute/page.html',n:k.tech_owned,sev:'info',u:'🧭 Exposure Routes (Atlas) →',t:'Technology owners on routes & paths (Owner tags) — assigned in Atlas'}),
+            mk(fnum(k.owners_distinct),'distinct owners',{j:'secOwners',n:k.owners_distinct,sev:'info',u:'owners by asset count ↓'})]},
+    {title:'Routes & paths',
+     hero:mk(P(k.surface_handled_pct),'handled — owned, dispositioned or closed',{h:'/agents/exproute/page.html',n:k.surface_handled,sev:'ok',u:'🧭 Exposure Routes →',t:fnum(k.surface_handled)+' of '+fnum(k.surface_items)+' items'}),
+     chips:[mk(fnum(k.surface_items),'route/path items across assets',{h:'/agents/exproute/page.html',n:k.surface_items,u:'🧭 Exposure Routes →'}),
+            mk(fnum(k.surface_owned),'items with an owner tag',{h:'/agents/exproute/page.html',n:k.surface_owned,sev:'info',u:'🧭 Exposure Routes →'}),
+            mk(fnum(k.mitigated)+' / '+fnum(k.accepted)+' / '+fnum(k.ignored),'mitigated / accepted / ignored',{h:'/agents/exproute/page.html',n:(k.mitigated||0)+(k.accepted||0)+(k.ignored||0),u:'🧭 Exposure Routes →',t:'Route/path dispositions — they count as handled'})]},
+    {title:'Risk without an owner',
+     hero:mk(fnum(k.blind),'blind spots · unclaimed crown / ACR ≥ 7',{j:'blindCard',n:k.blind,sev:bad(k.blind,'crit'),u:'claim them ↓'}),
+     chips:[mk(fnum(k.crown),'crown jewels · ACR ≥ '+k.crown_acr,{j:'cjCard',n:k.crown,sev:'med',u:'what the Hounds know ↓'}),
+            mk(fnum(k.crown_no_owner),'crown jewels with no owner',{s:'crownnone',n:k.crown_no_owner,sev:bad(k.crown_no_owner,'crit'),u:'assign owners ↓'}),
+            hv?mk(fnum(k.unowned_crit),'no owner · open critical findings',{s:'ucrit',n:k.unowned_crit,sev:bad(k.unowned_crit,'crit'),u:'assign owners ↓'}):noV('no owner · open critical findings'),
+            hv?mk(fnum(k.unowned_kev),'no owner · CISA KEV finding',{s:'ukev',n:k.unowned_kev,sev:bad(k.unowned_kev,'crit'),u:'assign owners ↓',t:fnum(k.kev_finding_assets)+' assets have a known-exploited finding'}):noV('no owner · CISA KEV finding'),
+            hv?mk(fnum(k.unowned_crit_findings),'critical findings nobody owns',{h:'/agents/sla/page.html',n:k.unowned_crit_findings,sev:bad(k.unowned_crit_findings,'high'),u:'⏱ who fixes them? SLA Adherence →'})
+              :mk('—','critical findings nobody owns',{h:'/agents/sla/page.html',n:0,u:'⏱ SLA Adherence →'}),
+            tu?mk(String(tu.hostname||'').trim()||tu.ip||String(tu.uuid).slice(0,12),'highest-ACR asset with no owner · ACR '+(tu.acr==null?'—':tu.acr),{h:'/agents/argos/page.html?target='+encodeURIComponent(tu.uuid),sev:'high',u:'🔦 open in Argos →'})
+              :mk('—','highest-ACR asset with no owner',{h:'/agents/argos/page.html',n:0,u:'every asset has an owner · 🔦 Argos →'}),
+            mk(fnum(k.no_owner),'unowned assets weigh in the Exposure Score',{h:'/agents/fused_score/page.html',n:k.no_owner,sev:'info',u:'🎯 Exposure Score →',t:'Nemesis ranks unowned exposure higher — owning them lowers it'}),
+            mk(fnum(k.blind_no_signal),'no Hound signal · nothing known',{s:'nosig',n:k.blind_no_signal,t:'No non-ownership tags — the pack has not tagged these yet'})]}
+  ]);
 }
 
 /* ---- 👥 Owners by asset count ---- */
@@ -407,7 +398,7 @@ async function load(){
   const k=res.kpi||{};
   document.getElementById('idleCard').style.display='none';
   ['secMetrics','nlCard','cjCard','blindCard','secOwners','tblCard'].forEach(id=>document.getElementById(id).style.display='block');
-  renderGlance(k);
+  renderPageGlance(k);
   renderCrown(res.crown_jewels||[], k);
   renderBlind(res.blind_spots||[]);
   renderOwners(res.owners||[], res.owners_total||0);

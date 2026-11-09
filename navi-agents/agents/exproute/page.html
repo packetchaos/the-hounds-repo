@@ -4,19 +4,6 @@
 <title>Exposure Routes · Navi Agents</title>
 <link rel="stylesheet" href="/static/console.css"/>
 <style>.fld{padding:8px;border-radius:7px;background:var(--bg-2);color:var(--ink);border:1px solid var(--line)}.tagval{color:var(--accent);font-weight:600}
-  .mkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin-top:10px}
-  .mk{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--panel-2)}
-  .mk .v{font-size:22px;font-weight:800;color:var(--ink);line-height:1.1}.mk .v small{font-size:13px;font-weight:600;color:var(--mut)}
-  .mk .l{font-size:11.5px;color:var(--mut);margin-top:2px}
-  .mk .u{font-size:11.5px;color:var(--ink-2,var(--ink));margin-top:4px}.mk .u b{color:var(--ink)}
-  .mk[data-j]{cursor:pointer;border-left:4px solid var(--rc,var(--line))}.mk[data-j]:hover{border-color:var(--accent)}
-  .mhead{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 0}
-  .glance{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-top:10px}
-  .gl{border:1px solid var(--line);border-radius:12px;padding:10px 12px}.gl h4{margin:0 0 6px;font-size:12.5px}
-  .sbar{display:flex;height:16px;border-radius:6px;overflow:hidden;background:var(--panel-2)}
-  .sbar span{display:block;height:100%}.sbar span+span{border-left:2px solid var(--panel,#fff)}
-  .slg{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11.5px;margin-top:6px;color:var(--ink-2,var(--ink))}
-  .slg i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px}.slg b{font-family:var(--mono)}
   #omFrame{width:100%;border:0;display:block;min-height:420px;background:transparent}</style>
 </head><body data-page-cache="off">
 <div class="wrap">
@@ -29,8 +16,11 @@
         <button id="load" class="btn run sm" data-run title="Load owners, routes and paths, ownership coverage, the Sankey and the Ownership Map">▶ Run</button></span></div>
     <div id="flash" class="flash"></div>
     <div id="snapMeta" class="sub" style="font-size:11.5px;margin-top:4px"></div>
+  </section>
+
+  <section class="card" id="secGlance" data-nav="At a glance" data-nav-icon="📊">
+    <h2 style="margin:0 0 2px;font-size:17px">📊 At a glance</h2>
     <div id="kpi"><div class="setupcard"><div class="big">Press ▶ Run</div><p class="sub">Who owns each exposure route and path, where the <b>Ownerless Risk</b> is, how much of it is high-VPR, and how evenly the work is spread — with the Sankey and the Ownership Map built from the same run.</p></div></div>
-    <div id="glance"></div>
   </section>
 
   <section class="card" id="mapCard" style="display:none" data-nav="Ask · map owners" data-nav-icon="✨">
@@ -188,7 +178,6 @@ function omFeed(){
   wrap.appendChild(f);
 }
 /* ===== Metrics — from the load counts, coverage and the ownership map ===== */
-const ST_C={owned:'#30a46c',partial:'#e7c66b',unowned:'#f43f5e',mitigated:'#7cc48a',accepted:'#6ea8ff',ignored:'#8a99ad'};
 const VPR_B=[['critical (9–10)',9,99,'var(--crit)'],['high (7–8.9)',7,9,'#e0913a'],['medium (4–6.9)',4,7,'#e7c66b'],['low (< 4)',0,4,'#7cc48a']];
 function renderMetrics(){
   if(!DATA) return;
@@ -204,43 +193,43 @@ function renderMetrics(){
   const load=((SNK&&SNK.owner_load)||[]).slice().sort((a,b)=>b.assets-a.assets), loadTot=load.reduce((s,x)=>s+(x.assets||0),0);
   const top=load[0], items=load.reduce((s,x)=>s+(x.routes||0)+(x.paths||0),0);
   const rf=v.route_findings||0, rr=rf>(v.total_routes||0)?Math.round((1-(v.total_routes||0)/rf)*100):0;
-  const card=(val,l,u,o)=>{o=o||{}; return `<div class="mk"${o.j?` data-j="${o.j}"`:''} style="${o.c?'--rc:'+o.c:''}"${o.t?` title="${esc(o.t)}"`:''}><div class="v">${val}</div><div class="l">${l}</div>${u?`<div class="u">${u}</div>`:''}</div>`;};
-  const S=!!SNK;
-  document.getElementById('kpi').innerHTML=
-    '<div class="mhead">Attack surface — click a card to jump to it</div><div class="mkpi">'+
-    card(N(routes),'exposure routes', S?`<b>${N(k.routes_with_paths)}</b> with paths · <b>${N(k.routes_no_paths)}</b> without`:'', {j:'snkCard',c:'var(--accent)'})+
-    card(N(paths),'distinct paths', S?`<b>${N(k.paths_covered)}</b> under a route · <b>${N(k.paths_orphan)}</b> orphan — need a direct owner`:'', {j:'secMap',c:'var(--accent)'})+
-    card(N(k.asset_scope!=null?k.asset_scope:v.assets_with_routes),'assets in scope', v.avg_routes!=null?`<b>${v.avg_routes}</b> routes per asset on average`:'', {c:'var(--accent)'})+
-    card(rr?rr+'%':'—','fewer items to own', rf?`<b>${N(rf)}</b> route findings → <b>${N(v.total_routes)}</b> routes`:'own routes, not findings', {j:'coverCard',c:'#30a46c',t:'one owner decision per route covers all of its findings'})+
-    '</div><div class="mhead">Ownership</div><div class="mkpi">'+
-    card(S?pc(k.routes_owned,k.routes)+'%':'—','routes fully owned', S?`<b>${N(k.routes_owned)}</b> owned · <b>${N(k.routes_partial)}</b> partial · <b>${N(k.routes_unowned)}</b> none`:'', {j:'snkCard',c:ST_C.owned})+
-    card(S?pc(k.paths_owned,k.paths)+'%':'—','paths owned', S?`<b>${N(k.paths_owned)}</b> owned · <b>${N(k.paths_via_route)}</b> via their route`:'', {j:'secMap',c:ST_C.owned})+
-    card(S?N(k.unowned_assets):'—','Ownerless Risk — assets', S?`no owner on the routes/paths they sit on · of <b>${N(k.asset_scope)}</b>`:'', {j:'snkCard',c:'var(--crit)',t:'the ⛔ Unassigned node on the Sankey'})+
-    card(v.assets_with_routes?pc(v.closed,v.assets_with_routes)+'%':'—','assets closed', `<b>${N(v.closed)}</b> of <b>${N(v.assets_with_routes)}</b> — every route they sit on has an owner`, {j:'coverCard',c:'#a78bfa'})+
-    '</div><div class="mhead">Risk without an owner</div><div class="mkpi">'+
-    card(S?N(hi.length):'—','high-VPR routes / paths without an owner', S?`VPR ≥ 7 · <b>${N(hiAssets)}</b> unowned assets behind them`:'', {j:'secMap',c:'#e0913a',t:'unowned or partially owned; the highest VPR on each route/path counts'})+
-    card(S?N(crit.length):'—','critical (VPR ≥ 9) without an owner', worst?`worst: <b>${esc(worst.name.length>34?worst.name.slice(0,33)+'…':worst.name)}</b> · VPR ${worst.vpr}`:(S&&!(SNK.scores||{}).vpr?'no VPR in navi.db':''), {j:'secMap',c:'var(--crit)'})+
-    card(S?N((k.mitigated||0)+(k.accepted||0)+(k.ignored||0)):'—','routes / paths with a decision', S?`<b>${N(k.mitigated)}</b> mitigated · <b>${N(k.accepted)}</b> accepted · <b>${N(k.ignored)}</b> ignored`:'', {j:'coverCard',c:ST_C.accepted})+
-    card(S?N(k.owners_unmatched):'—','Owner tags that miss every route', 'app name doesn\'t match a route/path — re-tag from the Sankey', {j:'snkCard',c:k.owners_unmatched?'#e7c66b':'var(--line)'})+
-    '</div><div class="mhead">People</div><div class="mkpi">'+
-    card(S?N(k.owners):'—','owners with work', `of <b>${N(cnt.owners)}</b> users &amp; groups available`, {j:'ownersCard',c:'#a78bfa'})+
-    card(top?pc(top.assets,loadTot)+'%':'—','carried by the busiest owner', top?`<b>${esc(top.owner)}</b> · <b>${N(top.routes)}</b> routes · <b>${N(top.paths)}</b> paths · <b>${N(top.assets)}</b> assets`:'no owners assigned yet', {j:'secMap',c:top&&pc(top.assets,loadTot)>=50?'#e0913a':'#a78bfa',t:'share of all owner-assigned assets; one owner on most of the surface is a bottleneck'})+
-    card(load.length?(items/load.length).toFixed(1):'—','routes + paths per owner', load.length?`average across <b>${N(load.length)}</b> owner(s)`:'', {j:'secMap',c:'#a78bfa'})+
-    '</div>';
-  document.querySelectorAll('#kpi .mk[data-j]').forEach(x=>x.onclick=()=>{ const s=document.getElementById(x.dataset.j); if(s) s.scrollIntoView({behavior:'smooth',block:'start'}); });
-  // ---- at a glance
-  const sbar=parts=>{ const tot=parts.reduce((s,p)=>s+p.n,0)||1;
-    return `<div class="sbar">${parts.filter(p=>p.n).map(p=>`<span style="width:${(100*p.n/tot).toFixed(2)}%;background:${p.c}" title="${esc(p.l)}: ${N(p.n)}"></span>`).join('')}</div>`+
-      `<div class="slg">${parts.filter(p=>p.n).map(p=>`<span><i style="background:${p.c}"></i>${esc(p.l)} <b>${N(p.n)}</b></span>`).join('')}</div>`; };
-  const gl=(t,b,s)=>`<div class="gl"><h4>${t}</h4>${b}${s?`<div class="sub" style="font-size:11px;margin-top:4px">${s}</div>`:''}</div>`;
-  const st=kind=>['owned','partial','unowned','mitigated','accepted','ignored'].map(x=>({l:x==='unowned'?'no owner':x,n:x==='owned'||x==='partial'||x==='unowned'?(k[kind+'_'+x]||0):(k[kind+'_'+x]||0),c:ST_C[x]}));
-  const PAL=['#3987e5','#30a46c','#a97fd6','#e0913a','#3fb0c9'];
-  document.getElementById('glance').innerHTML=!S?'':'<div class="mhead">At a glance</div><div class="glance">'+
-    gl('Routes by ownership', sbar(st('routes')), 'Partial = fewer owned assets than the route has.')+
-    gl('Paths by ownership', sbar(st('paths')), 'A path counts as owned when its route is.')+
-    gl('Ownerless Risk by VPR', sbar(VPR_B.map(b=>({l:b[0],n:gaps.filter(x=>band(x)===b).length,c:b[3]})).concat([{l:'no VPR',n:gaps.filter(x=>x.vpr==null).length,c:'#c4c9d4'}])), 'Routes and paths without a full owner, by their highest VPR.')+
-    gl('Owner workload', load.length?sbar(load.slice(0,5).map((x,i)=>({l:x.owner,n:x.assets,c:PAL[i]})).concat(load.length>5?[{l:'other owners',n:load.slice(5).reduce((s,x)=>s+x.assets,0),c:'#8b95a7'}]:[])):'<p class="sub" style="margin:0">No owners assigned yet.</p>', 'Assets each owner carries.')+
-    '</div>';
+  const S=!!SNK, dash=x=>S?x:'—';
+  // status / VPR / owner colours: severity names, the glance series palette (light + dark) or a token
+  const STC={owned:'ok',partial:'med',unowned:'crit',mitigated:'s4',accepted:'s6',ignored:'var(--mut)'};
+  const st=kind=>['owned','partial','unowned','mitigated','accepted','ignored'].map(x=>({label:x==='unowned'?'no owner':x, value:k[kind+'_'+x]||0, color:STC[x]}));
+  const VPRC=['crit','high','med','low'], PAL=['s6','s4','s3','s5','s2'];
+  const PSEV={owned:'ok',partial:'med','no owner':'crit',mitigated:'low',accepted:'info',ignored:'none'};
+  const busy=top?pc(top.assets,loadTot):0;
+  document.getElementById('kpi').innerHTML='<p class="sub" style="margin:2px 0 0">Click a number to jump to it.</p><div id="glxEr"></div>';
+  renderGlance('glxEr', [
+    {title:'Attack surface',
+     hero:{v:N(routes), l:'exposure routes', u:S?`${N(k.routes_with_paths)} with paths · ${N(k.routes_no_paths)} without`:'', href:'#snkCard'},
+     chips:[{v:N(paths), l:'distinct paths', u:S?`${N(k.paths_covered)} under a route · ${N(k.paths_orphan)} orphan — need a direct owner`:'', href:'#secMap'},
+            {v:N(k.asset_scope!=null?k.asset_scope:v.assets_with_routes), l:'assets in scope', u:v.avg_routes!=null?`${v.avg_routes} routes per asset on average`:''},
+            {v:rr?rr+'%':'—', l:'fewer items to own', u:rf?`${N(rf)} route findings → ${N(v.total_routes)} routes`:'own routes, not findings', sev:'ok', href:'#coverCard',
+             t:`${rr?rr+'%':'—'} fewer items to own — `+(rf?`${N(rf)} route findings → ${N(v.total_routes)} routes; `:'')+'one owner decision per route covers all of its findings'}]},
+    {title:'Ownership', t:'Partial = fewer owned assets than the route has. A path counts as owned when its route is.',
+     hero:{v:dash(pc(k.routes_owned,k.routes)+'%'), l:'routes fully owned', u:S?`${N(k.routes_owned)} owned · ${N(k.routes_partial)} partial · ${N(k.routes_unowned)} none`:'', sev:'ok', href:'#snkCard'},
+     bar:S?st('routes'):null,
+     chips:[{v:dash(pc(k.paths_owned,k.paths)+'%'), l:'paths owned', u:S?`${N(k.paths_owned)} owned · ${N(k.paths_via_route)} via their route`:'', sev:'ok', href:'#secMap'},
+            {v:dash(N(k.unowned_assets)), l:'Ownerless Risk — assets', u:S?`no owner on the routes/paths they sit on · of ${N(k.asset_scope)}`:'', sev:'crit', href:'#snkCard',
+             t:`${dash(N(k.unowned_assets))} Ownerless Risk assets — the ⛔ Unassigned node on the Sankey`+(S?` · no owner on the routes/paths they sit on · of ${N(k.asset_scope)}`:'')},
+            {v:v.assets_with_routes?pc(v.closed,v.assets_with_routes)+'%':'—', l:'assets closed', u:`${N(v.closed)} of ${N(v.assets_with_routes)} — every route they sit on has an owner`, sev:'info', href:'#coverCard'}],
+     ranked:S?{title:'Paths by ownership', items:st('paths').filter(x=>x.value).map(x=>({label:x.label, value:x.value, sev:PSEV[x.label], href:'#secMap'}))}:null},
+    {title:'Risk without an owner', t:'Routes and paths without a full owner, by their highest VPR.',
+     hero:{v:dash(N(hi.length)), l:'high-VPR routes / paths without an owner', u:S?`VPR ≥ 7 · ${N(hiAssets)} unowned assets behind them`:'', sev:'high', href:'#secMap',
+           t:'unowned or partially owned; the highest VPR on each route/path counts'},
+     bar:S?VPR_B.map((b,i)=>({label:b[0], value:gaps.filter(x=>band(x)===b).length, color:VPRC[i]})).concat([{label:'no VPR', value:gaps.filter(x=>x.vpr==null).length, color:'var(--mut)'}]):null,
+     chips:[{v:dash(N(crit.length)), l:'critical (VPR ≥ 9) without an owner', u:worst?`worst: ${worst.name.length>34?worst.name.slice(0,33)+'…':worst.name} · VPR ${worst.vpr}`:(S&&!(SNK.scores||{}).vpr?'no VPR in navi.db':''), sev:'crit', href:'#secMap'},
+            {v:dash(N((k.mitigated||0)+(k.accepted||0)+(k.ignored||0))), l:'routes / paths with a decision', u:S?`${N(k.mitigated)} mitigated · ${N(k.accepted)} accepted · ${N(k.ignored)} ignored`:'', sev:'info', href:'#coverCard'},
+            {v:dash(N(k.owners_unmatched)), l:'Owner tags that miss every route', u:"app name doesn't match a route/path — re-tag from the Sankey", sev:k.owners_unmatched?'med':'none', href:'#snkCard'}]},
+    {title:'People', t:'Assets each owner carries.',
+     hero:{v:dash(N(k.owners)), l:'owners with work', u:`of ${N(cnt.owners)} users & groups available`, sev:'info', href:'#ownersCard'},
+     bar:S&&load.length?load.slice(0,5).map((x,i)=>({label:x.owner, value:x.assets, color:PAL[i]})).concat(load.length>5?[{label:'other owners', value:load.slice(5).reduce((s,x)=>s+x.assets,0), color:'var(--mut)'}]:[]):null,
+     chips:[{v:top?busy+'%':'—', l:'carried by the busiest owner', u:top?`${top.owner} · ${N(top.routes)} routes · ${N(top.paths)} paths · ${N(top.assets)} assets`:'no owners assigned yet', sev:top&&busy>=50?'high':'info', href:'#secMap',
+             t:(top?`${busy}% carried by the busiest owner — ${top.owner} · ${N(top.routes)} routes · ${N(top.paths)} paths · ${N(top.assets)} assets. `:'')+'Share of all owner-assigned assets; one owner on most of the surface is a bottleneck'},
+            {v:load.length?(items/load.length).toFixed(1):'—', l:'routes + paths per owner', u:load.length?`average across ${N(load.length)} owner(s)`:'', sev:'info', href:'#secMap'}]}
+  ]);
   setNavCount('snkCard', S?N(gaps.length)+' gaps':'');
   setNavCount('secMap', S?N(k.unowned_assets)+' ownerless':'');
   setNavCount('coverCard', v.assets_with_routes?pc(v.closed,v.assets_with_routes)+'% closed':'');

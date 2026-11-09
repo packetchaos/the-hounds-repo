@@ -4,21 +4,6 @@
 <title>Custom App Name Agent · Navi Agents</title>
 <link rel="stylesheet" href="/static/console.css"/>
 <style>.fld{padding:8px;border-radius:7px;background:var(--panel2);color:var(--txt);border:1px solid var(--line)}
-  .mkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:10px;margin-top:10px}
-  .mk{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--panel-2)}
-  .mk .v{font-size:22px;font-weight:800;color:var(--ink);line-height:1.1}.mk .v small{font-size:13px;font-weight:600;color:var(--mut)}
-  .mk .l{font-size:11.5px;color:var(--mut);margin-top:2px}
-  .mk .u{font-size:11.5px;color:var(--ink-2,var(--ink));margin-top:4px}.mk .u b{color:var(--ink)}
-  .mk[data-f],.mk[data-j]{cursor:pointer;border-left:4px solid var(--rc,var(--line))}.mk[data-f]:hover,.mk[data-j]:hover{border-color:var(--accent)}.mk.on{box-shadow:0 0 0 2px var(--accent)}
-  .mhead{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 0}
-  .glance{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-top:10px}
-  .gl{border:1px solid var(--line);border-radius:12px;padding:10px 12px}.gl h4{margin:0 0 6px;font-size:12.5px}
-  .sbar{display:flex;height:16px;border-radius:6px;overflow:hidden;background:var(--panel-2)}
-  .sbar span{display:block;height:100%}.sbar span+span{border-left:2px solid var(--panel,#fff)}
-  .slg{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11.5px;margin-top:6px;color:var(--ink-2,var(--ink))}
-  .slg i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px}.slg b{font-family:var(--mono)}
-  .hbar{display:grid;grid-template-columns:minmax(90px,38%) 1fr 44px;gap:8px;align-items:center;font-size:12px;margin:3px 0}
-  .hbar .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.hbar .b{height:10px;border-radius:5px;background:var(--accent)}
   .fchip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--accent);color:var(--accent);border-radius:999px;padding:3px 10px;font-size:12px}
   .fchip button{border:0;background:transparent;color:inherit;cursor:pointer;font-size:13px;padding:0}
   .pill{font-size:10.5px;padding:1px 6px;border-radius:999px;border:1px solid currentColor;white-space:nowrap}</style>
@@ -31,8 +16,11 @@
       <p class="sub" style="margin:2px 0 0">Software your <b>inventory misses</b>: app names mined from vuln <b>routes</b> (<span class="mono">vuln_route</span>) and filesystem <b>paths</b> (<span class="mono">vuln_paths</span>) that don't appear in the <span class="mono">software</span> table. Name them and tag the assets <span class="tagval">Custom App : &lt;name&gt;</span> (gated, tracked in the <a href="/web/tags-log.html">Tagging log</a>).</p></div>
       <button class="btn run sm" id="runCapp" data-run style="margin-left:auto">▶ Run</button></div>
     <div id="flash" class="flash"></div>
+  </section>
+
+  <section class="card" id="secGlance" data-nav="At a glance" data-nav-icon="📊">
+    <h2 style="margin:0 0 2px;font-size:17px">📊 At a glance</h2>
     <div id="metrics"><div class="setupcard"><div class="big">Press ▶ Run</div><p class="sub">How much custom software is hiding outside the inventory, how many assets and crown jewels it sits on, how much has no owner, and how much you've already named.</p></div></div>
-    <div id="glance"></div>
   </section>
 
   <!-- Tag-by-sentence near the top so it never gets buried under the routes/paths -->
@@ -117,45 +105,38 @@ async function runCapp(){document.getElementById('runCapp').disabled=true;
   if(!o||!o.ok){ flash('flash','✗ '+esc((o&&(o.error||o.message))||'failed'),'crit'); return; }
   CAPP=o.result||{candidates:[]}; CAPP_PAGE=0;
   if(CAPP.needs_setup) flash('flash','⚠ '+esc(CAPP.setup_hint||'vuln_route / vuln_paths are empty.'),'warn'); else flashClear('flash');
-  mountSectionNav(); renderMetrics(); renderGlance(); renderCapp();}
-function renderMetrics(){ if(!CAPP) return; const m=CAPP.metrics||{}, ct=CAPP.counts||{};
-  const k=(v,l,u,o)=>{o=o||{}; return `<div class="mk${o.f&&FILTER===o.f?' on':''}"${o.f?` data-f="${o.f}"`:''}${o.j?` data-j="${o.j}"`:''} style="${o.c?'--rc:'+o.c:''}"${o.t?` title="${esc(o.t)}"`:''}><div class="v">${v}</div><div class="l">${l}</div>${u?`<div class="u">${u}</div>`:''}</div>`;};
-  document.getElementById('metrics').innerHTML=
-    '<div class="mhead">Discovery — click a card to filter the candidates</div><div class="mkpi">'+
-    k(N(m.candidates),'apps outside the inventory', `<b>${N(m.routes)}</b> from routes · <b>${N(m.paths)}</b> from paths`, {j:'secCand',c:'var(--accent)'})+
-    k(N(m.routes),'from vuln routes', 'named apps / components Tenable routes findings to', {f:'route',c:'#3987e5'})+
-    k(N(m.paths),'from filesystem paths', 'folder / file names on vulnerable paths', {f:'path',c:'#a97fd6'})+
-    k(N(CAPP.hidden),'hidden by the ignore list', `<b>${N((CAPP.ignored||[]).length)}</b> ignore term(s)`, {j:'secIgnore',c:'#8b95a7'})+
-    '</div><div class="mhead">Exposure</div><div class="mkpi">'+
-    k(N(m.assets),'assets running custom software', `top candidate sits on <b>${N(m.top_assets)}</b>`, {c:'var(--accent)'})+
-    (m.has_acr?k(N(m.crown_candidates),'apps on crown jewels', `<b>${N(m.crown_assets)}</b> crown-jewel asset(s) (ACR ≥ 7)`, {f:'crown',c:'var(--crit)'}):'')+
-    k(N(m.unowned_candidates),'apps with no owner at all', `<b>${N(m.unowned_assets)}</b> of their assets carry no <span class="tagval">Owner</span> tag`, {f:'unowned',c:'#e0913a',t:'every asset the app sits on lacks an Owner tag — hand off to Atlas (Exposure Routes)'})+
-    k(N((CAPP.candidates||[]).filter(c=>!c.assets).length),'candidates with no assets', 'route plugins not found on any asset in navi.db', {f:'noassets',c:'#c4c9d4'})+
-    '</div><div class="mhead">Naming progress</div><div class="mkpi">'+
-    k(m.named_pct!=null?m.named_pct+'%':'—','already named', `<b>${N(m.named)}</b> tagged <span class="tagval">Custom App</span> · <b>${N(m.custom_app_tags)}</b> Custom App value(s) in navi.db`, {f:'named',c:'#30a46c'})+
-    k(N(m.unnamed),'still to name', 'no Custom App tag with this name yet', {f:'unnamed',c:'#e0913a'})+
-    k(N(ct.software),'software inventory entries', `compared against <b>${N(ct.routes)}</b> routes and <b>${N(ct.paths)}</b> path rows`, {})+
-    '</div>';
-  document.querySelectorAll('#metrics .mk[data-f]').forEach(c=>c.onclick=()=>{ FILTER=FILTER===c.dataset.f?null:c.dataset.f; CAPP_PAGE=0; renderMetrics(); renderCapp();
-    if(FILTER) document.getElementById('secCand').scrollIntoView({behavior:'smooth',block:'start'}); });
-  document.querySelectorAll('#metrics .mk[data-j]').forEach(c=>c.onclick=()=>document.getElementById(c.dataset.j).scrollIntoView({behavior:'smooth',block:'start'}));
-}
-function sbar(parts){ const tot=parts.reduce((s,p)=>s+p.n,0)||1;
-  return `<div class="sbar">${parts.filter(p=>p.n).map(p=>`<span style="width:${(100*p.n/tot).toFixed(2)}%;background:${p.c}" title="${esc(p.l)}: ${N(p.n)}"></span>`).join('')}</div>`+
-    `<div class="slg">${parts.filter(p=>p.n).map(p=>`<span><i style="background:${p.c}"></i>${esc(p.l)} <b>${N(p.n)}</b></span>`).join('')}</div>`; }
-function renderGlance(){ const c=(CAPP&&CAPP.candidates)||[], m=(CAPP&&CAPP.metrics)||{};
-  if(!c.length){ document.getElementById('glance').innerHTML=''; return; }
-  const gl=(t,b,s)=>`<div class="gl"><h4>${t}</h4>${b}${s?`<div class="sub" style="font-size:11px;margin-top:4px">${s}</div>`:''}</div>`;
-  const top=c.slice().sort((a,b)=>b.assets-a.assets||a.name.localeCompare(b.name)).slice(0,6), mx=Math.max(1,...top.map(x=>x.assets));
-  const own=[{l:'fully owned',n:c.filter(x=>x.assets&&!x.unowned).length,c:'#30a46c'},{l:'partly owned',n:c.filter(x=>x.unowned&&x.unowned<x.assets).length,c:'#e7c66b'},
-             {l:'no owner',n:c.filter(x=>x.assets&&x.unowned===x.assets).length,c:'#e0913a'},{l:'no assets',n:c.filter(x=>!x.assets).length,c:'#c4c9d4'}];
-  document.getElementById('glance').innerHTML='<div class="mhead">At a glance</div><div class="glance">'+
-    gl('Where they come from', sbar([{l:'routes',n:m.routes||0,c:'#3987e5'},{l:'paths',n:m.paths||0,c:'#a97fd6'}]), 'Routes are named by Tenable; path names are tokens from vulnerable folders/files.')+
-    gl('Naming progress', sbar([{l:'named (Custom App tag)',n:m.named||0,c:'#30a46c'},{l:'still to name',n:m.unnamed||0,c:'#e0913a'}]))+
-    gl('Ownership of their assets', sbar(own), 'An app is owned when its assets carry an Owner tag.')+
-    gl('Biggest by assets', top.map(x=>`<div class="hbar"><span class="t" title="${esc(x.name)}">${esc(x.name)}</span><span class="b" style="width:${(100*x.assets/mx).toFixed(1)}%;background:${x.source==='route'?'#3987e5':'#a97fd6'}"></span><b class="mono">${N(x.assets)}</b></div>`).join(''))+
-    '</div>';
-  setNavCount('secCand', N(c.length)); setNavCount('secIgnore', N((CAPP.ignored||[]).length));
+  mountSectionNav(); renderMetrics(); renderCapp();}
+/* 📊 At a glance — the shared renderGlance template; a filter number narrows the candidate table */
+function renderMetrics(){ if(!CAPP) return; const m=CAPP.metrics||{}, ct=CAPP.counts||{}, c=CAPP.candidates||[];
+  const top=c.slice().sort((a,b)=>b.assets-a.assets||a.name.localeCompare(b.name)).slice(0,6);
+  const own=[{label:'fully owned',value:c.filter(x=>x.assets&&!x.unowned).length,color:'ok'},{label:'partly owned',value:c.filter(x=>x.unowned&&x.unowned<x.assets).length,color:'med'},
+             {label:'no owner',value:c.filter(x=>x.assets&&x.unowned===x.assets).length,color:'high'},{label:'no assets',value:c.filter(x=>!x.assets).length,color:'none'}];
+  const has=c.length>0;   // the split bars + top list only once there are candidates (as before)
+  const el=document.getElementById('metrics');
+  el.innerHTML='<p class="sub" style="margin:2px 0 0">Click a number to filter the candidates.</p><div id="glxCapp"></div>';
+  renderGlance('glxCapp', [
+    {title:'Discovery', t:'Routes are named by Tenable; path names are tokens from vulnerable folders/files.',
+     hero:{v:N(m.candidates), l:'apps outside the inventory', u:`${N(m.routes)} from routes · ${N(m.paths)} from paths`, sev:'info', href:'#secCand'},
+     bar:has?[{label:'routes',value:m.routes||0,color:'s1'},{label:'paths',value:m.paths||0,color:'s2'}]:null,
+     chips:[{v:N(m.routes), l:'from vuln routes', u:'named apps / components Tenable routes findings to', sev:'info', filter:'route'},
+            {v:N(m.paths), l:'from filesystem paths', u:'folder / file names on vulnerable paths', sev:'info', filter:'path'},
+            {v:N(CAPP.hidden), l:'hidden by the ignore list', u:`${N((CAPP.ignored||[]).length)} ignore term(s)`, href:'#secIgnore'}]},
+    {title:'Exposure', t:'An app is owned when its assets carry an Owner tag.',
+     hero:{v:N(m.assets), l:'assets running custom software', u:`top candidate sits on ${N(m.top_assets)}`},
+     bar:has?own:null,
+     chips:[m.has_acr?{v:N(m.crown_candidates), l:'apps on crown jewels', u:`${N(m.crown_assets)} crown-jewel asset(s) (ACR ≥ 7)`, sev:'crit', filter:'crown'}:null,
+            {v:N(m.unowned_candidates), l:'apps with no owner at all', u:`${N(m.unowned_assets)} of their assets carry no Owner tag`, sev:'high', filter:'unowned',
+             t:'every asset the app sits on lacks an Owner tag — hand off to Atlas (Exposure Routes)'},
+            {v:N(c.filter(x=>!x.assets).length), l:'candidates with no assets', u:'route plugins not found on any asset in navi.db', filter:'noassets'}],
+     ranked:has?{title:'Biggest by assets', items:top.map(x=>({label:x.name, value:x.assets, sev:'info', t:x.name+' ('+x.source+'): '+N(x.assets)+' assets'}))}:null},
+    {title:'Naming progress',
+     hero:{v:m.named_pct!=null?m.named_pct+'%':'—', l:'already named', u:`${N(m.named)} tagged Custom App · ${N(m.custom_app_tags)} Custom App value(s) in navi.db`, sev:'ok', filter:'named'},
+     bar:has?[{label:'named (Custom App tag)',value:m.named||0,color:'ok'},{label:'still to name',value:m.unnamed||0,color:'high'}]:null,
+     chips:[{v:N(m.unnamed), l:'still to name', u:'no Custom App tag with this name yet', sev:'high', filter:'unnamed'},
+            {v:N(ct.software), l:'software inventory entries', u:`compared against ${N(ct.routes)} routes and ${N(ct.paths)} path rows`}]}
+  ], {active:FILTER, onFilter:(f,_el,on)=>{ FILTER=on?f:null; CAPP_PAGE=0; renderMetrics(); renderCapp();
+    if(FILTER) document.getElementById('secCand').scrollIntoView({behavior:'smooth',block:'start'}); }});
+  if(has){ setNavCount('secCand', N(c.length)); setNavCount('secIgnore', N((CAPP.ignored||[]).length)); }
 }
 function renderCapp(){if(!CAPP)return;const tb=document.querySelector('#cappTbl tbody');
   const all=CAPP.candidates||[], q=((document.getElementById('cappQ')||{}).value||'').trim().toLowerCase();

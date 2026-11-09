@@ -56,10 +56,12 @@ _NEED = "confirm=true required — this %s"
 
 def run_now(p):
     if not confirmed(p):
-        return {"ok": False, "error": _NEED % "runs a contract cycle (tags, ACR, removals when armed)"}, 400
+        return {"ok": False, "error": _NEED % "runs a contract cycle (removal list, tags, ACR)"}, 400
     # manual trigger: removal + re-tag, but DON'T block the request for the 30-min
     # pause (that pause is enforced only in the autonomous scheduler loop)
-    return {"ok": True, "cycle": contract.run_cycle(enforce_pause=False)}, 200
+    # an explicit, confirmed run applies this one cycle even when the loop isn't armed
+    # (arming = the autonomous 4-hourly loop; it stays as it is)
+    return {"ok": True, "cycle": contract.run_cycle(enforce_pause=False, apply=True)}, 200
 
 
 def arm(p):

@@ -51,7 +51,7 @@ python3 run.py
 ```
 
 The app reads whatever `navi.db` navi maintains locally. Keep it fresh with
-`navi update assets` / `navi update vulns` (the UI has a one-click **Refresh
+`navi config update assets` / `navi config update vulns` (the UI has a one-click **Refresh
 navi.db**). navi.db is a point-in-time snapshot, so freshness matters.
 
 Full setup — prerequisites, the three server modes, the write/RCE gates, the MCP

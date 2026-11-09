@@ -9,6 +9,10 @@
   .envf .help{font-size:11.5px;color:var(--mut);margin:5px 0 0;line-height:1.45}
   .envf .fld,.envf select.fld{width:100%;padding:9px 12px;border-radius:8px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink);font-size:13.5px;font-family:var(--mono)}
   .statline{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+  .dkpis{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(170px,100%),1fr));gap:10px;margin-top:10px}
+  .dkpis .dk{border:1px solid var(--line);border-radius:10px;padding:8px 11px;background:var(--panel-2)}
+  .dkpis .dk b{display:block;font-size:20px;font-variant-numeric:tabular-nums}.dkpis .dk span{font-size:11.5px;color:var(--ink-3)}
+  .dkpis .dk.warn{border-color:rgba(251,191,36,.55)}.dkpis .dk.warn b{color:var(--warn)}
   .dbgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px;margin-top:12px}
   .dbtile{border:1px solid var(--line);border-radius:11px;padding:12px 13px;background:var(--panel)}
   .dbtile .row1{display:flex;align-items:center;gap:8px}
@@ -113,6 +117,24 @@
         <button class="btn run sm" id="updEverything" data-kind="everything" title="navi config update everything — refresh every table in one run (~30+ min)">☕ Update everything</button>
         <button class="btn ghost sm" id="optimize" data-kind="optimize" title="navi config optimize — build SQL indexes for faster tagging">⚙ Optimize indexes</button></span></div>
     <div class="dbgrid" id="dbGrid"></div>
+  </section>
+
+  <!-- REBUILD NAVI.DB + ASSET DELTA -->
+  <section class="card" id="secRebuild">
+    <div class="toolbar"><div><h2 style="margin:0">🧹 Rebuild navi.db</h2>
+      <p class="sub" style="margin:2px 0 0">navi's asset sync only <b>adds and updates</b> — an asset that ages out of the pull window or falls off licensing is never deleted from navi.db. Hounds can keep tagging those stale assets, and because the next sync never brings them back, navi can't see (or remove) their tags. A rebuild <b>drops</b> the chosen tables, re-creates them and pulls <b>N days</b> fresh — <span class="mono" id="rbCmd">navi config update full -rebuild --days 90</span>. Local navi.db only; nothing in Tenable changes.</p></div></div>
+    <div class="dkpis" id="rbDelta"><span class="sub">navi.db vs Tenable — loading…</span></div>
+    <div class="toolbar" style="margin-top:12px;gap:10px;flex-wrap:wrap;align-items:flex-end">
+      <label class="sub" style="display:flex;flex-direction:column;gap:3px">Tables
+        <select id="rbTables" class="fld" style="padding:6px 9px;border-radius:7px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink)">
+          <option value="both" selected>Assets + vulns (full)</option><option value="assets">Assets only</option><option value="vulns">Vulns only</option></select></label>
+      <label class="sub" style="display:flex;flex-direction:column;gap:3px">Days to pull
+        <input id="rbDays" class="fld" type="number" min="1" max="3650" step="1" value="90" inputmode="numeric" style="width:96px;padding:6px 9px;border-radius:7px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink)"></label>
+      <label class="sub" style="display:flex;gap:6px;align-items:center" title="certs, software, routes and paths are built from assets/vulns — navi says they're stale after a rebuild"><input type="checkbox" id="rbDerived" checked> then rebuild certs · software · routes · paths</label>
+      <button class="btn run sm" id="rbGo" data-kind="rebuild">🧹 Rebuild navi.db</button>
+      <button class="btn ghost sm" id="rbCheck" title="navi explore info licensed — Tenable's live licensed count">⚖ Check licensed</button>
+    </div>
+    <div id="rbFlash" class="flash" style="margin-top:10px"></div>
   </section>
 
   <!-- SLA POLICY -->
@@ -462,6 +484,51 @@ document.getElementById('updEverything').onclick=(e)=>{
     '<span style="color:var(--ok)">☕ Updating <b>everything</b> — every table in one run.</span> This takes <b>at least 30 minutes</b> (the vulns export alone is often 10–15+ min while Tenable prepares it). Grab a cup of coffee. It runs in the background — leave the page and come back; reattach from <b>Recent runs</b>, and it shows the total time when it finishes.');
 };
 document.getElementById('optimize').onclick=(e)=>startNavi({optimize:true}, e.currentTarget);
+
+/* 🧹 Rebuild navi.db + the asset delta (navi.db assets vs Tenable licensed) */
+function rbArgs(){ const t=document.getElementById('rbTables').value, d=parseInt(document.getElementById('rbDays').value,10);
+  return {tables:t, days:d, cmd:'navi config update '+({both:'full',assets:'assets',vulns:'vulns'}[t]||'full')+' -rebuild --days '+(isFinite(d)?d:'?')}; }
+function rbCmd(){ document.getElementById('rbCmd').textContent=rbArgs().cmd; }
+let RB_T=null;
+['rbTables','rbDays'].forEach(id=>document.getElementById(id).addEventListener('input',()=>{ rbCmd();
+  clearTimeout(RB_T); RB_T=setTimeout(()=>loadDelta(false),400); }));   // recount "last seen > N days" for the new window
+let LAST_DELTA=null;
+function renderDelta(o){
+  const box=document.getElementById('rbDelta'); if(!o){ return; } LAST_DELTA=o;
+  const nv=o.navi||{}, ten=o.tenable||{}, fmt=v=>v==null?'—':Number(v).toLocaleString();
+  const k=(v,l,warn,t)=>'<div class="dk'+(warn?' warn':'')+'" title="'+esc(t||'')+'"><b>'+v+'</b><span>'+esc(l)+'</span></div>';
+  const d=o.delta;
+  box.innerHTML=
+    k(fmt(nv.assets),'assets in navi.db',false,'Rows in navi.db\'s assets table')+
+    k(ten.licensed==null?'—':fmt(ten.licensed),'licensed in Tenable',false,ten.licensed==null?(ten.message||'click ⚖ Check licensed'):'navi explore info licensed (90-day licensed)')+
+    k(d==null?'—':(d>0?'+':'')+fmt(d),'navi.db minus licensed',d!=null&&d>0,'More assets in navi.db than Tenable licenses = stale or unlicensed assets navi still holds')+
+    k(nv.stale==null?'—':fmt(nv.stale),'last seen > '+(nv.days||90)+' days',(nv.stale||0)>0,nv.has_last_found?'navi.db assets whose last_found is older than the window'+(nv.oldest_last_found?' · oldest '+nv.oldest_last_found:''):'this navi.db has no last_found column')+
+    k(fmt(nv.tagged_assets),'assets with tags in navi.db',false,'The tags table only covers assets the last sync pulled');
+  if(nv.error) box.innerHTML+='<p class="sub" style="grid-column:1/-1;margin:0">'+esc(nv.error)+'</p>';
+}
+async function loadDelta(live){
+  const days=rbArgs().days;
+  let o; try{ o=await API.post('asset_delta',{days:isFinite(days)?days:90, live:!!live}); }catch(e){ o=null; }
+  if(o&&o.ok) renderDelta(live?o:Object.assign(o,{tenable:(LAST_DELTA&&LAST_DELTA.tenable&&LAST_DELTA.tenable.licensed!=null)?LAST_DELTA.tenable:o.tenable}));
+  else document.getElementById('rbDelta').innerHTML='<span class="sub">Could not read navi.db.</span>';
+}
+document.getElementById('rbCheck').onclick=async (e)=>{ const b=e.currentTarget; b.disabled=true; b.innerHTML='<span class="spin"></span>Checking…';
+  await loadDelta(true); b.disabled=false; b.innerHTML='⚖ Check licensed'; };
+document.getElementById('rbGo').onclick=async (e)=>{
+  const a=rbArgs(), btn=e.currentTarget, derived=document.getElementById('rbDerived').checked;
+  if(RUNNING.rebuild!=null){ attachJob(RUNNING.rebuild); focusCli(); return; }
+  if(!isFinite(a.days)||a.days<1||a.days>3650){ flash('rbFlash','Days must be a whole number from 1 to 3650.','warn'); return; }
+  const what={both:'assets AND vulns tables',assets:'assets table',vulns:'vulns table'}[a.tables];
+  if(!confirm('Rebuild navi.db?\n\nThis DROPS the '+what+' in your local navi.db and pulls the last '+a.days+' days fresh:\n  '+a.cmd+(derived?'\nthen certs, software, routes and paths are rebuilt.':'')+
+     '\n\nEvery hound reads these tables — until the pull finishes they will look empty. Nothing in Tenable changes. A large tenant can take an hour or more.')) return;
+  btn.disabled=true; btn.innerHTML='<span class="spin"></span>Starting…'; focusCli();
+  let o; try{ o=await API.post('navi_rebuild',{tables:a.tables, days:a.days, derived, confirm:true}); }catch(err){ o={ok:false,error:err.message}; }
+  btn.disabled=false; btn.innerHTML=btn.dataset.label||'🧹 Rebuild navi.db';
+  if(!o||!o.ok){ flash('rbFlash','✗ '+esc((o&&o.error)||'could not start the rebuild'),'crit'); return; }
+  flash('rbFlash','✓ Rebuild started (job #'+esc(o.job.id)+')'+(o.then?' — then '+esc(o.then.join(' → ')):'')+'. It streams in the navi CLI window below and keeps running if you leave.','ok');
+  RUNNING.rebuild=o.job.id; markRunning(); attachJob(o.job.id); loadJobs();
+};
+rbCmd(); loadDelta(false);
 document.getElementById('cliClear').onclick=()=>{ CLI_TOKEN++; CLI_JOB=null; document.getElementById('cli').innerHTML='<span class="sub">Cleared.</span>'; document.getElementById('cliStatus').style.display='none'; };
 document.getElementById('dbRefresh').onclick=loadDb;
 setInterval(loadJobs, 5000);   // refresh Recent-runs list + durations every 5s (no jittery per-second tick)

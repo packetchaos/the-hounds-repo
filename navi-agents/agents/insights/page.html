@@ -5,13 +5,7 @@
 <link rel="stylesheet" href="/static/console.css"/>
 <style>
   /* On the Scent — built from Release the Hounds (core/insights.scent_digest). Only console tokens. */
-  .mkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(150px,100%),1fr));gap:10px;margin-top:10px}
-  .mk{display:block;border:1px solid var(--line);border-left:4px solid var(--rc,var(--line));border-radius:12px;padding:10px 12px;background:var(--panel-2);color:inherit;text-decoration:none}
-  .mk .v{font-size:22px;font-weight:800;color:var(--ink);line-height:1.1;font-family:var(--display)}
-  .mk .l{font-size:11.5px;color:var(--ink-3);margin-top:2px}.mk .u{font-size:11px;color:var(--accent);margin-top:4px}
-  .mk{position:relative} a.mk:hover{border-color:var(--accent)} .mk.zero{opacity:.55}
-  .mk .sv{position:absolute;top:7px;right:9px;font-family:var(--mono);font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
-  .mhead{font-size:11px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 0}
+  /* 📊 At a glance: the shared renderGlance template (console.js / console.css) */
   .acode{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3)}
   .story{font-size:15px;line-height:1.55;color:var(--ink-2);margin:8px 0 0;max-width:880px}
   .story a{font-weight:700;text-decoration:none;border-bottom:1px dashed currentColor;color:var(--accent)}
@@ -143,7 +137,7 @@
   .cta{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
   .relbtn{background:linear-gradient(100deg,#c53b40,#e5484d);color:#fff;border:0;border-radius:10px;font-family:var(--display);font-weight:700;font-size:14px;padding:11px 17px;text-decoration:none;white-space:nowrap;cursor:pointer}
   .ghost-board{opacity:.35;filter:grayscale(1);pointer-events:none}
-  @media(max-width:600px){.tmap{height:320px}.mk .v{font-size:19px}}
+  @media(max-width:600px){.tmap{height:320px}}
 </style>
 </head><body data-page-cache="off">
 <div class="wrap">
@@ -169,7 +163,6 @@ const $=id=>document.getElementById(id);
 const fmt=n=>n==null?'—':Number(n).toLocaleString();
 const P=(a,s)=>'/agents/'+a+'/page.html'+(s?'#'+s:'');
 const SEVW={crit:'critical',warn:'warning'};
-const SEVC={crit:'var(--crit)',warn:'var(--high)'};
 const SL={fresh:'released',user:'your newer run',stale:'stale — navi.db changed',missing:'not run',error:'error',skipped:'skipped',live:'live page',
           pending:'waiting',running:'running',done:'done',cancelled:'cancelled'};
 function ago(ms){ if(!ms) return '—'; const s=Math.max(0,(Date.now()-ms)/1000);
@@ -298,7 +291,8 @@ function renderNone(){
   $('board').innerHTML=`<section class="card"><div class="cta"><div style="flex:1;min-width:min(240px,100%)"><h3 class="ct" style="font-size:17px">The pack hasn't been released on this navi.db yet</h3>
     <p class="sub" style="margin:4px 0 0">Release the Hounds runs every hound once (reads only — nothing is tagged, applied or sent${est?', about '+esc(Math.round(est))+' s last time':''}) and saves each result; this page then rolls them up into one story.${n?' <b>'+n+'</b> hound'+(n>1?'s have':' has')+' a cached run already — you can also summarise just those.':''}</p></div>
     <a class="relbtn" href="/?release=1">🐾 Release the Hounds</a>${n?'<button class="btn ghost sm" type="button" data-act="build">Summarise what\'s cached</button>':''}</div>
-    <div class="ghost-board" style="margin-top:12px" aria-hidden="true"><div class="mkpi"><div class="mk"><div class="v">—</div><div class="l">avg exposure</div></div><div class="mk"><div class="v">—</div><div class="l">KEV assets</div></div><div class="mk"><div class="v">—</div><div class="l">crown jewels</div></div><div class="mk"><div class="v">—</div><div class="l">blind assets</div></div></div></div></section>`;
+    <div class="ghost-board" id="ghostGlx" style="margin-top:12px" aria-hidden="true"></div></section>`;
+  renderGlance('ghostGlx', [{chips:['avg exposure','KEV assets','crown jewels','blind assets'].map(l=>({v:'—', l, zero:false}))}]);
   const nav=$('secNav'); if(nav) nav.remove();
 }
 function render(){
@@ -306,16 +300,20 @@ function render(){
   if(!D.glance){ renderNone(); if(D.state==='building') $('story').textContent='The pack is being released — this page fills in when it\'s back.'; return; }
   renderStory();
   $('board').innerHTML=boardHtml();
-  renderGlance(); renderExposure(); renderWhere(); renderConverge(); renderBlind(); renderNext(); renderPack();
+  renderScentGlance(); renderExposure(); renderWhere(); renderConverge(); renderBlind(); renderNext(); renderPack();
   mountSectionNav();
   setNavCount('secConverge',(D.convergence||[]).length); setNavCount('secNext',(D.next||[]).length);
   const C=(D.coverage||[]).filter(c=>c.kind!=='live'); setNavCount('secPack',C.filter(c=>c.status==='fresh').length+'/'+C.length);
   Object.keys(SECT).forEach(id=>{ const box=$('act_'+id); if(box&&!box.querySelector('.hmbtn'))
     hMail(box,()=>({title:'On the Scent — '+SECT[id].title,note:'Sphinx · built from the release of '+absT((D.release||{}).at||(D.release||{}).built_at),columns:COLS,rows:SECT[id].rows()})); });
 }
-function renderGlance(){
-  $('glance').innerHTML=D.glance.map(g=>`<div class="mhead">${esc(g.group)}</div><div class="mkpi">`+g.cards.map(c=>
-    `<a class="mk${c.zero?' zero':''}" href="${esc(c.href)}" style="--rc:${SEVC[c.sev]||'var(--line)'}" title="${esc(c.l)}: ${esc(c.v==null?'not in this release':c.v)}">${c.sev&&c.v?`<span class="sv">${SEVW[c.sev]}</span>`:''}<div class="v">${fmt(c.v)}</div><div class="l">${esc(c.l)}</div><div class="u">${esc(c.u)}</div></a>`).join('')+'</div>').join('');
+/* 📊 At a glance (shared renderGlance template): one group per digest group — its first card is the
+   headline, the rest are chips; every number opens the hound that owns it (core/insights.scent_digest). */
+function renderScentGlance(){
+  const SV={crit:'crit',warn:'high'};
+  const M=c=>({v:fmt(c.v), l:c.l, u:c.u, t:(c.sev&&c.v&&SEVW[c.sev]?'['+SEVW[c.sev]+'] ':'')+c.l+': '+(c.v==null?'not in this release':fmt(c.v))+(c.u?' — '+c.u:''), sev:SV[c.sev]||'none', zero:!!c.zero, href:c.href});
+  renderGlance('glance', (D.glance||[]).map(g=>{ const cs=g.cards||[];
+    return {title:g.group, hero:cs.length?M(cs[0]):null, chips:cs.slice(1).map(M)}; }));
 }
 function renderExposure(){
   const E=D.exposure; if(!E.available) return;

@@ -5,12 +5,6 @@
 <link rel="stylesheet" href="/static/console.css"/>
 <style>.plink{color:var(--accent);text-decoration:none}.plink:hover{text-decoration:underline}
 :root{--k-os:#6e56cf;--k-app:#0090ff;--st-old:#e5484d;--st-mid:#f5a524;--st-new:#8b95a7}
-.mkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-top:10px}
-.mk{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--panel-2)}
-.mk .v{font-size:22px;font-weight:800;color:var(--ink);line-height:1.1}.mk .l{font-size:11.5px;color:var(--mut);margin-top:2px}
-.mk .u{font-size:11.5px;color:var(--ink-2,var(--ink));margin-top:4px}.mk .u b{color:var(--ink)}
-.mk[data-f]{cursor:pointer;border-left:4px solid var(--rc,var(--line))}.mk[data-f]:hover{border-color:var(--accent)}.mk.on{box-shadow:0 0 0 2px var(--accent)}
-.mhead{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 0}
 .stb{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;padding:1px 8px;border-radius:999px;border:1px solid var(--line);white-space:nowrap}
 .stb i{width:7px;height:7px;border-radius:50%;display:inline-block}
 .kind{font-size:11px;padding:1px 7px;border-radius:999px;border:1px solid var(--line);white-space:nowrap}
@@ -37,6 +31,10 @@
       <p class="sub" style="margin:2px 0 0">Charon finds the assets running <b>Unsupported</b> or <b>End-of-Life</b> software. It matches lifecycle text in plugin names, so new EOL plugins are picked up automatically. It tags <b>those assets</b> by lifecycle group <span class="tagval">Lifecycle : Unsupported | End of Life</span> (navi <span class="mono">tag --name</span>) and by the date the vendor ended support <span class="tagval">Lifecycle EOL : &lt;YYYY-MM-DD&gt;</span> (navi <span class="mono">tag --plugin</span>). The end-of-life date is read from the plugin output. All writes are gated and tracked in the <a href="/web/tags-log.html">Tagging log</a>.</p></div>
       <button class="btn run sm" id="run" data-run style="margin-left:auto">▶ Run</button></div>
     <div id="flash" class="flash"></div>
+  </section>
+
+  <section class="card" id="secGlance" data-nav="At a glance" data-nav-icon="📊">
+    <h2 style="margin:0 0 2px;font-size:17px">📊 At a glance</h2>
     <div id="metrics"><div class="setupcard"><div class="big">Press ▶ Run</div><p class="sub">See which assets run end-of-life operating systems and applications, how long ago support ended, and which crown jewels are exposed.</p></div></div>
   </section>
 
@@ -110,25 +108,29 @@ async function run(){
 
 function renderMetrics(){
   const m=V.metrics||{};
-  const k=(v,l,u,o)=>{o=o||{}; return `<div class="mk${o.f&&FILTER===o.f?' on':''}"${o.f?` data-f="${o.f}"`:''} style="${o.c?'--rc:'+o.c:''}"${o.t?` title="${esc(o.t)}"`:''}><div class="v">${v}</div><div class="l">${l}</div>${u?`<div class="u">${u}</div>`:''}</div>`;};
-  document.getElementById('metrics').innerHTML='<div class="mkpi">'+
-    k(N(m.eol_assets),'assets on EOL software', m.has_state?'open findings only':'', {t:'distinct assets with at least one Unsupported / End-of-Life plugin finding'})+
-    k(N(m.products),'EOL products', `<b>${N(m.plugins)}</b> plugin${m.plugins===1?'':'s'}`)+
-    k(N(m.findings),'EOL findings')+
-    k(N(m.crown_assets),'crown jewels on EOL', 'ACR &gt; 7', {f:'crown',c:'var(--crit)'})+
-    '</div><div class="mhead">Why it matters — click to filter the product list</div><div class="mkpi">'+
-    k(N(m.os_assets),'assets on an EOL operating system', `<b>${N(m.os_products)}</b> OS product${m.os_products===1?'':'s'} · no OS patches at all`, {f:'os',c:'var(--k-os)'})+
-    k(N(m.app_assets),'assets with only EOL applications', 'OS still supported', {f:'app',c:'var(--k-app)'})+
-    k(N(m.kev_assets),'EOL assets with a CISA KEV', 'known-exploited and unpatchable in place', {f:'kev',c:'var(--crit)'})+
-    k(N(m.crit_assets),'EOL assets with critical findings', '', {f:'crit',c:'var(--st-mid)'})+
-    '</div><div class="mhead">How long out of support</div><div class="mkpi">'+
-    k(m.max_years_past!=null?m.max_years_past.toFixed(1)+' yrs':'—','longest past end of life', 'oldest EOL date found')+
-    k(m.median_years_past!=null?m.median_years_past.toFixed(1)+' yrs':'—','median past end of life', 'across dated products')+
-    k(N(m.products_5y),'products ≥ 5 years past EOL', '', {f:'old',c:'var(--st-old)'})+
-    k(`${N(m.dated_products)} / ${N(m.products)}`,'products with an EOL date', 'read from the plugin output', {f:'nodate',c:'var(--st-new)',t:'click to list products where no end-of-life date was found in the plugin output'})+
-    '</div>';
-  document.querySelectorAll('#metrics .mk[data-f]').forEach(c=>c.onclick=()=>{ FILTER=FILTER===c.dataset.f?null:c.dataset.f; hPageReset('pTbl'); renderMetrics(); renderProducts();
-    if(FILTER) document.getElementById('secProd').scrollIntoView({behavior:'smooth',block:'start'}); });
+  const yrs=v=>v!=null?v.toFixed(1)+' yrs':'—';
+  const el=document.getElementById('metrics');
+  el.innerHTML='<p class="sub" style="margin:2px 0 0">Click a number to filter the product list.</p><div id="glxEol"></div>';
+  renderGlance('glxEol', [
+    {title:'EOL exposure',
+     hero:{v:N(m.eol_assets), l:'assets on EOL software', u:m.has_state?'open findings only':'', t:'distinct assets with at least one Unsupported / End-of-Life plugin finding', href:'#secProd'},
+     chips:[{v:N(m.products), l:'EOL products', u:`${N(m.plugins)} plugin${m.plugins===1?'':'s'}`, href:'#secProd'},
+            {v:N(m.findings), l:'EOL findings'},
+            {v:N(m.crown_assets), l:'crown jewels on EOL', u:'ACR > 7', sev:'crit', filter:'crown'}]},
+    {title:'Why it matters',
+     hero:{v:N(m.kev_assets), l:'EOL assets with a CISA KEV', u:'known-exploited and unpatchable in place', sev:'crit', filter:'kev'},
+     bar:[{label:'EOL operating system', value:m.os_assets||0, color:'var(--k-os)'},{label:'EOL applications only', value:m.app_assets||0, color:'var(--k-app)'}],
+     chips:[{v:N(m.os_assets), l:'assets on an EOL operating system', u:`${N(m.os_products)} OS product${m.os_products===1?'':'s'} · no OS patches at all`, sev:'info', filter:'os'},
+            {v:N(m.app_assets), l:'assets with only EOL applications', u:'OS still supported', sev:'info', filter:'app'},
+            {v:N(m.crit_assets), l:'EOL assets with critical findings', sev:'high', filter:'crit'}]},
+    {title:'How long out of support',
+     hero:{v:yrs(m.max_years_past), l:'longest past end of life', u:'oldest EOL date found', href:'#secTl'},
+     chips:[{v:yrs(m.median_years_past), l:'median past end of life', u:'across dated products'},
+            {v:N(m.products_5y), l:'products ≥ 5 years past EOL', sev:'crit', filter:'old'},
+            {v:`${N(m.dated_products)} / ${N(m.products)}`, l:'products with an EOL date', u:'read from the plugin output', sev:'low', filter:'nodate',
+             t:`${N(m.dated_products)} / ${N(m.products)} products with an EOL date (read from the plugin output) — click to list products where no end-of-life date was found in the plugin output`}]}
+  ], {active:FILTER, onFilter:(f,_el,on)=>{ FILTER=on?f:null; hPageReset('pTbl'); renderMetrics(); renderProducts();
+    if(FILTER) document.getElementById('secProd').scrollIntoView({behavior:'smooth',block:'start'}); }});
 }
 
 function renderTimeline(){

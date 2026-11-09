@@ -1,15 +1,55 @@
 {
   "snap": {
-    "al19fa4150e9b5291": 42.0,
-    "al19fa54d5c57731d": 163.0,
-    "al19fa54db22d2ca0": 116.0
+    "al19fa4150e9b5291": 83.0,
+    "al19fa54d5c57731d": 556.0,
+    "al19fa54db22d2ca0": 278.0
   },
   "fired": {
-    "al19fa4150e9b5291": false,
-    "al19fa54d5c57731d": false,
-    "al19fa54db22d2ca0": false
+    "al19fa4150e9b5291": true,
+    "al19fa54d5c57731d": true,
+    "al19fa54db22d2ca0": true
   },
   "history": [
+    {
+      "ts": "2026-11-08T22:27:29Z",
+      "source": "contract",
+      "evaluated": 3,
+      "newly": [
+        "End-of-life / unsupported software rising",
+        "Ownerless assets rising",
+        "New CISA KEV exposure"
+      ],
+      "still": 0,
+      "sent": true
+    },
+    {
+      "ts": "2026-11-08T21:46:01Z",
+      "source": "contract",
+      "evaluated": 3,
+      "newly": [],
+      "still": 0,
+      "sent": false
+    },
+    {
+      "ts": "2026-11-08T21:46:01Z",
+      "source": "contract",
+      "evaluated": 3,
+      "newly": [],
+      "still": 0,
+      "sent": false
+    },
+    {
+      "ts": "2026-11-08T21:23:30Z",
+      "source": "contract",
+      "evaluated": 3,
+      "newly": [
+        "End-of-life / unsupported software rising",
+        "Ownerless assets rising",
+        "New CISA KEV exposure"
+      ],
+      "still": 0,
+      "sent": true
+    },
     {
       "ts": "2026-08-14T16:36:30Z",
       "source": "contract",
@@ -94,5 +134,5 @@
       "sent": false
     }
   ],
-  "last_run": "2026-08-14T16:36:30Z"
+  "last_run": "2026-11-08T22:27:29Z"
 }

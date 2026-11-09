@@ -23,13 +23,7 @@
 .fwrow{border-radius:8px}
 .fwrow:hover{background:var(--panel-2)}
 .fwrow:hover .bl{color:var(--accent);text-decoration:underline}
-/* metric cards + widget links into the Compliance Deep-Dive (Tiresias) */
-.mkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:10px}
-.mk{display:block;border:1px solid var(--line);border-left:4px solid var(--rc,var(--line));border-radius:12px;padding:10px 12px;background:var(--panel-2);color:inherit;text-decoration:none}
-.mk .v{font-size:22px;font-weight:800;color:var(--ink);line-height:1.1}.mk .l{font-size:11.5px;color:var(--mut);margin-top:2px}
-.mk .u{font-size:11px;color:var(--accent);margin-top:4px}
-a.mk:hover{border-color:var(--accent)} .mk.zero{opacity:.55}
-.mhead{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 0}
+/* widget links into the Compliance Deep-Dive (Tiresias); the 📊 At a glance numbers use the shared renderGlance template */
 a.barlink{display:block;color:inherit;text-decoration:none;border-radius:7px;padding:0 4px;margin:0 -4px}
 a.barlink:hover{background:var(--panel-2)} a.barlink:hover .bl{color:var(--accent)}
 .barrow{grid-template-columns:200px 1fr 150px}
@@ -82,29 +76,30 @@ function render(){
   const cnt=pred=>rows.filter(pred).length;
   const nFail=cnt(a=>+a.failed>0), nWarn=cnt(a=>+a.warning>0), nClean=cnt(a=>!(+a.failed)&&!(+a.warning)), nLow=cnt(a=>{ const p=+a.passed||0, f=+a.failed||0; return p+f>0&&p/(p+f)<0.5; });   // exact ratio, as the server's pct:lt50 (pass_pct is rounded)
   const nTxt=n=>fnum(n)+' asset'+(n===1?'':'s');
-  // a metric card: opens the matching assets in the Deep-Dive (f) or jumps to a section (j)
+  // a glance metric: opens the matching assets in the Deep-Dive (f) or jumps to a section (j); dimmed when no asset matches
   const mk=(v,l,o)=>{ o=o||{}; const href=o.j?('#'+o.j):deepFor(o.f||'');
     const u=o.j?(o.u||'jump to it ↓'):('🔍 '+(o.n!=null?nTxt(o.n)+' in Deep-Dive':'open in Deep-Dive')+' →');
-    return `<a class="mk${o.n===0?' zero':''}" href="${esc(href)}"${o.j?` data-j="${o.j}"`:''} style="--rc:${o.c||'var(--line)'}"${o.t?` title="${esc(o.t)}"`:''}><div class="v">${v}</div><div class="l">${esc(l)}</div><div class="u">${u}</div></a>`; };
+    const m={v, l, u, sev:o.c||'none', href, t:(o.t?o.t+' · ':'')+u};
+    if(o.n!=null) m.zero=o.n===0;
+    return m; };
   h+='<section class="card" id="secMetrics" data-nav="At a glance" data-nav-icon="📊"><h2 style="margin:0 0 2px;font-size:17px">📊 At a glance</h2>'
-    +'<p class="sub" style="margin:2px 0 0">Cards, bars and controls open the matching assets in <b>🔍 Compliance Deep-Dive</b> — its asset list is narrowed to that group, worst first.</p>'
-    +'<div class="mhead">Assets</div><div class="mkpi">'
-    +mk(fnum(OV.assets),'assets audited',{n:rows.length,c:'var(--accent)'})
-    +mk(fnum(nFail),'assets failing a check',{f:'st:failed',n:nFail,c:'var(--crit)'})
-    +mk(fnum(nWarn),'assets with warnings',{f:'st:warning',n:nWarn,c:'var(--med)'})
-    +mk(fnum(nLow),'assets under 50% pass',{f:'pct:lt50',n:nLow,c:'var(--crit)',t:'Passing under half of their checks'})
-    +mk(fnum(nClean),'clean assets',{f:'st:clean',n:nClean,c:'var(--ok)',t:'No failed or warning checks'})
-    +'</div><div class="mhead">Results (every check × asset)</div><div class="mkpi">'
-    +mk(OV.pass_pct!=null?OV.pass_pct+'%':'—','pass rate · pass ÷ (pass+fail)',{j:'secStatus',c:'var(--accent)',u:'by status ↓'})
-    +mk(fnum(OV.failed),'failed results',{f:'st:failed',n:nFail,c:'var(--crit)'})
-    +mk(fnum(OV.warning),'warning results',{f:'st:warning',n:nWarn,c:'var(--med)'})
-    +mk(fnum(OV.passed),'passed results',{j:'secStatus',c:'var(--ok)',u:'by status ↓'})
-    +'</div><div class="mhead">Benchmarks</div><div class="mkpi">'
-    +mk(fnum(OV.checks),'controls',{j:'secCtrl',c:'var(--line)',u:'failing controls ↓'})
-    +mk(fnum(OV.failed_controls),'failing controls',{j:'secCtrl',c:'var(--crit)',u:'failing controls ↓'})
-    +mk(fnum((OV.frameworks||[]).length),'frameworks hit',{j:'secFw',c:'var(--accent)',u:'framework exposure ↓'})
-    +mk(fnum((OV.audit_files||[]).length),'audit files',{j:'secAudit',c:'var(--accent)',u:'benchmarks ↓'})
-    +'</div></section>';
+    +'<p class="sub" style="margin:2px 0 0">Numbers, bars and controls open the matching assets in <b>🔍 Compliance Deep-Dive</b> — its asset list is narrowed to that group, worst first.</p>'
+    +'<div id="glxComp"></div></section>';
+  const glance=[
+    {title:'Assets', hero:mk(fnum(OV.assets),'assets audited',{n:rows.length}),
+     chips:[mk(fnum(nFail),'assets failing a check',{f:'st:failed',n:nFail,c:'crit'}),
+            mk(fnum(nWarn),'assets with warnings',{f:'st:warning',n:nWarn,c:'med'}),
+            mk(fnum(nLow),'assets under 50% pass',{f:'pct:lt50',n:nLow,c:'crit',t:'Passing under half of their checks'}),
+            mk(fnum(nClean),'clean assets',{f:'st:clean',n:nClean,c:'ok',t:'No failed or warning checks'})]},
+    {title:'Results (every check × asset)', hero:mk(OV.pass_pct!=null?OV.pass_pct+'%':'—','pass rate · pass ÷ (pass+fail)',{j:'secStatus',u:'by status ↓'}),
+     bar:[{label:'Passed',value:OV.passed||0,color:'ok'},{label:'Failed',value:OV.failed||0,color:'crit'},{label:'Warning',value:OV.warning||0,color:'med'}], legend:false,
+     chips:[mk(fnum(OV.failed),'failed results',{f:'st:failed',n:nFail,c:'crit'}),
+            mk(fnum(OV.warning),'warning results',{f:'st:warning',n:nWarn,c:'med'}),
+            mk(fnum(OV.passed),'passed results',{j:'secStatus',c:'ok',u:'by status ↓'})]},
+    {title:'Benchmarks', hero:mk(fnum(OV.failed_controls),'failing controls',{j:'secCtrl',c:'crit',u:'failing controls ↓'}),
+     chips:[mk(fnum(OV.checks),'controls',{j:'secCtrl',u:'failing controls ↓'}),
+            mk(fnum((OV.frameworks||[]).length),'frameworks hit',{j:'secFw',u:'framework exposure ↓'}),
+            mk(fnum((OV.audit_files||[]).length),'audit files',{j:'secAudit',u:'benchmarks ↓'})]}];
 
   // status distribution — each bar opens the assets behind it
   const smax=Math.max(1,...STAT.map(([k])=>bs[k]||0));
@@ -153,8 +148,8 @@ function render(){
   // tag-by-control
   h+=tagCardHTML();
   B.innerHTML=h;
+  renderGlance('glxComp', glance);
   wireTag();
-  B.querySelectorAll('a.mk[data-j]').forEach(x=>x.onclick=e=>{ e.preventDefault(); const t=document.getElementById(x.dataset.j); if(t) t.scrollIntoView({behavior:'smooth',block:'start'}); });
   mountSectionNav();
   setNavCount('secAssets', rows.length); setNavCount('secCtrl', OV.failed_controls||0);
 }

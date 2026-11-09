@@ -187,7 +187,10 @@ def _reader(job, fd, proc):
         job["finished"] = _now()
 
 
-def _start(sub_argv, label):
+def _start(sub_argv, label, answer=None):
+    """answer: bytes typed into navi's stdin right after it starts — only used to answer
+    the y/N confirm of `-rebuild` (click.confirm), which the user already confirmed in
+    the page. Anything else keeps navi's stdin a closed terminal / DEVNULL."""
     navi = navi_cli._resolve_navi()
     if not navi:
         return {"ok": False, "error": navi_cli.write_gate_reason()
@@ -220,10 +223,21 @@ def _start(sub_argv, label):
             finally:
                 os.close(slave)             # parent keeps only the master end
             fd = master
+            if answer:
+                try:
+                    os.write(master, answer)    # the tty buffers it until click.confirm reads
+                except OSError:
+                    pass
         else:                               # Windows fallback: plain pipe
             proc = subprocess.Popen(
-                argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                argv, stdin=(subprocess.PIPE if answer else subprocess.DEVNULL), stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT, bufsize=0, cwd=cwd, env=env)
+            if answer:
+                try:
+                    proc.stdin.write(answer)
+                    proc.stdin.close()
+                except Exception:
+                    pass
             fd = proc.stdout.fileno()
     except Exception as e:
         with _LOCK:
@@ -257,6 +271,74 @@ def _tag_kind(r, kind):
                     _JOBS[jid]["kind"] = kind
     except Exception:
         pass
+
+
+REBUILD_TABLES = {"both": ["config", "update", "full"],
+                  "assets": ["config", "update", "assets"],
+                  "vulns": ["config", "update", "vulns"]}
+# derived from assets/vulns — stale after a rebuild (navi's own rebuild_reminder lists these)
+REBUILD_DERIVED = ("certificates", "software", "routes", "paths")
+
+
+def running():
+    """Jobs still running (any kind) — a rebuild must not race another navi.db writer."""
+    with _LOCK:
+        busy = [j for j in _JOBS.values() if j.get("status") == "running"]
+    return [_view(j) for j in busy]        # _view takes _LOCK itself (not re-entrant)
+
+
+def rebuild_argv(tables, days):
+    """`navi config update <full|assets|vulns> -rebuild --days N` — or (None, error)."""
+    t = str(tables or "").strip().lower()
+    if t not in REBUILD_TABLES:
+        return None, "tables must be one of: both, assets, vulns"
+    try:
+        d = int(str(days).strip())
+    except (TypeError, ValueError):
+        return None, "days must be a whole number"
+    if not 1 <= d <= 3650:
+        return None, "days must be between 1 and 3650"
+    return REBUILD_TABLES[t] + ["-rebuild", "--days", str(d)], None
+
+
+def start_rebuild(tables="both", days=90, derived=True):
+    """DROP + re-create navi.db's assets and/or vulns tables and pull `days` days fresh,
+    via navi's own `-rebuild` (it asks y/N; the page already confirmed, so we answer y).
+    Clears assets that aged out of the window or fell off licensing — navi's normal sync
+    only upserts, so they otherwise stay in navi.db forever. With derived=True, the
+    tables navi says go stale after a rebuild (certs, software, routes, paths) are
+    rebuilt one after another once it succeeds. Local navi.db only — nothing in Tenable."""
+    argv, err = rebuild_argv(tables, days)
+    if err:
+        return {"ok": False, "error": err}
+    busy = running()
+    if busy:
+        return {"ok": False, "error": "another navi job is running (%s) — wait for it to finish, "
+                "a rebuild can't share navi.db with it" % busy[0].get("cmd", "?")}
+    r = _start(argv, "navi " + " ".join(argv), answer=b"y\n")
+    _tag_kind(r, "rebuild")
+    jid = (r.get("job") or {}).get("id")
+    if r.get("ok") and derived and jid is not None:
+        def _chain():
+            while True:
+                with _LOCK:
+                    st = (_JOBS.get(jid) or {}).get("status")
+                if st != "running":
+                    break
+                time.sleep(3)
+            if st != "done":
+                return                    # the rebuild failed or was cancelled — leave the rest alone
+            for k in REBUILD_DERIVED:
+                rr = start_update(k)
+                kid = (rr.get("job") or {}).get("id")
+                while kid is not None:
+                    with _LOCK:
+                        if (_JOBS.get(kid) or {}).get("status") != "running":
+                            break
+                    time.sleep(3)
+        threading.Thread(target=_chain, daemon=True, name="navi-rebuild-derived").start()
+        r["then"] = ["navi " + " ".join(COMMANDS[k]) for k in REBUILD_DERIVED]
+    return r
 
 
 def start_optimize():

@@ -345,6 +345,27 @@ def navi_start(p):
     return (r, 200) if r.get("ok") else (r, 400)
 
 
+def navi_rebuild(p):
+    """🧹 Rebuild navi.db: DROP + re-create assets and/or vulns, then pull N days fresh
+    (`navi config update full|assets|vulns -rebuild --days N`). Wipes local navi.db rows
+    only — nothing in Tenable changes — but it's destructive locally and every hound reads
+    those tables, so it needs confirm === true AND a browser on this machine (loopback)."""
+    if not gates.confirmed(p):
+        return {"ok": False, "needs_confirm": True,
+                "error": "Rebuilding drops navi.db's assets/vulns tables — send confirm: true"}, 400
+    if not gates.client_is_loopback():
+        return {"ok": False, "error": "A navi.db rebuild can only be started from this machine "
+                "(a loopback browser)."}, 403
+    r = cli_jobs.start_rebuild(p.get("tables", "both"), p.get("days", 90), bool(p.get("derived", True)))
+    return (r, 200) if r.get("ok") else (r, 400)
+
+
+def asset_delta(p):
+    """navi.db assets vs Tenable's licensed count + stale assets (read-only)."""
+    from core import asset_delta as ad
+    return ad.delta(days=p.get("days", ad.DEFAULT_DAYS), live=p.get("live", True) is not False), 200
+
+
 def navi_poll(p):
     return cli_jobs.poll(p.get("job_id"), p.get("since", 0)), 200
 
@@ -385,4 +406,5 @@ def downloads_status(p):
 
 ACTIONS = {"status": status, "downloads": downloads_status, "set_env": set_env, "config_mode": config_mode, "db_checks": db_checks,
            "navi_start": navi_start, "navi_poll": navi_poll, "navi_jobs": navi_jobs,
+           "navi_rebuild": navi_rebuild, "asset_delta": asset_delta,
            "reset_usage": reset_usage, "sla_get": sla_get, "sla_set": sla_set}
