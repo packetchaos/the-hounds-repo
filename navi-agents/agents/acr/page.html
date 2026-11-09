@@ -5,12 +5,6 @@
 <link rel="stylesheet" href="/static/console.css"/>
 <style>.fld{width:100%;padding:8px;border-radius:7px;background:var(--panel2);color:var(--txt);border:1px solid var(--line)}
 /* metric cards (same pattern as agents/was/page.html) */
-.mkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr));gap:10px;margin-top:10px}
-.mk{display:block;border:1px solid var(--line);border-left:4px solid var(--rc,var(--line));border-radius:12px;padding:10px 12px;background:var(--panel-2);color:inherit;text-decoration:none}
-.mk .v{font-size:22px;font-weight:800;color:var(--ink);line-height:1.1}.mk .l{font-size:11.5px;color:var(--mut);margin-top:2px}
-.mk .u{font-size:11px;color:var(--accent);margin-top:4px}
-a.mk:hover{border-color:var(--accent)} .mk.zero{opacity:.55}
-.mhead{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 0}
 .applink{color:var(--accent);text-decoration:none;font-weight:600}.applink:hover{text-decoration:underline}
 .tseg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;flex-wrap:wrap}
 .tseg button{background:var(--panel);border:0;border-right:1px solid var(--line);padding:7px 12px;font-size:12.5px;color:var(--ink-2);cursor:pointer;font-family:inherit;display:inline-flex;gap:6px;align-items:center;white-space:nowrap}
@@ -123,33 +117,39 @@ async function loadMetrics(){
   renderMetrics(); renderProtect();
 }
 const logHref=q=>'/web/acr-log.html'+(q?'?'+new URLSearchParams(q).toString():'');
-function mk(v,l,href,c,where,title,show){ const z=typeof v==='string'?(v==='never'||v==='—'):!(+v);
-  return `<a class="mk${z?' zero':''}" href="${esc(href)}"${show?` data-show="${esc(show)}"`:''} style="--rc:${c||'var(--line)'}" title="${esc(title||'')}"><div class="v">${esc(typeof v==='string'?v:N(v))}</div><div class="l">${esc(l)}</div><div class="u">→ ${esc(where)}</div></a>`; }
+/* 📊 At a glance — the shared renderGlance template. A metric with `show` re-filters the Protection list (and scrolls to it);
+   the others open the ACR log / Tag Explorer filtered to that number. */
+function acrMetric(v,l,href,sev,where,title,show){ const z=typeof v==='string'?(v==='never'||v==='—'):!(+v);
+  const m={v:typeof v==='string'?v:N(v), l, sev:sev||'none', u:'→ '+where, t:title?title+' · → '+where:undefined, zero:z};
+  if(show) m.onClick=()=>{ PSHOW=show; loadMetrics().then(()=>{ const s=document.getElementById('secProtect'); s.scrollIntoView({behavior:'smooth',block:'start'}); }); };
+  else m.href=href;
+  return m; }
 function renderMetrics(){
-  const m=MET, lc=m.last_change?new Date(m.last_change*1000).toLocaleString():'never';
+  const m=MET, lc=m.last_change?new Date(m.last_change*1000).toLocaleString():'never', mk=acrMetric;
   const pendCh=Math.max(0,(m.changed_unprotected||0)-(m.changed_unprotected_waiting||0));
-  let h='<div class="mhead">Protection · navi.db</div><div class="mkpi">'
-    +mk(m.protected,'assets ACR-protected (NO : UPDATE)','/agents/ex_tags/page.html?key=NO&value=UPDATE','var(--ok)','Tag Explorer · NO : UPDATE','Assets navi.db shows tagged exactly NO : UPDATE — navi enrich acr never changes them')
-    +mk(m.protected_never_changed,'protected, never changed by the Hounds','/agents/ex_tags/page.html?key=NO&value=UPDATE','var(--line)','Tag Explorer · NO : UPDATE','Protected by someone else (or before the ACR log existed)')
-    +mk(m.pending,'protection requested, awaiting navi.db sync','#secProtect','var(--cx-7cc4ff)','Protection · pending','NO : UPDATE queued by a Hound; counts for navi after navi update assets','pending')
-    +mk(m.respected,'times navi respected NO : UPDATE','/web/acr-log.html?result=skipped_protected','var(--cx-7cc4ff)','ACR log · skipped_protected','ACR-log rows where a change skipped a protected asset')
-    +'</div><div class="mhead">Changed by the Hounds · ACR log</div><div class="mkpi">'
-    +mk(m.changed,'assets whose ACR the Hounds changed'+(m.changed_unchanged?' (incl. '+N(m.changed_unchanged)+' re-sent unchanged)':''),'/web/acr-log.html?result=applied','var(--accent)','ACR log · applied','Distinct assets with an applied ACR change (navi re-stamps an ACR it already had with the Hounds\' reason too)')
-    +mk(m.changed_protected,'changed & protected','#secProtect','var(--ok)','Protection · protected','','protected')
-    +mk(m.changed_unprotected_waiting,'changed & NOT protected','#secProtect','var(--cx-e7c66b)','Protection · protect them','Changed by the Hounds, no NO : UPDATE yet — a later change can move their ACR again','unprotected')
-    +mk(pendCh,'changed, protection pending sync','#secProtect','var(--cx-7cc4ff)','Protection · pending','','pending')
-    +mk(m.last_change?lc:'never','last Hound ACR change','/web/acr-log.html','var(--line)','ACR log · newest first')
-    +'</div><div class="mhead">navi will skip</div><div class="mkpi">'
-    +mk(m.no_acr==null?'—':m.no_acr,'assets with no ACR in navi.db','/web/acr-log.html?result=skipped_no_acr','var(--line)','ACR log · skipped_no_acr','navi enrich acr skips an asset whose ACR is empty in navi.db')
-    +'</div>';
   const bc=m.by_business_case||[];
-  h+='<div class="mhead">Changes by business case</div>'+(bc.length?'<div class="mkpi">'+bc.slice(0,12).map(b=>
-      mk(b.assets,(b.business_case||'(no business case)')+' · '+N(b.protected)+' protected','/web/acr-log.html?'+new URLSearchParams({result:'applied',business_case:b.business_case||'__none'}).toString(),'var(--accent)','ACR log · this business case')).join('')+'</div>'
-      +(bc.length>12?'<p class="sub" style="margin:6px 0 0">+ '+(bc.length-12)+' more business case(s) in the <a class="applink" href="/web/acr-log.html">ACR log</a>.</p>':'')
-    :'<p class="sub" style="margin:6px 0 0">No Hound ACR changes yet.</p>');
-  document.getElementById('glance').innerHTML=h;
-  document.querySelectorAll('#glance a.mk[data-show]').forEach(a=>a.onclick=e=>{ e.preventDefault(); PSHOW=a.dataset.show; loadMetrics().then(()=>{
-    const s=document.getElementById('secProtect'); s.scrollIntoView({behavior:'smooth',block:'start'}); }); });
+  document.getElementById('glance').innerHTML='<div id="glxAcr"></div>'
+    +(bc.length>12?'<p class="sub" style="margin:6px 0 0">+ '+(bc.length-12)+' more business case(s) in the <a class="applink" href="/web/acr-log.html">ACR log</a>.</p>':'');
+  renderGlance('glxAcr', [
+    {title:'Protection · navi.db',
+     hero:mk(m.protected,'assets ACR-protected (NO : UPDATE)','/agents/ex_tags/page.html?key=NO&value=UPDATE','ok','Tag Explorer · NO : UPDATE','Assets navi.db shows tagged exactly NO : UPDATE — navi enrich acr never changes them'),
+     chips:[mk(m.protected_never_changed,'protected, never changed by the Hounds','/agents/ex_tags/page.html?key=NO&value=UPDATE','none','Tag Explorer · NO : UPDATE','Protected by someone else (or before the ACR log existed)'),
+            mk(m.pending,'protection requested, awaiting navi.db sync','#secProtect','info','Protection · pending','NO : UPDATE queued by a Hound; counts for navi after navi update assets','pending'),
+            mk(m.respected,'times navi respected NO : UPDATE','/web/acr-log.html?result=skipped_protected','info','ACR log · skipped_protected','ACR-log rows where a change skipped a protected asset')]},
+    {title:'Changed by the Hounds · ACR log',
+     hero:mk(m.changed,'assets whose ACR the Hounds changed'+(m.changed_unchanged?' (incl. '+N(m.changed_unchanged)+' re-sent unchanged)':''),'/web/acr-log.html?result=applied','info','ACR log · applied',"Distinct assets with an applied ACR change (navi re-stamps an ACR it already had with the Hounds' reason too)"),
+     bar:[{label:'Protected',value:m.changed_protected||0,color:'ok'},{label:'Not protected',value:m.changed_unprotected_waiting||0,color:'med'},{label:'Pending sync',value:pendCh,color:'info'}], legend:false,
+     chips:[mk(m.changed_protected,'changed & protected','#secProtect','ok','Protection · protected','','protected'),
+            mk(m.changed_unprotected_waiting,'changed & NOT protected','#secProtect','med','Protection · protect them','Changed by the Hounds, no NO : UPDATE yet — a later change can move their ACR again','unprotected'),
+            mk(pendCh,'changed, protection pending sync','#secProtect','info','Protection · pending','','pending'),
+            mk(m.last_change?lc:'never','last Hound ACR change','/web/acr-log.html','none','ACR log · newest first')]},
+    {title:'navi will skip',
+     hero:mk(m.no_acr==null?'—':m.no_acr,'assets with no ACR in navi.db','/web/acr-log.html?result=skipped_no_acr','none','ACR log · skipped_no_acr','navi enrich acr skips an asset whose ACR is empty in navi.db')},
+    {title:'Changes by business case',
+     ranked:{items:bc.slice(0,12).map(b=>({label:(b.business_case||'(no business case)')+' · '+N(b.protected)+' protected', value:b.assets, sev:'info',
+       t:(b.business_case||'(no business case)')+': '+N(b.assets)+' asset(s), '+N(b.protected)+' protected → ACR log · this business case',
+       href:'/web/acr-log.html?'+new URLSearchParams({result:'applied',business_case:b.business_case||'__none'}).toString()})), empty:'No Hound ACR changes yet.'}}
+  ]);
   setNavCount('secProtect', N(m.changed));
 }
 function renderProtect(){

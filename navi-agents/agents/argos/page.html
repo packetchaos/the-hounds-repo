@@ -6,13 +6,7 @@
 <style>
   .argrid{display:grid;grid-template-columns:320px 1fr;gap:16px;margin-top:14px}
   @media(max-width:820px){.argrid{grid-template-columns:1fr}}
-  /* at a glance */
-  .gkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr));gap:10px;margin-top:8px}
-  .gmk{display:block;border:1px solid var(--line);border-left:4px solid var(--rc,var(--line));border-radius:12px;padding:10px 12px;background:var(--panel-2);color:inherit;text-decoration:none}
-  .gmk:hover{border-color:var(--accent)} .gmk.dim{opacity:.6}
-  .gmk .v{font-size:22px;font-weight:800;color:var(--ink);line-height:1.1}.gmk .v small{font-size:12px;font-weight:600;color:var(--mut)}
-  .gmk .l{font-size:11.5px;color:var(--mut);margin-top:2px}.gmk .u{font-size:11px;color:var(--accent);margin-top:4px}
-  #glanceCard .mhead{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin:12px 0 0}
+  /* 📊 At a glance: the shared renderGlance template (console.js / console.css) */
   .idrow{display:flex;justify-content:space-between;gap:10px;font-size:13.5px;padding:6px 0;border-bottom:1px solid var(--line)}
   .idrow:last-child{border-bottom:0} .idrow .k{color:var(--mut)} .idrow .v{font-weight:600;text-align:right;word-break:break-all}
   .ring-wrap{display:flex;align-items:center;gap:18px}
@@ -68,7 +62,7 @@
 
   <div id="result" style="display:none">
     <section class="card" id="glanceCard" data-nav="At a glance" data-nav-icon="📊" style="margin-top:14px">
-      <h2 style="margin:0;font-size:17px">📊 At a glance</h2>
+      <h2 style="margin:0 0 2px;font-size:17px">📊 At a glance</h2>
       <p class="sub" style="margin:2px 0 0">The numbers that decide what to do with this asset — each opens the Hound that owns it.</p>
       <div id="glanceBody"></div>
     </section>
@@ -291,50 +285,49 @@ function wireDocker(dk){
   }, {});
 }
 
-/* ---- At a glance: the numbers that decide what to do with this asset; each card opens
-   the Hound that owns it (or jumps to the card below). Built from d.glance (api._glance). ---- */
-function renderGlance(d){
+/* ---- 📊 At a glance (shared renderGlance template): the numbers that decide what to do with this
+   asset; each opens the Hound that owns it (or jumps to the card below). Built from d.glance (api._glance). ---- */
+function renderArgosGlance(d){
   const g=d.glance||{}, uu=encodeURIComponent((d.asset&&d.asset.uuid)||''), N=v=>Number(v||0).toLocaleString();
-  const card=(v,l,u,href,c,dim)=>`<a class="gmk${dim?' dim':''}" href="${esc(href)}"${href[0]==='#'?` data-j="${esc(href.slice(1))}"`:''} style="--rc:${c}"><div class="v">${v}</div><div class="l">${esc(l)}</div><div class="u">${u}</div></a>`;
-  const sm=t=>` <small>${esc(t)}</small>`;
+  // one metric: value, label, detail ("→ where it goes"), link, severity, dimmed
+  const card=(v,l,u,href,sev,dim)=>({v:String(v), l, u, href, sev:sev||'none', zero:!!dim});
   const nm=g.nemesis, f=g.findings||{}, sla=g.sla, cp=g.compliance, ce=g.certs, eol=g.eol, sc=g.scan, pk=g.pack||{hounds:[],of:0};
-  const BC={CRITICAL:'var(--crit)',HIGH:'var(--high)',ELEVATED:'var(--med)',LOW:'var(--low)'};
-  let h='<div class="mhead">Exposure</div><div class="gkpi">'
-   +(nm?card(N(nm.score)+(nm.rank?sm('· #'+N(nm.rank)+' of '+N(nm.of)):''),'Exposure Score (Nemesis) · '+esc(nm.band.toLowerCase())+' · default weighting',
-        nm.rank?'→ Exposure Score breakdown':(nm.beyond?'below the worst '+N(nm.beyond)+' of '+N(nm.of)+' → Exposure Score':'→ run Exposure Score for the estate rank'),
-        '/agents/fused_score/page.html',BC[nm.band]||'var(--line)')
-       :card('—','Exposure Score (Nemesis)','no score for this asset','/agents/fused_score/page.html','var(--line)',true))
-   +card(N(f.critical)+sm('/ '+N(f.high)),'open critical / high','→ Top findings ↓','#vulnCard',f.critical?'var(--crit)':(f.high?'var(--high)':'var(--ok)'),!(f.critical||f.high))
-   +card(N(f.kev),'CISA KEV findings',f.kev?'exploited in the wild → CISA KEV':'→ CISA KEV','/agents/cisakev/page.html',f.kev?'var(--crit)':'var(--ok)',!f.kev)
-   +'</div><div class="mhead">Remediation clock</div><div class="gkpi">'
-   +(sla&&sla.first_found?card(N(sla.past),'findings past SLA',Object.entries(sla.windows||{}).map(([k,v])=>esc(k.slice(0,4))+' &gt; '+esc(v)+' d').join(' · ')+' → SLA Adherence','/agents/sla/page.html',sla.past?'#f59e0b':'var(--ok)',!sla.past)
-       :card('—','findings past SLA','no first-found dates in navi.db','/agents/sla/page.html','var(--line)',true))
-   +(sla&&sla.oldest_critical_days!=null?card(N(sla.oldest_critical_days)+sm('days'),'oldest open critical','first found '+esc(sla.oldest_critical_since||'—'),'#vulnCard','var(--crit)')
-       :(f.critical?card(N(f.critical),'oldest open critical',(sla&&sla.first_found)?'no first-found date on them':'no first-found dates in navi.db','#vulnCard','var(--crit)')
-         :card('—','oldest open critical','no open critical findings','#vulnCard','var(--ok)',true)))
-   +'</div><div class="mhead">Hygiene</div><div class="gkpi">'
-   +(cp?card(cp.pass_pct!=null?esc(cp.pass_pct)+'%':'—','compliance pass rate',N(cp.failed)+' failing check'+(cp.failed===1?'':'s')+' → Compliance Deep-Dive','/agents/compliance_asset/page.html?asset='+uu,
-        cp.pass_pct==null?'var(--line)':(cp.pass_pct>=80?'var(--ok)':(cp.pass_pct>=50?'var(--med)':'var(--crit)')))
-       :card('—','compliance pass rate','no audit results for this asset','/agents/compliance/page.html','var(--line)',true))
-   +(ce?card(ce.expired?N(ce.expired)+sm('expired'):N(ce.soon)+sm('expiring'),'certificates · '+N(ce.total)+' on this asset',
+  const BC={CRITICAL:'crit',HIGH:'high',ELEVATED:'med',LOW:'low'};
+  renderGlance('glanceBody', [
+    {title:'Exposure',
+     hero:nm?card(N(nm.score),'Exposure Score (Nemesis) · '+nm.band.toLowerCase()+' · default weighting',
+        (nm.rank?'#'+N(nm.rank)+' of '+N(nm.of)+' → Exposure Score breakdown':(nm.beyond?'below the worst '+N(nm.beyond)+' of '+N(nm.of)+' → Exposure Score':'→ run Exposure Score for the estate rank')),
+        '/agents/fused_score/page.html',BC[nm.band])
+       :card('—','Exposure Score (Nemesis)','no score for this asset','/agents/fused_score/page.html','none',true),
+     chips:[card(N(f.critical)+' / '+N(f.high),'open critical / high','→ Top findings ↓','#vulnCard',f.critical?'crit':(f.high?'high':'ok'),!(f.critical||f.high)),
+            card(N(f.kev),'CISA KEV findings',f.kev?'exploited in the wild → CISA KEV':'→ CISA KEV','/agents/cisakev/page.html',f.kev?'crit':'ok',!f.kev)]},
+    {title:'Remediation clock',
+     hero:sla&&sla.first_found?card(N(sla.past),'findings past SLA',Object.entries(sla.windows||{}).map(([k,v])=>k.slice(0,4)+' > '+v+' d').join(' · ')+' → SLA Adherence','/agents/sla/page.html',sla.past?'high':'ok',!sla.past)
+       :card('—','findings past SLA','no first-found dates in navi.db','/agents/sla/page.html','none',true),
+     chips:[sla&&sla.oldest_critical_days!=null?card(N(sla.oldest_critical_days)+' days','oldest open critical','first found '+(sla.oldest_critical_since||'—'),'#vulnCard','crit')
+       :(f.critical?card(N(f.critical),'oldest open critical',(sla&&sla.first_found)?'no first-found date on them':'no first-found dates in navi.db','#vulnCard','crit')
+         :card('—','oldest open critical','no open critical findings','#vulnCard','ok',true))]},
+    {title:'Hygiene',
+     hero:cp?card(cp.pass_pct!=null?cp.pass_pct+'%':'—','compliance pass rate',N(cp.failed)+' failing check'+(cp.failed===1?'':'s')+' → Compliance Deep-Dive','/agents/compliance_asset/page.html?asset='+uu,
+        cp.pass_pct==null?'none':(cp.pass_pct>=80?'ok':(cp.pass_pct>=50?'med':'crit')))
+       :card('—','compliance pass rate','no audit results for this asset','/agents/compliance/page.html','none',true),
+     chips:[ce?card(ce.expired?N(ce.expired)+' expired':N(ce.soon)+' expiring','certificates · '+N(ce.total)+' on this asset',
         (ce.expired&&ce.soon?N(ce.soon)+' more expire'+(ce.soon===1?'s':'')+' in '+N(ce.soonest_days)+' days':(ce.soon?'next in '+N(ce.soonest_days)+' days':'none expiring in '+ce.window+' days'))+' → Certificates ↓',
-        '#certCard',ce.expired?'var(--crit)':(ce.soon?'var(--high)':'var(--ok)'),!(ce.expired||ce.soon))
-       :card('0','certificates','none recorded on this asset','#certCard','var(--line)',true))
-   +(eol?card(N(eol.findings),'EOL / unsupported software',(eol.tagged?'tagged Lifecycle · ':'')+'→ EOL / Unsupported','/agents/eol/page.html',(eol.findings||eol.tagged)?'#e0913a':'var(--ok)',!(eol.findings||eol.tagged))
-       :card('—','EOL / unsupported software','no findings table','/agents/eol/page.html','var(--line)',true))
-   +'</div><div class="mhead">Confidence</div><div class="gkpi">'
-   +(sc&&sc.days!=null?card(N(sc.days)+sm('days'),'since last scan',esc(sc.date||'')+(sc.name?' · '+esc(sc.name):'')+' → Scan Evaluations','/agents/scan_eval/page.html',sc.days>30?'var(--med)':'var(--ok)')
-       :card('—','since last scan','no scan-information plugin (19506) on this asset','/agents/scan_eval/page.html','var(--line)',true))
-   +(sc&&sc.credentialed!=null?card(sc.credentialed?'yes':'no','credentialed scan',sc.credentialed?'local checks ran → Scan Evaluations':'findings may be understated → Scan Evaluations','/agents/scan_eval/page.html',sc.credentialed?'var(--ok)':'var(--med)')
-       :card('—','credentialed scan','unknown','/agents/scan_eval/page.html','var(--line)',true))
-   +card(N(pk.hounds.length)+sm('of '+N(pk.of)),'Hounds that tagged this asset',pk.hounds.length?(pk.hounds.length<=3?esc(pk.hounds.join(', '))+(pk.hounds.length<pk.of?' so far':''):'')+' → run the pack':'none yet → run the pack','/',pk.hounds.length?'var(--accent)':'var(--line)',!pk.hounds.length)
-   +'</div>';
-  document.getElementById('glanceBody').innerHTML=h;
-  document.querySelectorAll('#glanceBody a[data-j]').forEach(x=>x.onclick=e=>{ e.preventDefault(); const t=document.getElementById(x.dataset.j); if(t) t.scrollIntoView({behavior:'smooth',block:'start'}); });
+        '#certCard',ce.expired?'crit':(ce.soon?'high':'ok'),!(ce.expired||ce.soon))
+       :card('0','certificates','none recorded on this asset','#certCard','none',true),
+            eol?card(N(eol.findings),'EOL / unsupported software',(eol.tagged?'tagged Lifecycle · ':'')+'→ EOL / Unsupported','/agents/eol/page.html',(eol.findings||eol.tagged)?'high':'ok',!(eol.findings||eol.tagged))
+       :card('—','EOL / unsupported software','no findings table','/agents/eol/page.html','none',true)]},
+    {title:'Confidence',
+     hero:sc&&sc.days!=null?card(N(sc.days)+' days','since last scan',(sc.date||'')+(sc.name?' · '+sc.name:'')+' → Scan Evaluations','/agents/scan_eval/page.html',sc.days>30?'med':'ok')
+       :card('—','since last scan','no scan-information plugin (19506) on this asset','/agents/scan_eval/page.html','none',true),
+     chips:[sc&&sc.credentialed!=null?card(sc.credentialed?'yes':'no','credentialed scan',sc.credentialed?'local checks ran → Scan Evaluations':'findings may be understated → Scan Evaluations','/agents/scan_eval/page.html',sc.credentialed?'ok':'med')
+       :card('—','credentialed scan','unknown','/agents/scan_eval/page.html','none',true),
+            card(N(pk.hounds.length)+' of '+N(pk.of),'Hounds that tagged this asset',pk.hounds.length?(pk.hounds.length<=3?pk.hounds.join(', ')+(pk.hounds.length<pk.of?' so far':''):'')+' → run the pack':'none yet → run the pack','/',pk.hounds.length?'info':'none',!pk.hounds.length)]}
+  ]);
 }
 function render(d){
   CUR=d;
-  try{ renderGlance(d); }catch(e){ document.getElementById('glanceBody').innerHTML='<p class="sub">At a glance unavailable: '+esc(e.message)+'</p>'; }
+  try{ renderArgosGlance(d); }catch(e){ document.getElementById('glanceBody').innerHTML='<p class="sub">At a glance unavailable: '+esc(e.message)+'</p>'; }
   Object.keys(MORE).forEach(k=>MORE[k]=false);   // every list starts at top 5 on a new asset
   const a=d.asset||{}, R=d.risk||{};
   // identity

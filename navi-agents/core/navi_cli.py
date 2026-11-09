@@ -194,6 +194,30 @@ def _navi_summary(stdout, stderr):
     return lines[-1][:300]
 
 
+def removal_verdict(stdout, stderr=""):
+    """Did `navi enrich tag ... -remove` really strip the tag? Read navi's own lines:
+      "Your tag is being removed from all assets" — navi found the tag in Tenable and
+          posted the unassign (followed by "Job UUID : <id>" per chunk of ≤1999 assets);
+      "The Query did not yield any results" — navi.db holds no assets for that tag (stale
+          navi.db, or the tag is already empty);
+      neither — navi found no Tenable tag with that exact category : value.
+    Returns {ok, jobs:[uuid…], reason}."""
+    text = (stdout or "") + "\n" + (stderr or "")
+    low = text.lower()
+    started = "being removed from all assets" in low
+    jobs = re.findall(r"job uuid\s*:\s*([0-9a-f-]{8,})", text, re.I)
+    if started and "did not yield any results" in low and not jobs:
+        return {"ok": False, "jobs": [], "reason": "navi.db has no assets carrying this tag, so navi had "
+                "nothing to strip. Refresh navi.db (navi config update assets) and run the removal again."}
+    if started and jobs:
+        return {"ok": True, "jobs": jobs[:20], "reason": ""}
+    if started:
+        return {"ok": False, "jobs": [], "reason": "navi started the removal but Tenable returned no job id — "
+                "check the navi output below (API keys / permissions / rate limit)."}
+    return {"ok": False, "jobs": [], "reason": "navi found no tag with this exact category : value in Tenable "
+            "(names are matched exactly, ignoring case) — it may already be deleted, or renamed."}
+
+
 def _selector_summary(query, cve, plugin_name, scanid, plugin, output, route_id,
                       group="", xrefs="", xid="", cpe="", port="", regex=False):
     if cve:
@@ -441,10 +465,20 @@ def _tag_exec(category: str, value: str, query: str = "", remove: bool = False,
                "navi_output": summary,
                "stdout": p.stdout[-4000:], "stderr": p.stderr[-2000:], "cmd": pretty}
         if remove and ok:
-            # Reassure rather than alarm: the strip happened; navi.db's own count only
-            # updates on the next assets sync, so the tag may still show its old count.
-            res["message"] = (summary or "removal applied") + \
-                " — tag cleared (kept for its UUID); navi.db's count refreshes after the next assets sync"
+            # navi exits 0 whether or not it stripped anything, and (navi ≤ 8.8.2) its -remove
+            # branch overwrites its asset list with every tag in Tenable, so the LAST line is a
+            # junk "Your tag is being updated" from a follow-on add. Judge the removal by what
+            # navi actually printed for it, not by the exit code or the last line.
+            rv = removal_verdict(p.stdout, p.stderr)
+            res["removal"] = rv
+            if rv["ok"]:
+                res["message"] = ("removal submitted to Tenable" + (" (job %s)" % rv["jobs"][0] if rv["jobs"] else "")
+                                  + (" · %d chunks" % len(rv["jobs"]) if len(rv["jobs"]) > 1 else "")
+                                  + " — the tag is kept for its UUID; Tenable applies it in a few minutes and "
+                                    "navi.db's count updates after the next assets sync")
+            else:
+                res["ok"] = False
+                res["message"] = "tag NOT removed — " + rv["reason"]
         elif no_op:
             res["warning"] = ("navi ran OK but reported NO assets were tagged — the selector "
                               "matched nothing in navi.db. Refresh navi.db (navi update) or "

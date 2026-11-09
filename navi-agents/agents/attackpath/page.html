@@ -9,13 +9,6 @@
 :root{--e-exploit:#eb6834;--e-cred:#2a78d6;--e-net:#1baf7a;--crown:#d03b3b;--priv:#c98500;--node:#fcfcfb;--node-line:#8b95a7}
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--e-exploit:#d95926;--e-cred:#3987e5;--e-net:#199e70;--node:#262624;--node-line:#6b6f78}}
 :root[data-theme="dark"]{--e-exploit:#d95926;--e-cred:#3987e5;--e-net:#199e70;--node:#262624;--node-line:#6b6f78}
-.mkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(165px,1fr));gap:10px;margin-top:10px}
-.mk{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--panel-2)}
-.mk .v{font-size:22px;font-weight:800;color:var(--ink);line-height:1.1}.mk .v small{font-size:13px;font-weight:600;color:var(--mut)}
-.mk .l{font-size:11.5px;color:var(--mut);margin-top:2px}
-.mk .u{font-size:11.5px;color:var(--ink-2,var(--ink));margin-top:4px}.mk .u b{color:var(--ink)}
-.mk[data-f]{cursor:pointer;border-left:4px solid var(--rc,var(--line))}.mk[data-f]:hover{border-color:var(--accent)}.mk.on{box-shadow:0 0 0 2px var(--accent)}
-.mhead{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 0}
 .fchip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--accent);color:var(--accent);border-radius:999px;padding:3px 10px;font-size:12px}
 .fchip button{border:0;background:transparent;color:inherit;cursor:pointer;font-size:13px;padding:0}
 .pill{font-size:11px;padding:1px 7px;border-radius:999px;border:1px solid currentColor;white-space:nowrap;display:inline-block;margin:1px 2px 1px 0}
@@ -62,6 +55,10 @@
         <select id="crownAcr" class="fld" style="padding:6px;border-radius:7px"><option value="5">ACR ≥ 5</option><option value="6">ACR ≥ 6</option><option value="7" selected>ACR ≥ 7</option><option value="8">ACR ≥ 8</option><option value="9">ACR ≥ 9</option><option value="10">ACR = 10</option></select>
         <button class="btn run sm" id="run" data-run>▶ Run</button></span></div>
     <div id="flash" class="flash"></div>
+  </section>
+
+  <section class="card" id="secGlance" data-nav="At a glance" data-nav-icon="📊">
+    <h2 style="margin:0 0 2px;font-size:17px">📊 At a glance</h2>
     <div id="metrics"><div class="setupcard"><div class="big">Press ▶ Run</div><p class="sub">Map every route from an attacker's network position to your crown jewels — through exploits, privilege escalation, account reuse, relay and domain compromise — and get the short list of fixes that cuts the most exposure.</p></div></div>
   </section>
 
@@ -154,29 +151,32 @@ async function run(){
 /* ------------------------------------------------------------------ metrics */
 function renderMetrics(){
   const m=R.metrics||{}, u=m.uses_all||{}, b=m.uses_best||{};
-  const k=(v,l,s,o)=>{o=o||{}; return `<div class="mk${o.f&&FILTER===o.f?' on':''}"${o.f?` data-f="${o.f}"`:''} style="${o.c?'--rc:'+o.c:''}"${o.t?` title="${esc(o.t)}"`:''}><div class="v">${v}</div><div class="l">${l}</div>${s?`<div class="u">${s}</div>`:''}</div>`;};
-  const top=(R.fixes||[])[0];
-  document.getElementById('metrics').innerHTML=
-    '<div class="mhead">Exposure</div><div class="mkpi">'+
-    k(`${N(m.crown_reachable)} <small>/ ${N(m.crown)}</small>`,'crown jewels reachable', m.crown_pct!=null?(m.fallback_targets?`<b>${m.crown_pct}%</b> of fallback targets (no ACR ≥ ${R.crown_acr})`:`<b>${m.crown_pct}%</b> of ACR ≥ ${R.crown_acr} assets`):'', {c:'var(--crown)'})+
-    k(N(m.entries_to_crown),'ways in that reach one', `of <b>${N(m.entries)}</b> hosts exploitable without credentials`+(m.public_entries?` · <b>${N(m.public_entries)}</b> internet-exposed`:''), {c:'var(--e-exploit)'})+
-    k(N(m.direct),'crown jewels exposed directly', 'one step from the network', {f:'direct',c:'var(--crown)'})+
-    k(m.domain_reachable?pct(m.domain_likelihood):'no','domain admin reachable', m.domain_reachable?`in <b>${N(m.domain_steps)}</b> step${m.domain_steps===1?'':'s'} at best`:'no route to a domain controller', {f:'domain',c:'var(--e-net)'})+
-    '</div><div class="mhead">How each crown jewel is reached — best route per crown jewel · click to filter all '+N(m.paths)+' mapped routes</div><div class="mkpi">'+
-    k(N(m.chains),'reached by a multi-step chain', `3+ steps · longest <b>${N(m.max_hops)}</b> · <b>${N(m.chains_all)}</b> of all routes`, {f:'chain',c:'var(--e-exploit)'})+
-    k(N(b.kev),'best route uses a CISA KEV', `<b>${N(u.kev)}</b> of all routes`, {f:'kev',c:'var(--crown)'})+
-    k(N(b.cred),'best route uses an account on several hosts', `<b>${N(u.cred)}</b> of all routes · <b>${N(m.shared_creds)}</b> such accounts · account reuse, not a known shared password`, {f:'cred',c:'var(--e-cred)'})+
-    k(N(b.control),'best route needs a failed control', `<b>${N(u.control)}</b> of all routes · <b>${N(m.controls_on_paths)}</b> control types on routes`, {f:'control',c:'var(--priv)'})+
-    k(N(b.privesc),'best route escalates privilege', `<b>${N(u.privesc)}</b> of all routes`, {f:'privesc',c:'var(--priv)'})+
-    k(N(b.relay),'best route uses NTLM relay', `<b>${N(u.relay)}</b> of all routes`, {f:'relay',c:'var(--e-net)'})+
-    '</div><div class="mhead">Fix first</div><div class="mkpi">'+
-    k(m.bundle_size?`${m.bundle_exposure_cut_pct}%`:'—',`exposure cut by ${N(m.bundle_size)} fixes`, m.bundle_size?`<b>${N(m.bundle_still_reachable)}</b> crown jewels still reachable after`:'', {c:'var(--ok)'})+
-    k(top?`${top.exposure_cut_pct}%`:'—','exposure cut by the single best fix', top?esc(top.label.length>60?top.label.slice(0,58)+'…':top.label):'')+
-    k(m.avg_likelihood!=null?pct(m.avg_likelihood):'—','average best-route likelihood', 'per reachable crown jewel')+
-    k(N(m.uncredentialed),'hosts scanned without credentials', 'their weaknesses are missing from the graph', {c:'var(--mut)'})+
-    '</div>';
-  document.querySelectorAll('#metrics .mk[data-f]').forEach(c=>c.onclick=()=>{ FILTER=FILTER===c.dataset.f?null:c.dataset.f; hPageReset('pathTbl'); renderMetrics(); renderPaths(); renderMap();
-    if(FILTER) document.getElementById('secPaths').scrollIntoView({behavior:'smooth',block:'start'}); });
+  const fx=R.fixes||[], top=fx[0];
+  const el=document.getElementById('metrics');
+  el.innerHTML='<p class="sub" style="margin:2px 0 0">Click a number to filter the attack paths.</p><div id="glxAp"></div>';
+  renderGlance('glxAp', [
+    {title:'Exposure',
+     hero:{v:`${N(m.crown_reachable)} / ${N(m.crown)}`, l:'crown jewels reachable', sev:'crit', href:'#secCrown',
+           u:m.crown_pct!=null?(m.fallback_targets?`${m.crown_pct}% of fallback targets (no ACR ≥ ${R.crown_acr})`:`${m.crown_pct}% of ACR ≥ ${R.crown_acr} assets`):''},
+     chips:[{v:N(m.entries_to_crown), l:'ways in that reach one', u:`of ${N(m.entries)} hosts exploitable without credentials`+(m.public_entries?` · ${N(m.public_entries)} internet-exposed`:''), sev:'high', href:'#secEntry'},
+            {v:N(m.direct), l:'crown jewels exposed directly', u:'one step from the network', sev:'crit', filter:'direct'},
+            {v:m.domain_reachable?pct(m.domain_likelihood):'no', l:'domain admin reachable', u:m.domain_reachable?`in ${N(m.domain_steps)} step${m.domain_steps===1?'':'s'} at best`:'no route to a domain controller', sev:'info', filter:'domain'}]},
+    {title:'How each crown jewel is reached', t:'best route per crown jewel · click to filter all '+N(m.paths)+' mapped routes',
+     hero:{v:N(m.chains), l:'reached by a multi-step chain', u:`3+ steps · longest ${N(m.max_hops)} · ${N(m.chains_all)} of all routes`, sev:'high', filter:'chain'},
+     chips:[{v:N(b.kev), l:'best route uses a CISA KEV', u:`${N(u.kev)} of all routes`, sev:'crit', filter:'kev'},
+            {v:N(b.cred), l:'best route uses an account on several hosts', u:`${N(u.cred)} of all routes · ${N(m.shared_creds)} such accounts · account reuse, not a known shared password`, sev:'info', filter:'cred'},
+            {v:N(b.control), l:'best route needs a failed control', u:`${N(u.control)} of all routes · ${N(m.controls_on_paths)} control types on routes`, sev:'med', filter:'control'},
+            {v:N(b.privesc), l:'best route escalates privilege', u:`${N(u.privesc)} of all routes`, sev:'med', filter:'privesc'},
+            {v:N(b.relay), l:'best route uses NTLM relay', u:`${N(u.relay)} of all routes`, sev:'info', filter:'relay'}]},
+    {title:'Fix first',
+     hero:{v:m.bundle_size?`${m.bundle_exposure_cut_pct}%`:'—', l:`exposure cut by ${N(m.bundle_size)} fixes`, u:m.bundle_size?`${N(m.bundle_still_reachable)} crown jewels still reachable after`:'', sev:'ok', href:'#secFix'},
+     chips:[{v:top?`${top.exposure_cut_pct}%`:'—', l:'exposure cut by the single best fix', u:top?(top.label.length>60?top.label.slice(0,58)+'…':top.label):'', href:'#secFix'},
+            {v:m.avg_likelihood!=null?pct(m.avg_likelihood):'—', l:'average best-route likelihood', u:'per reachable crown jewel', href:'#secPaths'},
+            {v:N(m.uncredentialed), l:'hosts scanned without credentials', u:'their weaknesses are missing from the graph', href:'#secHow'}],
+     ranked:{title:'Best single fixes · % of exposure cut', sev:'ok', max:100, empty:'No choke point found.',
+             items:fx.slice(0,3).map(x=>({label:x.label, value:x.exposure_cut_pct, t:`${x.label}: cuts ${x.exposure_cut_pct}% of exposure`, href:'#secFix'}))}}
+  ], {active:FILTER, onFilter:(f,_el,on)=>{ FILTER=on?f:null; hPageReset('pathTbl'); renderMetrics(); renderPaths(); renderMap();
+    if(FILTER) document.getElementById('secPaths').scrollIntoView({behavior:'smooth',block:'start'}); }});
 }
 
 /* ------------------------------------------------------------------ paths */

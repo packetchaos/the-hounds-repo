@@ -4,12 +4,6 @@
 <title>Amarok · Command &amp; Control · Navi Agents</title>
 <link rel="stylesheet" href="/static/console.css"/>
 <style>
-  .mkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(180px,100%),1fr));gap:10px;margin-top:10px}
-  .mk{display:block;border:1px solid var(--line);border-left:4px solid var(--rc,var(--line));border-radius:12px;padding:10px 12px;background:var(--panel-2);color:inherit;text-decoration:none}
-  .mk .v{font-size:22px;font-weight:800;color:var(--ink);line-height:1.1}.mk .l{font-size:11.5px;color:var(--mut);margin-top:2px}
-  .mk .u{font-size:11px;color:var(--accent);margin-top:4px}
-  a.mk:hover{border-color:var(--accent)} .mk.zero{opacity:.55}
-  .mhead{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 0}
   .gatebar{border:1px solid var(--line);border-left-width:4px;border-radius:9px;padding:11px 13px;margin:10px 0;font-size:13px}
   .tabs2{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 6px}
   .tabs2 button{border:1px solid var(--line);background:var(--bg-2);color:var(--ink);border-radius:8px;padding:7px 13px;font-size:13px;cursor:pointer}
@@ -81,7 +75,7 @@
   </section>
 
   <section class="card" id="secGlance" data-nav="At a glance" data-nav-icon="📊">
-    <h2 style="margin:0">📊 At a glance</h2>
+    <h2 style="margin:0 0 2px;font-size:17px">📊 At a glance</h2>
     <div id="glance"><p class="sub">loading…</p></div>
   </section>
 
@@ -250,27 +244,30 @@ async function loadGlance(){
   if(o.chain&&!o.chain.ok&&o.chain.rows) flash('flash',(o.chain.state==='unverifiable'?'⚠ C2 log hash chain is UNVERIFIABLE — ':'⚠ C2 log hash chain is BROKEN — ')+esc(o.chain.reason||'')+' · <a class="applink" href="/web/c2-log.html">C2 log</a>','crit');
   const day=Math.floor(o.since_utc_midnight||0), wk=Math.floor(Date.now()/1000-7*86400);
   const lg=q=>'/web/c2-log.html?'+Object.keys(q).map(k=>encodeURIComponent(k)+'='+encodeURIComponent(q[k])).join('&');
-  const mk=(v,l,href,c,u,t)=>`<a class="mk${(+v||0)?'':' zero'}" href="${esc(safeHref(href))}" style="--rc:${c||'var(--line)'}"${t?` title="${esc(t)}"`:''}><div class="v">${esc(typeof v==='number'?N(v):v)}</div><div class="l">${esc(l)}</div><div class="u">${esc(u)} →</div></a>`;
+  // a glance metric (shared renderGlance template) — every number opens the C2 log filtered to it, or a section here
+  const mk=(v,l,href,sev,u,t)=>({v:typeof v==='number'?N(v):String(v==null?0:v), l, href, sev, u:u+' →', t:t?(t+' · '+u+' →'):undefined, zero:!(+v||0)});
   const last=o.last; const lastTxt=last?new Date(last.ts*1000).toLocaleString():'never';
   const ch=o.chain||{};
-  $('glance').innerHTML='<div class="mhead">Commands</div><div class="mkpi">'
-    +mk(o.today,'commands run today (UTC)',lg({since:day}),'var(--accent)','C2 log · today')
-    +mk(o.week,'commands run in 7 days',lg({since:wk}),'var(--accent)','C2 log · 7 days')
-    +mk(o.hosts_week,'hosts touched in 7 days',lg({since:wk}),'var(--cyan)','C2 log · by host')
-    +`<a class="mk${last?'':' zero'}" href="${esc(last?lg({target:last.target}):'/web/c2-log.html')}" style="--rc:var(--line)"><div class="v" style="font-size:15px">${esc(lastTxt)}</div><div class="l">last command${last?(' · '+esc(last.target)+' · '+esc(last.status)):''}</div><div class="u">C2 log · this host →</div></a>`
-    +'</div><div class="mhead">Problems (7 days)</div><div class="mkpi">'
-    +mk(o.failures_week,'commands that did not succeed',lg({since:wk,status:'failed'}),'var(--crit)','C2 log · failed','every non-ok status; the link opens “failed” — use the Status filter for the rest')
-    +mk(o.auth_failed_week,'auth failures',lg({since:wk,status:'auth_failed'}),'var(--crit)','C2 log · auth_failed')
-    +mk(o.hostkey_changed,'host-key changes (all time)',lg({status:'hostkey_mismatch'}),'var(--crit)','C2 log · hostkey_mismatch','a CHANGED host key: possible impersonation or a rebuilt host — nothing ran')
-    +mk(o.off_inventory_week,'commands on hosts not in navi.db',lg({since:wk,in_inventory:'0'}),'var(--warn)','C2 log · off-inventory')
-    +'</div><div class="mhead">Remediation &amp; readiness</div><div class="mkpi">'
-    +mk(o.plans_pending,'remediation plans generated, not deployed','#secRem','var(--warn)','Remediation')
-    +mk(o.plans_deployed,'plans deployed',lg({mode:'remediation'}),'var(--ok)','C2 log · remediation')
-    +mk(o.linux_hosts,'Linux hosts in navi.db','#secTargets','var(--cyan)','Targets')
-    +mk(o.active_runs,'runs in progress','#secRuns','var(--accent)','Runs')
-    +`<a class="mk" href="/web/c2-log.html" style="--rc:${ch.ok?'var(--ok)':(ch.state==='unverifiable'?'var(--warn)':'var(--crit)')}"><div class="v" style="font-size:15px">${ch.ok?'🔗 intact':(ch.state==='unverifiable'?'⚠ unverifiable':'⚠ broken')}</div><div class="l">${ch.ok?('hash chain verified · '+N(ch.rows)+' row(s)'):(ch.state==='unverifiable'?esc(ch.reason||'head file missing'):('hash chain breaks at row '+esc(ch.broken_at||'?')+' — '+esc(ch.reason||'')))}</div><div class="u">C2 log →</div></a>`
-    +'</div>';
-  document.querySelectorAll('#glance a.mk[href^="#"]').forEach(a=>a.onclick=e=>{ e.preventDefault(); const s=$(a.getAttribute('href').slice(1)); if(s) s.scrollIntoView({behavior:'smooth'}); });
+  renderGlance('glance', [
+    {title:'Commands',
+     hero:mk(o.week,'commands run in 7 days',lg({since:wk}),'info','C2 log · 7 days'),
+     chips:[mk(o.today,'commands run today (UTC)',lg({since:day}),'info','C2 log · today'),
+            mk(o.hosts_week,'hosts touched in 7 days',lg({since:wk}),'info','C2 log · by host'),
+            {v:lastTxt, l:'last command'+(last?(' · '+last.target+' · '+last.status):''), href:last?lg({target:last.target}):'/web/c2-log.html', u:'C2 log · this host →', zero:!last}]},
+    {title:'Problems (7 days)',
+     hero:mk(o.failures_week,'commands that did not succeed',lg({since:wk,status:'failed'}),'crit','C2 log · failed','every non-ok status; the link opens “failed” — use the Status filter for the rest'),
+     chips:[mk(o.auth_failed_week,'auth failures',lg({since:wk,status:'auth_failed'}),'crit','C2 log · auth_failed'),
+            mk(o.hostkey_changed,'host-key changes (all time)',lg({status:'hostkey_mismatch'}),'crit','C2 log · hostkey_mismatch','a CHANGED host key: possible impersonation or a rebuilt host — nothing ran'),
+            mk(o.off_inventory_week,'commands on hosts not in navi.db',lg({since:wk,in_inventory:'0'}),'med','C2 log · off-inventory')]},
+    {title:'Remediation & readiness',
+     hero:mk(o.plans_pending,'remediation plans generated, not deployed','#secRem','med','Remediation'),
+     chips:[mk(o.plans_deployed,'plans deployed',lg({mode:'remediation'}),'ok','C2 log · remediation'),
+            mk(o.linux_hosts,'Linux hosts in navi.db','#secTargets','info','Targets'),
+            mk(o.active_runs,'runs in progress','#secRuns','info','Runs'),
+            {v:ch.ok?'🔗 intact':(ch.state==='unverifiable'?'⚠ unverifiable':'⚠ broken'),
+             l:ch.ok?('hash chain verified · '+N(ch.rows)+' row(s)'):(ch.state==='unverifiable'?(ch.reason||'head file missing'):('hash chain breaks at row '+(ch.broken_at||'?')+' — '+(ch.reason||''))),
+             href:'/web/c2-log.html', u:'C2 log →', sev:ch.ok?'ok':(ch.state==='unverifiable'?'med':'crit'), zero:false}]}
+  ]);
   setNavCount('secRuns', o.active_runs?String(o.active_runs):'');
 }
 

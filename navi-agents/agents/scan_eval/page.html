@@ -5,19 +5,6 @@
 <link rel="stylesheet" href="/static/console.css"/>
 <style>
   .plink{color:var(--accent);text-decoration:none}.plink:hover{text-decoration:underline}
-  .mkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-top:10px}
-  .mk{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--panel-2)}
-  .mk .v{font-size:22px;font-weight:800;color:var(--ink);line-height:1.1}.mk .v small{font-size:13px;font-weight:600;color:var(--mut)}
-  .mk .l{font-size:11.5px;color:var(--mut);margin-top:2px}
-  .mk .u{font-size:11.5px;color:var(--ink-2,var(--ink));margin-top:4px}.mk .u b{color:var(--ink)}
-  .mk[data-f],.mk[data-j]{cursor:pointer;border-left:4px solid var(--rc,var(--line))}.mk[data-f]:hover,.mk[data-j]:hover{border-color:var(--accent)}.mk.on{box-shadow:0 0 0 2px var(--accent)}
-  .mhead{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 0}
-  .glance{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin-top:10px}
-  .gl{border:1px solid var(--line);border-radius:12px;padding:10px 12px}.gl h4{margin:0 0 6px;font-size:12.5px}
-  .sbar{display:flex;height:16px;border-radius:6px;overflow:hidden;background:var(--panel-2)}
-  .sbar span{display:block;height:100%}.sbar span+span{border-left:2px solid var(--panel,#fff)}
-  .slg{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11.5px;margin-top:6px;color:var(--ink-2,var(--ink))}
-  .slg i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px}.slg b{font-family:var(--mono)}
   .fchip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--accent);color:var(--accent);border-radius:999px;padding:3px 10px;font-size:12px}
   .fchip button{border:0;background:transparent;color:inherit;cursor:pointer;font-size:13px;padding:0}
   .pill{font-size:11px;padding:1px 7px;border-radius:999px;border:1px solid currentColor;white-space:nowrap}
@@ -41,8 +28,11 @@
       <p class="sub" style="margin:2px 0 0">What your scans can and can't see. Per asset: <b>credential health</b> from the Target Credential Status / Issues plugins (<span class="mono">104410 · 110385 · 102094 · 117885 · 110723 · 141118 · 110095</span>) and plugin 19506, <b>scan freshness</b>, agent vs network, and patch-assessment failures (<span class="mono">21745</span>). Per scanner, policy and scan: time per asset, load share, credential success and <b>plugin-feed currency</b>. Tags <b>the assets</b> by uuid under <span class="tagval">Scan Health</span>; writes are gated and tracked in the <a href="/web/tags-log.html">Tagging log</a>.</p></div>
       <button class="btn run sm" id="run" data-run style="margin-left:auto">▶ Run</button></div>
     <div id="flash" class="flash"></div>
+  </section>
+
+  <section class="card" id="secGlance" data-nav="At a glance" data-nav-icon="📊">
+    <h2 style="margin:0 0 2px;font-size:17px">📊 At a glance</h2>
     <div id="metrics"><div class="setupcard"><div class="big">Press ▶ Run</div><p class="sub">Find the hosts your scans can't really see — failed or missing credentials, stale or never scanned, crown jewels in the dark — and the scanners, policies and scans that are slow, overloaded or running an old plugin feed.</p></div></div>
-    <div id="glance"></div>
   </section>
 
   <section class="card" id="secAssets" data-nav="Coverage by asset" data-nav-icon="📋">
@@ -159,55 +149,46 @@ function tagDim(kind,name,btn){
     ()=>`Tag ${tagCat('Scan Health')} : ${K} : ${name} on ${x&&x.assets!=null?N(x.assets)+' asset(s)':'its assets'}?`);
 }
 
+/* 📊 At a glance — the shared renderGlance template; a filter number narrows the asset list */
+const BARC={failed:'crit',insufficient:'high',intermittent:'med',uncredentialed:'var(--mut)',ok:'ok',unknown:'var(--line)',
+  '0-7':'ok','8-30':'low','31-90':'high','90+':'crit',never:'var(--mut)'};
 function renderMetrics(){
-  const m=DATA.metrics||{}, st=m.status||{}, fr=m.fresh||{};
-  const k=(v,l,u,o)=>{o=o||{}; return `<div class="mk${o.f&&FILTER===o.f?' on':''}"${o.f?` data-f="${o.f}"`:''}${o.j?` data-j="${o.j}"`:''} style="${o.c?'--rc:'+o.c:''}"${o.t?` title="${esc(o.t)}"`:''}><div class="v">${v}</div><div class="l">${l}</div>${u?`<div class="u">${u}</div>`:''}</div>`;};
+  const m=DATA.metrics||{}, st=m.status||{}, fr=m.fresh||{}, has=!!m.assets;   // split bars + scanner list only when there are assets (as before)
   const sp=m.scanned?Math.round(100*m.scanned/m.assets):null;
-  document.getElementById('metrics').innerHTML=
-    '<div class="mhead">Coverage — click a card to filter the asset list</div><div class="mkpi">'+
-    k(N(m.scanned)+(sp!=null?` <small>${sp}%</small>`:''),'assets with scan results', `of <b>${N(m.assets)}</b> assets in navi.db`)+
-    k(N(m.never),'never scanned', 'in navi.db but no Nessus Scan Information (19506)', {f:'never',c:'#8b95a7'})+
-    k(N(fr['0-7']),'scanned in the last 7 days', `<b>${N(fr['8-30'])}</b> more within 30 days`, {c:'#30a46c'})+
-    k(`${N(m.network)} <small>/ ${N(m.agent)}</small>`,'network / agent scanned', 'by the latest scan of each asset', {f:m.agent?'agent':'network',c:'var(--accent)',t:'click to show agent-scanned assets'})+
-    '</div><div class="mhead">Credential health</div><div class="mkpi">'+
-    k(m.cred_ok_pct!=null?m.cred_ok_pct+'%':'—','credentialed OK', `<b>${N(st.ok)}</b> of <b>${N(m.scanned)}</b> scanned assets`, {c:'#30a46c'})+
-    k(N(st.failed),'credential failures', 'credentials provided but rejected · 104410', {f:'failed',c:ST.failed[1]})+
-    k(N(st.insufficient),'insufficient privilege', 'logged in, but can\'t run every check · 110385 / 102094', {f:'insufficient',c:ST.insufficient[1]})+
-    k(N(st.intermittent),'intermittent authentication', 'login worked only some of the time · 117885', {f:'intermittent',c:ST.intermittent[1]})+
-    k(N(st.uncredentialed),'scanned without credentials', 'none provided, or 19506 says credentialed : no', {f:'uncredentialed',c:ST.uncredentialed[1]})+
-    k(N(m.patch_failed),'patch assessment failed', `OS patch checks didn't run · 21745${m.patch_na?` · <b>${N(m.patch_na)}</b> not available (117886)`:''}`, {f:'patch',c:'#e0913a'})+
-    '</div><div class="mhead">Freshness and crown jewels</div><div class="mkpi">'+
-    k(N(m.stale_30),'last scanned over 30 days ago', `<b>${N(m.stale_90)}</b> over 90 days`, {f:'stale30',c:'#e0913a'})+
-    k(N(m.stale_90),'last scanned over 90 days ago', 'findings may no longer be true', {f:'stale90',c:FR['90+'][1]})+
-    k(N(m.crown_blind),'crown-jewel blind spots', `of <b>${N(m.crown)}</b> crown jewels (ACR ≥ 7) · <b>${N(m.crown_uncred)}</b> uncredentialed · <b>${N(m.crown_stale)}</b> stale or never scanned`, {f:'crownblind',c:'var(--crit)'})+
-    k(N(m.crown),'crown jewels', 'ACR ≥ 7', {f:'crown',c:'var(--accent)'})+
-    '</div><div class="mhead">Performance and scanners</div><div class="mkpi">'+
-    k(dur(m.overall_avg_sec),'average scan time per asset', `<b>${N(m.slow)}</b> asset(s) over 1 hour`, {f:'slow',c:'#e0913a'})+
-    k(N(m.slow_scanners),'slow scanners', `of <b>${N(m.scanner_count)}</b> · busiest carries <b>${m.top_scanner_share!=null?m.top_scanner_share+'%':'—'}</b> of the load`, {j:'secScanners',c:'#e0913a',t:'avg time per asset > 1.5× the overall average'})+
-    k(`${N(m.slow_policies)} <small>/ ${N(m.slow_scans)}</small>`,'slow policies / scans', 'avg > 1.5× the overall average', {j:'secPolicies',c:'#e0913a'})+
-    k(N(m.outdated_scanners),'scanners on an old plugin feed', m.newest_feed?`> ${DATA.feed_lag_days} days behind <b>${esc(m.newest_feed)}</b> · <b>${N(m.versions)}</b> Nessus version(s) in use`:'no feed version in 19506 output', {j:'secScanners',c:'var(--crit)'})+
-    k(N(m.safe_off),'assets scanned with safe checks off', 'can disrupt fragile services', {j:'secPolicies',c:'#e0913a'})+
-    '</div>';
-  document.querySelectorAll('#metrics .mk[data-f]').forEach(c=>c.onclick=()=>{
-    FILTER=FILTER===c.dataset.f?null:c.dataset.f; STF='all'; hPageReset('aTbl'); renderMetrics(); renderAssets();
-    if(FILTER) document.getElementById('secAssets').scrollIntoView({behavior:'smooth',block:'start'}); });
-  document.querySelectorAll('#metrics .mk[data-j]').forEach(c=>c.onclick=()=>document.getElementById(c.dataset.j).scrollIntoView({behavior:'smooth',block:'start'}));
-}
-
-function sbar(parts){ const tot=parts.reduce((s,p)=>s+p.n,0)||1;
-  return `<div class="sbar">${parts.filter(p=>p.n).map(p=>`<span style="width:${(100*p.n/tot).toFixed(2)}%;background:${p.c}" title="${esc(p.l)}: ${N(p.n)}"></span>`).join('')}</div>`+
-    `<div class="slg">${parts.filter(p=>p.n).map(p=>`<span><i style="background:${p.c}"></i>${esc(p.l)} <b>${N(p.n)}</b></span>`).join('')}</div>`; }
-function renderGlance(){
-  const m=DATA.metrics||{}; if(!m.assets){ document.getElementById('glance').innerHTML=''; return; }
-  const st=m.status||{}, fr=m.fresh||{};
   const sc=(DATA.scanners||[]).slice().sort((a,b)=>b.assets-a.assets), top=sc.slice(0,5), rest=sc.slice(5).reduce((s,x)=>s+x.assets,0);
-  const PAL=['#3987e5','#30a46c','#a97fd6','#e0913a','#3fb0c9'];
-  const gl=(t,b,s)=>`<div class="gl"><h4>${t}</h4>${b}${s?`<div class="sub" style="font-size:11px;margin-top:4px">${s}</div>`:''}</div>`;
-  document.getElementById('glance').innerHTML='<div class="mhead">At a glance</div><div class="glance">'+
-    gl('Credential state', sbar(Object.keys(ST).map(s=>({l:ST[s][0],n:st[s]||0,c:ST[s][1]}))), 'Each asset counted once, under its worst state.')+
-    gl('Last scan', sbar(Object.keys(FR).map(f=>({l:FR[f][0],n:fr[f]||0,c:FR[f][1]}))), 'Days since each asset\'s most recent scan, as of '+esc(DATA.today||'today')+'.')+
-    gl('Scanner load', sbar(top.map((x,i)=>({l:x.key,n:x.assets,c:PAL[i]})).concat(rest?[{l:'Other',n:rest,c:'#8b95a7'}]:[])), 'Assets per scanner; an asset scanned by several counts for each.')+
-    '</div>';
+  const el=document.getElementById('metrics');
+  el.innerHTML='<p class="sub" style="margin:2px 0 0">Click a number to filter the asset list.</p><div id="glxScan"></div>';
+  renderGlance('glxScan', [
+    {title:'Coverage',
+     hero:{v:N(m.scanned), l:'assets with scan results'+(sp!=null?' · '+sp+'%':''), u:`of ${N(m.assets)} assets in navi.db`, sev:'info', zero:false},
+     chips:[{v:N(m.never), l:'never scanned', u:'in navi.db but no Nessus Scan Information (19506)', filter:'never'},
+            {v:N(fr['0-7']), l:'scanned in the last 7 days', u:`${N(fr['8-30'])} more within 30 days`, sev:'ok', zero:false},
+            {v:`${N(m.network)} / ${N(m.agent)}`, l:'network / agent scanned', u:'by the latest scan of each asset', sev:'info', filter:m.agent?'agent':'network',
+             t:'network / agent scanned — by the latest scan of each asset · click to show agent-scanned assets', zero:false}]},
+    {title:'Credential health', t:'Each asset counted once, under its worst state.',
+     hero:{v:m.cred_ok_pct!=null?m.cred_ok_pct+'%':'—', l:'credentialed OK', u:`${N(st.ok)} of ${N(m.scanned)} scanned assets`, sev:'ok', zero:false},
+     bar:has?Object.keys(ST).map(s=>({label:ST[s][0], value:st[s]||0, color:BARC[s]})):null,
+     chips:[{v:N(st.failed), l:'credential failures', u:'credentials provided but rejected · 104410', sev:'crit', filter:'failed'},
+            {v:N(st.insufficient), l:'insufficient privilege', u:"logged in, but can't run every check · 110385 / 102094", sev:'high', filter:'insufficient'},
+            {v:N(st.intermittent), l:'intermittent authentication', u:'login worked only some of the time · 117885', sev:'med', filter:'intermittent'},
+            {v:N(st.uncredentialed), l:'scanned without credentials', u:'none provided, or 19506 says credentialed : no', filter:'uncredentialed'},
+            {v:N(m.patch_failed), l:'patch assessment failed', u:`OS patch checks didn't run · 21745${m.patch_na?` · ${N(m.patch_na)} not available (117886)`:''}`, sev:'high', filter:'patch'}]},
+    {title:'Freshness and crown jewels', t:"Days since each asset's most recent scan, as of "+(DATA.today||'today')+'.',
+     hero:{v:N(m.crown_blind), l:'crown-jewel blind spots', u:`of ${N(m.crown)} crown jewels (ACR ≥ 7) · ${N(m.crown_uncred)} uncredentialed · ${N(m.crown_stale)} stale or never scanned`, sev:'crit', filter:'crownblind'},
+     bar:has?Object.keys(FR).map(f=>({label:FR[f][0], value:fr[f]||0, color:BARC[f]})):null,
+     chips:[{v:N(m.stale_30), l:'last scanned over 30 days ago', u:`${N(m.stale_90)} over 90 days`, sev:'high', filter:'stale30'},
+            {v:N(m.stale_90), l:'last scanned over 90 days ago', u:'findings may no longer be true', sev:'crit', filter:'stale90'},
+            {v:N(m.crown), l:'crown jewels', u:'ACR ≥ 7', sev:'info', filter:'crown'}]},
+    {title:'Performance and scanners', t:'Assets per scanner; an asset scanned by several counts for each.',
+     hero:{v:dur(m.overall_avg_sec), l:'average scan time per asset', u:`${N(m.slow)} asset(s) over 1 hour`, sev:'high', filter:'slow', zero:false},
+     chips:[{v:N(m.slow_scanners), l:'slow scanners', u:`of ${N(m.scanner_count)} · busiest carries ${m.top_scanner_share!=null?m.top_scanner_share+'%':'—'} of the load`, sev:'high', href:'#secScanners',
+             t:`slow scanners of ${N(m.scanner_count)} · busiest carries ${m.top_scanner_share!=null?m.top_scanner_share+'%':'—'} of the load — avg time per asset > 1.5× the overall average`},
+            {v:`${N(m.slow_policies)} / ${N(m.slow_scans)}`, l:'slow policies / scans', u:'avg > 1.5× the overall average', sev:'high', href:'#secPolicies', zero:!m.slow_policies&&!m.slow_scans},
+            {v:N(m.outdated_scanners), l:'scanners on an old plugin feed', u:m.newest_feed?`> ${DATA.feed_lag_days} days behind ${m.newest_feed} · ${N(m.versions)} Nessus version(s) in use`:'no feed version in 19506 output', sev:'crit', href:'#secScanners'},
+            {v:N(m.safe_off), l:'assets scanned with safe checks off', u:'can disrupt fragile services', sev:'high', href:'#secPolicies'}],
+     ranked:has?{title:'Scanner load', items:top.map(x=>({label:x.key, value:x.assets, sev:'info', href:'#secScanners'})).concat(rest?[{label:'Other', value:rest, sev:'none', href:'#secScanners'}]:[])}:null}
+  ], {active:FILTER, onFilter:(f,_el,on)=>{ FILTER=on?f:null; STF='all'; hPageReset('aTbl'); renderMetrics(); renderAssets();
+    if(FILTER) document.getElementById('secAssets').scrollIntoView({behavior:'smooth',block:'start'}); }});
 }
 
 function shownAssets(){ let r=DATA.assets||[]; if(STF!=='all') r=r.filter(x=>x.status===STF); if(FILTER) r=r.filter(FILTERS[FILTER][1]); return r; }
@@ -271,7 +252,7 @@ document.getElementById('aCsv').onclick=()=>{ if(!DATA)return; downloadCSV('scan
   shownAssets().map(x=>({host:x.host,ip:x.ip||'',acr:x.acr==null?'':x.acr,credentials:ST[x.status][0],patch_assessment:x.patch,last_scan:x.last_scan||'',age_days:x.age_days==null?'':x.age_days,type:x.type,scanner:x.scanner,policy:x.policy,scan:x.scan,duration_sec:x.dur==null?'':Math.round(x.dur)}))); };
 document.getElementById('tagSlow').onclick=function(){ tagKeys(['slow'],this,((DATA&&DATA.metrics)||{}).slow); };
 
-function render(){ if(!DATA) return; renderMetrics(); renderGlance(); renderAssets(); renderDims(); renderSlow(); }
+function render(){ if(!DATA) return; renderMetrics(); renderAssets(); renderDims(); renderSlow(); }
 document.getElementById('run').onclick=run;
 mountAgentHeader({id:'scan_eval',icon:'📈',name:'Scan Evaluations',sub:'Chronos · credential health · freshness · scanner performance'});
 mountSectionNav();

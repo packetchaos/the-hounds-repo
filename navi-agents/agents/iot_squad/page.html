@@ -23,13 +23,6 @@
 .warnpill{color:var(--cx-e7c66b);font-size:11px}
 .seclbl{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 8px}
 .setupcard{text-align:center;padding:22px 18px}.setupcard .big{font-size:15px;font-weight:700;margin-bottom:6px}
-/* metric cards — same look as WAS (Arachne) / Compliance (Minos) */
-.mkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(200px,100%),1fr));gap:10px;margin-top:10px}
-.mk{display:block;border:1px solid var(--line);border-left:4px solid var(--rc,var(--line));border-radius:12px;padding:10px 12px;background:var(--panel-2);color:inherit;text-decoration:none}
-.mk .v{font-size:22px;font-weight:800;color:var(--ink);line-height:1.1}.mk .l{font-size:11.5px;color:var(--mut);margin-top:2px}
-.mk .u{font-size:11px;color:var(--accent);margin-top:4px}
-a.mk:hover{border-color:var(--accent)} .mk.zero{opacity:.55}
-.mhead{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 0}
 /* device-table filter chips */
 .fchips{display:flex;flex-wrap:wrap;gap:7px;margin:6px 0 10px}
 .fchips button{font-size:12px;background:var(--panel-2);border:1px solid var(--line);border-radius:100px;padding:4px 11px;color:var(--ink-2);cursor:pointer;font-family:inherit}
@@ -214,39 +207,40 @@ function renderMetrics(){
   const sigOn=sig.filter(s=>s.assets>0).length, nNew=props.filter(p=>p.kind==='new').length;
   const applied=acts.filter(a=>iotApplied(a)).length;
   const dTxt=n=>fnum(n)+' device'+(n===1?'':'s');
-  // a metric card: f = filter the device table, j = jump to a section, href = another hound
-  const mk=(v,l,o)=>{ o=o||{}; let href, u;
-    if(o.href){ href=o.href; u=o.u||'open →'; }
-    else if(o.f!=null){ href='#secDevices'; u=o.u||(dTxt(devCount(o.f))+' in the list ↓'); }
-    else { href='#'+(o.j||'secMetrics'); u=o.u||'jump to it ↓'; }
-    const zero=o.n!=null?o.n===0:false;
-    return `<a class="mk${zero?' zero':''}" href="${esc(href)}"${o.f!=null?` data-f="${esc(o.f)}"`:''}${o.j?` data-j="${esc(o.j)}"`:''} style="--rc:${o.c||'var(--line)'}"${o.t?` title="${esc(o.t)}"`:''}><div class="v">${v}</div><div class="l">${esc(l)}</div><div class="u">${u}</div></a>`; };
+  // a glance metric (shared renderGlance template): f = filter the device table, j = jump to a section, href = another hound
+  const mk=(v,l,o)=>{ o=o||{}; let u; const m={v, l, sev:o.sev||'none'};
+    if(o.href){ m.href=o.href; u=o.u||'open →'; }
+    else if(o.f!=null){ m.onClick=()=>{ DEVF=o.f; renderDevices(); jump('secDevices'); }; u=o.u||(dTxt(devCount(o.f))+' in the list ↓'); }
+    else { m.href='#'+(o.j||'secMetrics'); u=o.u||'jump to it ↓'; }
+    m.u=u; if(o.t) m.t=o.t+' · '+u;
+    m.zero=o.n!=null?o.n===0:false;
+    return m; };
   const kevKnown=sm.has_kev_column!==false, scores=sm.has_scores!==false;
-  let h='<p class="sub" style="margin:2px 0 0">Cards open the matching devices in the list below, jump to the gate that acts on them, or hand off to <b>🐾 Argos</b>, <b>Exposure Score</b> and the <b>Classifier</b>.</p>'
-    +'<div class="mhead">Devices</div><div class="mkpi">'
-    +mk(fnum(rows.length),'IoT / OT devices found',{f:'',n:rows.length,c:'var(--accent)',t:'Distinct assets the squad identified as IoT / OT / embedded'})
-    +mk(fnum(devCount('registry')),'confirmed by the registry',{f:'registry',n:devCount('registry'),c:'var(--ok)',t:'Matched a known detection (plugin / name / identity output)'})
-    +mk(fnum(devCount('fused')),'signal-fusion only',{f:'fused',n:devCount('fused'),c:'var(--cx-e7c66b)',t:'Found only by Device Type / OUI / mDNS / certificate signals — no registry detection yet'})
-    +mk(fnum(acts.length),'device types to tag',{j:'secGate1',n:acts.length,c:'var(--accent)',u:'Gate 1 ↓'})
-    +mk(fnum(applied)+' / '+fnum(acts.length),'device tags in navi.db',{href:'/agents/classify/page.html',n:applied,c:'var(--ok)',u:'Asset Classification · IoT / OT →',t:'Device Type tags the Classifier maps into the IoT / OT class'})
-    +'</div><div class="mhead">Exposure on these devices</div><div class="mkpi">'
-    +mk(fnum(sm.with_critical),'devices with criticals',{f:'crit',n:sm.with_critical||0,c:'var(--crit)'})
-    +mk(fnum(sm.with_high),'devices with highs',{f:'high',n:sm.with_high||0,c:'var(--high)'})
-    +mk(kevKnown?fnum(sm.with_kev):'—','devices with a CISA KEV',kevKnown?{f:'kev',n:sm.with_kev||0,c:'var(--crit)',t:'Open findings listed in CISA Known Exploited Vulnerabilities'}:{href:'/agents/cisakev/page.html',n:0,u:'no xrefs column → CISA KEV'})
-    +(sm.max_aes_uuid?mk(fnum(sm.max_aes),'highest AES (one device)',{href:argosHref(sm.max_aes_uuid),c:(sm.max_aes>=650?'var(--crit)':'var(--high)'),u:'🐾 open it in Argos →'})
-      :mk('—','highest AES (one device)',{href:'/agents/fused_score/page.html',n:0,u:scores?'no scored devices':'no AES in navi.db'}))
-    +mk(fnum(sm.critical_findings),'critical findings on devices',{href:'/agents/fused_score/page.html',n:sm.critical_findings||0,c:'var(--crit)',u:'🎯 rank them in Exposure Score →'})
-    +'</div><div class="mhead">Learning loop</div><div class="mkpi">'
-    +mk(fnum(cov.carriers),'carrier plugins',{j:'secCarriers',n:cov.carriers||0,c:'var(--accent)',u:'carrier plugins ↓'})
-    +mk(fnum(props.length),'proposed detections',{j:'secGate2',n:props.length,c:'var(--accent)',u:'Gate 2 ↓'})
-    +mk(fnum(nNew),'new devices proposed',{j:'secGate2',n:nNew,c:'var(--cx-e7c66b)',u:'Gate 2 ↓',t:'Devices your registry does not define yet'})
-    +mk(fnum(flags.length),'QA flags',{j:'secQa',n:flags.length,c:'var(--high)',u:'QA ledger ↓'})
-    +mk(fnum(sigOn)+' / '+sig.length,'identity signals present',{j:'secQa',n:sigOn,c:sigOn>=3?'var(--ok)':'var(--cx-e7c66b)',u:'signal coverage ↓',t:'Device Type, OUI, mDNS, certificate … plugins seen in navi.db. Few or none = a scan-coverage gap (credentialed agent scans of VMs), not a bug.'})
-    +mk(fnum((IOT.registry||{}).detections),'registry detections',{j:'secRegistry',n:(IOT.registry||{}).detections||0,c:'var(--line)',u:'registry ↓'})
-    +'</div>';
-  const M=document.getElementById('metrics'); M.innerHTML=h;
-  M.querySelectorAll('a.mk[data-f]').forEach(x=>x.onclick=e=>{ e.preventDefault(); DEVF=x.dataset.f; renderDevices(); jump('secDevices'); });
-  M.querySelectorAll('a.mk[data-j]').forEach(x=>x.onclick=e=>{ e.preventDefault(); jump(x.dataset.j); });
+  const M=document.getElementById('metrics');
+  M.innerHTML='<p class="sub" style="margin:2px 0 0">Numbers open the matching devices in the list below, jump to the gate that acts on them, or hand off to <b>🐾 Argos</b>, <b>Exposure Score</b> and the <b>Classifier</b>.</p><div id="glxIot"></div>';
+  renderGlance('glxIot', [
+    {title:'Devices',
+     hero:mk(fnum(rows.length),'IoT / OT devices found',{f:'',n:rows.length,sev:'info',t:'Distinct assets the squad identified as IoT / OT / embedded'}),
+     bar:[{label:'Registry-confirmed',value:devCount('registry'),color:'ok'},{label:'Signal-fusion only',value:devCount('fused'),color:'med'}], legend:false,
+     chips:[mk(fnum(devCount('registry')),'confirmed by the registry',{f:'registry',n:devCount('registry'),sev:'ok',t:'Matched a known detection (plugin / name / identity output)'}),
+            mk(fnum(devCount('fused')),'signal-fusion only',{f:'fused',n:devCount('fused'),sev:'med',t:'Found only by Device Type / OUI / mDNS / certificate signals — no registry detection yet'}),
+            mk(fnum(acts.length),'device types to tag',{j:'secGate1',n:acts.length,sev:'info',u:'Gate 1 ↓'}),
+            mk(fnum(applied)+' / '+fnum(acts.length),'device tags in navi.db',{href:'/agents/classify/page.html',n:applied,sev:'ok',u:'Asset Classification · IoT / OT →',t:'Device Type tags the Classifier maps into the IoT / OT class'})]},
+    {title:'Exposure on these devices',
+     hero:mk(fnum(sm.with_critical),'devices with criticals',{f:'crit',n:sm.with_critical||0,sev:'crit'}),
+     chips:[mk(fnum(sm.with_high),'devices with highs',{f:'high',n:sm.with_high||0,sev:'high'}),
+            mk(kevKnown?fnum(sm.with_kev):'—','devices with a CISA KEV',kevKnown?{f:'kev',n:sm.with_kev||0,sev:'crit',t:'Open findings listed in CISA Known Exploited Vulnerabilities'}:{href:'/agents/cisakev/page.html',n:0,u:'no xrefs column → CISA KEV'}),
+            sm.max_aes_uuid?mk(fnum(sm.max_aes),'highest AES (one device)',{href:argosHref(sm.max_aes_uuid),sev:(sm.max_aes>=650?'crit':'high'),u:'🐾 open it in Argos →'})
+              :mk('—','highest AES (one device)',{href:'/agents/fused_score/page.html',n:0,u:scores?'no scored devices':'no AES in navi.db'}),
+            mk(fnum(sm.critical_findings),'critical findings on devices',{href:'/agents/fused_score/page.html',n:sm.critical_findings||0,sev:'crit',u:'🎯 rank them in Exposure Score →'})]},
+    {title:'Learning loop',
+     hero:mk(fnum(props.length),'proposed detections',{j:'secGate2',n:props.length,sev:'info',u:'Gate 2 ↓'}),
+     chips:[mk(fnum(cov.carriers),'carrier plugins',{j:'secCarriers',n:cov.carriers||0,sev:'info',u:'carrier plugins ↓'}),
+            mk(fnum(nNew),'new devices proposed',{j:'secGate2',n:nNew,sev:'med',u:'Gate 2 ↓',t:'Devices your registry does not define yet'}),
+            mk(fnum(flags.length),'QA flags',{j:'secQa',n:flags.length,sev:'high',u:'QA ledger ↓'}),
+            mk(fnum(sigOn)+' / '+sig.length,'identity signals present',{j:'secQa',n:sigOn,sev:sigOn>=3?'ok':'med',u:'signal coverage ↓',t:'Device Type, OUI, mDNS, certificate … plugins seen in navi.db. Few or none = a scan-coverage gap (credentialed agent scans of VMs), not a bug.'}),
+            mk(fnum((IOT.registry||{}).detections),'registry detections',{j:'secRegistry',n:(IOT.registry||{}).detections||0,u:'registry ↓'})]}
+  ]);
 }
 function jump(id){ const t=document.getElementById(id); if(t) t.scrollIntoView({behavior:'smooth',block:'start'}); }
 

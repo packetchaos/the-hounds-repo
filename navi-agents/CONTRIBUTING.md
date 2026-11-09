@@ -118,6 +118,62 @@ restored is swallowed. The implementation is the `HC` block at the top of
 `web/assets/console.js`; the read/write action lists there mirror
 `core/launcher._MUTATING`, so add new write action names to both.
 
+**📊 At a glance — the shared template.** Every hound's headline numbers use one template:
+`renderGlance(target, groups, opts)` in `web/assets/console.js`, styled by the `.glx…` classes in
+`web/assets/console.css` (light + dark tokens, phone-safe grid). Don't hand-build `.mkpi` / `.mk`
+cards or page-local glance CSS any more. One panel per group: a small uppercase label, one
+**headline** (big number + label), an optional muted detail line, an optional stacked mini-bar
+with legend, the group's other metrics as **chips**, and an optional **ranked** mini-bar list.
+
+```js
+renderGlance(target, groups, opts)   // → the <div class="glx"> root; target = element or id; content replaced
+groups = [{ title, t?,                         // label (+ tooltip, e.g. a caption)
+            hero?:  METRIC,                    // headline; hero.u = the muted line under it
+            bar?:   [{label, value, color?}],  legend?: false,
+            chips?: [METRIC, …],               // chip.u = tooltip detail
+            ranked?: {title?, items:[{label, value, sev?, t?, href|filter|onClick}], max?, sev?, empty?} }]
+METRIC = { v, l, u?, t?, sev?, zero?, href | filter | onClick }
+opts   = { onFilter?(filter, el, on), active?: string | string[] | (filter)=>bool, cls? }
+glanceNum(n)                  // 1234 → "1,234", null → "—"   (use for counts)
+glanceSetActive(root, filter) // mark one filter chip .on without re-rendering (null clears)
+```
+
+- `v` is shown as given (format it first: `glanceNum(n)`, `pct+'%'`); every string is escaped.
+- `sev`: `crit | high | med | low | ok | info | none` — the chip's left border (and the headline
+  number's colour). `color` for bars/ranked: a sev name, `s1`…`s8` (series palette with dark
+  variants) or `var(--token)`; anything else falls back to the palette.
+- **Zero dimming** is automatic when `v` parses to 0 (`0`, `"0"`, `"0%"`); set `zero:true/false`
+  when the dim depends on something else (WAS: no app in that cohort).
+- **Clicks** (first one set wins): `href` — same-tab link via `safeHref`; `'#secX'` smooth-scrolls to
+  that section and flashes it. `filter` — calls `opts.onFilter(filter, el, on)` and toggles `.on`
+  on the chip (`on` = false when the active chip is clicked again); re-render with `opts.active`
+  to keep the marks. `onClick(el, ev)` — custom. Clickable items are links or `role="button"
+  tabindex="0"` (Enter/Space) with a focus ring; never inline handlers.
+- Put the glance in the first card (`<section class="card" id="secMetrics" data-nav="At a glance"
+  data-nav-icon="📊">` or the title card) and call it from the function that renders the
+  `▶ Run` result, so the page cache's replay re-renders it.
+
+```js
+renderGlance('glx', [
+  {title:'Account hygiene',
+   hero:{v:glanceNum(m.reused), l:'accounts reused across hosts', u:`on ${glanceNum(m.reused_hosts)} hosts`, filter:'f:reused', sev:'high'},
+   chips:[{v:glanceNum(m.privileged), l:'privileged accounts', u:'root / Administrator', sev:'crit', filter:'f:privileged'},
+          {v:glanceNum(m.blind), l:"hosts you can't see into", href:'#secCov'}]},
+  {title:'Findings', hero:{v:glanceNum(sv.total), l:'findings', href:'/agents/was_asset/page.html'},
+   bar:[{label:'Critical', value:sv.critical, color:'crit'}, {label:'High', value:sv.high, color:'high'}],
+   ranked:{title:'Top flags', items:top.map(([l,n])=>({label:l, value:n})), sev:'crit', empty:'No flags.'}}
+], {active:FILTER?['f:'+FILTER]:[], onFilter:(f, el, on)=>{ FILTER=on?f.slice(2):null; renderTable(); }});
+```
+
+Migrating a page: one old `.mhead` heading = one group; its most important `.mk` card = the
+`hero`, the rest = `chips` (`.mk .u` text → `u`, `title` → `t`, `--rc` colour → `sev`,
+`data-f` → `filter`, `<a class="mk" href>` → `href`, `.zero` → automatic or `zero`). Fold a
+"chart row" into its group when it is a split (→ `bar`) or a top-N list (→ `ranked`); keep
+bigger charts in their own `data-nav` sections. Rename any page-local `function renderGlance`
+(a later declaration silently replaces the shared one), delete the page's `.mkpi/.mk/.mhead`
+CSS, and keep `mountSectionNav()` / `setNavCount()` as they were. Reference pages:
+`agents/identity/page.html` (filters + bars + ranked) and `agents/was/page.html` (links).
+
 ## Release the Hounds
 
 The hub's **🐾 Release the Hounds** runs every hound in the left-sidebar order, in the

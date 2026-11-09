@@ -97,7 +97,7 @@ function renderJobs(){
   const jobs=viewJobs();
   document.querySelector('#tbl tbody').innerHTML = jobs.length ? jobs.map(j=>{
     const ok=j.status==='done', err=j.status==='error';
-    const res=(ok||err)?esc((j.message||'').slice(0,140)):(j.status==='running'?'<span class="spin"></span> running…':'waiting…');
+    const res=(ok||err)?esc((j.message||'').slice(0,(err||j.op==='remove')?400:140))+(j.has_output?` <button type="button" class="btn ghost sm" data-out="${esc(j.id)}" title="Show what navi printed for this job" style="padding:0 6px;font-size:10.5px">navi output</button>`:''):(j.status==='running'?'<span class="spin"></span> running…':'waiting…');
     return `<tr><td class="mono" style="white-space:nowrap;width:1%">${esc(j.id)}</td><td><span class="st ${esc(j.status)}">${esc(j.status)}</span></td><td>${landedCell(j)}</td>`+
       `<td>${esc(j.category||'')}</td><td>${j.op==='remove'?'<span class="badge b-err" title="tag removal (navi -remove)">🗑 remove</span> ':''}<b>${esc(j.value||'')}</b></td>`+
       `<td class="mono" style="font-size:11px">${esc(j.selector||'')}</td>`+
@@ -107,6 +107,16 @@ function renderJobs(){
       `<td style="font-size:11px;color:${err?'var(--crit)':(ok?'var(--ok)':'var(--mut)')}">${res}</td></tr>`;
   }).join('') : '<tr><td colspan="11" class="sub">'+(JOBS.length?'No jobs match the filter.':'No tag jobs yet. Apply a tag from any agent and it will appear here.')+'</td></tr>';
 }
+/* navi's own output for one job — fetched on demand (it can be a few KB per job) */
+document.querySelector('#tbl tbody').addEventListener('click', async ev=>{
+  const b=ev.target.closest&&ev.target.closest('[data-out]'); if(!b) return;
+  const tr=b.closest('tr'), nx=tr.nextElementSibling;
+  if(nx&&nx.classList.contains('outrow')){ nx.remove(); return; }
+  let o; try{ o=await EXPLORE.post('tag_job_output',{id:+b.dataset.out}); }catch(e){ o={output:'✗ '+(e.message||'could not load')}; }
+  const row=document.createElement('tr'); row.className='outrow';
+  row.innerHTML='<td colspan="11"><pre class="mono" style="margin:0;max-height:320px;overflow:auto;white-space:pre-wrap;word-break:break-word;font-size:11px;background:var(--panel-2);border:1px solid var(--line);border-radius:8px;padding:8px 10px">'+esc((o&&o.output)||'(no output was kept for this job)')+'</pre></td>';
+  tr.after(row);
+});
 document.querySelectorAll('#tbl th[data-k]').forEach(th=>th.onclick=()=>{ const k=th.dataset.k;
   SORT = SORT.k===k ? {k, dir:-SORT.dir} : {k, dir:(k==='id'||k==='created')?-1:1}; renderJobs(); });
 document.getElementById('fBc').onchange=renderJobs; document.getElementById('fQ').oninput=renderJobs;

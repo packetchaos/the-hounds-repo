@@ -5,7 +5,7 @@ A Contract captures the human's *needs* (per-agent plain-English policy, ACR
 rules, wait periods, a schedule) so the loop can decide what to tag instead of
 the per-row HITL gate. Each cycle:
 
-  1. (optional) kick `navi update assets` + `navi update vulns` in the background
+  1. (optional) kick `navi config update assets` → `vulns` in the background (one after the other)
      and DON'T wait on them,
   2. compute a PLAN — for every enabled agent, run discovery, apply the human's
      policy (or a risk-weighted top-N when no policy is given), and list the tags
@@ -1181,13 +1181,15 @@ def export_script(contract=None, db_path=None) -> str:
     return "\n".join(lines) + "\n"
 
 
-def execute(contract=None, db_path=None, enforce_pause=True, skip_tags=None) -> dict:
+def execute(contract=None, db_path=None, enforce_pause=True, skip_tags=None, apply=False) -> dict:
     """Queue the plan's tag commands, then the ACR rules. wait_minutes between agents is
     an autonomous-loop pacing — a manual run (enforce_pause=False) doesn't sleep.
-    skip_tags = {(category, value)} not to re-apply this cycle (removed without a pause)."""
+    skip_tags = {(category, value)} not to re-apply this cycle (removed without a pause).
+    apply=True: an explicit, confirmed manual run ("Execute one cycle now") writes even when
+    the autonomous loop isn't armed — `armed` governs the loop, not a run the user asked for."""
     c = contract or _CURRENT
     p = plan(c, db_path)
-    if not c.get("armed"):
+    if not (c.get("armed") or apply):
         return {"ok": False, "skipped": "contract not armed — plan only", "plan": p}
     wait = (_num(c.get("wait_minutes"), 0, 0, 1440, int) * 60) if enforce_pause else 0
     skip = {(str(a).strip(), str(b).strip()) for a, b in (skip_tags or ())}
@@ -1238,18 +1240,34 @@ def execute(contract=None, db_path=None, enforce_pause=True, skip_tags=None) -> 
 #  background navi update (fire-and-forget) + QA + cycle + scheduler
 # --------------------------------------------------------------------------- #
 def _navi_update_bg(kinds=("assets", "vulns")):
+    """Refresh navi.db in the background: `navi config update assets`, then `... vulns`, one
+    after the other (two syncs at once lock navi.db). Runs through core.cli_jobs, so it uses the
+    resolved navi binary, runs in the folder that holds the console's navi.db, and its output is
+    visible in the console's navi jobs window. (Before build 450 this ran `navi update <kind>` —
+    not a navi 8.x command — from the server's cwd with its output discarded, so navi.db was
+    never refreshed and removed tags kept showing as present.)"""
     if not navi_cli.navi_available():
         return {"started": [], "skipped": "navi not on PATH"}
-    started = []
-    for k in kinds:
-        try:
-            subprocess.Popen([navi_cli.NAVI_BIN, "update", k],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                             start_new_session=True)               # don't wait / don't track
-            started.append(k)
-        except Exception:
-            pass
-    return {"started": started}
+    from core import cli_jobs
+    kinds = [k for k in kinds if k in cli_jobs.COMMANDS]
+
+    def _chain():
+        for k in kinds:
+            try:
+                r = cli_jobs.start_update(k)
+                jid = (r.get("job") or {}).get("id")
+                if not r.get("ok") or jid is None:
+                    continue
+                t0 = time.time()
+                while time.time() - t0 < 6 * 3600:        # a big tenant's vulns sync can take hours
+                    j = cli_jobs.poll(jid, since=10 ** 9) or {}   # status only, no lines
+                    if (j.get("job") or j).get("status") != "running":
+                        break
+                    time.sleep(5)
+            except Exception:
+                pass
+    threading.Thread(target=_chain, daemon=True, name="contract-navi-update").start()
+    return {"started": list(kinds), "commands": ["navi " + " ".join(cli_jobs.COMMANDS[k]) for k in kinds]}
 
 
 def _qa(before):
@@ -1287,7 +1305,9 @@ def _notify_run(c, entry):
         (" · %d alert(s)" % len(nf)) if nf else "")
     lines = ["The Hounds · AI Contract (Covenant) cycle", "",
              "Finished: %s UTC" % entry.get("finished", ""),
-             "Mode: %s" % ("ARMED — writes applied" if entry.get("armed") else "disarmed — planned only"),
+             "Mode: %s" % {"armed": "ARMED — writes applied",
+                           "manual": "MANUAL run — writes applied (autonomous loop not armed)"}.get(
+                 entry.get("mode") or ("armed" if entry.get("armed") else "plan"), "disarmed — planned only"),
              "Tags queued: %d" % entry.get("queued_tags", 0),
              "ACR applied: %d" % entry.get("acr_applied", 0)]
     rem = entry.get("removal") or {}
@@ -1309,9 +1329,12 @@ def _notify_run(c, entry):
         return {"error": str(e), "to": to}
 
 
-def run_cycle(contract=None, enforce_pause=True) -> dict:
+def run_cycle(contract=None, enforce_pause=True, apply=False) -> dict:
+    """One contract cycle. apply=True is the confirmed manual run: it writes (removal list,
+    tags, ACR) even when the autonomous loop isn't armed, without arming it."""
     global _OPTIMIZED
     c = contract or _CURRENT
+    live = bool(c.get("armed") or apply)
     from core import db
     started = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     # build SQL indexes once per run so contract tagging is fast on big datasets
@@ -1327,7 +1350,7 @@ def run_cycle(contract=None, enforce_pause=True) -> dict:
     rem_cfg = c.get("removal") or {}
     removal_info = {"skipped": "disabled"}
     skip = set()
-    if rem_cfg.get("enabled") and rem_cfg.get("tags") and c.get("armed"):
+    if rem_cfg.get("enabled") and rem_cfg.get("tags") and live:
         removed = _remove_tags(c)
         pause = _num(rem_cfg.get("pause_minutes"), 30, 0, 1440, int)
         removal_info = {"removed_jobs": removed, "pause_minutes": pause,
@@ -1349,7 +1372,7 @@ def run_cycle(contract=None, enforce_pause=True) -> dict:
         before = db.scalar("SELECT COUNT(*) FROM tags;")
     except Exception:
         before = None
-    ex = execute(c, enforce_pause=enforce_pause, skip_tags=skip)
+    ex = execute(c, enforce_pause=enforce_pause, skip_tags=skip, apply=live)
     qa = _qa(before)
     # ── Alert Raven alert sweep ──────────────────────────────────────────────
     # Every cycle, evaluate the enabled alerts against the (freshly-updated) navi.db
@@ -1365,7 +1388,9 @@ def run_cycle(contract=None, enforce_pause=True) -> dict:
     except Exception as e:
         alerts_info = {"error": str(e)}
     entry = {"started": started, "finished": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-             "armed": c.get("armed", False), "navi_update": upd, "optimize": opt,
+             "armed": c.get("armed", False), "applied": live,
+             "mode": "armed" if c.get("armed") else ("manual" if live else "plan"),
+             "navi_update": upd, "optimize": opt,
              "removal": removal_info, "alerts": alerts_info,
              "queued_tags": ex.get("queued_tags", 0), "acr_applied": ex.get("acr_applied", 0),
              "acr_protected": ex.get("acr_protected", 0),

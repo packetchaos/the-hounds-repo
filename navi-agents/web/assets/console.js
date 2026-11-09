@@ -1984,6 +1984,117 @@ function wasReconHref(f,sd,app){ const q=new URLSearchParams(); if(app) q.set('a
 function setNavCount(id, text){ const s=document.getElementById(id); if(s) s.dataset.navCount=text==null?'':String(text);
   const c=document.getElementById('snc_'+id); if(c) c.textContent=text==null?'':String(text); }
 
+/* ===== 📊 At a glance — the shared template (design C · headline + chips) =================
+   renderGlance(target, groups, opts) → the root <div class="glx"> it put into target.
+   target : an element or its id. Its content is replaced (call it again to re-render —
+            e.g. after a filter changes, or when the page cache replays ▶ Run).
+   groups : [{ title,                       // small uppercase group label
+               t?,                          // tooltip on the label (a caption / footnote)
+               hero?: METRIC,               // the headline: big number + label, then hero.u as a muted line
+               bar?: [{label, value, color?}],   // stacked mini-bar + legend (legend:false hides it)
+               legend?: false,
+               chips?: [METRIC, …],         // number + label chips; chip.u goes in the tooltip
+               ranked?: {title?, items:[{label, value, vt?, sev?, href|filter|onClick}], max?, sev?, empty?,
+                         more?, moreHref?, moreClick?} }]   // vt = display text for value (e.g. '12%'); more = footer
+   METRIC : { v,           // the value, already formatted (glanceNum(n) for counts) — text, escaped
+              l,           // label (one line, ellipsis)
+              u?,          // detail: muted line under a hero; tooltip on a chip
+              t?,          // full tooltip (default "v l — u")
+              sev?,        // crit | high | med | low | ok | info | none (chip left border; hero number colour)
+              zero?,       // force/suppress the dimmed look (default: v parses to 0)
+              v2?,         // small suffix next to the number (e.g. '44.5%' beside a count)
+              href? | filter? | onClick? }  // what a click does; onClick + href → click runs the
+                                            // handler, ctrl/cmd/middle-click opens the link
+   Clicks: href → same-tab link through safeHref(); '#secX' smooth-scrolls to that section and
+           flashes it. filter → opts.onFilter(filter, el, on) — the template toggles .on on the
+           clicked element (one active per root; pass opts.active to mark several on re-render).
+           onClick(el, ev) → custom handler. Clickable items are focusable (Enter/Space work).
+   opts   : { onFilter?(filter, el, on), active?: string | string[] | (filter)=>bool, cls? }
+   colours: bar/ranked colour = a severity name, s1…s8 (series palette, light+dark), or a
+            var(--token); anything else falls back to the series palette. */
+function glanceNum(n){ if(n==null||n==='') return '—'; const x=Number(n); return isNaN(x)?String(n):x.toLocaleString(); }
+const _GLX_SEV=new Set(['crit','high','med','low','ok','info','none']);
+function _glxSev(s){ s=String(s||'none'); return _GLX_SEV.has(s)?s:'none'; }
+function _glxColor(c, i){ c=String(c==null?'':c).trim();
+  if(_GLX_SEV.has(c)&&c!=='none') return 'var(--'+c+')';
+  if(/^s[1-8]$/.test(c)) return 'var(--glx-'+c+')';
+  if(/^var\(--[a-z0-9-]+\)$/i.test(c)) return c;
+  return 'var(--glx-s'+((i||0)%8+1)+')'; }
+function _glxZero(m){ if(m.zero!=null) return !!m.zero; const v=m.v;
+  if(typeof v==='number') return v===0;
+  const s=String(v==null?'':v).replace(/[,\s%]/g,''); return /^-?\d+(\.\d+)?$/.test(s) && Number(s)===0; }
+function _glxActive(opts, f){ const a=opts&&opts.active; if(a==null||f==null) return false;
+  if(typeof a==='function') return !!a(f); if(Array.isArray(a)) return a.indexOf(f)>=0; return String(a)===String(f); }
+function glanceSetActive(root, filter){ root=typeof root==='string'?document.getElementById(root):root; if(!root) return;
+  root.querySelectorAll('[data-glx-f]').forEach(e=>{ const on=filter!=null&&e.dataset.glxF===String(filter); e.classList.toggle('on',on); e.setAttribute('aria-pressed',on?'true':'false'); }); }
+function _glxV2(m){ return m&&m.v2!=null&&m.v2!==''?'<small class="glx-v2">'+esc(m.v2)+'</small>':''; }
+function renderGlance(target, groups, opts){
+  opts=opts||{}; const host=typeof target==='string'?document.getElementById(target):target; if(!host) return null;
+  const acts=[];   // index → {kind, val}
+  // an item (hero / chip / ranked row): returns [tagOpen, tagClose, classes, attrs]
+  const act=(m, base)=>{ let cls=base, at='';
+    const href=m.href!=null&&m.href!==''?safeHref(m.href,''):'';
+    if(href&&typeof m.onClick==='function'){ acts.push({kind:'fnhref',val:m.onClick,href:href});
+      return {tag:'a', cls:cls+' glx-act', at:' href="'+esc(href)+'" data-glx-i="'+(acts.length-1)+'"'}; }
+    if(href){ acts.push({kind:'href',val:href}); return {tag:'a', cls:cls+' glx-act', at:' href="'+esc(href)+'" data-glx-i="'+(acts.length-1)+'"'}; }
+    if(m.filter!=null&&m.filter!==''){ acts.push({kind:'filter',val:String(m.filter)}); const on=_glxActive(opts,String(m.filter));
+      return {tag:'span', cls:cls+' glx-act'+(on?' on':''), at:' role="button" tabindex="0" aria-pressed="'+(on?'true':'false')+'" data-glx-f="'+esc(m.filter)+'" data-glx-i="'+(acts.length-1)+'"'}; }
+    if(typeof m.onClick==='function'){ acts.push({kind:'fn',val:m.onClick}); return {tag:'span', cls:cls+' glx-act', at:' role="button" tabindex="0" data-glx-i="'+(acts.length-1)+'"'}; }
+    return {tag:'span', cls:cls, at:''}; };
+  // the tooltip: t when given (plus the detail line u if t does not already carry it — a chip shows no u line)
+  const tip=m=>{ const u=m.u!=null&&m.u!==''?String(m.u):'';
+    if(m.t!=null&&m.t!==''){ const t=String(m.t); return u&&t.indexOf(u)<0?t+' — '+u:t; }
+    return String(m.v==null?'':m.v)+(m.v2!=null&&m.v2!==''?' ('+m.v2+')':'')+' '+String(m.l||'')+(u?' — '+u:''); };
+  const hero=m=>{ const a=act(m,'glx-h glx-sev-'+_glxSev(m.sev)+(_glxZero(m)?' glx-zero':''));
+    return '<'+a.tag+' class="'+a.cls+'"'+a.at+' title="'+esc(tip(m))+'"><b>'+esc(m.v)+'</b>'+_glxV2(m)+'<span class="glx-l">'+esc(m.l||'')+'</span></'+a.tag+'>'
+      +(m.u?'<div class="glx-d" title="'+esc(m.u)+'">'+esc(m.u)+'</div>':''); };
+  const chip=m=>{ const a=act(m,'glx-c glx-sev-'+_glxSev(m.sev)+(_glxZero(m)?' glx-zero':''));
+    return '<'+a.tag+' class="'+a.cls+'"'+a.at+' title="'+esc(tip(m))+'"><b>'+esc(m.v)+'</b>'+_glxV2(m)+'<span class="glx-l">'+esc(m.l||'')+'</span></'+a.tag+'>'; };
+  const bar=(g)=>{ const b=(g.bar||[]).map((x,i)=>({label:x.label, n:Math.max(0,+x.value||0), raw:x.value, c:_glxColor(x.color,i)}));
+    const tot=b.reduce((s,x)=>s+x.n,0); const t=g.t?' title="'+esc(g.t)+'"':'';
+    return '<div class="glx-bar" role="img" aria-label="'+esc(b.map(x=>x.label+' '+glanceNum(x.raw)).join(', '))+'"'+t+'>'
+      +(tot?b.filter(x=>x.n).map(x=>'<i style="width:'+(100*x.n/tot).toFixed(2)+'%;--glx-c:'+x.c+'" title="'+esc(x.label)+': '+esc(glanceNum(x.raw))+'"></i>').join(''):'')+'</div>'
+      +(g.legend===false?'':'<div class="glx-lg">'+b.map(x=>'<span style="--glx-c:'+x.c+'">'+esc(x.label)+' <b>'+esc(glanceNum(x.raw))+'</b></span>').join('')+'</div>'); };
+  const ranked=r=>{ const it=(r.items||[]); const mx=Math.max(1,+r.max||0,...it.map(x=>+x.value||0));
+    let h='<div class="glx-rk">'+(r.title?'<div class="glx-rt">'+esc(r.title)+'</div>':'');
+    if(!it.length) return h+(r.empty?'<div class="glx-empty">'+esc(r.empty)+'</div>':'')+'</div>';
+    return h+it.map(x=>{ const a=act(x,'glx-r glx-sev-'+_glxSev(x.sev||r.sev)+(_glxZero({v:x.value,zero:x.zero})?' glx-zero':''));
+      return '<'+a.tag+' class="'+a.cls+'"'+a.at+' title="'+esc(x.t||(x.label+': '+glanceNum(x.value)))+'"><span class="glx-l">'+esc(x.label)+'</span>'
+        +'<span class="glx-t"><i style="width:'+Math.max(0,Math.min(100,100*(+x.value||0)/mx)).toFixed(0)+'%"></i></span><b>'+esc(x.vt!=null&&x.vt!==''?x.vt:glanceNum(x.value))+'</b></'+a.tag+'>'; }).join('')
+      +(r.more?(()=>{ const a=act({href:r.moreHref, onClick:r.moreClick},'glx-more'); return '<'+a.tag+' class="'+a.cls+'"'+a.at+'>'+esc(r.more)+'</'+a.tag+'>'; })():'')+'</div>'; };
+  const html=(groups||[]).filter(Boolean).map(g=>'<div class="glx-p">'
+    +(g.title?'<div class="glx-k"'+(g.t?' title="'+esc(g.t)+'"':'')+'>'+esc(g.title)+'</div>':'')
+    +(g.hero?hero(g.hero):'')
+    +(g.bar&&g.bar.length?bar(g):'')
+    +(g.chips&&g.chips.length?'<div class="glx-cs">'+g.chips.filter(Boolean).map(chip).join('')+'</div>':'')
+    +(g.ranked?ranked(g.ranked):'')+'</div>').join('');
+  const root=document.createElement('div'); root.className='glx'+(opts.cls?' '+String(opts.cls).replace(/[^\w -]/g,''):'');
+  root.innerHTML=html;
+  const fire=(el,ev)=>{ const a=acts[+el.dataset.glxI]; if(!a) return;
+    if(a.kind==='fnhref'){ if(ev.ctrlKey||ev.metaKey||ev.shiftKey||ev.button===1) return;   // open-in-new-tab still works
+      ev.preventDefault(); a.val(el, ev); return; }
+    if(a.kind==='href'){ if(a.val.charAt(0)==='#'&&a.val.length>1&&!(ev.ctrlKey||ev.metaKey||ev.shiftKey||ev.button===1)){ const s=document.getElementById(a.val.slice(1)); if(s){ ev.preventDefault();
+        s.scrollIntoView({behavior:'smooth',block:'start'}); s.classList.add('glx-flash'); setTimeout(()=>s.classList.remove('glx-flash'),1200); } }
+      return; }   // other hrefs: the browser follows the link (same tab)
+    ev.preventDefault();
+    if(a.kind==='filter'){ const on=!el.classList.contains('on'); glanceSetActive(root, on?a.val:null); el.classList.toggle('on',on); el.setAttribute('aria-pressed',on?'true':'false');
+      if(typeof opts.onFilter==='function') opts.onFilter(a.val, el, on);
+      if(ev.type==='keydown'&&document.body&&!document.body.contains(el)){   // the page redrew the glance: keep keyboard focus on the same chip
+        const q='[data-glx-f="'+a.val.replace(/["\\]/g,'\\$&')+'"]', box=host.id?document.getElementById(host.id):null;
+        try{ const n=(box&&box.querySelector(q))||document.querySelector('.glx '+q); if(n) n.focus({preventScroll:true}); }catch(e){} }
+      return; }
+    if(a.kind==='fn') a.val(el, ev); };
+  root.addEventListener('click', ev=>{ const el=ev.target.closest&&ev.target.closest('[data-glx-i]'); if(el&&root.contains(el)) fire(el,ev); });
+  root.addEventListener('keydown', ev=>{ if(ev.key!=='Enter'&&ev.key!==' ') return; const el=ev.target.closest&&ev.target.closest('[data-glx-i]');
+    if(!el||!root.contains(el)||el.tagName==='A') return; ev.preventDefault(); fire(el,ev); });
+  // a re-render (e.g. the page's onFilter redrawing the glance) keeps keyboard focus on the same item
+  const fe=document.activeElement, keep=fe&&host.contains(fe)&&fe.dataset?(fe.dataset.glxF!=null?'[data-glx-f="'+String(fe.dataset.glxF).replace(/["\\]/g,'\\$&')+'"]':(fe.dataset.glxI!=null?'[data-glx-i="'+(+fe.dataset.glxI)+'"]':'')):'';
+  host.innerHTML=''; host.appendChild(root);
+  if(keep){ try{ const n=root.querySelector(keep); if(n) n.focus({preventScroll:true}); }catch(e){} }
+  return root;
+}
+/* ===== end At a glance ===== */
+
 /* ===== External downloads — Settings → Auto-approve downloads (core/downloads.py) =====
    downloadsAutoApproved('<source id>') resolves to the registered source {id,name,urls,…}
    when the setting is ON — skip the "Human approval — external download" card and show

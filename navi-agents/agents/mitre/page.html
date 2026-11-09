@@ -4,14 +4,7 @@
 <title>MITRE ATT&CK Tagging · Navi Agents</title>
 <link rel="stylesheet" href="/static/console.css"/>
 <style>.plink{color:var(--accent);text-decoration:none}.plink:hover{text-decoration:underline}
-/* metrics */
-.mkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:12px}
-.mk{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--panel-2)}
-.mk .v{font-size:22px;font-weight:800;color:var(--ink);line-height:1.1}.mk .l{font-size:11.5px;color:var(--mut);margin-top:2px}
-.mk .u{font-size:11.5px;color:var(--ink-2,var(--ink));margin-top:4px}.mk .u b{color:var(--accent)}
-.mk.role{cursor:pointer;border-left:4px solid var(--rc,var(--line))}.mk.role:hover{border-color:var(--accent)}
-.mk.role.on{box-shadow:0 0 0 2px var(--accent)}
-.mhead{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 0}
+/* 📊 At a glance: the shared renderGlance template (console.js / console.css) */
 /* role colours */
 :root{--r-p:#e5484d;--r-s:#f5a524;--r-e:#7c5cff;--r-t:#8b95a7}
 .rdot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:3px;vertical-align:1px}
@@ -55,6 +48,10 @@
       <a class="btn ghost sm" id="dlCsv" href="#" target="_blank" rel="noopener">⬇ Download official CSV ↗</a>
       <span class="chip" id="counts"></span>
     </div>
+  </section>
+
+  <section class="card" id="secGlance" data-nav="At a glance" data-nav-icon="📊">
+    <h2 style="margin:0 0 2px;font-size:17px">📊 At a glance</h2>
     <div id="metrics"><div class="setupcard"><div class="big">Press ▶ Run</div><p class="sub">Approve the ATT&amp;CK→CVE download to see how many assets would be tagged, by impact type and technique.</p></div></div>
   </section>
 
@@ -115,26 +112,29 @@ function renderMetrics(){
   const m=PLAN.metrics||{}, byAssets=scope==='navidb' && (m.assets_affected||0)>0;
   const src={live:'● live download',bundled:'◆ baked snapshot',upload:'⬆ your upload',unavailable:'✗ no source'}[PLAN.mapping_source]||PLAN.mapping_source||'';
   document.getElementById('counts').textContent=`${N(PLAN.csv_rows)} CSV rows · ${N(PLAN.navi_cves)} CVEs in navi.db · ${src}`;
-  const k=(v,l,u,t)=>`<div class="mk"${t?` title="${esc(t)}"`:''}><div class="v">${v}</div><div class="l">${l}</div>${u?`<div class="u">${u}</div>`:''}</div>`;
-  let h='<div class="mkpi">'+
-    k(N(m.assets_affected),'assets to tag','', 'distinct assets in navi.db whose findings cite a mapped CVE — the tags land on these')+
-    k(N(m.cves_mapped),'CVEs used as selectors', scope==='navidb'?'present in navi.db':'full mapping')+
-    k(N(m.tag_pairs),'tags planned', m.unique_tag_values!==m.tag_pairs?`<b>${N(m.unique_tag_values)}</b> unique tag values`:'', 'one row per CVE × tag value')+
-    k(N(m.unique_techniques),'ATT&CK techniques', '', 'distinct techniques across every tag type (multi-technique values split; retired ids followed to their replacement)')+
-    k(`${N(m.tactics_hit)}<span class="sub" style="font-size:13px">/${N(m.tactics_total)}</span>`,'tactics hit')+
-    '</div><div class="mhead">By tag type — click to filter the planned tags</div><div class="mkpi">';
-  (m.roles||[]).forEach(r=>{
-    const uniq=[];
-    if(r.unique_techniques!==r.tags) uniq.push(`<b>${N(r.unique_techniques)}</b> unique technique${r.unique_techniques===1?'':'s'}`);
-    if(r.unique_values!==r.tags && r.unique_values!==r.unique_techniques) uniq.push(`<b>${N(r.unique_values)}</b> unique values`);
-    uniq.push(`${N(r.assets)} asset${r.assets===1?'':'s'}`);
-    h+=`<div class="mk role${FILTER.role===r.role?' on':''}" data-role="${esc(r.role)}" style="--rc:${ROLE_COLOR[r.role]}" title="${esc(N(r.tags)+' tags across '+N(r.cves)+' CVEs')}">`+
-       `<div class="v">${N(r.tags)}</div><div class="l">${esc(ROLE_LABEL[r.role]||r.role)} tags</div><div class="u">${uniq.join(' · ')}</div></div>`;
-  });
-  if(!(m.roles||[]).length) h+='<div class="sub">No ATT&amp;CK-mapped CVEs found — try Full mapping, or sync navi.db.</div>';
-  document.getElementById('metrics').innerHTML=h+'</div>';
-  document.querySelectorAll('#metrics .mk.role').forEach(c=>c.onclick=()=>{ FILTER.role=FILTER.role===c.dataset.role?null:c.dataset.role; hPageReset('tbl'); render();
-    if(FILTER.role) document.getElementById('secPlan').scrollIntoView({behavior:'smooth',block:'start'}); });
+  // 📊 At a glance (shared renderGlance template): the tag plan, then one filter chip per tag type
+  const roles=m.roles||[];
+  document.getElementById('metrics').innerHTML='<div id="glxMitre"></div>'
+    +(roles.length?'':'<div class="sub" style="margin-top:8px">No ATT&amp;CK-mapped CVEs found — try Full mapping, or sync navi.db.</div>');
+  renderGlance('glxMitre', [
+    {title:'Tag plan',
+     hero:{v:N(m.assets_affected), l:'assets to tag', u:'distinct assets in navi.db whose findings cite a mapped CVE — the tags land on these', href:'#secPlan'},
+     chips:[{v:N(m.cves_mapped), l:'CVEs used as selectors', u:scope==='navidb'?'present in navi.db':'full mapping'},
+            {v:N(m.tag_pairs), l:'tags planned', u:(m.unique_tag_values!==m.tag_pairs?`${N(m.unique_tag_values)} unique tag values · `:'')+'one row per CVE × tag value', href:'#secPlan'},
+            {v:N(m.unique_techniques), l:'ATT&CK techniques', u:'distinct techniques across every tag type (multi-technique values split; retired ids followed to their replacement)', href:'#secMatrix'},
+            {v:`${N(m.tactics_hit)} / ${N(m.tactics_total)}`, l:'tactics hit', zero:!m.tactics_hit, href:'#secMatrix'}]},
+    roles.length?{title:'By tag type', t:'Click a tag type to filter the planned tags.',
+     bar:roles.map(r=>({label:(ROLE_LABEL[r.role]||r.role)+' tags', value:r.tags, color:ROLE_COLOR[r.role]})), legend:false,
+     chips:roles.map(r=>{
+       const uniq=[];
+       if(r.unique_techniques!==r.tags) uniq.push(`${N(r.unique_techniques)} unique technique${r.unique_techniques===1?'':'s'}`);
+       if(r.unique_values!==r.tags && r.unique_values!==r.unique_techniques) uniq.push(`${N(r.unique_values)} unique values`);
+       uniq.push(`${N(r.assets)} asset${r.assets===1?'':'s'}`);
+       const l=(ROLE_LABEL[r.role]||r.role)+' tags';
+       return {v:N(r.tags), l, u:uniq.join(' · '), t:`${N(r.tags)} ${l} — ${uniq.join(' · ')} · ${N(r.tags)} tags across ${N(r.cves)} CVEs`,
+         sev:{'Primary Impact':'crit','Secondary Impact':'high','Exploit Technique':'info'}[r.role]||'none', filter:r.role}; })}:null
+  ], {active:FILTER.role, onFilter:(f,_el,on)=>{ FILTER.role=on?f:null; hPageReset('tbl'); render();
+    if(FILTER.role) document.getElementById('secPlan').scrollIntoView({behavior:'smooth',block:'start'}); }});
   return byAssets;
 }
 

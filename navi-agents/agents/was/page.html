@@ -27,19 +27,12 @@
 .gatebar{background:var(--panel-2);border:1px solid var(--line);border-left:3px solid var(--cx-e7c66b);border-radius:8px;padding:9px 12px;font-size:12.5px;color:var(--ink-2);margin:2px 0 12px}
 .tagdone{color:var(--ok);font-size:12px;font-weight:600;white-space:nowrap}
 .tres{font-size:12px;margin-left:auto;text-align:right}
-/* metric cards + widget links into Web App Recon (Beagle) */
-.mkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:10px}
-.mk{display:block;border:1px solid var(--line);border-left:4px solid var(--rc,var(--line));border-radius:12px;padding:10px 12px;background:var(--panel-2);color:inherit;text-decoration:none}
-.mk .v{font-size:22px;font-weight:800;color:var(--ink);line-height:1.1}.mk .l{font-size:11.5px;color:var(--mut);margin-top:2px}
-.mk .u{font-size:11px;color:var(--accent);margin-top:4px}
-a.mk:hover{border-color:var(--accent)} .mk.zero{opacity:.55}
-.mhead{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 0}
+/* widget links into Web App Recon (Beagle); the 📊 At a glance numbers use the shared renderGlance template */
 a.barlink{display:block;color:inherit;text-decoration:none;border-radius:7px;padding:0 4px;margin:0 -4px}
 a.barlink:hover{background:var(--panel-2)} a.barlink:hover .bl{color:var(--accent)}
 .barrow{grid-template-columns:200px 1fr 150px}
 a.tchip{text-decoration:none;cursor:pointer} a.tchip:hover{border-color:var(--accent);color:var(--ink)}
 .rlink{font-size:11.5px;color:var(--accent);text-decoration:none;white-space:nowrap}.rlink:hover{text-decoration:underline}
-.covl{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px}
 </style>
 </head><body>
 <div class="wrap">
@@ -96,29 +89,28 @@ function render(){
   const sv=OV.severity||{}, cov=OV.coverage||{}, rows=OV.apps_rows||[], SD=cov.stale_days||30;
   const nApps=f=>rows.filter(a=>wasAppMatch(a,f,SD)).length;
   const appsTxt=n=>n+' app'+(n===1?'':'s');
-  // a metric card that opens the matching apps in Web App Recon (Beagle)
-  const mk=(v,l,f,c,t)=>{ const n=f?nApps(f):rows.length;
-    return `<a class="mk${n?'':' zero'}" href="${esc(reconFor(f))}" style="--rc:${c||'var(--line)'}" title="${esc(t||('Open '+appsTxt(n)+' in Web App Recon'))}"><div class="v">${v}</div><div class="l">${esc(l)}</div><div class="u">🐾 ${appsTxt(n)} in Recon →</div></a>`; };
+  // a glance metric that opens the matching apps in Web App Recon (Beagle); dimmed when no app matches
+  const mk=(v,l,f,sev,t)=>{ const n=f?nApps(f):rows.length;
+    return {v, l, sev, href:reconFor(f), zero:!n, u:'🐾 '+appsTxt(n)+' in Recon →', t:(t?t+' · ':'')+'Open '+appsTxt(n)+' in Web App Recon'}; };
   let h='';
   h+='<section class="card" id="secMetrics" data-nav="At a glance" data-nav-icon="📊"><h2 style="margin:0 0 2px;font-size:17px">📊 At a glance</h2>'
-    +'<p class="sub" style="margin:2px 0 0">Every card, bar and chip below opens the matching apps in <b>🐾 Web App Recon</b> — the app list there is narrowed to that group.</p>'
-    +'<div class="mhead">Apps</div><div class="mkpi">'
-    +mk(fnum(OV.apps),'web apps scanned','', 'var(--accent)')
-    +mk(fnum(OV.assets),'Tenable assets','asset','var(--accent)','Apps linked to a Tenable asset (taggable)')
-    +mk(fnum(OV.apps_with_crit),'apps with criticals','sev:critical','var(--crit)')
-    +mk(fnum(OV.apps_with_high),'apps with highs','sev:high','var(--high)')
-    +mk(fnum(OV.clean_apps),'clean apps','clean','var(--ok)','No critical, high, medium or low findings')
-    +'</div><div class="mhead">Findings</div><div class="mkpi">'
-    +mk(fnum(sv.critical),'critical findings','sev:critical','var(--crit)')
-    +mk(fnum(sv.high),'high findings','sev:high','var(--high)')
-    +mk(fnum(sv.medium),'medium findings','sev:medium','var(--med)')
-    +mk(fnum(OV.total_findings),'total findings','','var(--line)')
-    +'</div><div class="mhead">Scan coverage</div><div class="mkpi">'
-    +mk(fnum(cov.scanned_recent),'fresh scans','scan:fresh','var(--ok)','Scanned within '+SD+' days')
-    +mk(fnum(cov.stale),'stale scans','scan:stale','var(--cx-e7c66b)','Not scanned within '+SD+' days')
-    +mk(fnum(cov.total_pages),'pages crawled','','var(--line)')
-    +'</div></section>';
-
+    +'<p class="sub" style="margin:2px 0 0">Every number, bar and chip below opens the matching apps in <b>🐾 Web App Recon</b> — the app list there is narrowed to that group.</p>'
+    +'<div id="glxWas"></div></section>';
+  const glance=[
+    {title:'Apps', hero:mk(fnum(OV.apps),'web apps scanned',''),
+     chips:[mk(fnum(OV.assets),'Tenable assets','asset','none','Apps linked to a Tenable asset (taggable)'),
+            mk(fnum(OV.apps_with_crit),'apps with criticals','sev:critical','crit'),
+            mk(fnum(OV.apps_with_high),'apps with highs','sev:high','high'),
+            mk(fnum(OV.clean_apps),'clean apps','clean','ok','No critical, high, medium or low findings')]},
+    {title:'Findings', hero:mk(fnum(OV.total_findings),'total findings',''),
+     bar:SEV.map(([k,lbl])=>({label:lbl, value:sv[k]||0, color:k==='critical'?'crit':k==='medium'?'med':k})),
+     chips:[mk(fnum(sv.critical),'critical findings','sev:critical','crit'),
+            mk(fnum(sv.high),'high findings','sev:high','high'),
+            mk(fnum(sv.medium),'medium findings','sev:medium','med')]},
+    {title:'Scan coverage', hero:mk(fnum(cov.scanned_recent),'fresh scans','scan:fresh','none','Scanned within '+SD+' days'),
+     bar:[{label:'Fresh ≤ '+SD+'d', value:cov.scanned_recent||0, color:'ok'},{label:'Stale > '+SD+'d', value:cov.stale||0, color:'med'}], legend:false,
+     chips:[mk(fnum(cov.stale),'stale scans','scan:stale','med','Not scanned within '+SD+' days'),
+            mk(fnum(cov.total_pages),'pages crawled','')]}];
   // ---- bulk tagging tool (top: under the numbers, above findings) ----
   h+=tagCardHTML();
 
@@ -142,8 +134,7 @@ function render(){
   h+='<section class="card" id="secTech" data-nav="Technology" data-nav-icon="🧩" style="margin:0"><h2 style="margin:0 0 2px;font-size:17px">🧩 Technology inventory</h2><p class="seclbl">apps per detected technology · click to open them in Recon</p>'
     +(tech.length?'<div class="chips">'+tech.map(t=>`<a class="tchip" href="${esc(reconFor('tech:'+t.tech))}" title="Open the ${t.apps} app(s) running ${esc(t.tech)} in Web App Recon">${esc(t.tech)}<b>${t.apps}</b></a>`).join('')+'</div>':'<p class="sub">No technologies detected in the scanned apps.</p>')+'</section>';
   h+='<section class="card" id="secCov" data-nav="Scan coverage" data-nav-icon="📡" style="margin:0"><h2 style="margin:0 0 2px;font-size:17px">📡 Scan coverage</h2><p class="seclbl">crawl depth &amp; recency</p>'
-    +'<div class="covl">'+mk(fnum(cov.scanned_recent),'fresh ≤ '+SD+'d','scan:fresh','var(--ok)')+mk(fnum(cov.stale),'stale > '+SD+'d','scan:stale','var(--cx-e7c66b)')
-    +mk(fnum(cov.total_pages),'pages crawled','','var(--line)')+mk(fnum(cov.total_requests),'requests','','var(--line)')+'</div>'
+    +'<div id="glxCov"></div>'
     +'<p class="sub" style="margin:8px 0 0">Newest scan '+(cov.newest?esc(String(cov.newest).slice(0,10)):'—')+' · oldest '+(cov.oldest?esc(String(cov.oldest).slice(0,10)):'—')+'</p></section>';
   h+='</div>';
 
@@ -164,6 +155,9 @@ function render(){
     }).join('')+'</tbody></table></div></section>';
 
   B.innerHTML=h;
+  renderGlance('glxWas', glance);
+  renderGlance('glxCov', [{chips:[mk(fnum(cov.scanned_recent),'fresh ≤ '+SD+'d','scan:fresh','ok'),mk(fnum(cov.stale),'stale > '+SD+'d','scan:stale','med'),
+    mk(fnum(cov.total_pages),'pages crawled',''),mk(fnum(cov.total_requests),'requests','')]}]);
   wireTagCard();
   mountSectionNav();
   setNavCount('secApps', (OV.apps_rows||[]).length);

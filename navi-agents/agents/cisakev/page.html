@@ -5,12 +5,6 @@
 <link rel="stylesheet" href="/static/console.css"/>
 <style>.plink{color:var(--accent);text-decoration:none}.plink:hover{text-decoration:underline}
 :root{--st-over:#e5484d;--st-soon:#f5a524;--st-later:#8b95a7;--st-ok:#30a46c}
-.mkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-top:10px}
-.mk{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--panel-2)}
-.mk .v{font-size:22px;font-weight:800;color:var(--ink);line-height:1.1}.mk .l{font-size:11.5px;color:var(--mut);margin-top:2px}
-.mk .u{font-size:11.5px;color:var(--ink-2,var(--ink));margin-top:4px}.mk .u b{color:var(--ink)}
-.mk[data-f]{cursor:pointer;border-left:4px solid var(--rc,var(--line))}.mk[data-f]:hover{border-color:var(--accent)}.mk.on{box-shadow:0 0 0 2px var(--accent)}
-.mhead{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 0}
 .stb{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;padding:1px 8px;border-radius:999px;border:1px solid var(--line);white-space:nowrap}
 .stb i{width:7px;height:7px;border-radius:50%;display:inline-block}
 .stb.over{color:var(--st-over);border-color:var(--st-over)}.stb.soon{color:var(--st-soon);border-color:var(--st-soon)}
@@ -48,9 +42,13 @@
       <a class="btn ghost sm" href="https://www.cisa.gov/known-exploited-vulnerabilities-catalog" target="_blank" rel="noopener">CISA KEV catalog ↗</a>
       <span class="chip" id="counts"></span>
     </div>
-    <div id="metrics"><div class="setupcard"><div class="big">Press ▶ Run</div><p class="sub">Approve the CISA catalog download to see your KEV exposure by remediation due date, ransomware use and crown-jewel assets.</p></div></div>
     <div class="toolbar" style="margin-top:10px"><button class="btn sm" id="tagVuln" disabled title="navi enrich tag --xrefs CISA-KNOWN-EXPLOITED — every asset Tenable marks as KEV">🏷️ Tag all KEV assets → CISA KEV : Vulnerable</button>
       <button class="btn sm" id="tagRansom" disabled title="navi tag-by-CVE for each ransomware-linked KEV on your assets">🏷️ Tag ransomware-linked KEV assets → CISA KEV : Ransomware</button></div>
+  </section>
+
+  <section class="card" id="secGlance" data-nav="At a glance" data-nav-icon="📊">
+    <h2 style="margin:0 0 2px;font-size:17px">📊 At a glance</h2>
+    <div id="metrics"><div class="setupcard"><div class="big">Press ▶ Run</div><p class="sub">Approve the CISA catalog download to see your KEV exposure by remediation due date, ransomware use and crown-jewel assets.</p></div></div>
   </section>
 
   <section class="card needs-llm">
@@ -133,28 +131,31 @@ function renderMetrics(){
   const m=K.metrics||{}, s=R.summary||{};
   const src={live:'● live from cisa.gov',mirror:'● CISA GitHub mirror',bundled:'◆ bundled snapshot',upload:'⬆ your upload',unavailable:'✗ catalog unavailable'}[K.source]||'';
   document.getElementById('counts').textContent=(m.catalog_total?`catalog ${m.catalog_version||''} · ${N(m.catalog_total)} KEVs · `:'')+src;
-  if(!m.catalog_total){ document.getElementById('metrics').innerHTML='<div class="mkpi">'+
-      `<div class="mk"><div class="v">${N(s.kev_assets)}</div><div class="l">KEV assets (xref)</div></div><div class="mk"><div class="v">${N(s.kev_findings)}</div><div class="l">KEV findings (xref)</div></div></div>`; return; }
-  const k=(v,l,u,o)=>{o=o||{}; return `<div class="mk${o.f&&FILTER===o.f?' on':''}"${o.f?` data-f="${o.f}"`:''} style="${o.c?'--rc:'+o.c:''}"${o.t?` title="${esc(o.t)}"`:''}><div class="v">${v}</div><div class="l">${l}</div>${u?`<div class="u">${u}</div>`:''}</div>`;};
+  const el=document.getElementById('metrics');
+  if(!m.catalog_total){ el.innerHTML='<div id="glxKev"></div>';
+    renderGlance('glxKev', [{title:'KEV exposure (Tenable xref)',
+      hero:{v:N(s.kev_assets), l:'KEV assets (xref)'}, chips:[{v:N(s.kev_findings), l:'KEV findings (xref)'}]}]); return; }
   const pct=m.catalog_total?(100*m.kev_cves/m.catalog_total).toFixed(1):0;
-  let h='<div class="mkpi">'+
-    k(N(m.kev_assets),'assets with a KEV', m.has_state?'open findings only':'', {t:'distinct assets in navi.db with at least one CISA Known Exploited Vulnerability'})+
-    k(N(m.kev_cves),'KEV CVEs on your assets', `<b>${pct}%</b> of CISA's ${N(m.catalog_total)}`)+
-    k(N(m.kev_findings),'KEV findings')+
-    k(N(m.crown_assets),'crown jewels with a KEV', `ACR &gt; 7 · <b>${N(m.crown_overdue_assets)}</b> overdue`, {f:'crown',c:'var(--crit)'})+
-    '</div><div class="mhead">CISA due-date compliance — click to filter the KEV list</div><div class="mkpi">'+
-    k(N(m.overdue_assets),'assets past a CISA due date', `<b>${N(m.overdue_cves)}</b> KEV CVEs overdue`+(m.max_days_overdue?` · longest <b>${N(m.max_days_overdue)}</b> d`:''), {f:'overdue',c:'var(--st-over)'})+
-    k(N(m.due30_assets),'assets with a KEV due ≤ 30 days', `<b>${N(m.due30_cves)}</b> CVE${m.due30_cves===1?'':'s'} · <b>${N(m.due7_assets)}</b> asset${m.due7_assets===1?'':'s'} due ≤ 7 d`, {f:'due30',c:'var(--st-soon)'})+
-    k(m.median_days_overdue?N(m.median_days_overdue)+' d':'—','median days overdue', 'across overdue KEV CVEs')+
-    (m.remediated?k(m.remediated.pct_on_time==null?'—':m.remediated.pct_on_time+'%','KEV fixes made by the due date', `<b>${N(m.remediated.on_time)}</b> of ${N(m.remediated.findings)} fixed KEV findings`, {c:'var(--st-ok)',t:'from navi\'s fixed table: last_fixed ≤ CISA due date'}):'')+
-    '</div><div class="mhead">Threat context</div><div class="mkpi">'+
-    k(N(m.ransomware_assets),'assets with a ransomware-linked KEV', `<b>${N(m.ransomware_cves)}</b> CVEs CISA ties to ransomware campaigns`, {f:'ransomware',c:'var(--crit)'})+
-    k(N(m.recent_assets),'assets hit by KEVs added ≤ 30 days ago', `<b>${N(m.recent_cves)}</b> newly listed CVE${m.recent_cves===1?'':'s'}`, {f:'recent',c:'var(--accent)'})+
-    k(N(m.no_xref_assets),'assets the xref tag would miss', `<b>${N(m.no_xref_cves)}</b> KEV CVE${m.no_xref_cves===1?'':'s'} without Tenable's KEV xref`, {f:'noxref',c:'var(--st-later)',t:'CISA lists the CVE as KEV, but the finding lacks the CISA-KNOWN-EXPLOITED xref, so tagging by xref (CISA KEV : Vulnerable) misses these assets; tagging by CVE covers them'})+
-    '</div>';
-  document.getElementById('metrics').innerHTML=h;
-  document.querySelectorAll('#metrics .mk[data-f]').forEach(c=>c.onclick=()=>{ FILTER=FILTER===c.dataset.f?null:c.dataset.f; hPageReset('cveTbl'); render();
-    if(FILTER) document.getElementById('secCves').scrollIntoView({behavior:'smooth',block:'start'}); });
+  el.innerHTML='<p class="sub" style="margin:2px 0 0">Click a number to filter the KEV list.</p><div id="glxKev"></div>';
+  renderGlance('glxKev', [
+    {title:'KEV exposure',
+     hero:{v:N(m.kev_assets), l:'assets with a KEV', u:m.has_state?'open findings only':'', t:'distinct assets in navi.db with at least one CISA Known Exploited Vulnerability', href:'#secCves'},
+     chips:[{v:N(m.kev_cves), l:'KEV CVEs on your assets', u:`${pct}% of CISA's ${N(m.catalog_total)}`, href:'#secCves'},
+            {v:N(m.kev_findings), l:'KEV findings'},
+            {v:N(m.crown_assets), l:'crown jewels with a KEV', u:`ACR > 7 · ${N(m.crown_overdue_assets)} overdue`, sev:'crit', filter:'crown'}]},
+    {title:'CISA due-date compliance',
+     hero:{v:N(m.overdue_assets), l:'assets past a CISA due date', u:`${N(m.overdue_cves)} KEV CVEs overdue`+(m.max_days_overdue?` · longest ${N(m.max_days_overdue)} d`:''), sev:'crit', filter:'overdue'},
+     chips:[{v:N(m.due30_assets), l:'assets with a KEV due ≤ 30 days', u:`${N(m.due30_cves)} CVE${m.due30_cves===1?'':'s'} · ${N(m.due7_assets)} asset${m.due7_assets===1?'':'s'} due ≤ 7 d`, sev:'high', filter:'due30'},
+            {v:m.median_days_overdue?N(m.median_days_overdue)+' d':'—', l:'median days overdue', u:'across overdue KEV CVEs'},
+            m.remediated?{v:m.remediated.pct_on_time==null?'—':m.remediated.pct_on_time+'%', l:'KEV fixes made by the due date', u:`${N(m.remediated.on_time)} of ${N(m.remediated.findings)} fixed KEV findings`, sev:'ok',
+              t:`${m.remediated.pct_on_time==null?'—':m.remediated.pct_on_time+'%'} KEV fixes made by the due date — from navi's fixed table: last_fixed ≤ CISA due date (${N(m.remediated.on_time)} of ${N(m.remediated.findings)} fixed KEV findings)`}:null]},
+    {title:'Threat context',
+     hero:{v:N(m.ransomware_assets), l:'assets with a ransomware-linked KEV', u:`${N(m.ransomware_cves)} CVEs CISA ties to ransomware campaigns`, sev:'crit', filter:'ransomware'},
+     chips:[{v:N(m.recent_assets), l:'assets hit by KEVs added ≤ 30 days ago', u:`${N(m.recent_cves)} newly listed CVE${m.recent_cves===1?'':'s'}`, sev:'info', filter:'recent'},
+            {v:N(m.no_xref_assets), l:'assets the xref tag would miss', u:`${N(m.no_xref_cves)} KEV CVE${m.no_xref_cves===1?'':'s'} without Tenable's KEV xref`, sev:'low', filter:'noxref',
+             t:`${N(m.no_xref_assets)} assets the xref tag would miss (${N(m.no_xref_cves)} KEV CVEs) — CISA lists the CVE as KEV, but the finding lacks the CISA-KNOWN-EXPLOITED xref, so tagging by xref (CISA KEV : Vulnerable) misses these assets; tagging by CVE covers them`}]}
+  ], {active:FILTER, onFilter:(f,_el,on)=>{ FILTER=on?f:null; hPageReset('cveTbl'); render();
+    if(FILTER) document.getElementById('secCves').scrollIntoView({behavior:'smooth',block:'start'}); }});
 }
 
 function renderTimeline(){

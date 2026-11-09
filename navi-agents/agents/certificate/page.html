@@ -5,12 +5,6 @@
 <link rel="stylesheet" href="/static/console.css"/>
 <style>.plink{color:var(--accent);text-decoration:none}.plink:hover{text-decoration:underline}
 :root{--st-exp:#e5484d;--st-old:#9b2c30;--st-fail:#e0913a;--st-later:#8b95a7;--st-ok:#30a46c}
-.mkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-top:10px}
-.mk{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--panel-2)}
-.mk .v{font-size:22px;font-weight:800;color:var(--ink);line-height:1.1}.mk .l{font-size:11.5px;color:var(--mut);margin-top:2px}
-.mk .u{font-size:11.5px;color:var(--ink-2,var(--ink));margin-top:4px}.mk .u b{color:var(--ink)}
-.mk[data-f]{cursor:pointer;border-left:4px solid var(--rc,var(--line))}.mk[data-f]:hover{border-color:var(--accent)}.mk.on{box-shadow:0 0 0 2px var(--accent)}
-.mhead{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 0}
 .stb{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;padding:1px 8px;border-radius:999px;border:1px solid var(--line);white-space:nowrap}
 .stb i{width:7px;height:7px;border-radius:50%;display:inline-block}
 .flag{font-size:10.5px;padding:1px 6px;border-radius:999px;border:1px solid var(--line);white-space:nowrap;margin-right:3px}
@@ -45,6 +39,10 @@
       <div class="legend"><span><i style="background:var(--st-old)"></i>Expired over 12 months ago</span><span><i style="background:var(--st-exp)"></i>Expired (last 12 months)</span><span><i style="background:var(--st-fail)"></i>Failing (next 12 months)</span><span class="sub">dashed line = this month · click a bar to list those certificates</span></div>
       <div class="tl" id="tl"></div><div class="tlx" id="tlx"></div>
     </div>
+  </section>
+
+  <section class="card" id="secGlance" data-nav="At a glance" data-nav-icon="📊">
+    <h2 style="margin:0 0 2px;font-size:17px">📊 At a glance</h2>
     <div id="metrics"><div class="setupcard"><div class="big">Press ▶ Run</div><p class="sub">See expired certificates month by month for the last 12 months (and older), what fails in the next 12, and which crown jewels are affected.</p></div></div>
   </section>
 
@@ -122,27 +120,29 @@ function renderTimeline(){
 
 function renderMetrics(){
   const m=M.metrics||{};
-  const k=(v,l,u,o)=>{o=o||{}; return `<div class="mk${o.f&&FILTER===o.f?' on':''}"${o.f?` data-f="${o.f}"`:''} style="${o.c?'--rc:'+o.c:''}"${o.t?` title="${esc(o.t)}"`:''}><div class="v">${v}</div><div class="l">${l}</div>${u?`<div class="u">${u}</div>`:''}</div>`;};
-  const as=n=>`<b>${N(n)}</b> asset${n===1?'':'s'}`;
-  document.getElementById('metrics').innerHTML=
-    '<div class="mhead">Expired — click a card to filter the certificate list</div><div class="mkpi">'+
-    k(N(m.expired),'certificates expired', as(m.expired_assets), {t:'every certificate in navi.db past its not-valid-after date'})+
-    k(N(m.expired_12),'expired in the last 12 months', as(m.expired_12_assets), {f:'last12',c:'var(--st-exp)'})+
-    k(N(m.expired_older),'expired over 12 months ago', as(m.expired_older_assets)+' · still deployed', {f:'older',c:'var(--st-old)'})+
-    k(m.median_days_expired!=null?N(m.median_days_expired)+' d':'—','median days expired', m.max_days_expired!=null?`longest <b>${N(m.max_days_expired)}</b> d`:'')+
-    '</div><div class="mhead">Coming up</div><div class="mkpi">'+
-    k(N(m.due30),'failing within 30 days', as(m.due30_assets), {f:'due30',c:'var(--st-exp)'})+
-    k(N(m.due90),'failing within 90 days', as(m.due90_assets), {f:'due90',c:'var(--st-fail)'})+
-    k(N(m.failing),'failing within 12 months', as(m.failing_assets), {f:'failing',c:'var(--st-later)'})+
-    '</div><div class="mhead">Risk context</div><div class="mkpi">'+
-    (m.has_acr?k(N(m.crown_assets),'crown jewels affected', `ACR &gt; 7 · <b>${N(m.crown_expired_assets)}</b> with an expired cert`, {f:'crown',c:'var(--crit)'}):'')+
-    k(N(m.weak_inscope),'expired/failing certs with weak crypto', `SHA-1 / MD5 or RSA &lt; 2048 · <b>${N(m.weak)}</b> across all certs`, {f:'weak',c:'#5d92d6'})+
-    k(N(m.self_signed_inscope),'expired/failing certs that are self-signed', `<b>${N(m.self_signed)}</b> across all certs`, {f:'self',c:'var(--st-later)'})+
-    k(N(m.issue_plugins),'cert-issue plugins firing', `<b>${N(m.issue_assets)}</b> plugin hits on assets`)+
-    k(N(m.cert_rows),'certificates in navi.db', `on ${as(m.cert_assets)} · <b>${N(m.common_names)}</b> common names`+(m.unparsed?` · <b>${N(m.unparsed)}</b> unreadable date${m.unparsed===1?'':'s'}`:''))+
-    '</div>';
-  document.querySelectorAll('#metrics .mk[data-f]').forEach(c=>c.onclick=()=>{ FILTER=FILTER===c.dataset.f?null:c.dataset.f; hPageReset('certTbl'); renderMetrics(); renderCerts();
-    if(FILTER) document.getElementById('secCerts').scrollIntoView({behavior:'smooth',block:'start'}); });
+  const as=n=>`${N(n)} asset${n===1?'':'s'}`;
+  const el=document.getElementById('metrics');
+  el.innerHTML='<p class="sub" style="margin:2px 0 0">Click a number to filter the certificate list.</p><div id="glxCert"></div>';
+  renderGlance('glxCert', [
+    {title:'Expired',
+     hero:{v:N(m.expired), l:'certificates expired', u:as(m.expired_assets), t:'every certificate in navi.db past its not-valid-after date', href:'#secCerts'},
+     bar:[{label:'Expired · last 12 months', value:m.expired_12||0, color:'var(--st-exp)'},{label:'Expired · over 12 months ago', value:m.expired_older||0, color:'var(--st-old)'}], legend:false,
+     chips:[{v:N(m.expired_12), l:'expired in the last 12 months', u:as(m.expired_12_assets), sev:'crit', filter:'last12'},
+            {v:N(m.expired_older), l:'expired over 12 months ago', u:as(m.expired_older_assets)+' · still deployed', sev:'crit', filter:'older'},
+            {v:m.median_days_expired!=null?N(m.median_days_expired)+' d':'—', l:'median days expired', u:m.max_days_expired!=null?`longest ${N(m.max_days_expired)} d`:''}]},
+    {title:'Coming up',
+     hero:{v:N(m.due30), l:'failing within 30 days', u:as(m.due30_assets), sev:'crit', filter:'due30'},
+     chips:[{v:N(m.due90), l:'failing within 90 days', u:as(m.due90_assets), sev:'high', filter:'due90'},
+            {v:N(m.failing), l:'failing within 12 months', u:as(m.failing_assets), sev:'low', filter:'failing'}]},
+    {title:'Risk context',
+     hero:m.has_acr?{v:N(m.crown_assets), l:'crown jewels affected', u:`ACR > 7 · ${N(m.crown_expired_assets)} with an expired cert`, sev:'crit', filter:'crown'}
+                  :{v:N(m.cert_rows), l:'certificates in navi.db', u:`on ${as(m.cert_assets)} · ${N(m.common_names)} common names`+(m.unparsed?` · ${N(m.unparsed)} unreadable date${m.unparsed===1?'':'s'}`:''), href:'#secCerts'},
+     chips:[{v:N(m.weak_inscope), l:'expired/failing certs with weak crypto', u:`SHA-1 / MD5 or RSA < 2048 · ${N(m.weak)} across all certs`, sev:'info', filter:'weak'},
+            {v:N(m.self_signed_inscope), l:'expired/failing certs that are self-signed', u:`${N(m.self_signed)} across all certs`, sev:'low', filter:'self'},
+            {v:N(m.issue_plugins), l:'cert-issue plugins firing', u:`${N(m.issue_assets)} plugin hits on assets`, href:'#secIssues'},
+            m.has_acr?{v:N(m.cert_rows), l:'certificates in navi.db', u:`on ${as(m.cert_assets)} · ${N(m.common_names)} common names`+(m.unparsed?` · ${N(m.unparsed)} unreadable date${m.unparsed===1?'':'s'}`:''), href:'#secCerts'}:null]}
+  ], {active:FILTER, onFilter:(f,_el,on)=>{ FILTER=on?f:null; hPageReset('certTbl'); renderMetrics(); renderCerts();
+    if(FILTER) document.getElementById('secCerts').scrollIntoView({behavior:'smooth',block:'start'}); }});
 }
 
 function certsShown(){

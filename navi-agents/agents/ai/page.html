@@ -5,19 +5,7 @@
 <link rel="stylesheet" href="/static/console.css"/>
 <style>
   .plink{color:var(--accent);text-decoration:none}.plink:hover{text-decoration:underline}
-  .mkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-top:10px}
-  .mk{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--panel-2)}
-  .mk .v{font-size:22px;font-weight:800;color:var(--ink);line-height:1.1}.mk .v small{font-size:13px;font-weight:600;color:var(--mut)}
-  .mk .l{font-size:11.5px;color:var(--mut);margin-top:2px}
-  .mk .u{font-size:11.5px;color:var(--ink-2,var(--ink));margin-top:4px}.mk .u b{color:var(--ink)}
-  .mk[data-f]{cursor:pointer;border-left:4px solid var(--rc,var(--line))}.mk[data-f]:hover{border-color:var(--accent)}.mk.on{box-shadow:0 0 0 2px var(--accent)}
-  .mhead{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 0}
-  .glance{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin-top:10px}
-  .gl{border:1px solid var(--line);border-radius:12px;padding:10px 12px}.gl h4{margin:0 0 6px;font-size:12.5px}
-  .sbar{display:flex;height:16px;border-radius:6px;overflow:hidden;background:var(--panel-2)}
-  .sbar span{display:block;height:100%}.sbar span+span{border-left:2px solid var(--panel,#fff)}
-  .slg{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11.5px;margin-top:6px;color:var(--ink-2,var(--ink))}
-  .slg i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px}.slg b{font-family:var(--mono)}
+  /* 📊 At a glance: the shared renderGlance template (console.js / console.css) */
   .fchip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--accent);color:var(--accent);border-radius:999px;padding:3px 10px;font-size:12px}
   .fchip button{border:0;background:transparent;color:inherit;cursor:pointer;font-size:13px;padding:0}
   .chip{display:inline-block;font-size:11px;background:var(--panel-2);border:1px solid var(--line);border-radius:99px;padding:2px 8px;margin:0 4px 4px 0}
@@ -70,14 +58,17 @@
       <p class="sub" style="margin:2px 0 0">Discovers AI/ML by <b>content</b>: the Tenable AI plugin family <b>plus</b> the <span class="mono">software</span> &amp; <span class="mono">cpes</span> inventories, plugin output and network <b>endpoints</b>. Classifies each asset by <b>role</b>, flags <b>exposed / unauthenticated endpoints</b>, maps <b>data egress</b> (shadow vs sanctioned) and <b>MITRE ATLAS</b>, and checks each asset's <b>ACR</b> against its role. Every row has a <b>🔍 Why</b> to inspect the evidence and dismiss false positives. Tags <b>the assets</b> via <span class="mono">navi tag --query</span>; writes are gated and tracked in the <a href="/web/tags-log.html">Tagging log</a>.</p></div>
       <button class="btn run sm" id="run" data-run style="margin-left:auto">▶ Run</button></div>
     <div id="flash" class="flash"></div>
+  </section>
+
+  <section class="card" id="secGlance" data-nav="At a glance" data-nav-icon="📊">
+    <h2 style="margin:0 0 2px;font-size:17px">📊 At a glance</h2>
     <div id="metrics"><div class="setupcard"><div class="big">Press ▶ Run</div><p class="sub">Find every AI/ML workload in navi.db — including the ones Tenable's AI plugins don't flag — and see which are exposed, sending data out, carrying exploited vulns, or rated too low.</p></div></div>
-    <div id="glance"></div>
   </section>
 
   <section class="card" id="secAssets" data-nav="AI assets" data-nav-icon="📋">
     <div class="toolbar" style="margin:0"><h2 style="margin:0">AI assets <span class="sub" id="aiCount"></span></h2>
       <button class="btn sm" id="tagAll" style="margin-left:auto" disabled>🏷️ Tag all → AI : Present</button></div>
-    <p class="sub">Highest-risk role first. Click a metric card above or a role below to filter. <b>ACR</b> shows current → suggested for the role.</p>
+    <p class="sub">Highest-risk role first. Click a number above or a role below to filter. <b>ACR</b> shows current → suggested for the role.</p>
     <div class="toolbar" style="flex-wrap:wrap;gap:6px"><span class="sub">Role:</span><div class="segbar" id="aiRoleSeg"></div><span id="filt"></span></div>
     <div id="roleTags" class="toolbar" style="flex-wrap:wrap;gap:6px;margin-top:6px"></div>
     <div style="margin-top:8px"><table id="aiTbl"><colgroup><col style="width:160px"><col style="width:110px"><col style="width:150px"><col><col style="width:80px"><col style="width:66px"><col style="width:118px"></colgroup><thead><tr><th>Host</th><th>IP</th><th>Role</th><th>AI software / exposed</th><th>ACR</th><th>Platform</th><th></th></tr></thead><tbody></tbody></table></div>
@@ -179,52 +170,43 @@ function aiTag(category,value,uuids,btn){
 function renderMetrics(){
   const m=DATA.metrics||{}, br=DATA.byRole||{}, a=DATA.assets||[];
   const roles=Object.keys(br).sort((x,y)=>(ROLE_PRI[y]||0)-(ROLE_PRI[x]||0));
-  const k=(v,l,u,o)=>{o=o||{}; return `<div class="mk${o.f&&FILTER===o.f?' on':''}${o.r&&ROLEF===o.r?' on':''}"${o.f?` data-f="${o.f}"`:''}${o.r?` data-r="${esc(o.r)}" data-f="role"`:''} style="${o.c?'--rc:'+o.c:''}"${o.t?` title="${esc(o.t)}"`:''}><div class="v">${v}</div><div class="l">${l}</div>${u?`<div class="u">${u}</div>`:''}</div>`;};
   const ra=DATA.role_acr||{};
-  document.getElementById('metrics').innerHTML=
-    '<div class="mhead">Footprint — click a card to filter the asset list</div><div class="mkpi">'+
-    k(N(DATA.asset_count)+(m.ai_pct!=null?` <small>${m.ai_pct}%</small>`:''),'assets running AI/ML', m.estate?`of <b>${N(m.estate)}</b> assets in navi.db`:'')+
-    k(N(m.content_only),'found beyond the Tenable AI plugins', `<b>${N(m.plugin_found)}</b> flagged by the AI plugin family`, {f:'content',c:'#30a46c',t:'assets detected only through software, CPE, plugin-output or endpoint evidence'})+
-    k(N(m.frameworks),'AI products and frameworks', `across <b>${N(m.roles)}</b> role${m.roles===1?'':'s'}`)+
-    k(N(m.tagged),'already tagged by the pack', m.roles_tagged&&m.roles_tagged.length?`AI Role tags: <b>${esc(m.roles_tagged.join(', '))}</b>`:'no AI tags in navi.db yet', {f:'tagged',c:'var(--accent)'})+
-    '</div><div class="mhead">By role</div><div class="mkpi">'+
-    roles.map(r=>k(N(br[r]),esc(r),`suggested ACR <b>${ra[r]||7}</b>`,{r,c:ROLE_COLOR[r]||'var(--accent)'})).join('')+
-    '</div><div class="mhead">Exposure</div><div class="mkpi">'+
-    k(N(DATA.exposedCount),'exposed AI endpoints', 'inference / notebook / MLOps ports seen on the network', {f:'exposed',c:'var(--crit)'})+
-    k(N(m.unauth),'unauthenticated endpoints', 'anyone on the network can use the model', {f:'unauth',c:'var(--crit)'})+
-    k(N(DATA.shadowCount),'assets with shadow egress', `can send data to <b>${N(m.shadow_dests)}</b> unsanctioned destination${m.shadow_dests===1?'':'s'}`, {f:'shadow',c:'#e0913a'})+
-    k(N(m.destinations),'egress destinations', `<b>${N(DATA.egressCount)}</b> AI assets can reach out`)+
-    '</div><div class="mhead">Risk</div><div class="mkpi">'+
-    k(N(DATA.kevCount),'AI assets with a CISA KEV', 'actively exploited', {f:'kev',c:'var(--crit)'})+
-    k(N(m.crit),'AI assets with critical findings', '', {f:'crit',c:'#e0913a'})+
-    k(N(DATA.eolCount),'AI assets on end-of-life software', '', {f:'eol',c:'#9b2c30'})+
-    k(N(m.atlas_techniques),'MITRE ATLAS techniques implied', `across <b>${N(m.atlas_tactics)}</b> tactics · <b>${N(DATA.mitreCount)}</b> assets ATT&amp;CK-tagged`, {c:'#6ea8e6'})+
-    '</div><div class="mhead">Governance</div><div class="mkpi">'+
-    k(N(m.underrated),'below the suggested ACR', `of <b>${N(m.acr_rated)}</b> rated · fix in ACR alignment`, {f:'under',c:'#e0913a'})+
-    k(N(m.crown),'AI crown jewels', 'ACR ≥ 7', {f:'crown',c:'var(--crit)'})+
-    k(m.acr_median!=null?m.acr_median:'—','median ACR of AI assets', '')+
-    k(N(DATA.asset_count-m.tagged),'not tagged yet', 'tag by role or all at once', {f:'untagged',c:'var(--mut)'})+
-    '</div>';
-  document.querySelectorAll('#metrics .mk[data-f]').forEach(c=>c.onclick=()=>{
-    if(c.dataset.r){ ROLEF=ROLEF===c.dataset.r?'all':c.dataset.r; } else { FILTER=FILTER===c.dataset.f?null:c.dataset.f; }
-    hPageReset('aiTbl'); renderMetrics(); renderTable();
-    if(FILTER||ROLEF!=='all') document.getElementById('secAssets').scrollIntoView({behavior:'smooth',block:'start'}); });
-}
-
-function sbar(parts){ const tot=parts.reduce((s,p)=>s+p.n,0)||1;
-  return `<div class="sbar">${parts.filter(p=>p.n).map(p=>`<span style="width:${(100*p.n/tot).toFixed(2)}%;background:${p.c}" title="${esc(p.l)}: ${N(p.n)}"></span>`).join('')}</div>`+
-    `<div class="slg">${parts.map(p=>`<span><i style="background:${p.c}"></i>${esc(p.l)} <b>${N(p.n)}</b></span>`).join('')}</div>`; }
-function renderGlance(){
-  const a=DATA.assets||[]; if(!a.length){ document.getElementById('glance').innerHTML=''; return; }
-  const br=DATA.byRole||{}, roles=Object.keys(br).sort((x,y)=>(ROLE_PRI[y]||0)-(ROLE_PRI[x]||0));
+  // the three old "At a glance" charts, folded into their groups as mini-bars
   const srcN={}; a.forEach(x=>(x.sources||[]).forEach(s=>srcN[s]=(srcN[s]||0)+1));
   const ex=a.filter(x=>(x.exposed||[]).length).length, un=a.filter(x=>x.unauth).length, sh=a.filter(x=>x.shadow&&!(x.exposed||[]).length).length;
-  const gl=(t,b,s)=>`<div class="gl"><h4>${t}</h4>${b}${s?`<div class="sub" style="font-size:11px;margin-top:4px">${s}</div>`:''}</div>`;
-  document.getElementById('glance').innerHTML='<div class="mhead">At a glance</div><div class="glance">'+
-    gl('AI assets by role', sbar(roles.map(r=>({l:r,n:br[r],c:ROLE_COLOR[r]||'var(--accent)'}))), 'Each asset counted once, under its highest-risk role.')+
-    gl('Where the evidence came from', sbar(Object.keys(SRC).filter(s=>srcN[s]).map(s=>({l:SRC[s][0],n:srcN[s],c:SRC[s][1]}))), 'Assets per detection source; an asset can appear in several.')+
-    gl('Exposure', sbar([{l:'Unauthenticated endpoint',n:un,c:'var(--crit)'},{l:'Exposed (auth)',n:ex-un,c:'#fb923c'},{l:'Shadow egress only',n:sh,c:'#e0913a'},{l:'Internal only',n:a.length-ex-sh,c:'#8b95a7'}]), 'How reachable each AI asset is.')+
-    '</div>';
+  const active=[]; if(FILTER) active.push('f:'+FILTER); if(ROLEF!=='all') active.push('r:'+ROLEF);
+  document.getElementById('metrics').innerHTML='<p class="sub" style="margin:2px 0 0">Click a number to filter the asset list.</p><div id="glxAi"></div>';
+  renderGlance('glxAi', [
+    {title:'Footprint', t:'Evidence bar: assets per detection source; an asset can appear in several.',
+     hero:{v:N(DATA.asset_count), l:'assets running AI/ML', u:(m.ai_pct!=null?m.ai_pct+'%':'')+(m.estate?(m.ai_pct!=null?' ':'')+`of ${N(m.estate)} assets in navi.db`:''), href:'#secAssets'},
+     bar:a.length?Object.keys(SRC).filter(s=>srcN[s]).map(s=>({label:SRC[s][0], value:srcN[s]})):null,
+     chips:[{v:N(m.content_only), l:'found beyond the Tenable AI plugins', u:`${N(m.plugin_found)} flagged by the AI plugin family · the rest detected only through software, CPE, plugin-output or endpoint evidence`, sev:'ok', filter:'f:content'},
+            {v:N(m.frameworks), l:'AI products and frameworks', u:`across ${N(m.roles)} role${m.roles===1?'':'s'}`, href:'#secSoft'},
+            {v:N(m.tagged), l:'already tagged by the pack', u:m.roles_tagged&&m.roles_tagged.length?'AI Role tags: '+m.roles_tagged.join(', '):'no AI tags in navi.db yet', sev:'info', filter:'f:tagged'}]},
+    {title:'By role', t:'Each asset counted once, under its highest-risk role.',
+     bar:roles.map(r=>({label:r, value:br[r]})), legend:false,
+     chips:roles.map(r=>({v:N(br[r]), l:r, u:`suggested ACR ${ra[r]||7}`, filter:'r:'+r}))},
+    {title:'Exposure', t:'How reachable each AI asset is.',
+     hero:{v:N(DATA.exposedCount), l:'exposed AI endpoints', u:'inference / notebook / MLOps ports seen on the network', sev:'crit', filter:'f:exposed'},
+     bar:a.length?[{label:'Unauthenticated endpoint',value:un,color:'crit'},{label:'Exposed (auth)',value:ex-un,color:'high'},{label:'Shadow egress only',value:sh,color:'med'},{label:'Internal only',value:a.length-ex-sh,color:'var(--mut)'}]:null,
+     chips:[{v:N(m.unauth), l:'unauthenticated endpoints', u:'anyone on the network can use the model', sev:'crit', filter:'f:unauth'},
+            {v:N(DATA.shadowCount), l:'assets with shadow egress', u:`can send data to ${N(m.shadow_dests)} unsanctioned destination${m.shadow_dests===1?'':'s'}`, sev:'high', filter:'f:shadow'},
+            {v:N(m.destinations), l:'egress destinations', u:`${N(DATA.egressCount)} AI assets can reach out`, href:'#secEgress'}]},
+    {title:'Risk',
+     hero:{v:N(DATA.kevCount), l:'AI assets with a CISA KEV', u:'actively exploited', sev:'crit', filter:'f:kev'},
+     chips:[{v:N(m.crit), l:'AI assets with critical findings', sev:'high', filter:'f:crit'},
+            {v:N(DATA.eolCount), l:'AI assets on end-of-life software', sev:'high', filter:'f:eol'},
+            {v:N(m.atlas_techniques), l:'MITRE ATLAS techniques implied', u:`across ${N(m.atlas_tactics)} tactics · ${N(DATA.mitreCount)} assets ATT&CK-tagged`, sev:'info', href:'#secAtlas'}]},
+    {title:'Governance',
+     hero:{v:N(m.underrated), l:'below the suggested ACR', u:`of ${N(m.acr_rated)} rated · fix in ACR alignment`, sev:'high', filter:'f:under'},
+     chips:[{v:N(m.crown), l:'AI crown jewels', u:'ACR ≥ 7', sev:'crit', filter:'f:crown'},
+            {v:m.acr_median!=null?String(m.acr_median):'—', l:'median ACR of AI assets', zero:false},
+            {v:N(DATA.asset_count-m.tagged), l:'not tagged yet', u:'tag by role or all at once', filter:'f:untagged'}]}
+  ], {active, onFilter:(f,_el,on)=>{
+    const kind=f.slice(0,2), key=f.slice(2);
+    if(kind==='r:') ROLEF=on?key:'all'; else FILTER=on?key:null;
+    hPageReset('aiTbl'); renderMetrics(); renderTable();
+    if(FILTER||ROLEF!=='all') document.getElementById('secAssets').scrollIntoView({behavior:'smooth',block:'start'}); }});
 }
 
 function shownAssets(){ let r=DATA.assets||[]; if(ROLEF!=='all') r=r.filter(x=>x.role===ROLEF); if(FILTER) r=r.filter(FILTERS[FILTER][1]); return r; }
@@ -442,7 +424,7 @@ function renderAtlasDrill(byTech){
 }
 document.getElementById('atlEmpty').onchange=()=>{ if(DATA) renderAtlas(); };
 
-function render(){ if(!DATA) return; renderMetrics(); renderGlance(); renderTable(); renderSoft(); renderAcr(); renderEgress(); renderAtlas(); }
+function render(){ if(!DATA) return; renderMetrics(); renderTable(); renderSoft(); renderAcr(); renderEgress(); renderAtlas(); }
 
 document.getElementById('run').onclick=run;
 document.getElementById('tagAll').onclick=function(){ if(DATA&&DATA.assets.length) aiTag('AI','Present',DATA.assets.map(x=>x.asset_uuid),this); };

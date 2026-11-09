@@ -6,22 +6,6 @@
 <style>
   .plink{color:var(--accent);text-decoration:none}.plink:hover{text-decoration:underline}
   :root{--k-human:#8b8fe6;--k-svc:#3fb0c9;--k-mach:#a97fd6;--k-blind:#e5484d;--k-cred:#30a46c}
-  .mkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-top:10px}
-  .mk{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--panel-2)}
-  .mk .v{font-size:22px;font-weight:800;color:var(--ink);line-height:1.1}.mk .v small{font-size:13px;font-weight:600;color:var(--mut)}
-  .mk .l{font-size:11.5px;color:var(--mut);margin-top:2px}
-  .mk .u{font-size:11.5px;color:var(--ink-2,var(--ink));margin-top:4px}.mk .u b{color:var(--ink)}
-  .mk[data-f]{cursor:pointer;border-left:4px solid var(--rc,var(--line))}.mk[data-f]:hover{border-color:var(--accent)}.mk.on{box-shadow:0 0 0 2px var(--accent)}
-  .mhead{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 0}
-  .glance{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;margin-top:10px}
-  .gl{border:1px solid var(--line);border-radius:12px;padding:10px 12px}.gl h4{margin:0 0 6px;font-size:12.5px}
-  .sbar{display:flex;height:16px;border-radius:6px;overflow:hidden;background:var(--panel-2)}
-  .sbar span{display:block;height:100%}.sbar span+span{border-left:2px solid var(--panel,#fff)}
-  .slg{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11.5px;margin-top:6px;color:var(--ink-2,var(--ink))}
-  .slg i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px}.slg b{font-family:var(--mono)}
-  .hb{display:grid;grid-template-columns:150px 1fr 40px;gap:6px;align-items:center;font-size:11.5px;margin:3px 0}
-  .hb .t{height:10px;border-radius:4px;background:var(--panel-2);overflow:hidden}.hb .t i{display:block;height:100%;background:var(--crit);border-radius:4px}
-  .hb b{font-family:var(--mono);text-align:right}
   .fchip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--accent);color:var(--accent);border-radius:999px;padding:3px 10px;font-size:12px}
   .fchip button{border:0;background:transparent;color:inherit;cursor:pointer;font-size:13px;padding:0}
   #tbl th,#tbl td{vertical-align:top;overflow:hidden;text-overflow:ellipsis}
@@ -41,8 +25,11 @@
       <p class="sub" style="margin:2px 0 0">Discovers identities by <b>content, not a memorized plugin list</b>: plugin <b>names</b> and raw <b>output</b>, then the high-value enumerators (passwd <span class="mono">95928</span>, SMB users <span class="mono">10860</span>, non-expiring <span class="mono">83303</span>, host SID <span class="mono">10859</span>, SNMP <span class="mono">41028</span>). Classifies <b>Human / Service-NHI / Machine</b> using external authorities (Microsoft well-known SIDs/RIDs, AD machine <span class="mono">$</span> accounts, the Linux <span class="mono">login.defs</span> UID convention), flags the risky ones, and shows the <b>coverage gap</b> (hosts scanned without credentials). Tags <b>the assets</b> each identity lives on via navi <span class="mono">tag --query</span>; writes are gated and tracked in the <a href="/web/tags-log.html">Tagging log</a>.</p></div>
       <button class="btn run sm" id="run" data-run style="margin-left:auto">▶ Run</button></div>
     <div id="flash" class="flash"></div>
+  </section>
+
+  <section class="card" id="secGlance" data-nav="At a glance" data-nav-icon="📊">
+    <h2 style="margin:0 0 2px;font-size:17px">📊 At a glance</h2>
     <div id="metrics"><div class="setupcard"><div class="big">Press ▶ Run</div><p class="sub">See every human, service and machine identity on your credentialed hosts, which ones are privileged, reused or never expire, which sit on exploitable or crown-jewel hosts, and how much of the estate you can't see.</p></div></div>
-    <div id="glance"></div>
   </section>
 
   <section class="card" id="nlCard" style="display:none">
@@ -165,50 +152,43 @@ async function run(){
 }
 
 function renderMetrics(){
-  const c=IDENT.counts||{}, m=IDENT.metrics||{}, svc=(c.nhi||0)+(c.service||0);
-  const k=(v,l,u,o)=>{o=o||{}; return `<div class="mk${o.f&&FILTER===o.f?' on':''}${o.g&&IDENT_FILTER===o.g?' on':''}"${o.f?` data-f="${o.f}"`:''}${o.g?` data-g="${o.g}" data-f="g"`:''} style="${o.c?'--rc:'+o.c:''}"${o.t?` title="${esc(o.t)}"`:''}><div class="v">${v}</div><div class="l">${l}</div>${u?`<div class="u">${u}</div>`:''}</div>`;};
-  document.getElementById('metrics').innerHTML=
-    '<div class="mhead">Inventory — click a card to filter the identity list</div><div class="mkpi">'+
-    k(N(c.total),'identities', `on <b>${N(m.identity_hosts)}</b> hosts`)+
-    k(N(c.human),'human / interactive', 'positively identified people and admins', {g:'human',c:'var(--k-human)'})+
-    k(N(svc),'service / non-human', `<b>${N(c.nhi)}</b> known NHI (CI, web, DB daemons)`, {g:'service',c:'var(--k-svc)'})+
-    k(N(c.machine),'machine identities', 'host SIDs, SNMP communities', {g:'machine',c:'var(--k-mach)'})+
-    '</div><div class="mhead">Visibility</div><div class="mkpi">'+
-    k(m.coverage_pct!=null?m.coverage_pct+'%':'—','credential coverage', `<b>${N(m.credentialed)}</b> credentialed · <b>${N(m.blind)}</b> uncredentialed`, {c:'var(--k-cred)',t:'credentialed hosts ÷ (credentialed + uncredentialed). Only credentialed scans can enumerate accounts.'})+
-    k(N(m.blind),'hosts you can\'t see into', 'scanned without credentials (104410 / 110723)', {c:'var(--k-blind)'})+
-    k(N(m.scan_creds),'scan credentials', 'Nessus login accounts, excluded from reuse')+
-    k(N(c.flagged),'risk-flagged identities', 'at least one risk signal', {g:'flagged',c:'var(--crit)'})+
-    '</div><div class="mhead">Account hygiene</div><div class="mkpi">'+
-    k(N(m.privileged),'privileged accounts', `root / Administrator on <b>${N(m.privileged_hosts)}</b> hosts`, {f:'privileged',c:'var(--crit)'})+
-    k(N(m.reused),'accounts reused across hosts', `on <b>${N(m.reused_hosts)}</b> hosts · widest <b>${N(m.max_reuse)}</b> · same account name, not a known shared password`, {f:'reused',c:'#e0913a'})+
-    k(N(m.nonexpiring),'passwords never expire', 'plugin 83303', {f:'nonexp',c:'#e0913a'})+
-    k(N((m.signals||{})['ssh password auth']),'hosts accept SSH passwords', '', {f:'ssh',c:'#e0913a'})+
-    '</div><div class="mhead">Priority</div><div class="mkpi">'+
-    k(N(m.priv_exploitable),'privileged on an exploitable host', 'KEV or critical finding on the same host', {f:'privexp',c:'var(--crit)'})+
-    k(N(m.on_kev),'identities on a CISA KEV host', `<b>${N((m.signals||{})['on KEV host'])}</b> KEV hosts`, {f:'kev',c:'var(--crit)'})+
-    k(N(m.crown_ids),'identities on crown jewels', `ACR ≥ 7 · <b>${N(m.crown_priv)}</b> privileged`, {f:'crown',c:'var(--crit)'})+
-    k(N(m.on_crit),'identities on a critical host', '', {f:'crit',c:'#e0913a'})+
-    '</div>';
-  document.querySelectorAll('#metrics .mk[data-f]').forEach(el=>el.onclick=()=>{
-    if(el.dataset.g){ IDENT_FILTER=IDENT_FILTER===el.dataset.g?'all':el.dataset.g; FILTER=null; }
-    else { FILTER=FILTER===el.dataset.f?null:el.dataset.f; }
-    hPageReset('tbl'); renderMetrics(); renderTable();
-    document.getElementById('secIds').scrollIntoView({behavior:'smooth',block:'start'}); });
-}
-
-function sbar(parts){ const tot=parts.reduce((s,p)=>s+p.n,0)||1;
-  return `<div class="sbar">${parts.filter(p=>p.n).map(p=>`<span style="width:${(100*p.n/tot).toFixed(2)}%;background:${p.c}" title="${esc(p.l)}: ${N(p.n)}"></span>`).join('')}</div>`+
-    `<div class="slg">${parts.map(p=>`<span><i style="background:${p.c}"></i>${esc(p.l)} <b>${N(p.n)}</b></span>`).join('')}</div>`; }
-function renderGlance(){
-  const c=IDENT.counts||{}, m=IDENT.metrics||{}, a=IDENT.accounts||[];
+  const c=IDENT.counts||{}, m=IDENT.metrics||{}, a=IDENT.accounts||[], svc=(c.nhi||0)+(c.service||0), sig=m.signals||{};
+  // most common risk flags (identities carrying each flag) — the Priority ranked list
   const fl={}; a.forEach(x=>(x.risky||[]).forEach(f=>{ const key=f.indexOf('account reuse')===0?'account reuse ≥ 5 hosts':f; fl[key]=(fl[key]||0)+1; }));
-  const top=Object.entries(fl).sort((p,q)=>q[1]-p[1]).slice(0,6), mx=Math.max(1,...top.map(t=>t[1]));
-  const gl=(t,b,s)=>`<div class="gl"><h4>${t}</h4>${b}${s?`<div class="sub" style="font-size:11px;margin-top:4px">${s}</div>`:''}</div>`;
-  document.getElementById('glance').innerHTML='<div class="mhead">At a glance</div><div class="glance">'+
-    gl('Identities by class', sbar([{l:'Human',n:c.human||0,c:'var(--k-human)'},{l:'Service / NHI',n:(c.service||0)+(c.nhi||0),c:'var(--k-svc)'},{l:'Machine',n:c.machine||0,c:'var(--k-mach)'}]), 'Built-ins classified by Microsoft SIDs/RIDs and the Linux UID convention.')+
-    gl('Credential coverage', sbar([{l:'Credentialed',n:m.credentialed||0,c:'var(--k-cred)'},{l:'Uncredentialed (blind)',n:m.blind||0,c:'var(--k-blind)'}]), 'Identities on blind hosts are invisible — treat the inventory as a floor.')+
-    gl('Most common risk flags', top.length?top.map(([f,n])=>`<div class="hb"><span>${esc(f)}</span><span class="t"><i style="width:${(100*n/mx).toFixed(0)}%"></i></span><b>${N(n)}</b></div>`).join(''):'<div class="sub">No risk flags.</div>', 'Identities carrying each flag.')+
-    '</div>';
+  const top=Object.entries(fl).sort((p,q)=>q[1]-p[1]).slice(0,6);
+  const active=[]; if(IDENT_FILTER!=='all') active.push('g:'+IDENT_FILTER); if(FILTER) active.push('f:'+FILTER);
+  const el=document.getElementById('metrics');
+  el.innerHTML='<p class="sub" style="margin:2px 0 0">Click a number to filter the identity list.</p><div id="glxIdent"></div>';
+  renderGlance('glxIdent', [
+    {title:'Inventory', t:'Built-ins classified by Microsoft SIDs/RIDs and the Linux UID convention.',
+     hero:{v:N(c.total), l:'identities', u:`on ${N(m.identity_hosts)} hosts`, href:'#secIds'},
+     bar:[{label:'Human',value:c.human||0,color:'s1'},{label:'Service / NHI',value:svc,color:'s2'},{label:'Machine',value:c.machine||0,color:'s3'}],
+     chips:[{v:N(c.human), l:'human / interactive', u:'positively identified people and admins', filter:'g:human'},
+            {v:N(svc), l:'service / non-human', u:`${N(c.nhi)} known NHI (CI, web, DB daemons)`, filter:'g:service'},
+            {v:N(c.machine), l:'machine identities', u:'host SIDs, SNMP communities', filter:'g:machine'}]},
+    {title:'Visibility', t:'Identities on blind hosts are invisible — treat the inventory as a floor.',
+     hero:{v:m.coverage_pct!=null?m.coverage_pct+'%':'—', l:'credential coverage', u:`${N(m.credentialed)} credentialed · ${N(m.blind)} uncredentialed`,
+           t:'credentialed hosts ÷ (credentialed + uncredentialed). Only credentialed scans can enumerate accounts.', href:'#secCov'},
+     bar:[{label:'Credentialed',value:m.credentialed||0,color:'ok'},{label:'Uncredentialed (blind)',value:m.blind||0,color:'crit'}],
+     chips:[{v:N(m.blind), l:"hosts you can't see into", u:'scanned without credentials (104410 / 110723)', sev:m.blind?'crit':'none', href:'#secCov'},
+            {v:N(m.scan_creds), l:'scan credentials', u:'Nessus login accounts, excluded from reuse', href:'#secCov'},
+            {v:N(c.flagged), l:'risk-flagged identities', u:'at least one risk signal', sev:'crit', filter:'g:flagged'}]},
+    {title:'Account hygiene',
+     hero:{v:N(m.reused), l:'accounts reused across hosts', u:`on ${N(m.reused_hosts)} hosts · widest ${N(m.max_reuse)} · same account name, not a known shared password`, filter:'f:reused'},
+     chips:[{v:N(m.privileged), l:'privileged accounts', u:`root / Administrator on ${N(m.privileged_hosts)} hosts`, sev:'crit', filter:'f:privileged'},
+            {v:N(m.nonexpiring), l:'passwords never expire', u:'plugin 83303', sev:'high', filter:'f:nonexp'},
+            {v:N(sig['ssh password auth']), l:'hosts accept SSH passwords', u:'password auth enabled (plugin 149334)', sev:'high', filter:'f:ssh'}]},
+    {title:'Priority',
+     hero:{v:N(m.priv_exploitable), l:'privileged on an exploitable host', u:'KEV or critical finding on the same host', filter:'f:privexp'},
+     chips:[{v:N(m.on_kev), l:'identities on a CISA KEV host', u:`${N(sig['on KEV host'])} KEV hosts`, sev:'crit', filter:'f:kev'},
+            {v:N(m.crown_ids), l:'identities on crown jewels', u:`ACR ≥ 7 · ${N(m.crown_priv)} privileged`, sev:'crit', filter:'f:crown'},
+            {v:N(m.on_crit), l:'identities on a critical host', sev:'high', filter:'f:crit'}],
+     ranked:{title:'Most common risk flags', sev:'crit', items:top.map(([f,n])=>({label:f, value:n, t:f+': '+N(n)+' identities carrying this flag'})), empty:'No risk flags.'}}
+  ], {active, onFilter:(f,_el,on)=>{
+    const kind=f.slice(0,2), key=f.slice(2);
+    if(kind==='g:'){ IDENT_FILTER=on?key:'all'; FILTER=null; } else { FILTER=on?key:null; }
+    hPageReset('tbl'); renderMetrics(); renderTable();
+    document.getElementById('secIds').scrollIntoView({behavior:'smooth',block:'start'}); }});
 }
 
 function shown(){ const a=IDENT.accounts||[];
@@ -281,7 +261,7 @@ function render(){
   if(!IDENT) return; const a=IDENT.accounts||[];
   document.getElementById('nlCard').style.display=a.length?'block':'none';
   document.getElementById('nlHint').textContent=window.__LLM?'model ready':'no model — use the Tag buttons';
-  renderMetrics(); renderGlance(); renderTable(); renderReuse(); renderAuth(); renderCov();
+  renderMetrics(); renderTable(); renderReuse(); renderAuth(); renderCov();
 }
 
 /* ---- gated writes: one line of feedback; detail lives in the Tagging log ---- */

@@ -1,8 +1,11 @@
 """Garmr — the tag-removal agent.
 
-Lists every tag in the tenant (live `navi explore info tags`, enriched with the
-per-tag asset counts from navi.db) so the operator can pick which to strip. The
-api removes the chosen tags through the same background queue every other agent
+Lists the tags navi can actually remove — the ones in navi.db's `tags` table, with
+the number of navi.db assets carrying each. `navi enrich tag ... -remove` strips a tag
+from the assets navi.db says carry it, so a tag that exists only in Tenable (on assets
+outside navi's pull window, or no longer licensed) can't be removed from here; those
+are shown separately by the Tenable ⇄ navi.db compare, never offered for selection.
+The api removes the chosen tags through the same background queue every other agent
 uses, so removals appear in the Tagging log as `op=remove`.
 """
 from core import navi_cli
@@ -29,28 +32,20 @@ class TagRemovalAgent(Agent):
         return {"tags": len(self.result.get("tags", []))}
 
     def _run(self, db_path=None, **kwargs):
-        live = navi_cli.list_tags()
-        tags = live.get("tags", []) or []
-        counts = {}
-        if db is not None:
-            try:
-                for r in db.query("SELECT tag_key AS k, tag_value AS v, "
-                                  "COUNT(DISTINCT asset_uuid) AS n FROM tags "
-                                  "GROUP BY tag_key, tag_value", path=db_path):
-                    counts[(r.get("k"), r.get("v"))] = r.get("n")
-            except Exception:
-                counts = {}
-        merged, have = [], set()
-        for t in tags:
-            cat, val = t.get("category"), t.get("value")
-            merged.append({"category": cat, "value": val, "assets": counts.get((cat, val))})
-            have.add((cat, val))
-        # surface navi.db tags not in the live list (e.g. not yet synced upstream)
-        for (k, v), n in counts.items():
-            if (k, v) not in have:
-                merged.append({"category": k, "value": v, "assets": n})
-        merged.sort(key=lambda x: ((x["category"] or "").lower(), (x["value"] or "").lower()))
-        return {"ok": live.get("ok", True),
-                "source": live.get("source", "navi explore info tags"),
-                "tags": merged, "count": len(merged),
-                "message": live.get("message", "")}
+        """navi.db's tags table only (build 452) — the live Tenable list is the compare's job."""
+        if db is None:
+            return {"ok": False, "tags": [], "count": 0, "source": "navi.db tags table",
+                    "message": "navi.db is not available"}
+        try:
+            rows = db.query("SELECT tag_key AS k, tag_value AS v, COUNT(DISTINCT asset_uuid) AS n "
+                            "FROM tags WHERE TRIM(COALESCE(tag_key,''))<>'' "
+                            "GROUP BY tag_key, tag_value", path=db_path)
+        except Exception as e:
+            msg = str(e)
+            return {"ok": False, "tags": [], "count": 0, "source": "navi.db tags table",
+                    "message": ("navi.db has no tags table — run an assets sync (navi config update assets)"
+                                if "no such table" in msg else msg)}
+        tags = [{"category": r.get("k"), "value": r.get("v"), "assets": r.get("n") or 0} for r in rows]
+        tags.sort(key=lambda x: ((x["category"] or "").lower(), (x["value"] or "").lower()))
+        return {"ok": True, "source": "navi.db tags table", "tags": tags, "count": len(tags),
+                "message": "" if tags else "navi.db's tags table is empty — run an assets sync"}

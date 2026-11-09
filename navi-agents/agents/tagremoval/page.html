@@ -9,10 +9,11 @@
 
   <section class="card">
     <div class="toolbar"><div><h2 style="margin:0">🗑️ Tag Removal</h2>
-      <p class="sub" style="margin:2px 0 0">Garmr lists every tag in the tenant. Pick the ones to strip — each removal runs <span class="mono">navi enrich tag … -remove</span> against the assets that carry it and shows in the <a href="/web/tags-log.html">Tagging log</a> as a <b>remove</b> job. Send your picks to the <a href="/agents/contract/page.html">AI Contract</a> and it will remove them first, pause 30 min, run <span class="mono">navi update</span>, then re-run the tagging workflow.</p></div></div>
+      <p class="sub" style="margin:2px 0 0">Garmr lists the tags <b>in navi.db</b> — the only ones navi can strip. Each removal runs <span class="mono">navi enrich tag … -remove</span> against the assets navi.db says carry it and shows in the <a href="/web/tags-log.html">Tagging log</a> as a <b>remove</b> job. Tags that exist only in Tenable are listed separately in the <a href="#cmpCard">compare</a> below — they sit on assets navi.db doesn't hold, so they can't be removed from here. Send your picks to the <a href="/agents/contract/page.html">AI Contract</a> and it will remove them first, pause, refresh navi.db, then re-run the tagging workflow.</p></div></div>
 
     <div class="flash" id="syncBanner" style="display:block;margin-top:10px;background:rgba(251,191,36,.12);color:var(--warn);border:1px solid rgba(251,191,36,.4)">
-      <b>⚠ Removals depend on a current tags table.</b> navi's <span class="mono">-remove</span> strips a tag by first clearing the assets navi.db believes carry it — that view is the local <span class="mono">tags</span> table, which is only rebuilt by an <b>assets</b> sync. If you tagged or changed assets and have <b>not</b> re-synced, a removal clears a stale (often empty) set and the live tag stays put. <b>Run an assets update, let it finish, then remove.</b>
+      <b>⚠ Removals only reach the assets in navi.db.</b> navi's asset sync pulls assets seen in the last <b>N days</b> (90 by default) and never deletes the ones that age out or fall off licensing — so navi.db can hold assets Tenable no longer licenses, and Tenable can hold tagged assets navi.db never pulled. <span class="mono">-remove</span> strips from navi.db's view, so tags on assets outside it stay put. Keep navi.db current (assets sync), and if it has drifted, <a href="/web/settings.html#secRebuild">rebuild navi.db</a> with the window you need.
+      <div class="dk-row" id="deltaRow" style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center"><span class="sub"><span class="spin"></span> asset delta — navi.db vs Tenable licensed…</span></div>
       <div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
         <button class="btn sm" id="updBtn">↻ Update assets (rebuild tags table)</button>
         <span class="chip" id="updState">removals act on the tags table as of the last assets sync</span>
@@ -38,10 +39,10 @@
   </section>
 
   <section class="card" id="out" style="display:none">
-    <div class="toolbar" style="margin:0 0 8px"><h2 style="margin:0;font-size:15px">Tags — select the ones to remove</h2>
+    <div class="toolbar" style="margin:0 0 8px"><h2 style="margin:0;font-size:15px">Tags in navi.db — select the ones to remove</h2>
       <span class="chip" id="pageInfo" style="margin-left:auto;display:none"></span></div>
     <div style="overflow-x:auto"><table id="tbl" class="nopage"><thead><tr>
-      <th style="width:34px"></th><th>Category</th><th>Value</th><th style="width:90px">Assets</th>
+      <th style="width:34px"></th><th>Category</th><th>Value</th><th style="width:110px" title="navi.db assets carrying the tag — what -remove will reach">navi.db assets</th>
     </tr></thead><tbody></tbody></table></div>
     <div id="pager" class="toolbar" style="margin-top:10px;display:none;align-items:center;gap:8px"></div>
   </section>
@@ -49,7 +50,7 @@
   <section class="card" id="cmpCard">
     <div class="toolbar" style="margin:0"><h2 style="margin:0">⚖ Tag compare — Tenable ⇄ navi.db</h2>
       <button class="btn ghost sm" id="cmpBtn" style="margin-left:auto">↻ Re-compare</button></div>
-    <p class="sub" style="margin:4px 0 0">Forced on load and again before every removal. <b>Tenable</b> is the live tenant (<span class="mono">navi explore info tags</span>); <b>navi.db</b> is the local <span class="mono">tags</span> table your <span class="mono">-remove</span> actually acts on. If a tag is live in Tenable but shows <b>0 / missing</b> in navi.db, a removal will clear nothing — sync assets first.</p>
+    <p class="sub" style="margin:4px 0 0"><b>Tenable</b> is the live tenant (<span class="mono">navi explore info tags</span>, read through navi); <b>navi.db</b> is the local <span class="mono">tags</span> table that <span class="mono">-remove</span> acts on — and the only list you can select from above. A tag that is live in Tenable but missing from navi.db lives on assets navi.db doesn't hold (outside the pull window, or no longer licensed): navi can't remove it until navi.db pulls those assets.</p>
     <div id="cmpBody" class="sub" style="margin-top:8px"><span class="spin"></span> comparing…</div>
   </section>
   <footer>Garmr · tag removal · removals are gated by NAVI_ALLOW_WRITES and tracked in the Tagging log</footer>
@@ -80,18 +81,20 @@ async function compare(){
   const ghosts=[];
   (o.ten||[]).forEach(r=>{ const k=keyOf(r.cat,r.val); const c=naviMap[k];
     if(c===undefined||c===0) ghosts.push({cat:r.cat,val:r.val,c:(c===undefined?null:0)}); });
-  CMP={naviMap,tenSet,ghosts,stale:ghosts.length>0,
+  const naviOnly=(o.navi||[]).filter(r=>(r.c||0)>0&&!tenSet.has(keyOf(r.cat,r.val))).length;
+  CMP={naviMap,tenSet,ghosts,naviOnly,stale:ghosts.length>0,
        naviErr:o.navi_error,tenOk:o.ten_ok,tenMsg:o.ten_message};
   const nCount=(o.navi||[]).length, tCount=(o.ten||[]).length;
   let html='<div style="display:flex;gap:14px;flex-wrap:wrap;align-items:center">'+
     '<span class="chip">Tenable (live): <b>'+tCount+'</b></span>'+
     '<span class="chip">navi.db tags table: <b>'+nCount+'</b></span>'+
-    (CMP.stale?'<span class="chip" style="background:rgba(220,80,80,.16);border-color:rgba(220,80,80,.5)">⚠ '+ghosts.length+' live tag(s) not yet in navi.db</span>'
-              :'<span class="chip" style="background:rgba(80,200,120,.14);border-color:rgba(80,200,120,.5)">✓ in sync — removals will target the live set</span>')+
+    (CMP.naviOnly?'<span class="chip" title="In navi.db but no longer in Tenable (deleted upstream) — they drop out on the next assets sync">navi.db only: <b>'+CMP.naviOnly+'</b></span>':'')+
+    (CMP.stale?'<span class="chip" style="background:rgba(220,80,80,.16);border-color:rgba(220,80,80,.5)">⚠ '+ghosts.length+' Tenable tag(s) out of navi\'s reach</span>'
+              :'<span class="chip" style="background:rgba(80,200,120,.14);border-color:rgba(80,200,120,.5)">✓ every Tenable tag is in navi.db</span>')+
     '</div>';
   if(!CMP.tenOk) html+='<p class="warn" style="margin:8px 0 0">Tenable side unavailable ('+esc(CMP.tenMsg||'navi explore info tags failed')+') — can\'t confirm sync state. Treat removals as risky until this loads.</p>';
   if(ghosts.length){
-    html+='<p style="margin:10px 0 4px"><b>Live in Tenable, but navi.db can\'t see the assets yet</b> — a removal on these will no-op until you update assets:</p>'+
+    html+='<p style="margin:10px 0 4px"><b>Tenable only — not removable from here.</b> No navi.db asset carries these, so navi has nothing to strip. They sit on assets navi.db doesn\'t hold — older than the pull window or no longer licensed. To reach them, <a href="/web/settings.html#secRebuild">rebuild navi.db</a> with a wider window (more days), or remove them in Tenable.</p>'+
       '<div style="overflow-x:auto"><table><thead><tr><th>Category</th><th>Value</th><th style="width:110px">navi.db assets</th></tr></thead><tbody>'+
       ghosts.map(g=>'<tr><td>'+esc(g.cat||'')+'</td><td><b>'+esc(g.val||'')+'</b></td><td class="mono">'+(g.c===null?'<span class="crit">missing</span>':'<span class="crit">0</span>')+'</td></tr>').join('')+
       '</tbody></table></div>';
@@ -170,12 +173,12 @@ function renderTags(){
 }
 async function load(){
   document.getElementById('loadBtn').disabled=true;
-  flash('flash','<span class="spin"></span> loading every tag (live navi explore info tags + navi.db counts)…','run');
+  flash('flash','<span class="spin"></span> loading the tags in navi.db…','run');
   let o; try{ o=await API.post('run'); }catch(e){ o={ok:false,error:e.message}; }
   document.getElementById('loadBtn').disabled=false;
   if(!o.ok && !(o.result&&o.result.tags)){ flash('flash','✗ '+esc(o.error||(o.result&&o.result.message)||'failed — is navi on PATH?'),'crit'); return; }
   TAGS=(o.result&&o.result.tags)||[]; SELECTED.clear(); PAGE=0; flashClear('flash'); renderTags();
-  if(!TAGS.length) flash('flash','No tags found. '+esc((o.result&&o.result.message)||''),'warn');
+  if(!TAGS.length) flash('flash','No tags in navi.db. '+esc((o.result&&o.result.message)||''),'warn');
 }
 async function removeSel(){
   const btn=document.getElementById('removeBtn'); if(btn&&btn.disabled)return;
@@ -185,25 +188,15 @@ async function removeSel(){
   const reset=()=>{ if(!btn)return; btn.disabled=false; btn.textContent=btn.dataset.label; btn.style.opacity=''; btn.style.transform=''; btn.style.cursor=''; };
   if(btn){ btn.dataset.label=btn.dataset.label||btn.textContent; btn.disabled=true; btn.textContent='⏳ Sending…'; btn.style.opacity='.6'; btn.style.transform='translateY(1px)'; btn.style.cursor='default'; }
   // FORCE a fresh compare so the operator can't remove against a stale tags table.
-  flash('flash','<span class="spin"></span> forcing a tag compare before removal…','run');
-  scroll();
-  await compare(); flashClear('flash');
-  const ghostSel = CMP ? tags.filter(t=>CMP.ghosts.some(g=>keyOf(g.cat,g.val)===keyOf(t.category,t.value))) : [];
-  if(CMP && !CMP.tenOk){
-    if(!confirm('The Tenable side of the tag compare did not load, so navi.db\'s sync state is unknown. A -remove may clear nothing if navi.db is behind. Continue anyway?')){ reset(); scroll(); return; }
-  } else if(ghostSel.length){
-    if(!confirm(ghostSel.length+' of your selected tag(s) are LIVE in Tenable but navi.db shows 0 / missing assets for them:\n\n'+
-      ghostSel.slice(0,10).map(g=>' • '+(g.category||'')+' : '+(g.value||'')).join('\n')+
-      (ghostSel.length>10?'\n …and '+(ghostSel.length-10)+' more':'')+
-      '\n\nnavi -remove clears what navi.db believes the tag carries, so removing these now will do NOTHING and the live tags will remain. Update assets first (button in the banner), wait for it to finish, then Re-compare.\n\nQueue the removals anyway?')){ reset(); scroll(); return; }
-  }
   if(!WRITES && !confirm('Writes are gated on the server (NAVI_ALLOW_WRITES not set). The remove jobs will queue but be blocked. Continue anyway?')){ reset(); scroll(); return; }
-  if(!confirm('Remove '+tags.length+' tag(s) from every asset that carries them? This runs navi -remove and cannot be undone from here.')){ reset(); scroll(); return; }
+  if(!confirm('Remove '+tags.length+' tag(s) from every navi.db asset that carries them? This runs navi -remove and cannot be undone from here.\n\nAssets navi.db doesn\'t hold (outside the pull window / no longer licensed) keep the tag.')){ reset(); scroll(); return; }
   flash('flash','<span class="spin"></span> queuing '+tags.length+' removal(s)…','run');
   scroll();
   let o; try{ o=await API.post('remove',{tags,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
   if(!o.ok){ flash('flash','✗ '+esc(o.error||'failed'),'crit'); reset(); scroll(); return; }
-  flash('flash','✓ queued '+o.queued+' removal job(s) — watch them in the <a href="/web/tags-log.html">Tagging log</a> (they appear as <b>remove</b>). Allow the ~30-min propagation window, run an <b>assets update</b>, then <b>Re-compare</b> here to confirm the tags cleared.','ok');
+  const sk=(o.skipped||[]);
+  flash('flash','✓ queued '+o.queued+' removal job(s) — watch them in the <a href="/web/tags-log.html">Tagging log</a> (they appear as <b>remove</b>; <b>navi output</b> shows what navi did). Allow the ~30-min propagation window, run an <b>assets update</b>, then <b>↻ Reload</b> to confirm the tags cleared.'+
+    (sk.length?'<br><b>Skipped '+sk.length+'</b> — not in navi.db, so navi can\'t remove them: '+sk.slice(0,8).map(t=>esc((t.category||'')+' : '+(t.value||''))).join(' · ')+(sk.length>8?' …':''):''),sk.length?'warn':'ok');
   scroll(); reset();
 }
 async function toContract(){
@@ -227,7 +220,21 @@ document.getElementById('updBtn').onclick=updateAssets;
 mountAgentHeader({id:'tagremoval',icon:'🗑️',name:'Tag Removal',sub:'Garmr · list tags → remove chosen → feed the contract'});
 try{ hMailAuto(); }catch(e){}
 jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});
-compare();   // force the compare on load
+/* asset delta: navi.db assets vs Tenable licensed (one navi read) */
+async function loadDelta(){
+  const row=document.getElementById('deltaRow');
+  let o; try{ o=await API.post('asset_delta',{}); }catch(e){ o=null; }
+  if(!o||!o.ok){ row.innerHTML='<span class="sub">asset delta unavailable</span>'; return; }
+  const nv=o.navi||{}, t=o.tenable||{}, f=v=>v==null?'—':Number(v).toLocaleString(), d=o.delta;
+  const chip=(html,warn,tt)=>'<span class="chip" title="'+esc(tt||'')+'"'+(warn?' style="background:rgba(220,80,80,.14);border-color:rgba(220,80,80,.5)"':'')+'>'+html+'</span>';
+  row.innerHTML=chip('navi.db assets: <b>'+f(nv.assets)+'</b>',false,'rows in navi.db\'s assets table')+
+    chip('licensed in Tenable: <b>'+f(t.licensed)+'</b>',false,t.licensed==null?(t.message||''):'navi explore info licensed')+
+    (d!=null?chip('delta: <b>'+(d>0?'+':'')+f(d)+'</b>',d>0,'navi.db minus licensed — more in navi.db means stale / unlicensed assets navi still holds and the Hounds can still tag'):'')+
+    (nv.stale!=null?chip('last seen &gt; '+(nv.days||90)+'d: <b>'+f(nv.stale)+'</b>',nv.stale>0,'navi.db assets whose last_found is older than the window'+(nv.oldest_last_found?' · oldest '+nv.oldest_last_found:'')):'')+
+    (o.verdict==='drift'?'<a class="btn ghost sm" href="/web/settings.html#secRebuild">🧹 Rebuild navi.db…</a>':'');
+}
+compare();   // the Tenable ⇄ navi.db compare (informational — selection is navi.db only)
+loadDelta();
 load();   // the tag list loads on open — always live, so removed tags never linger
 </script>
 </body></html>

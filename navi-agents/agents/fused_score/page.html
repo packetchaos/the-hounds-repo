@@ -4,26 +4,7 @@
 <title>Exposure Score · Navi Agents</title>
 <link rel="stylesheet" href="/static/console.css"/>
 <style>
-  /* metric cards / at-a-glance — same look as Exposure Routes, SLA, Scan Evaluation, AI */
-  .mkpi{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:10px}
-  .mk{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--panel-2)}
-  .mk .v{font-size:22px;font-weight:800;color:var(--ink);line-height:1.1}.mk .v small{font-size:13px;font-weight:600;color:var(--mut)}
-  .mk .l{font-size:11.5px;color:var(--mut);margin-top:2px}
-  .mk .u{font-size:11.5px;color:var(--ink-2,var(--ink));margin-top:4px}.mk .u b{color:var(--ink)}
-  .mk[data-f],.mk[data-j]{cursor:pointer;border-left:4px solid var(--rc,var(--line))}.mk[data-f]:hover,.mk[data-j]:hover{border-color:var(--accent)}.mk.on{box-shadow:0 0 0 2px var(--accent)}
-  .mk.zero{opacity:.55}
-  .mhead{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 0}
-  .glance{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin-top:10px}
-  .gl{border:1px solid var(--line);border-radius:12px;padding:10px 12px}.gl h4{margin:0 0 6px;font-size:12.5px}
-  .sbar{display:flex;height:16px;border-radius:6px;overflow:hidden;background:var(--panel-2)}
-  .sbar span{display:block;height:100%}.sbar span+span{border-left:2px solid var(--panel,#fff)}
-  .slg{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:11.5px;margin-top:6px;color:var(--ink-2,var(--ink))}
-  .slg i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px}.slg b{font-family:var(--mono)}
-  .prev{display:grid;grid-template-columns:96px 1fr 40px;gap:8px;align-items:center;font-size:11.5px;margin-top:4px}
-  .prev .t{height:8px;border-radius:4px;background:var(--panel-2);overflow:hidden}.prev .t>i{display:block;height:100%}
-  .prev .n{font-family:var(--mono);text-align:right;color:var(--ink-2)}
-  .gl.wide{grid-column:1/-1}.prevg{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:0 22px}
-  .prev[data-f]{cursor:pointer}.prev[data-f]:hover .l{color:var(--accent)}
+  /* 📊 At a glance: the shared renderGlance template (console.js / console.css) */
   .fbar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:2px 0 8px}
   .fbar .fchip{cursor:pointer;font-size:10.5px;padding:2px 8px}.fbar .fchip.on{background:var(--accent);border-color:var(--accent);color:#12131a}
   #sec-act,#sec-play,#sec-lb,#sec-worst,#sec-score{scroll-margin-top:10px}
@@ -51,6 +32,27 @@
   .jrow{display:grid;grid-template-columns:1fr 90px 42px;gap:10px;align-items:center;font-size:12px;margin-top:6px}
   .jbar{height:9px;border-radius:5px;background:var(--panel-2,var(--bg-2));overflow:hidden}.jbar>i{display:block;height:100%}
   .jrow .jp{font-family:var(--mono);text-align:right;color:var(--ok)}
+  /* 🧭 What drives the score */
+  .drv{display:grid;grid-template-columns:1.35fr 1fr;gap:18px;margin-top:8px}@media(max-width:960px){.drv{grid-template-columns:1fr}}
+  .drv h3{font-size:12px;font-family:var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin:0 0 6px;font-weight:600}
+  .drv .comp{display:flex;height:16px;border-radius:6px;overflow:hidden;border:1px solid var(--line);margin:0 0 8px}.drv .comp>i{height:100%;min-width:2px}
+  .drv .callout{font-size:13px;margin:0 0 10px;color:var(--ink-2)}.drv .callout b{color:var(--ink)}
+  .drv .fr{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(60px,1fr) 46px 74px;gap:8px;align-items:center;width:100%;text-align:left;
+    padding:5px 6px;border:1px solid transparent;border-radius:8px;background:none;color:inherit;font:inherit;font-size:12px}
+  .drv button.fr{cursor:pointer}.drv button.fr:hover,.drv button.fr:focus-visible{border-color:var(--line);background:var(--panel-2)}
+  .drv .fr.on{border-color:var(--accent);background:var(--panel-2)}
+  .drv .fr .nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.drv .fr .nm span{color:var(--ink-3);font-size:10.5px}
+  .drv .fr .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:middle}
+  .drv .tr{height:8px;border-radius:4px;background:var(--panel-2);overflow:hidden}.drv .tr>i{display:block;height:100%;border-radius:4px}
+  .drv .sh{font-weight:700;text-align:right;font-variant-numeric:tabular-nums}
+  .drv .av{text-align:right;font-size:10.5px;color:var(--ink-3);font-variant-numeric:tabular-nums}
+  .drv .quiet{font-size:11.5px;color:var(--ink-3);margin:8px 0 0}
+  .drv .hist{display:flex;align-items:flex-end;gap:5px;height:84px;margin:4px 0 2px}
+  .drv .hist>div{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%;min-width:0}
+  .drv .hist i{display:block;width:100%;border-radius:4px 4px 0 0;background:var(--accent);min-height:1px}
+  .drv .hist b{font-size:10px;font-variant-numeric:tabular-nums;color:var(--ink-2);margin-bottom:2px}
+  .drv .hx{display:flex;gap:5px;font-size:10px;color:var(--ink-3)}.drv .hx>span{flex:1;text-align:center}
+  @media(max-width:520px){.drv .fr{grid-template-columns:minmax(0,1fr) 60px 40px}.drv .fr .av{display:none}}
   .fgrid{display:grid;grid-template-columns:1.35fr 1fr;gap:16px;margin-top:0}@media(max-width:960px){.fgrid{grid-template-columns:1fr}}
   .fac{display:grid;grid-template-columns:13px 1fr 130px 32px;align-items:center;gap:9px;font-size:12px;margin-top:7px}
   .fac .dot{width:11px;height:11px;border-radius:3px}.fac .nm b{color:var(--ink)}.fac .nm span{color:var(--ink-3);font-size:10.5px}
@@ -86,8 +88,11 @@
       <button class="btn run sm" id="load" data-run style="margin-left:auto">▶ Run</button></div>
     <div id="flash" class="flash"></div>
     <div class="sub" id="snapMeta" style="margin:6px 0 0"></div>
-    <div id="kpis"></div>
-    <div id="glance"></div>
+  </section>
+
+  <section class="card" id="secGlance" data-nav="At a glance" data-nav-icon="📊">
+    <h2 style="margin:0 0 2px;font-size:17px">📊 At a glance</h2>
+    <div id="kpis"><div class="setupcard"><div class="big">Press ▶ Run</div><p class="sub">Every Hound's signal fused into one score per asset — how the estate splits across the bands, the act-now set and who owns it, where Hounds converge on the same asset, and how far to trust the score.</p></div></div>
   </section>
 
   <section class="card" id="sec-act" data-nav="Act now" data-nav-icon="🚨" style="display:none">
@@ -155,6 +160,12 @@
       <button class="btn ghost sm" id="wReset">↺ Reset to defaults</button>
       <span class="sub" id="wNote" style="margin-left:auto"></span></div>
   </section>
+
+  <section class="card" id="sec-drv" data-nav="What drives it" data-nav-icon="🧭" style="display:none">
+    <div class="toolbar" style="margin:0 0 4px"><div><h2 style="margin:0;font-size:17px">🧭 What drives the score</h2>
+      <p class="sub" style="margin:2px 0 0">Where the estate's exposure points come from — every factor's share of all points across every scored asset, and how widely each Hound's signal fires. <b>Click a factor or a signal</b> to filter the leaderboard to the assets it lands on.</p></div></div>
+    <div id="drv"></div>
+  </section>
   <footer>Nemesis · fused exposure score · read-only rollup over KEV/EPSS/VPR/ACR/AES + every Hound's tags · cached per navi.db · Priority tagging gated</footer>
 </div>
 <script src="/static/console.js"></script>
@@ -195,7 +206,7 @@ const FILTERS={
 };
 const CHIPF=['kev','crown','path','ident','exposed','ai','eol','crypto','comp','was','sla','mitre','unowned','blind'];
 function lbRows(){ const f=FILTERS[FILT]; return f?ROWS.filter(f[1]):ROWS; }
-function setFilter(f,jump){ FILT=(FILT===f||!FILTERS[f])?null:f; LB_PAGE=0; renderMetrics(); renderLB(); showBd(0,true);
+function setFilter(f,jump){ FILT=(FILT===f||!FILTERS[f])?null:f; LB_PAGE=0; renderMetrics(); renderDrivers(); renderLB(); showBd(0,true);
  if(jump&&FILT){ const s=document.getElementById('sec-lb'); if(s) s.scrollIntoView({behavior:'smooth',block:'start'}); } }
 
 function chips(a){const c=[];
@@ -224,71 +235,102 @@ function actStats(){ const a=((DATA.kpi||{}).act||{})[String(THR)]||{n:0,unowned
 function actSet(){ let s=ROWS.filter(a=>a.score>=THR); if(!s.length&&!actStats().n) s=ROWS.slice(0,Math.min(10,ROWS.length)); return s; }
 function actN(){ const st=actStats(); return st.n||actSet().length; }
 
-/* ---- metric cards ---- */
-function card(val,l,u,o){ o=o||{}; return `<div class="mk${o.f&&FILT===o.f?' on':''}${o.z?' zero':''}"${o.f?` data-f="${o.f}"`:''}${o.j?` data-j="${o.j}"`:''} style="${o.c?'--rc:'+o.c:''}"${o.t?` title="${esc(o.t)}"`:''}><div class="v">${val}</div><div class="l">${l}</div>${u?`<div class="u">${u}</div>`:''}</div>`; }
-function conv(n,l,u,f,c,t){ return card(N(n),l,u,{f,c,t,z:!n}); }
+/* ---- 📊 at a glance (shared renderGlance template): headline numbers + the old glance charts ---- */
 function renderMetrics(){
  const k=DATA.kpi||{}, n=k.assets||0, hiOnly=(k.high||0)-(k.critical||0), st=actStats();
- let h='<div class="mhead">Estate — click a band to filter the leaderboard</div><div class="mkpi">'+
-  card(N(n),'assets scored',`estate exposure <b>${N(k.estate)}</b> · avg <b>${k.avg}</b>`,{j:'sec-lb',c:'var(--accent)'})+
-  card(N(k.critical),'CRITICAL ≥ 80',`${pct(k.critical,n)}% of assets · <b>${N(k.unowned_crit)}</b> with no owner`,{f:'band:CRITICAL',c:'var(--crit)'})+
-  card(N(hiOnly),'HIGH 60–79',`${pct(hiOnly,n)}% of assets`,{f:'band:HIGH',c:'var(--high)'})+
-  card(N(k.elevated),'ELEVATED 40–59',`${pct(k.elevated,n)}% of assets`,{f:'band:ELEVATED',c:'var(--med)'})+
-  card(N((k.low||0)+(k.clean||0)),'LOW &lt; 40',`<b>${N(k.clean)}</b> score 0`,{f:'band:LOW',c:'var(--low)'})+
-  card(N(st.n),'act now ≥ '+THR,`<b>${N(st.unowned)}</b> unowned · <b>${N(st.crown_kev)}</b> crown+KEV`,{j:'sec-act',c:'var(--crit)'})+
- '</div><div class="mhead">Convergence — where several Hounds land on the same asset (whole estate; click to filter)</div><div class="mkpi">'+
-  conv(k.crown_kev,'crown jewel + KEV',`of <b>${N(k.crown)}</b> crown jewels`,'crownkev','var(--crit)','ACR ≥ 9 with a CISA KEV finding')+
-  conv(k.kev_unowned,'KEV with no owner',`of <b>${N(k.kev)}</b> KEV assets`,'kevunowned','#a78bfa','KEV finding and no Owner tag — nobody is on the hook')+
-  conv(k.kev_exposed,'KEV + internet-exposed','reachable and exploited in the wild','kevexposed','#6ea8e6')+
-  conv(k.eol_crown,'EOL on a crown jewel','no patch is coming','eolcrown','#e0913a')+
-  conv(k.path_unowned,'attack-path target, no owner','Fenrir target nobody owns','pathunowned','#e06a9c')+
-  conv(k.identreuse_kev,'account reuse + KEV','a reused account on a KEV host','reusekev','#c084fc','Identity found this account on many hosts, and this host has a KEV — a lateral-movement path')+
-  conv(k.crown_blind,'crown jewel, blind','credential failure / low coverage','crownblind','var(--med)','the score may understate — Chronos coverage is low')+
- '</div><div class="mhead">Confidence — how much the score can be trusted</div><div class="mkpi">'+
-  conv(k.unowned,'no owner',`${pct(k.unowned,n)}% · <b>${N(k.crown_unowned)}</b> crown jewels`,'unowned','#a78bfa')+
-  conv(k.blind,'blind (low coverage)',`${pct(k.blind,n)}% — scores may understate`,'blind','var(--med)')+
-  card(N(k.no_signal),'no Hound signal',`${pct(k.no_signal,n)}% — scored on ACR/AES/VPR only; run more Hounds`,{c:'var(--line)',z:!k.no_signal})+
-  card(DATA.epss_used?'on':'off','EPSS refinement',DATA.epss_used?'per-CVE EPSS feeds exploitability':'KEV drives exploitability (no epss table, or the estate is over the cap)',{c:'var(--line)'})+
-  card(DATA.weights_custom?'custom':'default','weighting',DATA.weights_custom?'your weights are applied':'drag weights in How it’s scored',{j:'sec-score',c:'var(--accent)'})+
- '</div>';
+ const nz=parts=>parts.filter(p=>p.value);   // the old split bars listed only non-zero parts
+ const conv=(v,l,u,f,sev,t)=>({v:N(v), l, u, t:t?N(v)+' '+l+' — '+u+' · '+t:'', sev, filter:f});
+ let h='<p class="sub" style="margin:2px 0 0">Click a band or a signal to filter the leaderboard.</p><div id="glxFs"></div>';
  if(FILT) h+=`<div class="sub" style="margin:8px 0 0">Leaderboard filtered to <b>${esc(FILTERS[FILT][0])}</b> — <a href="#" id="clrF">clear</a></div>`;
  const el=document.getElementById('kpis'); el.innerHTML=h;
- el.querySelectorAll('.mk[data-f]').forEach(x=>x.onclick=()=>setFilter(x.dataset.f,true));
- el.querySelectorAll('.mk[data-j]').forEach(x=>x.onclick=()=>{ const s=document.getElementById(x.dataset.j); if(s) s.scrollIntoView({behavior:'smooth',block:'start'}); });
+ renderGlance('glxFs', [
+  {title:'Estate', t:'Bands: ≥ 80 · 60–79 · 40–59 · < 40.',
+   hero:{v:N(n), l:'assets scored', u:`estate exposure ${N(k.estate)} · avg ${k.avg}`, href:'#sec-lb'},
+   bar:n?nz([{label:'critical',value:k.critical||0,color:'crit'},{label:'high',value:hiOnly,color:'high'},{label:'elevated',value:k.elevated||0,color:'med'},{label:'low',value:k.low||0,color:'low'},{label:'score 0',value:k.clean||0,color:'var(--line)'}]):null,
+   chips:[{v:N(k.critical), l:'CRITICAL ≥ 80', u:`${pct(k.critical,n)}% of assets · ${N(k.unowned_crit)} with no owner`, sev:'crit', filter:'band:CRITICAL'},
+          {v:N(hiOnly), l:'HIGH 60–79', u:`${pct(hiOnly,n)}% of assets`, sev:'high', filter:'band:HIGH'},
+          {v:N(k.elevated), l:'ELEVATED 40–59', u:`${pct(k.elevated,n)}% of assets`, sev:'med', filter:'band:ELEVATED'},
+          {v:N((k.low||0)+(k.clean||0)), l:'LOW < 40', u:`${N(k.clean)} score 0`, sev:'low', filter:'band:LOW'}]},
+  {title:'Act now ≥ '+THR, t:'Who owns the act-now set.',
+   hero:{v:N(st.n), l:'act now ≥ '+THR, u:`${N(st.unowned)} unowned · ${N(st.crown_kev)} crown+KEV · ${N(st.blind)} blind`, sev:'crit', href:'#sec-act'},
+   bar:st.n?nz([{label:'owned',value:st.owned||0,color:'ok'},{label:'no owner',value:st.unowned||0,color:'s5'}]):null},
+  {title:'Convergence', t:'Where several Hounds land on the same asset (whole estate; click to filter).',
+   hero:conv(k.crown_kev,'crown jewel + KEV',`of ${N(k.crown)} crown jewels`,'crownkev','crit','ACR ≥ 9 with a CISA KEV finding'),
+   chips:[conv(k.kev_unowned,'KEV with no owner',`of ${N(k.kev)} KEV assets`,'kevunowned','crit','KEV finding and no Owner tag — nobody is on the hook'),
+          conv(k.kev_exposed,'KEV + internet-exposed','reachable and exploited in the wild','kevexposed','crit'),
+          conv(k.eol_crown,'EOL on a crown jewel','no patch is coming','eolcrown','high'),
+          conv(k.path_unowned,'attack-path target, no owner','Fenrir target nobody owns','pathunowned','high'),
+          conv(k.identreuse_kev,'account reuse + KEV','a reused account on a KEV host','reusekev','high','Identity found this account on many hosts, and this host has a KEV — a lateral-movement path'),
+          conv(k.crown_blind,'crown jewel, blind','credential failure / low coverage','crownblind','med','the score may understate — Chronos coverage is low')]},
+  {title:'Confidence', t:'How much the score can be trusted.',
+   hero:{v:N(k.unowned), l:'no owner', u:`${pct(k.unowned,n)}% · ${N(k.crown_unowned)} crown jewels`, sev:'info', filter:'unowned'},
+   chips:[{v:N(k.blind), l:'blind (low coverage)', u:`${pct(k.blind,n)}% — scores may understate`, sev:'med', filter:'blind'},
+          {v:N(k.no_signal), l:'no Hound signal', u:`${pct(k.no_signal,n)}% — scored on ACR/AES/VPR only; run more Hounds`},
+          {v:DATA.epss_used?'on':'off', l:'EPSS refinement', u:DATA.epss_used?'per-CVE EPSS feeds exploitability':'KEV drives exploitability (no epss table, or the estate is over the cap)', zero:false},
+          {v:DATA.weights_custom?'custom':'default', l:'weighting', u:DATA.weights_custom?'your weights are applied':'drag weights in How it’s scored', href:'#sec-score'}]},
+ ], {active:FILT, onFilter:f=>setFilter(f,true)});
  const c=document.getElementById('clrF'); if(c) c.onclick=e=>{ e.preventDefault(); setFilter(null); };
 }
 
-/* ---- at a glance ---- */
-function sbar(parts){ const tot=parts.reduce((s,p)=>s+p.n,0)||1;
- return `<div class="sbar">${parts.filter(p=>p.n).map(p=>`<span style="width:${(100*p.n/tot).toFixed(2)}%;background:${p.c}" title="${esc(p.l)}: ${N(p.n)}"></span>`).join('')}</div>`+
-   `<div class="slg">${parts.filter(p=>p.n).map(p=>`<span><i style="background:${p.c}"></i>${esc(p.l)} <b>${N(p.n)}</b></span>`).join('')}</div>`; }
-const gl=(t,inner,foot,wide)=>`<div class="gl${wide?' wide':''}"><h4>${t}</h4>${inner}${foot?`<div class="sub" style="margin:6px 0 0;font-size:11px">${foot}</div>`:''}</div>`;
-function renderGlance(){
- const k=DATA.kpi||{}, n=k.assets||0; if(!n){ document.getElementById('glance').innerHTML=''; return; }
- const ft=k.factor_totals||{}, F=DATA.factors||[], tot=Object.values(ft).reduce((s,v)=>s+v,0)||1;
- const fs=F.map(f=>({l:f.label,n:ft[f.id]||0,c:FCOLOR[f.id]||'var(--accent)'})).sort((a,b)=>b.n-a.n);
- const top=fs.slice(0,7), rest=fs.slice(7).reduce((s,x)=>s+x.n,0); if(rest) top.push({l:'other factors',n:rest,c:'var(--line)'});
- const sig=[['KEV','kev',k.kev,'var(--crit)'],['attack path','path',k.path,'#e06a9c'],['identity','ident',k.ident,'#c084fc'],['exposed','exposed',k.exposed,'#6ea8e6'],
-   ['AI','ai',k.ai,'var(--accent)'],['EOL','eol',k.eol,'#e0913a'],['weak crypto','crypto',k.crypto,'#5d92d6'],['past SLA','sla',k.sla_breach,'#f59e0b'],
-   ['audit fail','comp',k.comp_fail,'#94a3b8'],['web-app','was',k.was_exposed,'#f472b6'],['unowned','unowned',k.unowned,'#a78bfa']].sort((a,b)=>b[2]-a[2]);
- const st=actStats();
- document.getElementById('glance').innerHTML='<div class="mhead">At a glance</div><div class="glance">'+
-  gl('Estate by score band', sbar([{l:'critical',n:k.critical||0,c:'var(--crit)'},{l:'high',n:(k.high||0)-(k.critical||0),c:'var(--high)'},{l:'elevated',n:k.elevated||0,c:'var(--med)'},{l:'low',n:k.low||0,c:'var(--low)'},{l:'score 0',n:k.clean||0,c:'var(--line)'}]),'Bands: ≥ 80 · 60–79 · 40–59 · &lt; 40.')+
-  gl('What drives estate exposure', sbar(top.map(x=>({l:x.l,n:Math.round(x.n),c:x.c}))), 'Share of all factor points across every asset — the Hound to run (or fix) first.')+
-  gl('Who owns the act-now set (≥ '+THR+')', st.n?sbar([{l:'owned',n:st.owned||0,c:'var(--ok)'},{l:'no owner',n:st.unowned||0,c:'#a78bfa'}]):'<p class="sub" style="margin:0">Nothing scores ≥ '+THR+'.</p>', st.n?`<b>${N(st.crown_kev)}</b> crown+KEV · <b>${N(st.blind)}</b> blind`:'')+
-  gl('Signal prevalence', '<div class="prevg">'+sig.map(([l,f,v,c])=>`<div class="prev" data-f="${f}"><span class="l">${esc(l)}</span><span class="t"><i style="width:${Math.max(v?1:0,pct(v,n))}%;background:${c}"></i></span><span class="n">${pct(v,n)}%</span></div>`).join('')+'</div>', '% of scored assets each Hound flags · click to filter.',true)+
- '</div>';
- document.querySelectorAll('#glance .prev[data-f]').forEach(x=>x.onclick=()=>setFilter(x.dataset.f,true));
+/* ---- 🧭 What drives the score — its own section (was a group in the glance) ----
+   Factor share: kpi.factor_totals over the whole estate (every scored asset, not just the loaded rows).
+   Signal prevalence + the per-asset stack: kpi counts / kpi.stack, also whole-estate. */
+const FAC_FILTER={expl:'kev',crit:'crown',path:'path',ident:'ident',comp:'comp',was:'was',eol:'eol',exp:'exposed',ai:'ai',cry:'crypto',sla:'sla',own:'unowned',mit:'mitre'};
+function renderDrivers(){
+ const k=DATA.kpi||{}, n=k.assets||0, ft=k.factor_totals||{}, F=DATA.factors||[], host=document.getElementById('drv');
+ if(!n){ host.innerHTML='<p class="sub">No scored assets yet — run the Hounds, then ▶ Run.</p>'; return 0; }
+ const fs=F.map(f=>({f, v:+ft[f.id]||0})).sort((a,b)=>b.v-a.v), tot=fs.reduce((x,r)=>x+r.v,0)||1;
+ const live=fs.filter(r=>r.v>0), dead=fs.filter(r=>r.v<=0), mx=Math.max(1,...live.map(r=>r.v));
+ const share=v=>v/tot*100, fmtS=v=>{ const p=share(v); return p>=10?Math.round(p)+'%':p>=0.1?p.toFixed(1)+'%':'<0.1%'; };
+ const t3=live.slice(0,3), t3s=Math.round(t3.reduce((x,r)=>x+share(r.v),0));
+ const fbtn=(id,inner,title,cls)=>{ const f=FAC_FILTER[id]||id; const ok=!!FILTERS[f];
+   return ok?`<button type="button" class="fr${FILT===f?' on':''}${cls||''}" data-drvf="${esc(f)}" aria-pressed="${FILT===f}" title="${esc(title)} — click to filter the leaderboard">${inner}</button>`
+            :`<div class="fr${cls||''}" title="${esc(title)}">${inner}</div>`; };
+ const facRow=r=>{ const c=FCOLOR[r.f.id]||'var(--accent)', avg=r.v/n, w=r.f.weight!=null?r.f.weight:r.f.max;
+   return fbtn(r.f.id,
+     `<span class="nm"><span class="dot" style="background:${c}"></span><b>${esc(r.f.label)}</b> <span>· ${esc(r.f.hound)}</span></span>`
+    +`<span class="tr"><i style="width:${(100*r.v/mx).toFixed(1)}%;background:${c}"></i></span>`
+    +`<span class="sh">${fmtS(r.v)}</span><span class="av">avg +${avg>=10?Math.round(avg):avg.toFixed(1)} / ${N(w)}</span>`,
+     `${r.f.label}: ${fmtS(r.v)} of all exposure points (${N(Math.round(r.v))} pts) · avg +${avg.toFixed(2)} per asset of a ${w}-point weight`); };
+ const sig=[['KEV','kev',k.kev,'var(--crit)'],['attack path','path',k.path,'var(--high)'],['identity','ident',k.ident,'var(--high)'],['internet-exposed','exposed',k.exposed,'var(--high)'],
+   ['AI','ai',k.ai,'var(--accent)'],['EOL','eol',k.eol,'var(--med)'],['weak crypto','crypto',k.crypto,'var(--med)'],['past SLA','sla',k.sla_breach,'var(--med)'],
+   ['audit fail','comp',k.comp_fail,'var(--low)'],['web-app','was',k.was_exposed,'var(--med)'],['no owner','unowned',k.unowned,'#a78bfa'],
+   ['crown jewel','crown',k.crown,'#e6c34a'],['blind','blind',k.blind,'var(--med)']].map(x=>[x[0],x[1],+x[2]||0,x[3]]).sort((a,b)=>b[2]-a[2]);
+ const sigRow=([l,f,v,c])=>fbtn(f,
+   `<span class="nm"><b>${esc(l)}</b></span><span class="tr"><i style="width:${pct(v,n)}%;background:${c}"></i></span>`
+  +`<span class="sh">${pct(v,n)}%</span><span class="av">${N(v)}</span>`, `${l}: ${N(v)} of ${N(n)} scored assets (${pct(v,n)}%)`, v?'':' zero');
+ const st=Array.isArray(k.stack)?k.stack:null, smx=st?Math.max(1,...st):1, multi=st?st.slice(2).reduce((a,b)=>a+(+b||0),0):0;
+ host.innerHTML=`<div class="drv">
+  <div>
+   <h3>Where the points come from</h3>
+   <div class="comp" role="img" aria-label="${esc(live.map(r=>r.f.label+' '+fmtS(r.v)).join(', '))}">${live.map(r=>`<i style="width:${share(r.v).toFixed(2)}%;background:${FCOLOR[r.f.id]||'var(--accent)'}" title="${esc(r.f.label)}: ${esc(fmtS(r.v))}"></i>`).join('')}</div>
+   ${!live.length?'<p class="callout">No factor has added points yet — every asset scores 0. Run the Hounds, then ▶ Run.</p>':''}
+   <p class="callout"${live.length?'':' hidden'}>${t3.map(r=>'<b>'+esc(r.f.label)+'</b>').join(t3.length>2?', ':' and ').replace(/, (?=[^,]*$)/,' and ')} carry <b>${t3s}%</b> of all exposure points — the Hounds (or fixes) that move the estate most.</p>
+   ${live.map(facRow).join('')}
+   ${dead.length?`<p class="quiet">Adding nothing yet (${dead.length}): ${dead.map(r=>esc(r.f.label)).join(' · ')} — run those Hounds, or their weight is 0.</p>`:''}
+  </div>
+  <div>
+   <h3>How widespread each signal is</h3>
+   <p class="sub" style="margin:0 0 6px">% of the ${N(n)} scored assets each Hound flags.</p>
+   ${sig.map(sigRow).join('')}
+   ${st?`<h3 style="margin-top:16px">Signals stacking per asset</h3>
+   <p class="sub" style="margin:0 0 4px"><b>${N(multi)}</b> asset${multi===1?'':'s'} (${pct(multi,n)}%) carry two or more signals at once — where Hounds converge.</p>
+   <div class="hist" role="img" aria-label="${esc(st.map((v,i)=>(i===st.length-1?i+'+':i)+' signals: '+v).join(', '))}">${st.map((v,i)=>`<div title="${esc(N(v))} asset(s) with ${i===st.length-1?i+'+':i} signal(s)"><b>${v?esc(N(v)):''}</b><i style="height:${(100*(+v||0)/smx).toFixed(1)}%;${i>=2?'':'opacity:.45'}"></i></div>`).join('')}</div>
+   <div class="hx">${st.map((_,i)=>`<span>${i===st.length-1?i+'+':i}</span>`).join('')}</div>
+   <p class="sub" style="margin:2px 0 0;text-align:center">signals firing on one asset</p>`:''}
+  </div></div>`;
+ host.querySelectorAll('[data-drvf]').forEach(b=>b.addEventListener('click',()=>{ const f=b.dataset.drvf; setFilter(f,true); }));
+ return live.length;
 }
 
 function renderAll(){
- initWeights(); renderFactors(); renderMetrics(); renderGlance();
+ initWeights(); renderFactors(); renderMetrics(); const nDrv=renderDrivers();
  renderFbar(); renderLB(); drawAct(); drawPlays(); drawRed(); drawWorst();
- ['sec-act','sec-play','sec-lb','sec-worst','sec-score'].forEach(id=>document.getElementById(id).style.display='block');
+ ['sec-drv','sec-act','sec-play','sec-lb','sec-worst','sec-score'].forEach(id=>document.getElementById(id).style.display='block');
  const sd=DATA.sla_days||{}; document.getElementById('slaDays').textContent=Object.keys(sd).length?Object.entries(sd).map(([k,v])=>k+' '+v+'d').join(' · '):'Sköll thresholds';
  showBd(0,true);
  mountSectionNav();
- setNavCount('sec-act', N(actN())); setNavCount('sec-lb', N(DATA.total||ROWS.length)); setNavCount('sec-worst', (DATA.worst||[]).length);
+ setNavCount('sec-act', N(actN())); setNavCount('sec-lb', N(DATA.total||ROWS.length)); setNavCount('sec-worst', (DATA.worst||[]).length); setNavCount('sec-drv', nDrv);
 }
 
 /* ---- weight editor ---- */
@@ -484,7 +526,7 @@ function snapLine(){ const m=META||{}, el=document.getElementById('snapMeta'); i
 document.getElementById('load').onclick=()=>run();
 document.getElementById('wApply').onclick=()=>applyWeights();
 document.getElementById('wReset').onclick=()=>resetWeights();
-document.querySelectorAll('#thr button').forEach(b=>b.onclick=()=>{ THR=+b.dataset.t; THR_USER=true; document.querySelectorAll('#thr button').forEach(x=>x.classList.toggle('on',x===b)); renderMetrics(); renderGlance(); renderLB(); drawAct(); drawRed(); showBd(CUR,true); });
+document.querySelectorAll('#thr button').forEach(b=>b.onclick=()=>{ THR=+b.dataset.t; THR_USER=true; document.querySelectorAll('#thr button').forEach(x=>x.classList.toggle('on',x===b)); renderMetrics(); renderLB(); drawAct(); drawRed(); showBd(CUR,true); });
 mountAgentHeader({id:'fused_score',icon:'🎯',name:'Exposure Score',sub:'Nemesis · one score from every Hound · act now'});
 try{ hMailAuto(); }catch(e){}
 jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});
