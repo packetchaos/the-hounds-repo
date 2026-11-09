@@ -1,0 +1,715 @@
+{
+  "id": "cis_docker",
+  "name": "CIS Docker Benchmark",
+  "platform": "Unix",
+  "version": "v1.7.0 (approx; verify against the official CIS PDF)",
+  "aliases": [
+    "docker",
+    "cis docker",
+    "container",
+    "containers",
+    "docker ce",
+    "docker engine"
+  ],
+  "note": "Control-index only (numbers, short titles, framework mappings) \u2014 not CIS's copyrighted recommendation text. Draco's model writes the check logic; verify numbering against the official CIS Docker Benchmark before an assessment.",
+  "sections": [
+    {
+      "num": "1",
+      "title": "Host Configuration"
+    },
+    {
+      "num": "2",
+      "title": "Docker daemon configuration"
+    },
+    {
+      "num": "3",
+      "title": "Docker daemon configuration files"
+    },
+    {
+      "num": "4",
+      "title": "Container Images and Build File"
+    },
+    {
+      "num": "5",
+      "title": "Container Runtime"
+    },
+    {
+      "num": "6",
+      "title": "Docker Security Operations"
+    },
+    {
+      "num": "7",
+      "title": "Docker Swarm Configuration"
+    }
+  ],
+  "controls": [
+    {
+      "num": "1.1.1",
+      "title": "Ensure a separate partition for containers has been created",
+      "topic": "filesystem",
+      "level": 2,
+      "hint": "CMD_EXEC: findmnt /var/lib/docker"
+    },
+    {
+      "num": "1.1.2",
+      "title": "Ensure only trusted users are allowed to control Docker daemon",
+      "topic": "auth",
+      "level": 1,
+      "hint": "members of the docker group"
+    },
+    {
+      "num": "1.2.1",
+      "title": "Ensure auditing is configured for the Docker daemon",
+      "topic": "logging",
+      "level": 1,
+      "hint": "auditctl -l | grep /usr/bin/dockerd"
+    },
+    {
+      "num": "1.2.2",
+      "title": "Ensure auditing is configured for /run/containerd",
+      "topic": "logging",
+      "level": 1
+    },
+    {
+      "num": "1.2.3",
+      "title": "Ensure auditing is configured for /var/lib/docker",
+      "topic": "logging",
+      "level": 1
+    },
+    {
+      "num": "1.2.4",
+      "title": "Ensure auditing is configured for /etc/docker",
+      "topic": "logging",
+      "level": 1
+    },
+    {
+      "num": "1.2.5",
+      "title": "Ensure auditing is configured for docker.service",
+      "topic": "logging",
+      "level": 1
+    },
+    {
+      "num": "1.2.6",
+      "title": "Ensure auditing is configured for containerd.sock",
+      "topic": "logging",
+      "level": 1
+    },
+    {
+      "num": "1.2.7",
+      "title": "Ensure auditing is configured for docker.socket",
+      "topic": "logging",
+      "level": 1
+    },
+    {
+      "num": "1.2.8",
+      "title": "Ensure auditing is configured for /etc/default/docker",
+      "topic": "logging",
+      "level": 1
+    },
+    {
+      "num": "1.2.9",
+      "title": "Ensure auditing is configured for /etc/docker/daemon.json",
+      "topic": "logging",
+      "level": 1
+    },
+    {
+      "num": "1.2.10",
+      "title": "Ensure auditing is configured for /usr/bin/containerd",
+      "topic": "logging",
+      "level": 1
+    },
+    {
+      "num": "1.2.11",
+      "title": "Ensure auditing is configured for /usr/bin/runc",
+      "topic": "logging",
+      "level": 1
+    },
+    {
+      "num": "2.1",
+      "title": "Ensure network traffic is restricted between containers on the default bridge (icc=false)",
+      "topic": "firewall",
+      "level": "daemon.json inter-container communication"
+    },
+    {
+      "num": "2.2",
+      "title": "Ensure the logging level is set to 'info'",
+      "topic": "logging",
+      "level": 1
+    },
+    {
+      "num": "2.3",
+      "title": "Ensure Docker is allowed to make changes to iptables",
+      "topic": "firewall",
+      "level": 1
+    },
+    {
+      "num": "2.4",
+      "title": "Ensure insecure registries are not used",
+      "topic": "tls",
+      "level": 1
+    },
+    {
+      "num": "2.5",
+      "title": "Ensure aufs storage driver is not used",
+      "topic": "filesystem",
+      "level": 1
+    },
+    {
+      "num": "2.6",
+      "title": "Ensure TLS authentication for Docker daemon is configured",
+      "topic": "tls",
+      "level": 1,
+      "hint": "dockerd --tlsverify with CA/cert/key"
+    },
+    {
+      "num": "2.7",
+      "title": "Ensure the default ulimit is configured appropriately",
+      "topic": "kernel",
+      "level": 2
+    },
+    {
+      "num": "2.8",
+      "title": "Enable user namespace support",
+      "topic": "auth",
+      "level": 2,
+      "hint": "userns-remap"
+    },
+    {
+      "num": "2.9",
+      "title": "Ensure the default cgroup usage has been confirmed",
+      "topic": "kernel",
+      "level": 2
+    },
+    {
+      "num": "2.10",
+      "title": "Ensure base device size is not changed until needed",
+      "topic": "filesystem",
+      "level": 2
+    },
+    {
+      "num": "2.11",
+      "title": "Ensure that authorization for Docker client commands is enabled",
+      "topic": "auth",
+      "level": 2,
+      "hint": "authorization-plugin"
+    },
+    {
+      "num": "2.12",
+      "title": "Ensure centralized and remote logging is configured",
+      "topic": "logging",
+      "level": 2,
+      "hint": "log-driver syslog/journald"
+    },
+    {
+      "num": "2.13",
+      "title": "Ensure operations on legacy registry (v1) are disabled",
+      "topic": "tls",
+      "level": 2
+    },
+    {
+      "num": "2.14",
+      "title": "Ensure live restore is enabled",
+      "topic": "kernel",
+      "level": 2
+    },
+    {
+      "num": "2.15",
+      "title": "Ensure Userland Proxy is disabled",
+      "topic": "firewall",
+      "level": 2
+    },
+    {
+      "num": "2.16",
+      "title": "Ensure a daemon-wide custom seccomp profile is applied if appropriate",
+      "topic": "kernel",
+      "level": 2
+    },
+    {
+      "num": "2.17",
+      "title": "Ensure experimental features are not implemented in production",
+      "topic": "kernel",
+      "level": 1
+    },
+    {
+      "num": "2.18",
+      "title": "Ensure containers are restricted from acquiring new privileges",
+      "topic": "auth",
+      "level": 2,
+      "hint": "no-new-privileges"
+    },
+    {
+      "num": "3.1",
+      "title": "Ensure docker.service file ownership is set to root:root",
+      "topic": "filesystem",
+      "level": 1,
+      "hint": "FILE_CHECK owner/group"
+    },
+    {
+      "num": "3.2",
+      "title": "Ensure docker.service file permissions are set to 644 or more restrictive",
+      "topic": "filesystem",
+      "level": 1
+    },
+    {
+      "num": "3.3",
+      "title": "Ensure docker.socket file ownership is set to root:root",
+      "topic": "filesystem",
+      "level": 1
+    },
+    {
+      "num": "3.4",
+      "title": "Ensure docker.socket file permissions are set to 644 or more restrictive",
+      "topic": "filesystem",
+      "level": 1
+    },
+    {
+      "num": "3.5",
+      "title": "Ensure /etc/docker directory ownership is set to root:root",
+      "topic": "filesystem",
+      "level": 1
+    },
+    {
+      "num": "3.6",
+      "title": "Ensure /etc/docker directory permissions are set to 755 or more restrictive",
+      "topic": "filesystem",
+      "level": 1
+    },
+    {
+      "num": "3.7",
+      "title": "Ensure registry certificate file ownership is set to root:root",
+      "topic": "tls",
+      "level": 1
+    },
+    {
+      "num": "3.8",
+      "title": "Ensure registry certificate file permissions are set to 444 or more restrictive",
+      "topic": "tls",
+      "level": 1
+    },
+    {
+      "num": "3.9",
+      "title": "Ensure TLS CA certificate file ownership is set to root:root",
+      "topic": "tls",
+      "level": 1
+    },
+    {
+      "num": "3.10",
+      "title": "Ensure TLS CA certificate file permissions are set to 444 or more restrictive",
+      "topic": "tls",
+      "level": 1
+    },
+    {
+      "num": "3.11",
+      "title": "Ensure Docker server certificate file ownership is set to root:root",
+      "topic": "tls",
+      "level": 1
+    },
+    {
+      "num": "3.12",
+      "title": "Ensure Docker server certificate file permissions are set to 444 or more restrictive",
+      "topic": "tls",
+      "level": 1
+    },
+    {
+      "num": "3.13",
+      "title": "Ensure Docker server certificate key file ownership is set to root:root",
+      "topic": "tls",
+      "level": 1
+    },
+    {
+      "num": "3.14",
+      "title": "Ensure Docker server certificate key file permissions are set to 400",
+      "topic": "tls",
+      "level": 1,
+      "hint": "FILE_CHECK mode 400"
+    },
+    {
+      "num": "3.15",
+      "title": "Ensure docker.sock file ownership is set to root:docker",
+      "topic": "filesystem",
+      "level": 1
+    },
+    {
+      "num": "3.16",
+      "title": "Ensure docker.sock file permissions are set to 660 or more restrictive",
+      "topic": "filesystem",
+      "level": 1
+    },
+    {
+      "num": "3.17",
+      "title": "Ensure daemon.json file ownership is set to root:root",
+      "topic": "filesystem",
+      "level": 1
+    },
+    {
+      "num": "3.18",
+      "title": "Ensure daemon.json file permissions are set to 644 or more restrictive",
+      "topic": "filesystem",
+      "level": 1
+    },
+    {
+      "num": "3.19",
+      "title": "Ensure /etc/default/docker file ownership is set to root:root",
+      "topic": "filesystem",
+      "level": 1
+    },
+    {
+      "num": "3.20",
+      "title": "Ensure /etc/default/docker file permissions are set to 644 or more restrictive",
+      "topic": "filesystem",
+      "level": 1
+    },
+    {
+      "num": "3.21",
+      "title": "Ensure /etc/sysconfig/docker file ownership is set to root:root",
+      "topic": "filesystem",
+      "level": 1
+    },
+    {
+      "num": "3.22",
+      "title": "Ensure /etc/sysconfig/docker file permissions are set to 644 or more restrictive",
+      "topic": "filesystem",
+      "level": 1
+    },
+    {
+      "num": "4.1",
+      "title": "Ensure that a user for the container has been created",
+      "topic": "auth",
+      "level": 1,
+      "hint": "Dockerfile USER directive / image config"
+    },
+    {
+      "num": "4.2",
+      "title": "Ensure that containers use only trusted base images",
+      "topic": "tls",
+      "level": 1
+    },
+    {
+      "num": "4.3",
+      "title": "Ensure that unnecessary packages are not installed in the container",
+      "topic": "filesystem",
+      "level": 1
+    },
+    {
+      "num": "4.4",
+      "title": "Ensure images are scanned and rebuilt to include security patches",
+      "topic": "logging",
+      "level": 1
+    },
+    {
+      "num": "4.5",
+      "title": "Ensure Content trust for Docker is enabled",
+      "topic": "tls",
+      "level": 2,
+      "hint": "DOCKER_CONTENT_TRUST=1"
+    },
+    {
+      "num": "4.6",
+      "title": "Ensure that HEALTHCHECK instructions have been added to container images",
+      "topic": "logging",
+      "level": 1
+    },
+    {
+      "num": "4.7",
+      "title": "Ensure update instructions are not used alone in Dockerfiles",
+      "topic": "filesystem",
+      "level": 1
+    },
+    {
+      "num": "4.8",
+      "title": "Ensure setuid and setgid permissions are removed",
+      "topic": "filesystem",
+      "level": 2
+    },
+    {
+      "num": "4.9",
+      "title": "Ensure that COPY is used instead of ADD in Dockerfiles",
+      "topic": "filesystem",
+      "level": 1
+    },
+    {
+      "num": "4.10",
+      "title": "Ensure secrets are not stored in Dockerfiles",
+      "topic": "auth",
+      "level": 1
+    },
+    {
+      "num": "4.11",
+      "title": "Ensure only verified packages are installed",
+      "topic": "filesystem",
+      "level": 2
+    },
+    {
+      "num": "4.12",
+      "title": "Ensure all signed artifacts are validated",
+      "topic": "tls",
+      "level": 2
+    },
+    {
+      "num": "5.1",
+      "title": "Ensure that, if applicable, an AppArmor Profile is enabled",
+      "topic": "kernel",
+      "level": 1,
+      "hint": "container SecurityOpt apparmor"
+    },
+    {
+      "num": "5.2",
+      "title": "Ensure that, if applicable, SELinux security options are set",
+      "topic": "kernel",
+      "level": 2
+    },
+    {
+      "num": "5.3",
+      "title": "Ensure that Linux kernel capabilities are restricted within containers",
+      "topic": "kernel",
+      "level": 1,
+      "hint": "CapDrop"
+    },
+    {
+      "num": "5.4",
+      "title": "Ensure that privileged containers are not used",
+      "topic": "auth",
+      "level": 1,
+      "hint": "Privileged=false"
+    },
+    {
+      "num": "5.5",
+      "title": "Ensure sensitive host system directories are not mounted on containers",
+      "topic": "filesystem",
+      "level": 1
+    },
+    {
+      "num": "5.6",
+      "title": "Ensure sshd is not run within containers",
+      "topic": "ssh",
+      "level": 1
+    },
+    {
+      "num": "5.7",
+      "title": "Ensure privileged ports are not mapped within containers",
+      "topic": "firewall",
+      "level": 1
+    },
+    {
+      "num": "5.8",
+      "title": "Ensure that only needed ports are open on the container",
+      "topic": "firewall",
+      "level": 2
+    },
+    {
+      "num": "5.9",
+      "title": "Ensure the host's network namespace is not shared",
+      "topic": "firewall",
+      "level": 1
+    },
+    {
+      "num": "5.10",
+      "title": "Ensure that the memory usage for containers is limited",
+      "topic": "kernel",
+      "level": 2,
+      "hint": "Memory limit"
+    },
+    {
+      "num": "5.11",
+      "title": "Ensure that CPU priority is set appropriately on containers",
+      "topic": "kernel",
+      "level": 2
+    },
+    {
+      "num": "5.12",
+      "title": "Ensure that the container's root filesystem is mounted as read-only",
+      "topic": "filesystem",
+      "level": 2,
+      "hint": "ReadonlyRootfs"
+    },
+    {
+      "num": "5.13",
+      "title": "Ensure that incoming container traffic is bound to a specific host interface",
+      "topic": "firewall",
+      "level": 1
+    },
+    {
+      "num": "5.14",
+      "title": "Ensure that the 'on-failure' container restart policy is set to 5",
+      "topic": "kernel",
+      "level": 2
+    },
+    {
+      "num": "5.15",
+      "title": "Ensure that the host's process namespace is not shared",
+      "topic": "auth",
+      "level": 1
+    },
+    {
+      "num": "5.16",
+      "title": "Ensure that the host's IPC namespace is not shared",
+      "topic": "auth",
+      "level": 1
+    },
+    {
+      "num": "5.17",
+      "title": "Ensure that host devices are not directly exposed to containers",
+      "topic": "filesystem",
+      "level": 2
+    },
+    {
+      "num": "5.18",
+      "title": "Ensure that the default ulimit is overwritten at runtime if needed",
+      "topic": "kernel",
+      "level": 2
+    },
+    {
+      "num": "5.19",
+      "title": "Ensure mount propagation mode is not set to shared",
+      "topic": "filesystem",
+      "level": 2
+    },
+    {
+      "num": "5.20",
+      "title": "Ensure that the host's UTS namespace is not shared",
+      "topic": "auth",
+      "level": 1
+    },
+    {
+      "num": "5.21",
+      "title": "Ensure the default seccomp profile is not disabled",
+      "topic": "kernel",
+      "level": 1
+    },
+    {
+      "num": "5.22",
+      "title": "Ensure that docker exec commands are not used with the privileged option",
+      "topic": "auth",
+      "level": 1
+    },
+    {
+      "num": "5.23",
+      "title": "Ensure that docker exec commands are not used with the user=root option",
+      "topic": "auth",
+      "level": 1
+    },
+    {
+      "num": "5.24",
+      "title": "Ensure that cgroup usage is confirmed",
+      "topic": "kernel",
+      "level": 2
+    },
+    {
+      "num": "5.25",
+      "title": "Ensure that the container is restricted from acquiring additional privileges",
+      "topic": "auth",
+      "level": 1,
+      "hint": "no-new-privileges runtime"
+    },
+    {
+      "num": "5.26",
+      "title": "Ensure that container health is checked at runtime",
+      "topic": "logging",
+      "level": 1
+    },
+    {
+      "num": "5.27",
+      "title": "Ensure that Docker commands always make use of the latest version of the image",
+      "topic": "filesystem",
+      "level": 2
+    },
+    {
+      "num": "5.28",
+      "title": "Ensure that the PIDs cgroup limit is used",
+      "topic": "kernel",
+      "level": 1,
+      "hint": "PidsLimit"
+    },
+    {
+      "num": "5.29",
+      "title": "Ensure that Docker's default bridge docker0 is not used",
+      "topic": "firewall",
+      "level": 2
+    },
+    {
+      "num": "5.30",
+      "title": "Ensure that the host's user namespaces are not shared",
+      "topic": "auth",
+      "level": 1
+    },
+    {
+      "num": "5.31",
+      "title": "Ensure that the Docker socket is not mounted inside any containers",
+      "topic": "filesystem",
+      "level": 1,
+      "hint": "/var/run/docker.sock bind mount"
+    },
+    {
+      "num": "6.1",
+      "title": "Ensure that image sprawl is avoided",
+      "topic": "logging",
+      "level": 2
+    },
+    {
+      "num": "6.2",
+      "title": "Ensure that container sprawl is avoided",
+      "topic": "logging",
+      "level": 2
+    },
+    {
+      "num": "7.1",
+      "title": "Ensure that swarm mode is not Enabled, if not needed",
+      "topic": "firewall",
+      "level": 1
+    },
+    {
+      "num": "7.2",
+      "title": "Ensure that the minimum number of manager nodes have been created in a swarm",
+      "topic": "auth",
+      "level": 2
+    },
+    {
+      "num": "7.3",
+      "title": "Ensure that swarm services are bound to a specific host interface",
+      "topic": "firewall",
+      "level": 2
+    },
+    {
+      "num": "7.4",
+      "title": "Ensure that all Docker swarm overlay networks are encrypted",
+      "topic": "tls",
+      "level": 2
+    },
+    {
+      "num": "7.5",
+      "title": "Ensure that Docker's secret management commands are used for managing secrets in a swarm cluster",
+      "topic": "auth",
+      "level": 2
+    },
+    {
+      "num": "7.6",
+      "title": "Ensure that swarm manager is run in auto-lock mode",
+      "topic": "auth",
+      "level": 2
+    },
+    {
+      "num": "7.7",
+      "title": "Ensure that the swarm manager auto-lock key is rotated periodically",
+      "topic": "auth",
+      "level": 2
+    },
+    {
+      "num": "7.8",
+      "title": "Ensure that node certificates are rotated as appropriate",
+      "topic": "tls",
+      "level": 2
+    },
+    {
+      "num": "7.9",
+      "title": "Ensure that CA certificates are rotated as appropriate",
+      "topic": "tls",
+      "level": 2
+    },
+    {
+      "num": "7.10",
+      "title": "Ensure that management plane traffic is separated from data plane traffic",
+      "topic": "firewall",
+      "level": 2
+    }
+  ]
+}

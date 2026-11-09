@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Hounds — Data Enrichment</title>
+<style>
+/* ============================================================================
+   HOUNDS · DATA ENRICHMENT ARTIFACT   (rides the shared template shell)
+   Data   : window.cowork.callMcpTool(mcp__navi__*)        Reasoning: askClaude (Haiku, NL->SQL)
+   Writes : gated confirm modal -> navi_enrich_tag / navi_enrich_acr, recorded to a session tag log.
+   Pattern: most enrichment = "find a cohort via SQL, then tag it" -> one shared Find&Tag engine.
+   Engine features come from the repo (repo wins); navi is the write surface.
+   ========================================================================== */
+:root{color-scheme:dark;
+  --bg:#0b0c0e;--card:#141519;--panel:#1b1d22;--line:#2a2c33;--ink:#f4f5f2;--ink2:#a7abbd;--ink3:#71768a;
+  --accent:#6d70e6;--accent2:#8f92f0;
+  --crit:#ff5b6e;--high:#ff9a4d;--med:#ffd24a;--low:#82bbff;--ok:#43b98a;--mono:ui-monospace,SFMono-Regular,Menlo,monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5}
+.wrap{max-width:1040px;margin:0 auto;padding:18px 20px 60px}
+.top{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.logo{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,var(--accent),var(--accent2));display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800}
+.logo.sm{width:26px;height:26px;border-radius:7px;font-size:13px}
+h1{font-size:19px;margin:0;font-weight:700}.top .sub{font-size:12px;color:var(--ink2);margin:1px 0 0}
+.meta{margin-left:auto;display:flex;gap:7px;align-items:center;flex-wrap:wrap}
+.chip{font-size:11.5px;border:1px solid var(--line);border-radius:999px;padding:3px 10px;color:var(--ink2);background:var(--panel);white-space:nowrap}
+.chip.live{color:var(--ok);border-color:rgba(67,185,138,.45);background:rgba(67,185,138,.12)}
+.chip.demo{color:var(--med);border-color:rgba(255,210,74,.4);background:rgba(255,210,74,.1)}
+.chip.gate{color:var(--crit);border-color:rgba(255,91,110,.45);background:rgba(255,91,110,.12)}
+.chip.btn{cursor:pointer}.chip.btn:hover{border-color:var(--accent);color:var(--ink)}
+nav.tabs{display:flex;gap:6px;flex-wrap:wrap;margin:16px 0 0;position:sticky;top:0;background:linear-gradient(var(--bg) 70%,transparent);padding:8px 0;z-index:5}
+nav.tabs button{border:1px solid var(--line);background:var(--card);color:var(--ink2);border-radius:10px;padding:6px 12px;font-size:12.5px;font-weight:600;cursor:pointer}
+nav.tabs button:hover{border-color:var(--accent);color:var(--ink)}
+nav.tabs button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.view{display:none}.view.on{display:block}
+.card{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:15px 17px;margin-top:14px}
+h2.ct{font-size:15px;margin:0}.sub{color:var(--ink2)}
+.err{display:none;font-size:12px;color:#ffd98a;background:rgba(255,210,74,.08);border:1px solid rgba(255,210,74,.3);border-radius:8px;padding:8px 11px;margin-top:10px}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+textarea,input[type=text]{width:100%;border:1px solid var(--line);border-radius:9px;padding:9px 11px;font-family:var(--mono);font-size:12.5px;background:#0e0f14;color:var(--ink);resize:vertical}
+input.val{width:auto;min-width:220px;flex:1}
+.btn{border:1px solid var(--line);background:var(--panel);color:var(--ink);border-radius:9px;padding:8px 13px;font-size:13px;font-weight:600;cursor:pointer}
+.btn:hover{border-color:var(--accent)} .btn.pri{background:var(--accent);border-color:var(--accent);color:#fff} .btn.pri:hover{background:var(--accent2)}
+.btn.sm{padding:5px 10px;font-size:12px} .btn:disabled{opacity:.5;cursor:default}
+.callbox{font-family:var(--mono);font-size:11.5px;background:#0a0b14;color:#d7d9f5;border-radius:9px;padding:10px 12px;margin-top:10px;overflow-x:auto;white-space:pre-wrap;word-break:break-word}
+.callbox .k{color:#8fe3c4}.callbox .t{color:#c6b6ff}
+table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:8px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+th{color:var(--ink3);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+td.mono,.mono{font-family:var(--mono)}
+.tablewrap{overflow-x:auto;max-height:360px;overflow-y:auto;border:1px solid var(--line);border-radius:10px;margin-top:8px}
+.tablewrap table{margin:0}.tablewrap th{position:sticky;top:0;background:var(--panel)}
+.pill{font-family:var(--mono);font-size:10px;border:1px solid var(--line);border-radius:999px;padding:1px 7px;white-space:nowrap}
+.pill.ok{color:var(--ok);border-color:rgba(67,185,138,.45)}.pill.err{color:var(--crit);border-color:rgba(255,91,110,.45)}.pill.run{color:var(--low);border-color:rgba(130,187,255,.45)}
+.selrow{display:flex;align-items:center;gap:9px;padding:7px 9px;border:1px solid var(--line);border-radius:9px;margin-top:6px}
+.selrow .nm b{color:var(--ink)}.selrow .nm span{font-family:var(--mono);font-size:10.5px;color:var(--ink3)}
+.selrow .ct{margin-left:auto;font-family:var(--mono);color:var(--ink2)}
+.fixed{font-family:var(--mono);font-size:12px;color:var(--accent2);border:1px solid var(--line);border-radius:8px;padding:6px 9px;background:var(--panel);white-space:nowrap}
+.modal{position:fixed;inset:0;background:rgba(6,7,12,.6);display:none;align-items:center;justify-content:center;z-index:40;padding:20px}
+.modal.on{display:flex}
+.mbox{background:var(--card);border:1px solid var(--line);border-radius:14px;max-width:540px;width:100%;padding:18px 20px;box-shadow:0 12px 40px rgba(0,0,0,.5)}
+.mbox h3{margin:0 0 6px;font-size:16px}
+.foot{color:var(--ink3);font-size:11.5px;margin-top:22px;text-align:center}
+.note{font-size:11.5px;color:var(--ink3);margin-top:8px}
+select{background:#0e0f14;color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:7px 9px;font-size:12.5px}
+.reasons label{display:inline-flex;align-items:center;gap:5px;margin-right:12px;font-size:12.5px}
+</style>
+</head><body>
+<div class="wrap">
+  <header class="top">
+    <div class="logo">🏷</div>
+    <div><h1>The Hounds — Data Enrichment</h1>
+      <div class="sub">Classify · tag · calibrate — on the navi MCP, in Claude, no repo · writes gated + logged</div></div>
+    <div class="meta">
+      <span class="chip gate" id="gateChip">writes: gated</span>
+      <span class="chip" id="srcChip">…</span>
+      <span class="chip btn" id="retry">⟳ recheck</span>
+    </div>
+  </header>
+  <div class="err" id="err"></div>
+  <nav class="tabs" id="tabs"></nav>
+  <div id="panels"></div>
+</div>
+
+<div class="modal" id="modal"><div class="mbox">
+  <h3 id="mTitle">Confirm write</h3>
+  <p class="sub" id="mBody" style="font-size:13px"></p>
+  <div id="mCall"></div>
+  <div class="row" style="margin-top:14px;justify-content:flex-end"><button class="btn" id="mCancel">Cancel</button><button class="btn pri" id="mOk">Confirm write</button></div>
+</div></div>
+
+<script>
+const NAVI='mcp__navi__';
+const SCHEMA='navi.db: assets(uuid,hostname,ip_address,operating_system,acr,aes), vulns(asset_uuid,plugin_id,plugin_name,severity,state,cves,xrefs,output), tags(asset_uuid,tag_key,tag_value), plugins(plugin_id,name,cves), vuln_route(app_name,plugin_list), vuln_paths(path,plugin_id,asset_uuid). KEV = xrefs LIKE \'%CISA-KNOWN-EXPLOITED%\'.';
+const $=id=>document.getElementById(id);
+const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt=n=>Number(n||0).toLocaleString();
+let LIVE=false, LASTERR='', TAGLOG=[];
+
+/* ---------- MCP + reasoning ---------- */
+async function mcp(tool,args){
+  if(!window.cowork||!window.cowork.callMcpTool){ LASTERR='Not inside Cowork (no callMcpTool).'; return {ok:false,error:LASTERR}; }
+  try{ const r=await window.cowork.callMcpTool(NAVI+tool,args||{});
+    if(r&&r.isError){ LASTERR=NAVI+tool+' → '+((r.content&&r.content[0]&&r.content[0].text)||'tool error'); return {ok:false,error:LASTERR}; }
+    return {ok:true,data:r.structuredContent??(r.content&&r.content[0]?JSON.parse(r.content[0].text):null)};
+  }catch(e){ LASTERR=NAVI+tool+' → '+(e&&e.message||e); return {ok:false,error:LASTERR}; }
+}
+const query=(sql,limit)=>mcp('navi_explore_query',{sql,limit:limit||500});
+const info=(sub)=>mcp('navi_explore_info',{subcommand:sub});
+function rows(d){ if(!d)return[]; if(Array.isArray(d))return d; for(const k of['rows','results','data','result']) if(Array.isArray(d[k]))return d[k]; return []; }
+async function askSQL(nl,hint){
+  if(!window.cowork||!window.cowork.askClaude) return null;
+  const p='Convert to ONE read-only SQLite SELECT that returns a column named asset_uuid, for a Tenable navi.db. '+SCHEMA+
+    (hint?(' Hint: '+hint):'')+' Request: "'+nl+'". Return ONLY the SQL, no fences, single statement.';
+  try{ let r=await window.cowork.askClaude(p,[]); r=(typeof r==='string')?r:(r&&(r.text||r.output||''))+'';
+    return r.replace(/```sql|```/gi,'').trim().replace(/;+\s*$/,'')+';'; }catch(e){ return null; }
+}
+function callHTML(tool,args){ return '<div class="callbox"><span class="k">callMcpTool</span>(<span class="t">"'+NAVI+tool+'"</span>, '+esc(JSON.stringify(args))+')</div>'; }
+function tableHTML(rs){ if(!rs.length) return '<p class="sub" style="margin-top:8px">No rows.</p>';
+  const cols=Object.keys(rs[0]);
+  return '<div class="tablewrap"><table><thead><tr>'+cols.map(c=>'<th>'+esc(c)+'</th>').join('')+'</tr></thead><tbody>'+
+    rs.slice(0,200).map(r=>'<tr>'+cols.map(c=>'<td class="mono">'+esc(r[c])+'</td>').join('')+'</tr>').join('')+'</tbody></table></div>'+
+    (rs.length>200?'<p class="sub">first 200 of '+fmt(rs.length)+'</p>':''); }
+
+/* ---------- gated write modal + session tag log ---------- */
+let _res=null;
+function confirmWrite(title,body,call){ $('mTitle').textContent=title; $('mBody').innerHTML=body; $('mCall').innerHTML=call||''; $('modal').classList.add('on'); return new Promise(r=>_res=r); }
+$('mCancel').onclick=()=>{ $('modal').classList.remove('on'); _res&&_res(false); };
+$('mOk').onclick=()=>{ $('modal').classList.remove('on'); _res&&_res(true); };
+async function gatedWrite(meta,tool,args){
+  const ok=await confirmWrite(meta.title,meta.body,callHTML(tool,args)); if(!ok) return {ok:false,cancelled:true};
+  const e={ts:new Date().toLocaleTimeString(),op:meta.op,category:args.category,value:args.value,selector:meta.selector||'',status:'running',detail:''};
+  TAGLOG.unshift(e); renderTagLog(); renderContract();
+  const r=await mcp(tool,Object.assign({confirm:true},args));
+  e.status=r.ok?'done':'error'; e.detail=r.ok?(meta.doneNote||'applied'):(r.error||'failed');
+  if(r.ok&&r.data&&r.data.writes_enabled===false){ e.status='blocked'; e.detail='writes gated on navi MCP (NAVI_MCP_ALLOW_WRITES not set)'; }
+  renderTagLog(); renderContract(); return r;
+}
+function renderTagLog(){ const b=$('tlBody'); if(!b) return;
+  if(!TAGLOG.length){ b.innerHTML='<p class="sub" style="margin-top:8px">No writes yet this session.</p>'; return; }
+  b.innerHTML='<div class="tablewrap"><table><thead><tr><th>Time</th><th>Op</th><th>Tag / target</th><th>Selector</th><th>Result</th></tr></thead><tbody>'+
+    TAGLOG.map(e=>{const p=e.status==='done'?'ok':e.status==='running'?'run':'err';
+      return '<tr><td class="mono">'+esc(e.ts)+'</td><td>'+esc(e.op)+'</td><td class="mono">'+esc((e.category||'')+(e.value?' : '+e.value:''))+'</td><td class="mono">'+esc(e.selector)+'</td><td><span class="pill '+p+'">'+esc(e.status)+'</span> <span class="sub">'+esc(e.detail)+'</span></td></tr>';}).join('')+'</tbody></table></div>'; }
+
+/* ============================ FIND & TAG engine (shared by 5 agents) ============================ */
+/* All enrichment agents now have dedicated full-parity panels (Linnaeus/Cerberus/Janus/
+   Mimir/Cavall below; Sirius/Anubis/Covenant further down). ENRICH stays empty — the generic
+   find&tag helpers (findTagHTML/wireFindTag) are retained because Software reuses them for its
+   tag sub-block. */
+const ENRICH=[];
+function findTagHTML(c){ const i=c.id;
+  return `<div class="card"><div class="row"><div class="logo sm">${c.icon}</div><div><h2 class="ct">${c.name}</h2><div class="sub" style="font-size:12px">${c.code} · find a cohort with SQL, then tag it — gated + logged</div></div></div>
+    <div class="row" style="margin-top:10px"><input type="text" id="${i}-nl" class="val" placeholder="describe the cohort in plain English…" value="${esc(c.nl)}"><button class="btn" id="${i}-draft">✨ Draft SQL</button></div>
+    <textarea id="${i}-sql" rows="3" style="margin-top:8px">${esc(c.sql)}</textarea>
+    <div class="row" style="margin-top:8px"><button class="btn" id="${i}-run">▶ Preview cohort</button><span class="sub" id="${i}-msg" style="font-size:12px"></span></div>
+    <div id="${i}-cb"></div><div id="${i}-res"></div>
+    <div class="row" style="margin-top:12px;border-top:1px solid var(--line);padding-top:12px">
+      <span class="fixed">${esc(c.category)}</span><span class="sub">:</span>
+      <input type="text" id="${i}-val" class="val" placeholder="${esc(c.valuePh)}">
+      <button class="btn pri" id="${i}-tag">🏷 Tag matched assets</button><span class="sub" id="${i}-tagmsg" style="font-size:12px"></span></div>
+    <p class="note">The SQL must return a column named <code>asset_uuid</code>. Full detection engines (fusion, term packs, NL classification) live in the repo/navi — this panel is the SQL-expressible slice; deeper detection is a future navi engine tool.</p></div>`;
+}
+function wireFindTag(c){ const i=c.id; let cohortSQL=c.sql, cohortCount=null;
+  $(i+'-draft').onclick=async()=>{ const nl=$(i+'-nl').value.trim(); if(!nl)return; $(i+'-msg').textContent='drafting…';
+    const sql=await askSQL(nl,c.hint); if(!sql){ $(i+'-msg').innerHTML='<span style="color:var(--crit)">reasoning unavailable</span>'; return; }
+    $(i+'-sql').value=sql; $(i+'-msg').textContent='drafted — preview, then tag.'; };
+  $(i+'-run').onclick=async()=>{ cohortSQL=$(i+'-sql').value.trim(); $(i+'-cb').innerHTML=callHTML('navi_explore_query',{sql:cohortSQL,limit:200});
+    $(i+'-msg').textContent='running…'; const r=await query(cohortSQL,200);
+    if(!r.ok){ $(i+'-msg').innerHTML='<span style="color:var(--crit)">✗ '+esc(r.error)+'</span>'; return; }
+    const rs=rows(r.data); cohortCount=rs.length; $(i+'-msg').textContent=fmt(rs.length)+' asset(s) match'; $(i+'-res').innerHTML=tableHTML(rs); };
+  $(i+'-tag').onclick=async()=>{ const val=$(i+'-val').value.trim(); cohortSQL=$(i+'-sql').value.trim();
+    if(!val){ $(i+'-tagmsg').innerHTML='<span style="color:var(--crit)">enter a value</span>'; return; }
+    const r=await gatedWrite({op:'tag',title:'Apply tag',selector:'query',doneNote:'tag queued',
+      body:'Tag every asset returned by this query <b>'+esc(c.category)+' : '+esc(val)+'</b>'+(cohortCount!=null?(' (~<b>'+fmt(cohortCount)+'</b> matched on last preview)'):'')+'? Gated navi write.'},
+      'navi_enrich_tag',{category:c.category,value:val,query:cohortSQL});
+    if(r.cancelled){ $(i+'-tagmsg').textContent=''; return; }
+    $(i+'-tagmsg').innerHTML=r.ok?'<span style="color:var(--ok)">✓ queued — see Tag log / AI Contract. ~30 min propagation.</span>':'<span style="color:var(--crit)">✗ '+esc(r.error||'failed')+'</span>'; };
+}
+
+/* ============================ AGENT GROUPS (Sirius) — full parity ============================
+   Repo parity: list every Tenable agent group with member count, tag each group as
+   `Agent Group : <name>` via navi_enrich_tag group=<name> (server-side membership,
+   no UUID cap), tag-all in one sweep, and hand the whole set to the AI Contract as
+   the `agentgroup` tagger. Live from Tenable via navi_explore_info agent_groups. */
+let GROUPS=[];
+function groupsHTML(){ return `<div class="card"><div class="row"><div class="logo sm">🛰️</div><div><h2 class="ct">Agent Groups</h2><div class="sub" style="font-size:12px">Sirius · turn Tenable agent-group membership into <code>Agent Group : &lt;name&gt;</code> tags</div></div>
+    <button class="btn sm" id="grpLoad" style="margin-left:auto">Load groups</button></div>
+    <div class="row" id="grpBulk" style="margin-top:10px;display:none"><span class="sub" id="grpStat" style="font-size:12px"></span><button class="btn pri" id="grpTagAll" style="margin-left:auto">🏷 Tag ALL groups</button></div>
+    <div id="grpList"></div>
+    <p class="note">Each group tags server-side by membership (<code>--group</code>) so there is no 1999-UUID cap. Enable the <b>Agent groups</b> tagger in the AI Contract to keep these in sync on every cycle.</p></div>`; }
+async function grpTagOne(nm){
+  return gatedWrite({op:'tag',title:'Tag agent group',selector:'group='+nm,doneNote:'group tag queued',
+    body:'Tag all assets in agent group <b>'+esc(nm)+'</b> as <b>Agent Group : '+esc(nm)+'</b>? Gated navi write.'},
+    'navi_enrich_tag',{category:'Agent Group',value:nm,group:nm});
+}
+function wireGroups(){ $('grpLoad').onclick=async()=>{ $('grpList').innerHTML='<p class="sub">loading agent groups (live from Tenable)…</p>';
+    const r=await info('agent_groups'); if(!r.ok){ $('grpList').innerHTML='<p class="sub" style="color:var(--crit)">✗ '+esc(r.error)+'</p>'; $('grpBulk').style.display='none'; return; }
+    const gs=rows(r.data); if(!gs.length){ $('grpList').innerHTML='<p class="sub">No agent groups returned.</p>'; $('grpBulk').style.display='none'; return; }
+    const nameKey=Object.keys(gs[0]).find(k=>/name/i.test(k))||Object.keys(gs[0])[0];
+    const cntKey=Object.keys(gs[0]).find(k=>/count|agents|members/i.test(k));
+    GROUPS=gs.map(g=>({name:g[nameKey],count:cntKey?g[cntKey]:null}));
+    const totalAgents=GROUPS.reduce((a,g)=>a+(parseInt(g.count,10)||0),0);
+    $('grpStat').textContent=fmt(GROUPS.length)+' groups'+(cntKey?' · '+fmt(totalAgents)+' agents total':'');
+    $('grpBulk').style.display='flex';
+    $('grpList').innerHTML=GROUPS.map((g,idx)=>
+      '<div class="selrow"><span class="nm"><b>'+esc(g.name)+'</b><span>agent group</span></span>'+(g.count!=null?'<span class="ct">'+esc(g.count)+' agents</span>':'')+'<button class="btn sm grpTag" data-nm="'+esc(g.name)+'">🏷 Tag</button></div>').join('');
+    document.querySelectorAll('.grpTag').forEach(b=>b.onclick=()=>grpTagOne(b.dataset.nm)); };
+  $('grpTagAll').onclick=async()=>{ if(!GROUPS.length)return;
+    if(!confirm('Tag ALL '+GROUPS.length+' agent groups? Each is a gated navi write applied in sequence.'))return;
+    $('grpStat').textContent='tagging '+GROUPS.length+' groups…'; let done=0;
+    for(const g of GROUPS){ const r=await grpTagOne(g.name); if(r&&r.ok)done++; if(r&&r.cancelled)break; }
+    $('grpStat').innerHTML='<span style="color:var(--ok)">✓ queued '+done+'/'+GROUPS.length+' group tags — see Tag log. ~30 min propagation.</span>'; }; }
+
+/* ============================ ASSET CLASSIFICATION (Linnaeus) — full parity ============================
+   Repo parity: per-class breakdown (Windows/Linux/macOS/Network/IoT/OT/Virtual/Cloud/Other/
+   Unclassified), OS-family cohorts, custom-facet classification, and tag-by-class under the
+   UNIFIED scheme — category 'Asset Inventory', value '<Facet>: <Value>' — which the classifier
+   and IoT squad both map onto the graphs. Tags via a `query` selector (cap-free, server-side).
+   needs-navi: (1) the full multi-signal classifier CASE incl. network host-name + cloud-metadata
+   provenance (core/classify.py classify()); (2) OS confidence cohorts parse plugin 11936 OUTPUT
+   (os_confidence / os_plan) which SQL can't regex — expose as a navi engine tool. This panel
+   is the reliable operating_system + device-term slice. */
+const CL_FACETS=['Class','OS','Device Type','Virtual Infrastructure'];
+const CL_CLASS_SQL="SELECT CASE"
+ +" WHEN lower(coalesce(operating_system,'')) LIKE '%windows%' THEN 'Windows'"
+ +" WHEN lower(coalesce(operating_system,'')) LIKE '%linux%' OR lower(coalesce(operating_system,'')) LIKE '%ubuntu%' OR lower(coalesce(operating_system,'')) LIKE '%debian%' OR lower(coalesce(operating_system,'')) LIKE '%centos%' OR lower(coalesce(operating_system,'')) LIKE '%red hat%' OR lower(coalesce(operating_system,'')) LIKE '%rhel%' OR lower(coalesce(operating_system,'')) LIKE '%suse%' OR lower(coalesce(operating_system,'')) LIKE '%fedora%' THEN 'Linux'"
+ +" WHEN lower(coalesce(operating_system,'')) LIKE '%mac%' OR lower(coalesce(operating_system,'')) LIKE '%os x%' THEN 'macOS'"
+ +" WHEN lower(coalesce(operating_system,'')) LIKE '%vmware%' OR lower(coalesce(operating_system,'')) LIKE '%esxi%' THEN 'Virtual Infrastructure'"
+ +" WHEN coalesce(operating_system,'')='' THEN 'Unclassified'"
+ +" ELSE 'Other' END AS class, COUNT(uuid) AS assets FROM assets GROUP BY class ORDER BY assets DESC";
+const CL_SIGNALS=[
+  ['Network', "SELECT COUNT(DISTINCT asset_uuid) AS c FROM vulns WHERE lower(plugin_name) LIKE '%pfsense%' OR lower(plugin_name) LIKE '%fortigate%' OR lower(plugin_name) LIKE '%fortios%' OR lower(plugin_name) LIKE '%palo alto%' OR lower(plugin_name) LIKE '%pan-os%' OR lower(plugin_name) LIKE '%cisco ios%' OR lower(plugin_name) LIKE '%junos%' OR lower(plugin_name) LIKE '%arista%'"],
+  ['IoT', "SELECT COUNT(DISTINCT asset_uuid) AS c FROM vulns WHERE lower(plugin_name) LIKE '%camera%' OR lower(plugin_name) LIKE '%hikvision%' OR lower(plugin_name) LIKE '%axis communications%' OR lower(plugin_name) LIKE '%nvr%' OR lower(plugin_name) LIKE '%printer%'"],
+  ['OT', "SELECT COUNT(DISTINCT asset_uuid) AS c FROM vulns WHERE lower(plugin_name) LIKE '%scada%' OR lower(plugin_name) LIKE '%modbus%' OR lower(plugin_name) LIKE '%bacnet%' OR lower(plugin_name) LIKE '%plc%' OR lower(plugin_name) LIKE '%siemens s7%'"],
+];
+function classifyHTML(){ return `<div class="card"><div class="row"><div class="logo sm">🧬</div><div><h2 class="ct">Asset Classification</h2><div class="sub" style="font-size:12px">Linnaeus · classify the estate, then tag under <code>Asset Inventory : &lt;Facet&gt; : &lt;Value&gt;</code></div></div>
+    <button class="btn sm" id="clLoad" style="margin-left:auto">Load classification</button></div>
+    <div id="clBoard" style="margin-top:8px"></div>
+    <div id="clCohorts"></div>
+    <div class="row" style="margin-top:10px"><input type="text" id="cl-nl" class="val" placeholder="describe a cohort in plain English…" value="Windows Server assets"><button class="btn" id="cl-draft">✨ Draft SQL</button></div>
+    <textarea id="cl-sql" rows="3" style="margin-top:8px">SELECT uuid AS asset_uuid FROM assets WHERE lower(operating_system) LIKE '%windows%server%'</textarea>
+    <div class="row" style="margin-top:8px"><button class="btn" id="cl-run">▶ Preview cohort</button><span class="sub" id="cl-msg" style="font-size:12px"></span></div>
+    <div id="cl-res"></div>
+    <div class="row" style="margin-top:12px;border-top:1px solid var(--line);padding-top:12px">
+      <span class="fixed">Asset Inventory</span><span class="sub">:</span>
+      <select id="cl-facet">${CL_FACETS.map(f=>'<option>'+f+'</option>').join('')}<option value="__custom">custom facet…</option></select>
+      <input type="text" id="cl-facetc" class="val" placeholder="custom facet" style="max-width:120px;display:none">
+      <span class="sub">:</span><input type="text" id="cl-val" class="val" placeholder="Windows Server" style="max-width:160px">
+      <button class="btn pri" id="cl-tag">🏷 Tag cohort</button><span class="sub" id="cl-tagmsg" style="font-size:12px"></span></div>
+    <p class="note">Value is written as <code>&lt;Facet&gt;: &lt;Value&gt;</code> so it lands on the classifier graphs. The SQL must return a column named <code>asset_uuid</code>. Full multi-signal classification + OS-confidence cohorts are navi engine improvements (see <code>core/classify.py</code>).</p></div>`; }
+function wireClassify(){ let cohortSQL='';
+  $('cl-facet').onchange=()=>{ $('cl-facetc').style.display=($('cl-facet').value==='__custom')?'inline-block':'none'; };
+  $('clLoad').onclick=async()=>{ $('clBoard').innerHTML='<p class="sub">classifying estate…</p>';
+    const r=await query(CL_CLASS_SQL,50);
+    if(!r.ok){ $('clBoard').innerHTML='<p class="sub" style="color:var(--crit)">✗ '+esc(r.error)+'</p>'; return; }
+    const cls=rows(r.data); const tot=cls.reduce((a,x)=>a+(parseInt(x.assets,10)||0),0)||1;
+    let html='<div class="tablewrap"><table><thead><tr><th>Class (OS family)</th><th>Assets</th><th>Share</th></tr></thead><tbody>'+
+      cls.map(x=>'<tr><td><b>'+esc(x.class)+'</b></td><td>'+fmt(x.assets)+'</td><td class="sub">'+Math.round(100*(x.assets/tot))+'%</td></tr>').join('')+'</tbody></table></div>';
+    // device signals (network / iot / ot) from plugin-name terms
+    const sig=[]; for(const [nm,q] of CL_SIGNALS){ const s=await query(q,1); sig.push([nm, s.ok?((rows(s.data)[0]||{}).c||0):'—']); }
+    html+='<div class="row" style="gap:6px;margin-top:8px"><span class="sub" style="font-size:12px">device signals:</span>'+sig.map(s=>'<span class="pill">'+esc(s[0])+': <b>'+fmt(s[1])+'</b></span>').join('')+'</div>';
+    $('clBoard').innerHTML=html;
+    // OS-family cohorts, clickable
+    const oc=await query("SELECT operating_system AS os, COUNT(uuid) AS assets FROM assets WHERE operating_system IS NOT NULL AND operating_system<>'' GROUP BY operating_system ORDER BY assets DESC LIMIT 60",100);
+    if(oc.ok){ const os=rows(oc.data); $('clCohorts').innerHTML='<h3 class="ct" style="font-size:13px;margin:12px 0 4px">OS cohorts — click to load as a tag cohort</h3>'+
+      '<div class="row" style="flex-wrap:wrap;gap:6px">'+os.map(x=>'<button class="btn sm clUse" data-os="'+esc(x.os)+'">'+esc(x.os)+' <span class="sub">('+fmt(x.assets)+')</span></button>').join('')+'</div>';
+      document.querySelectorAll('.clUse').forEach(b=>b.onclick=()=>{ const o=b.dataset.os;
+        $('cl-nl').value=o+' assets'; $('cl-sql').value="SELECT uuid AS asset_uuid FROM assets WHERE operating_system='"+o.replace(/'/g,"''")+"'";
+        $('cl-facet').value='OS'; $('cl-facetc').style.display='none'; $('cl-val').value=o; $('cl-msg').textContent='cohort loaded — preview, then tag.'; }); } };
+  $('cl-draft').onclick=async()=>{ const nl=$('cl-nl').value.trim(); if(!nl)return; $('cl-msg').textContent='drafting…';
+    const sql=await askSQL(nl,'assets.operating_system LIKE / plugin_name device terms'); if(!sql){ $('cl-msg').innerHTML='<span style="color:var(--crit)">reasoning unavailable</span>'; return; }
+    $('cl-sql').value=sql; $('cl-msg').textContent='drafted — preview, then tag.'; };
+  $('cl-run').onclick=async()=>{ cohortSQL=$('cl-sql').value.trim(); $('cl-msg').textContent='running…';
+    const r=await query(cohortSQL,200); if(!r.ok){ $('cl-msg').innerHTML='<span style="color:var(--crit)">✗ '+esc(r.error)+'</span>'; return; }
+    const rs=rows(r.data); $('cl-msg').textContent=fmt(rs.length)+' asset(s) match'; $('cl-res').innerHTML=tableHTML(rs); };
+  $('cl-tag').onclick=async()=>{ const facet=$('cl-facet').value==='__custom'?$('cl-facetc').value.trim():$('cl-facet').value;
+    const val=$('cl-val').value.trim(); cohortSQL=$('cl-sql').value.trim();
+    if(!facet||!val){ $('cl-tagmsg').innerHTML='<span style="color:var(--crit)">facet + value required</span>'; return; }
+    const tagval=facet+': '+val;
+    const r=await gatedWrite({op:'tag',title:'Classify & tag',selector:'query',doneNote:'class tag queued',
+      body:'Tag every asset returned by this query <b>Asset Inventory : '+esc(tagval)+'</b>? Gated navi write.'},
+      'navi_enrich_tag',{category:'Asset Inventory',value:tagval,query:cohortSQL});
+    if(r.cancelled){ $('cl-tagmsg').textContent=''; return; }
+    $('cl-tagmsg').innerHTML=r.ok?'<span style="color:var(--ok)">✓ queued — see Tag log. ~30 min propagation.</span>':'<span style="color:var(--crit)">✗ '+esc(r.error||'failed')+'</span>'; };
+}
+
+/* ============================ SIGNAL-PACK engine (Cerberus IoT/OT · Janus Identity) ============================
+   Both agents detect a cohort from a curated term pack over plugin_name/output, show a
+   breakdown, let the operator hunt a custom term, and tag under a unified scheme via a
+   cap-free `query` selector. Cerberus writes Asset Inventory:'Device Type: <name>' (lands on
+   the classifier graphs); Janus writes Identity:'<name>' and excludes plugin 19506 (SSH
+   server-type noise, per the repo). needs-navi: Cerberus's device registry + carrier-plugin
+   harvest + cross-term fusion + coverage ledger (core/iot_*), and Janus's NHI / credential-
+   REUSE correlation graph — those are engine tools, not single SELECTs. This is the reliable
+   term-pack slice. */
+function _packWhere(cfg,frag){ return frag+(cfg.exclude?(' AND plugin_id NOT IN ('+cfg.exclude.map(p=>"'"+p+"'").join(',')+')'):''); }
+function signalHTML(cfg){ const i=cfg.id;
+  return `<div class="card"><div class="row"><div class="logo sm">${cfg.icon}</div><div><h2 class="ct">${cfg.name}</h2><div class="sub" style="font-size:12px">${cfg.code} · ${cfg.blurb}</div></div>
+    <button class="btn sm" id="${i}Load" style="margin-left:auto">Load ${cfg.packLabel}</button></div>
+    <div id="${i}Board" style="margin-top:8px"></div>
+    <div class="row" style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px"><input type="text" id="${i}-term" class="val" placeholder="${cfg.customHint}"><input type="text" id="${i}-val" class="val" placeholder="tag value" style="max-width:170px"><button class="btn" id="${i}-hunt">🔎 Hunt</button><button class="btn pri" id="${i}-tag">🏷 Tag</button><span class="sub" id="${i}-msg" style="font-size:12px"></span></div>
+    <div id="${i}-res"></div>
+    <p class="note">${cfg.note}</p></div>`; }
+function wireSignal(cfg){ const i=cfg.id;
+  function tagCohort(name,where){ const q="SELECT DISTINCT asset_uuid FROM vulns WHERE "+where;
+    const val=cfg.valuePrefix+name;
+    return gatedWrite({op:'tag',title:'Tag '+cfg.code+' cohort',selector:'query',doneNote:'tag queued',
+      body:'Tag every asset matching <b>'+esc(name)+'</b> as <b>'+esc(cfg.category)+' : '+esc(val)+'</b>? Gated navi write.'},
+      'navi_enrich_tag',{category:cfg.category,value:val,query:q}); }
+  $(i+'Load').onclick=async()=>{ $(i+'Board').innerHTML='<p class="sub">scanning term pack…</p>';
+    const out=[]; for(const t of cfg.terms){ const w=_packWhere(cfg,t.where);
+      const r=await query("SELECT COUNT(DISTINCT asset_uuid) AS c FROM vulns WHERE "+w,1);
+      out.push({name:t.name,where:w,assets:r.ok?((rows(r.data)[0]||{}).c||0):'—'}); }
+    out.sort((a,b)=>(parseInt(b.assets,10)||0)-(parseInt(a.assets,10)||0));
+    $(i+'Board').innerHTML='<div class="tablewrap"><table><thead><tr><th>'+esc(cfg.colLabel)+'</th><th>Assets</th><th></th></tr></thead><tbody>'+
+      out.map((r,ix)=>'<tr><td><b>'+esc(r.name)+'</b></td><td>'+fmt(r.assets)+'</td><td><button class="btn sm sigTag" data-i="'+ix+'">🏷 Tag</button></td></tr>').join('')+'</tbody></table></div>';
+    document.querySelectorAll('#'+i+'Board .sigTag').forEach(b=>b.onclick=()=>{ const r=out[+b.dataset.i]; tagCohort(r.name,r.where); }); };
+  $(i+'-hunt').onclick=async()=>{ const term=$(i+'-term').value.trim(); if(!term){ $(i+'-msg').textContent='enter a term'; return; }
+    if(!$(i+'-val').value.trim())$(i+'-val').value=term;
+    const t=term.toLowerCase().replace(/'/g,"''"); const w=_packWhere(cfg,"(lower(plugin_name) LIKE '%"+t+"%' OR lower(output) LIKE '%"+t+"%')");
+    $(i+'-msg').textContent='searching…'; const r=await query("SELECT DISTINCT asset_uuid FROM vulns WHERE "+w,200);
+    if(!r.ok){ $(i+'-msg').innerHTML='<span style="color:var(--crit)">✗ '+esc(r.error)+'</span>'; return; }
+    const rs=rows(r.data); $(i+'-msg').textContent=fmt(rs.length)+' asset(s) match'; $(i+'-res').innerHTML=tableHTML(rs); };
+  $(i+'-tag').onclick=async()=>{ const term=$(i+'-term').value.trim(); const val=($(i+'-val').value.trim()||term);
+    if(!term||!val){ $(i+'-msg').innerHTML='<span style="color:var(--crit)">term + value required</span>'; return; }
+    const t=term.toLowerCase().replace(/'/g,"''"); const w=_packWhere(cfg,"(lower(plugin_name) LIKE '%"+t+"%' OR lower(output) LIKE '%"+t+"%')");
+    const r=await tagCohort(val,w); if(r.cancelled){ $(i+'-msg').textContent=''; return; }
+    $(i+'-msg').innerHTML=r.ok?'<span style="color:var(--ok)">✓ queued — see Tag log. ~30 min propagation.</span>':'<span style="color:var(--crit)">✗ '+esc(r.error||'failed')+'</span>'; }; }
+const IOT_CFG={id:'iot',name:'IoT / OT Discovery',code:'Cerberus',icon:'🐾',blurb:'find unmanaged devices from vuln signatures, tag under the unified inventory',
+  category:'Asset Inventory',valuePrefix:'Device Type: ',packLabel:'device pack',colLabel:'Device type',
+  customHint:'custom device term — e.g. dahua, lantronix',note:'Tags land as <code>Asset Inventory : Device Type: &lt;name&gt;</code> on the classifier graphs. Device registry, carrier-plugin harvest and cross-term fusion are navi engine improvements (see <code>core/iot_registry.py</code>).',
+  terms:[
+    {name:'IP Camera',where:"(lower(plugin_name) LIKE '%camera%' OR lower(plugin_name) LIKE '%hikvision%' OR lower(plugin_name) LIKE '%axis communications%' OR lower(plugin_name) LIKE '%dahua%')"},
+    {name:'NVR / DVR',where:"(lower(plugin_name) LIKE '%nvr%' OR lower(plugin_name) LIKE '%dvr%' OR lower(plugin_name) LIKE '%video recorder%')"},
+    {name:'Printer / MFP',where:"(lower(plugin_name) LIKE '%printer%' OR lower(plugin_name) LIKE '%jetdirect%' OR lower(plugin_name) LIKE '%mfp%')"},
+    {name:'VoIP phone',where:"(lower(plugin_name) LIKE '%voip%' OR lower(plugin_name) LIKE '%sip phone%' OR lower(plugin_name) LIKE '%polycom%' OR lower(plugin_name) LIKE '%avaya%')"},
+    {name:'Network gear',where:"(lower(plugin_name) LIKE '%cisco ios%' OR lower(plugin_name) LIKE '%pan-os%' OR lower(plugin_name) LIKE '%fortigate%' OR lower(plugin_name) LIKE '%junos%' OR lower(plugin_name) LIKE '%arista%')"},
+    {name:'PLC / SCADA (OT)',where:"(lower(plugin_name) LIKE '%scada%' OR lower(plugin_name) LIKE '%modbus%' OR lower(plugin_name) LIKE '%plc%' OR lower(plugin_name) LIKE '%siemens s7%')"},
+    {name:'BACnet / HVAC (OT)',where:"(lower(plugin_name) LIKE '%bacnet%' OR lower(plugin_name) LIKE '%hvac%' OR lower(plugin_name) LIKE '%building%automation%')"},
+    {name:'Medical device',where:"(lower(plugin_name) LIKE '%medical%' OR lower(plugin_name) LIKE '%dicom%' OR lower(plugin_name) LIKE '%hl7%')"},
+  ]};
+const IDENT_CFG={id:'identity',name:'Identity Exposure',code:'Janus',icon:'🪪',blurb:'weak auth, exposed identity services & non-human identities',
+  category:'Identity',valuePrefix:'',packLabel:'identity pack',colLabel:'Identity signal',exclude:['19506'],
+  customHint:'custom identity term — e.g. kerberos, ntlm',note:'Excludes plugin 19506 (SSH server-type noise). NHI / credential-REUSE correlation across hosts is a navi engine improvement (identity graph) — this is the per-signal slice.',
+  terms:[
+    {name:'SSH password auth',where:"(lower(plugin_name) LIKE '%password authentication%' OR lower(plugin_name) LIKE '%ssh password%')"},
+    {name:'Default / weak credentials',where:"(lower(plugin_name) LIKE '%default cred%' OR lower(plugin_name) LIKE '%default password%' OR lower(plugin_name) LIKE '%weak password%' OR lower(plugin_name) LIKE '%default account%')"},
+    {name:'SMB signing disabled',where:"(lower(plugin_name) LIKE '%smb signing%')"},
+    {name:'LLMNR / NBT-NS',where:"(lower(plugin_name) LIKE '%llmnr%' OR lower(plugin_name) LIKE '%nbt-ns%' OR lower(plugin_name) LIKE '%netbios%name%')"},
+    {name:'Kerberos exposure',where:"(lower(plugin_name) LIKE '%kerberos%')"},
+    {name:'NTLM / relay',where:"(lower(plugin_name) LIKE '%ntlm%' OR lower(plugin_name) LIKE '%relay%')"},
+    {name:'Non-human / service account',where:"(lower(plugin_name) LIKE '%service account%' OR lower(plugin_name) LIKE '%api key%' OR lower(plugin_name) LIKE '%access token%' OR lower(plugin_name) LIKE '%non-human%')"},
+    {name:'Certificate-based auth',where:"(lower(plugin_name) LIKE '%client certificate%' OR lower(plugin_name) LIKE '%mutual tls%')"},
+  ]};
+
+/* ============================ SOFTWARE INVENTORY (Mimir) — full parity ============================
+   Repo parity: software risk/sprawl leaderboard (product · versions · assets), NL->validated
+   SELECT over software⋈assets⋈vulns, and tag Software:<product>. The artifact tags via a
+   `query` selector so navi matches server-side — the repo's 1999-UUID tag_capped fallback
+   (enum plugins 20811/22869/83991 as regex) is unnecessary here (commented for the record).
+   needs-navi: full NVR/[version] parser + version-sprawl grouping lives in core/software.py;
+   expose as a navi engine tool for exact sprawl counts (this panel does a best-effort slice). */
+const SW_CFG={id:'software',name:'Software Inventory',code:'Mimir',icon:'📦',category:'Software',valuePh:'Google Chrome',
+  nl:'assets with Google Chrome installed',hint:'software_string / plugin_name LIKE product',
+  sql:"SELECT DISTINCT asset_uuid FROM software WHERE lower(software_string) LIKE '%chrome%'"};
+function softwareHTML(){ return `<div class="card"><div class="row"><div class="logo sm">📦</div><div><h2 class="ct">Software Inventory</h2><div class="sub" style="font-size:12px">Mimir · most-deployed software &amp; version sprawl — then tag a product cohort</div></div>
+    <button class="btn sm" id="swLoad" style="margin-left:auto">Load inventory</button></div>
+    <div class="row" id="swViews" style="margin-top:8px;display:none"><button class="btn sm swView on" data-k="deployed">Most deployed</button><button class="btn sm swView" data-k="sprawl">Version sprawl</button><span class="sub" id="swStat" style="font-size:12px;margin-left:auto"></span></div>
+    <div id="swBoard"></div>
+    <p class="note" id="swNote" style="display:none">Click <b>Use as cohort</b> on any row to load a starter query below, or describe your own. Full NVR version parsing (exact sprawl) is a navi engine improvement — see <code>core/software.py</code>.</p></div>`
+    + findTagHTML(SW_CFG); }
+function wireSoftware(){ let VIEW='deployed', BOARD={deployed:[],sprawl:[]};
+  function render(){ const host=$('swBoard'); const data=BOARD[VIEW];
+    if(!data||!data.length){ host.innerHTML='<p class="sub">No software rows — the <code>software</code> table may be empty (run <code>navi config update software</code>), or try the SQL cohort below.</p>'; return; }
+    if(VIEW==='deployed'){ host.innerHTML='<div class="tablewrap"><table><thead><tr><th>Product (software_string)</th><th>Assets</th><th></th></tr></thead><tbody>'+
+      data.map(r=>'<tr><td class="mono">'+esc(r.product)+'</td><td>'+fmt(r.assets)+'</td><td><button class="btn sm swUse" data-p="'+esc(r.product)+'">Use as cohort</button></td></tr>').join('')+'</tbody></table></div>'; }
+    else { host.innerHTML='<div class="tablewrap"><table><thead><tr><th>Product</th><th>Versions</th><th>Assets</th><th></th></tr></thead><tbody>'+
+      data.map(r=>'<tr><td class="mono">'+esc(r.product)+'</td><td>'+fmt(r.nver)+'</td><td>'+fmt(r.assets)+'</td><td><button class="btn sm swUse" data-p="'+esc(r.product)+'">Use as cohort</button></td></tr>').join('')+'</tbody></table></div>'; }
+    host.querySelectorAll('.swUse').forEach(b=>b.onclick=()=>{ const p=b.dataset.p;
+      $('software-nl').value='assets with '+p+' installed';
+      $('software-sql').value="SELECT DISTINCT asset_uuid FROM software WHERE software_string LIKE '%"+p.replace(/'/g,"''")+"%'";
+      $('software-val').value=p; $('software-msg').textContent='cohort loaded — preview, then tag.';
+      document.getElementById('v-software').scrollTo?.(0,9999); }); }
+  $('swLoad').onclick=async()=>{ $('swBoard').innerHTML='<p class="sub">loading software inventory…</p>';
+    const r=await query("SELECT software_string AS product, COUNT(DISTINCT asset_uuid) AS assets FROM software WHERE software_string IS NOT NULL AND software_string<>'' GROUP BY software_string ORDER BY assets DESC LIMIT 150",200);
+    if(!r.ok){ $('swBoard').innerHTML='<p class="sub" style="color:var(--crit)">✗ '+esc(r.error)+'</p>'; return; }
+    BOARD.deployed=rows(r.data).map(x=>({product:x.product,assets:x.assets}));
+    // best-effort sprawl: group on the name before a '[version' marker or first ' - <digit>'
+    const grp={};
+    BOARD.deployed.forEach(x=>{ let nm=String(x.product); const vi=nm.toLowerCase().indexOf('[version'); if(vi>0)nm=nm.slice(0,vi); nm=nm.replace(/[-_ ]+\d[\w.\-]*$/,'').trim()||x.product;
+      const g=grp[nm]=grp[nm]||{product:nm,nver:0,assets:0}; g.nver++; g.assets+=(parseInt(x.assets,10)||0); });
+    BOARD.sprawl=Object.values(grp).filter(g=>g.nver>1).sort((a,b)=>b.nver-a.nver||b.assets-a.assets);
+    $('swViews').style.display='flex'; $('swNote').style.display='block';
+    $('swStat').textContent=fmt(BOARD.deployed.length)+' products · '+fmt(BOARD.sprawl.length)+' at multiple versions';
+    render(); };
+  document.querySelectorAll('.swView').forEach(b=>b.onclick=()=>{ document.querySelectorAll('.swView').forEach(x=>x.classList.remove('on')); b.classList.add('on'); VIEW=b.dataset.k; render(); });
+  wireFindTag(SW_CFG);
+}
+
+/* ============================ CUSTOM APP TAGGING (Cavall) — full parity ============================
+   Repo parity: hunt custom apps across BOTH vuln_route (named app routes) and vuln_paths
+   (filesystem paths), hide already-OWNED names by default (Atlas Owner tags) so only the
+   ownership gaps show, per-match + tag-all, a session ignore list, and a coverage funnel.
+   Routes carry no asset_uuid, so we tag their assets via a plugin_list->query selector
+   (cap-free, server-side); route_id is the repo's selector and navi supports it too. */
+let CA_OWNED=new Set(), CA_ROUTES=[], CA_PATHS=[], CA_IGNORE=new Set();
+function _nk(s){ return String(s||'').trim().toLowerCase().replace(/\s+/g,' '); }
+function _plugins(s){ return (String(s||'').match(/\d+/g)||[]); }
+function customappHTML(){ return `<div class="card"><div class="row"><div class="logo sm">🧩</div><div><h2 class="ct">Custom App Tagging</h2><div class="sub" style="font-size:12px">Cavall · name apps that inventory misses — from vuln routes &amp; filesystem paths</div></div></div>
+    <div class="row" style="margin-top:10px"><input type="text" id="caKw" class="val" placeholder="keyword — e.g. jenkins, gitlab, tomcat"><input type="text" id="caName" class="val" placeholder="tag value (app name)" style="max-width:180px"><button class="btn" id="caSearch">🔎 Search</button></div>
+    <div class="row" style="margin-top:8px"><label class="sub" style="font-size:12px"><input type="checkbox" id="caHideOwned" checked> hide already-owned</label><span class="sub" id="caMsg" style="font-size:12px;margin-left:8px"></span><button class="btn pri" id="caTagAll" style="margin-left:auto;display:none">🏷 Tag all matches</button></div>
+    <div id="caFunnel" style="margin-top:8px"></div>
+    <div id="caRoutes"></div><div id="caPaths"></div>
+    <div class="row" style="margin-top:12px;border-top:1px solid var(--line);padding-top:10px"><input type="text" id="caIgn" class="val" placeholder="ignore term (false positive)" style="max-width:200px"><button class="btn sm" id="caIgnAdd">＋ ignore</button><span class="sub" id="caIgnList" style="font-size:12px"></span></div>
+    <p class="note">Routes/paths come from <code>navi config update route</code> / <code>paths</code> (separate from a normal sync). Owned = already carries an Atlas <code>Owner</code> tag. The persistent ignore list lives in the repo (<code>ignore.json</code>); here it is session-scoped.</p></div>`; }
+async function caLoadOwned(){ const r=await query("SELECT DISTINCT tag_value FROM tags WHERE tag_key='Owner' AND tag_value LIKE '%: %'",2000);
+  CA_OWNED=new Set(); if(r.ok) rows(r.data).forEach(x=>{ const v=String(x.tag_value||''); const i=v.lastIndexOf(': '); if(i>0)CA_OWNED.add(_nk(v.slice(0,i))); }); }
+function caRender(){ const hide=$('caHideOwned').checked; const ign=[...CA_IGNORE];
+  const flt=x=>!(ign.some(t=>_nk(x).includes(t)));
+  const routes=CA_ROUTES.filter(r=>flt(r.app_name)&&(!hide||!r.owned));
+  const paths=CA_PATHS.filter(p=>flt(p.path)&&(!hide||!p.owned));
+  $('caMsg').innerHTML='<b>'+fmt(routes.length)+'</b> route(s) · <b>'+fmt(paths.length)+'</b> path(s)'+(hide?' <span class="sub">(owned hidden)</span>':'');
+  $('caTagAll').style.display=(routes.length||paths.length)?'inline-block':'none';
+  $('caRoutes').innerHTML=routes.length?('<h3 class="ct" style="font-size:13px;margin:10px 0 4px">Application routes</h3><div class="tablewrap"><table><thead><tr><th>App</th><th>Type</th><th>Vulns</th><th>Own</th><th></th></tr></thead><tbody>'+
+    routes.map((r,i)=>'<tr><td class="mono">'+esc(r.app_name)+'</td><td class="sub">'+esc(r.vuln_type||'')+'</td><td>'+fmt(r.total_vulns||0)+'</td><td>'+(r.owned?'<span class="pill ok">owned</span>':'<span class="sub">—</span>')+'</td><td><button class="btn sm caTagR" data-i="'+i+'">🏷 Tag</button></td></tr>').join('')+'</tbody></table></div>'):'';
+  $('caPaths').innerHTML=paths.length?('<h3 class="ct" style="font-size:13px;margin:10px 0 4px">Filesystem paths</h3><div class="tablewrap"><table><thead><tr><th>Path</th><th>Assets</th><th>Own</th><th></th></tr></thead><tbody>'+
+    paths.map((p,i)=>'<tr><td class="mono">'+esc(p.path)+'</td><td>'+fmt(p.assets)+'</td><td>'+(p.owned?'<span class="pill ok">owned</span>':'<span class="sub">—</span>')+'</td><td><button class="btn sm caTagP" data-i="'+i+'">🏷 Tag</button></td></tr>').join('')+'</tbody></table></div>'):'';
+  const nameOf=()=>($('caName').value.trim()||$('caKw').value.trim());
+  document.querySelectorAll('.caTagR').forEach(b=>b.onclick=()=>{ const r=routes[+b.dataset.i]; const pl=_plugins(r.plugin_list);
+    if(!pl.length){ $('caMsg').innerHTML='<span style="color:var(--crit)">route has no plugin_list to select on</span>'; return; }
+    const q="SELECT DISTINCT asset_uuid FROM vulns WHERE plugin_id IN ("+pl.map(p=>"'"+p+"'").join(',')+")";
+    gatedWrite({op:'tag',title:'Tag custom app (route)',selector:'plugin_list('+pl.length+')',doneNote:'route app tag queued',
+      body:'Tag assets on route <b>'+esc(r.app_name)+'</b> as <b>Custom App : '+esc(nameOf())+'</b> (via '+pl.length+' plugins)? Gated navi write.'},
+      'navi_enrich_tag',{category:'Custom App',value:nameOf(),query:q}); });
+  document.querySelectorAll('.caTagP').forEach(b=>b.onclick=()=>{ const p=paths[+b.dataset.i];
+    const q="SELECT DISTINCT asset_uuid FROM vuln_paths WHERE path='"+String(p.path).replace(/'/g,"''")+"'";
+    gatedWrite({op:'tag',title:'Tag custom app (path)',selector:'path',doneNote:'path app tag queued',
+      body:'Tag assets with path <b>'+esc(p.path)+'</b> as <b>Custom App : '+esc(nameOf())+'</b>? Gated navi write.'},
+      'navi_enrich_tag',{category:'Custom App',value:nameOf(),query:q}); });
+}
+function wireCustomapp(){
+  $('caSearch').onclick=async()=>{ const kw=$('caKw').value.trim(); if(!kw){ $('caMsg').textContent='enter a keyword'; return; }
+    if(!$('caName').value.trim())$('caName').value=kw;
+    $('caMsg').textContent='searching routes & paths…'; await caLoadOwned();
+    const like="'%"+kw.toLowerCase().replace(/'/g,"''")+"%'";
+    const rr=await query("SELECT app_name, vuln_type, total_vulns, plugin_list FROM vuln_route WHERE lower(app_name) LIKE "+like+" ORDER BY total_vulns DESC LIMIT 200",200);
+    CA_ROUTES=rr.ok?rows(rr.data).map(x=>({...x,owned:CA_OWNED.has(_nk(x.app_name))})):[];
+    const pr=await query("SELECT path, COUNT(DISTINCT asset_uuid) AS assets FROM vuln_paths WHERE lower(path) LIKE "+like+" GROUP BY path ORDER BY assets DESC LIMIT 200",200);
+    CA_PATHS=pr.ok?rows(pr.data).map(x=>({...x,owned:CA_OWNED.has(_nk(x.path))})):[];
+    if(!rr.ok&&!pr.ok){ $('caMsg').innerHTML='<span style="color:var(--crit)">✗ route/path tables unavailable — run <code>navi config update route</code> / <code>paths</code></span>'; return; }
+    caRender(); await caFunnel(); };
+  $('caHideOwned').onchange=caRender;
+  $('caTagAll').onclick=async()=>{ const nm=($('caName').value.trim()||$('caKw').value.trim()); const hide=$('caHideOwned').checked; const ign=[...CA_IGNORE];
+    const flt=x=>!(ign.some(t=>_nk(x).includes(t)));
+    const routes=CA_ROUTES.filter(r=>flt(r.app_name)&&(!hide||!r.owned)); const paths=CA_PATHS.filter(p=>flt(p.path)&&(!hide||!p.owned));
+    const pl=[...new Set(routes.flatMap(r=>_plugins(r.plugin_list)))];
+    const parts=[]; if(paths.length)parts.push("SELECT DISTINCT asset_uuid FROM vuln_paths WHERE lower(path) LIKE '%"+$('caKw').value.trim().toLowerCase().replace(/'/g,"''")+"%'");
+    if(pl.length)parts.push("SELECT DISTINCT asset_uuid FROM vulns WHERE plugin_id IN ("+pl.map(p=>"'"+p+"'").join(',')+")");
+    if(!parts.length){ $('caMsg').innerHTML='<span style="color:var(--crit)">nothing to tag</span>'; return; }
+    const q=parts.join(' UNION ');
+    gatedWrite({op:'tag',title:'Tag custom app (all matches)',selector:paths.length+' paths + '+pl.length+' plugins',doneNote:'app tag queued',
+      body:'Tag <b>'+fmt(routes.length)+'</b> route(s) + <b>'+fmt(paths.length)+'</b> path(s) as <b>Custom App : '+esc(nm)+'</b> in one query? Gated navi write.'},
+      'navi_enrich_tag',{category:'Custom App',value:nm,query:q}); };
+  $('caIgnAdd').onclick=()=>{ const t=_nk($('caIgn').value); if(!t)return; CA_IGNORE.add(t); $('caIgn').value='';
+    $('caIgnList').textContent=CA_IGNORE.size?('ignoring: '+[...CA_IGNORE].join(', ')):''; caRender(); };
+}
+async function caFunnel(){ const host=$('caFunnel'); host.innerHTML='';
+  const q=async s=>{ const r=await query(s,1); return r.ok?((rows(r.data)[0]||{}).c||0):null; };
+  const plugins=await q("SELECT COUNT(DISTINCT plugin_id) AS c FROM vulns");
+  const apps=await q("SELECT COUNT(DISTINCT app_name) AS c FROM vuln_route");
+  const paths=await q("SELECT COUNT(DISTINCT path) AS c FROM vuln_paths");
+  const stages=[['Plugins',plugins],['App routes',apps],['File paths',paths]].filter(s=>s[1]!=null);
+  if(!stages.length)return;
+  host.innerHTML='<div class="row" style="gap:6px">'+stages.map(s=>'<span class="pill">'+esc(s[0])+': <b>'+fmt(s[1])+'</b></span>').join('<span class="sub">→</span>')+'</div>';
+}
+
+/* ============================ ACR CALIBRATION (Anubis) — full parity ============================
+   Repo parity: run (list tags, collapsible by category), interpret (NL -> validated change
+   plan), bulk_apply (many changes at once) with per-row deselect + editable score, set/inc/dec,
+   change reason, suggested tier mapping. Reproduced fully on navi_explore_query + navi_enrich_acr
+   + askClaude — no repo-only engine needed here. */
+let ACRTAGS=[], CHANGES=[];
+const REASONS=['business','compliance','mitigation','development'];
+function acrHTML(){ return `<div class="card"><div class="row"><div class="logo sm">⚖️</div><div><h2 class="ct">ACR Calibration</h2><div class="sub" style="font-size:12px">Anubis · recalibrate Asset Criticality by tag segment — navi is the sole ACR writer</div></div>
+    <button class="btn sm" id="acrLoad" style="margin-left:auto">Load tags</button></div>
+    <div class="row" style="margin-top:10px"><input type="text" id="acrNL" class="val" placeholder="describe changes in plain English — e.g. 'set production to 9, dev &amp; test to 3, crown jewels to 10'"><button class="btn" id="acrDraft">✨ Draft plan</button><span class="sub" id="acrNLmsg" style="font-size:12px"></span></div>
+    <div id="acrGroups" style="margin-top:10px"></div>
+    <div class="row" id="acrAddRow" style="margin-top:10px;display:none;border-top:1px solid var(--line);padding-top:10px">
+      <span class="sub">Stage checked at ACR</span>
+      <select id="acrScore"></select>
+      <select id="acrMod"><option value="set">set</option><option value="inc">+inc</option><option value="dec">−dec</option></select>
+      <select id="acrReason">${REASONS.map(r=>'<option>'+r+'</option>').join('')}</select>
+      <button class="btn" id="acrAdd">➕ Stage</button>
+      <span class="sub">tiers:</span>
+      <button class="btn sm acrTier" data-s="10">Crown 10</button><button class="btn sm acrTier" data-s="9">Prod 9</button><button class="btn sm acrTier" data-s="6">Std 6</button><button class="btn sm acrTier" data-s="3">Dev 3</button><button class="btn sm acrTier" data-s="2">Test 2</button>
+    </div>
+    <div id="acrChanges"></div>
+    <div class="row" id="acrApplyRow" style="margin-top:10px;display:none"><button class="btn pri" id="acrApply">⚖ Apply staged changes</button><button class="btn sm" id="acrClear">Clear staged</button><span class="sub" id="acrMsg" style="font-size:12px"></span></div>
+    <p class="note">Tenable One requires a change reason on every ACR write. Suggested tiers: Crown 10 · Prod/critical 9 · high 8 · standard 6 · dev 3 · test 2. Deselect any row in the preview before applying.</p></div>`; }
+function renderAcrGroups(){ const host=$('acrGroups'); if(!ACRTAGS.length){host.innerHTML='';return;}
+  const byCat={}; ACRTAGS.forEach(t=>{(byCat[t.category]=byCat[t.category]||[]).push(t);});
+  host.innerHTML='<div class="sub" style="font-size:12px;margin-bottom:4px">Check tags, then Stage them at a tier — or use the plain-English box above.</div>'+
+    Object.keys(byCat).sort().map(cat=>'<details style="margin-top:6px;border:1px solid var(--line);border-radius:9px;padding:6px 10px"><summary style="cursor:pointer;font-weight:600">'+esc(cat)+' <span class="sub">('+byCat[cat].length+')</span></summary>'+
+      byCat[cat].map(t=>'<label class="selrow"><input type="checkbox" class="acrck" data-cat="'+esc(cat)+'" data-val="'+esc(t.value)+'"><span class="nm"><b>'+esc(t.value)+'</b></span><span class="ct">'+fmt(t.assets)+' assets</span></label>').join('')+'</details>').join('');
+  $('acrAddRow').style.display='flex';
+}
+function acrStage(score,mod,reason){ const checked=[...document.querySelectorAll('.acrck:checked')];
+  if(!checked.length){ $('acrMsg')&&($('acrMsg').textContent=''); }
+  checked.forEach(c=>{ const cat=c.dataset.cat,val=c.dataset.val; const ex=CHANGES.find(x=>x.category===cat&&x.value===val);
+    if(ex){ex.score=score;ex.mod=mod;ex.reason=reason;} else CHANGES.push({category:cat,value:val,mod,score,reason,why:'manual',on:true}); c.checked=false; });
+  renderChanges();
+}
+function renderChanges(){ const host=$('acrChanges'); if(!host)return;
+  if(!CHANGES.length){ host.innerHTML=''; $('acrApplyRow').style.display='none'; return; }
+  host.innerHTML='<div class="tablewrap"><table><thead><tr><th>On</th><th>Tag</th><th>Mod</th><th>ACR</th><th>Reason</th><th>Why</th></tr></thead><tbody>'+
+    CHANGES.map((c,i)=>'<tr><td><input type="checkbox" class="chon" data-i="'+i+'"'+(c.on?' checked':'')+'></td><td class="mono">'+esc(c.category+' : '+c.value)+'</td><td>'+esc(c.mod)+'</td><td><input class="chsc" data-i="'+i+'" value="'+esc(c.score)+'" style="width:44px"></td><td>'+esc(c.reason)+'</td><td class="sub">'+esc(c.why||'')+'</td></tr>').join('')+'</tbody></table></div>';
+  host.querySelectorAll('.chon').forEach(x=>x.onchange=()=>CHANGES[+x.dataset.i].on=x.checked);
+  host.querySelectorAll('.chsc').forEach(x=>x.oninput=()=>{const v=parseInt(x.value,10); if(v>=1&&v<=10)CHANGES[+x.dataset.i].score=v;});
+  $('acrApplyRow').style.display='flex';
+}
+function wireAcr(){ const sc=$('acrScore'); for(let s=10;s>=1;s--) sc.insertAdjacentHTML('beforeend','<option'+(s===9?' selected':'')+'>'+s+'</option>');
+  $('acrLoad').onclick=async()=>{ $('acrGroups').innerHTML='<p class="sub">loading tags…</p>';
+    const r=await query("SELECT tag_key AS category, tag_value AS value, COUNT(DISTINCT asset_uuid) AS assets FROM tags GROUP BY tag_key,tag_value ORDER BY tag_key, assets DESC",3000);
+    if(!r.ok){ $('acrGroups').innerHTML='<p class="sub" style="color:var(--crit)">✗ '+esc(r.error)+'</p>'; return; }
+    ACRTAGS=rows(r.data); renderAcrGroups(); };
+  $('acrAdd').onclick=()=>acrStage(parseInt($('acrScore').value,10),$('acrMod').value,$('acrReason').value);
+  document.querySelectorAll('.acrTier').forEach(b=>b.onclick=()=>acrStage(parseInt(b.dataset.s,10),'set',$('acrReason').value));
+  $('acrDraft').onclick=async()=>{ const nl=$('acrNL').value.trim(); if(!nl)return;
+    if(!ACRTAGS.length){ $('acrNLmsg').innerHTML='<span style="color:var(--crit)">load tags first</span>'; return; }
+    if(!window.cowork||!window.cowork.askClaude){ $('acrNLmsg').innerHTML='<span style="color:var(--crit)">reasoning unavailable</span>'; return; }
+    $('acrNLmsg').textContent='drafting plan…';
+    const list=ACRTAGS.map(t=>({category:t.category,value:t.value}));
+    const p='You calibrate Tenable Asset Criticality (ACR 1-10). Tags available (JSON): '+JSON.stringify(list)+
+      '. Instruction: "'+nl+'". Return ONLY a JSON array of changes: [{"category","value","mod":"set|inc|dec","score":1-10,"reason":"business|compliance|mitigation|development","why":"<=10 words"}] using only tags from the list. No prose, no code fences.';
+    try{ let r=await window.cowork.askClaude(p,[]); r=(typeof r==='string')?r:(r&&(r.text||r.output||''))+''; r=r.replace(/```json|```/gi,'').trim();
+      const arr=JSON.parse(r); let n=0;
+      arr.forEach(c=>{ const t=ACRTAGS.find(x=>x.category===c.category&&x.value===c.value); const s=parseInt(c.score,10);
+        if(t&&s>=1&&s<=10&&['set','inc','dec'].includes(c.mod||'set')){ const reason=REASONS.includes(c.reason)?c.reason:'business';
+          const ex=CHANGES.find(x=>x.category===c.category&&x.value===c.value);
+          if(ex){ex.score=s;ex.mod=c.mod||'set';ex.reason=reason;ex.why=(c.why||'').slice(0,60);} else {CHANGES.push({category:c.category,value:c.value,mod:c.mod||'set',score:s,reason,why:(c.why||'').slice(0,60),on:true});n++;} } });
+      renderChanges(); $('acrNLmsg').innerHTML='<span style="color:var(--ok)">staged '+n+' change(s) — review + deselect, then Apply.</span>';
+    }catch(e){ $('acrNLmsg').innerHTML='<span style="color:var(--crit)">Haiku returned non-JSON — stage manually</span>'; } };
+  $('acrClear').onclick=()=>{ CHANGES=[]; renderChanges(); };
+  $('acrApply').onclick=async()=>{ const on=CHANGES.filter(c=>c.on); if(!on.length){ $('acrMsg').innerHTML='<span style="color:var(--crit)">nothing enabled</span>'; return; }
+    const prev='<div class="callbox">'+on.map(c=>esc(c.category+' : '+c.value)+' → ACR '+c.mod+' '+c.score+' ('+c.reason+')').join('\n')+'</div>';
+    const okc=await confirmWrite('Apply ACR changes','Apply <b>'+on.length+'</b> ACR change(s)? Each is a gated navi write, logged.',prev); if(!okc) return;
+    $('acrMsg').textContent='running…'; let done=0;
+    for(const c of on){ const a={category:c.category,value:c.value,score:c.score,mod:c.mod}; a[c.reason||'business']=true; if(c.why&&c.why!=='manual')a.note=c.why;
+      const e={ts:new Date().toLocaleTimeString(),op:'acr',category:c.category,value:c.value,selector:c.mod+' '+c.score+' ('+c.reason+')',status:'running',detail:'ACR'};
+      TAGLOG.unshift(e); renderTagLog();
+      const r=await mcp('navi_enrich_acr',Object.assign({confirm:true},a));
+      e.status=r.ok?'done':'error'; e.detail=r.ok?'ACR set':(r.error||'failed'); if(r.ok&&r.data&&r.data.writes_enabled===false){e.status='blocked';e.detail='writes gated';}
+      renderTagLog(); if(r.ok)done++; c.on=false; }
+    renderChanges(); $('acrMsg').innerHTML='<span style="color:var(--ok)">✓ '+done+' ACR write(s) queued — see Tag log.</span>'; }; }
+
+/* ============================ AI CONTRACT (Covenant) — full parity ============================
+   Matches the repo contract EXACTLY: 13 taggable agents, EACH with its own plain-English
+   policy (blank -> risk-weighted top-N), plus explicit ACR rules and the Garmr removal
+   phase, with default top-N + cadence + armed. Plan (no writes) previews per agent; Run
+   one cycle applies (gated, logged). NEEDS-NAVI: the autonomous scheduler loop, the
+   _candidates() risk-ranking that powers the top-N fallback, and Gabriel email are repo/navi
+   engine features — expose them as navi tools for true parity; here we approximate the
+   fallback with a per-agent default selector and export the policy/navi script that feeds them. */
+const TAGGERS=[
+ {id:'iot_squad',label:'IoT squad',category:'Asset Inventory',value:'Device Type: IoT',sql:"SELECT DISTINCT asset_uuid FROM vulns WHERE lower(plugin_name) LIKE '%camera%' OR lower(plugin_name) LIKE '%printer%' OR lower(plugin_name) LIKE '%hikvision%' OR lower(plugin_name) LIKE '%synology%' OR lower(plugin_name) LIKE '%nas%'"},
+ {id:'customapp',label:'Custom apps',category:'Custom App',value:'Custom App',sql:"SELECT DISTINCT asset_uuid FROM vuln_paths"},
+ {id:'exproute',label:'Ownership (Atlas)',category:'Owner',value:'Owner',sql:"SELECT DISTINCT v.asset_uuid FROM vulns v JOIN vuln_route r ON r.plugin_list LIKE '%'''||v.plugin_id||'''%'"},
+ {id:'eol',label:'EOL / unsupported',category:'Lifecycle',value:'End of Life',sql:"SELECT DISTINCT asset_uuid FROM vulns WHERE lower(plugin_name) LIKE '%unsupported%' OR lower(plugin_name) LIKE '%end of life%' OR lower(plugin_name) LIKE '%no longer supported%'"},
+ {id:'software',label:'Software (Mimir)',category:'Software',value:'Software',sql:"SELECT DISTINCT asset_uuid FROM vulns WHERE plugin_id IN ('20811','22869','83991')"},
+ {id:'ai',label:'AI inventory',category:'AI',value:'Artificial Intelligence',sql:"SELECT DISTINCT asset_uuid FROM vulns WHERE lower(plugin_name) LIKE '%openai%' OR lower(plugin_name) LIKE '%tensorflow%' OR lower(plugin_name) LIKE '%pytorch%' OR lower(plugin_name) LIKE '%ollama%' OR lower(plugin_name) LIKE '%nvidia%'"},
+ {id:'identity',label:'Identity',category:'Identity',value:'Identity',sql:"SELECT DISTINCT asset_uuid FROM vulns WHERE plugin_id IN ('149334','110723')"},
+ {id:'mitre',label:'MITRE ATT&CK',category:'MITRE',value:'ATT&CK',sql:"SELECT DISTINCT asset_uuid FROM vulns WHERE xrefs LIKE '%MITRE%'"},
+ {id:'scan_eval',label:'Scan eval',category:'Scan Health',value:'Cred Failure',sql:"SELECT DISTINCT asset_uuid FROM vulns WHERE plugin_id IN ('104410','21745','110723','117885','84239')"},
+ {id:'certificate',label:'Certificates',category:'Cert failure',value:'Cert failure',sql:"SELECT DISTINCT asset_uuid FROM certs WHERE not_valid_after IS NOT NULL AND substr(not_valid_after,1,10) <= date('now','+365 day')"},
+ {id:'cisakev',label:'CISA KEV (Laelaps)',category:'CISA KEV',value:'Vulnerable (CISA KEV)',sql:"SELECT DISTINCT asset_uuid FROM vulns WHERE xrefs LIKE '%CISA-KNOWN-EXPLOITED%'"},
+ {id:'postquantum',label:'Post-Quantum (Heimdall)',category:'Post-Quantum',value:'PQC Harvest-Now',sql:"SELECT DISTINCT asset_uuid FROM certs WHERE lower(signature_algorithm) NOT LIKE '%ml-dsa%' AND lower(signature_algorithm) NOT LIKE '%dilithium%' AND lower(signature_algorithm) NOT LIKE '%sphincs%'"},
+ {id:'agentgroup',label:'Agent groups (Sirius)',category:'Agent Group',value:'',special:'groups',sql:""},
+];
+let CONTRACT=null;
+function defaultContract(){ const ag={}; TAGGERS.forEach(t=>ag[t.id]={enabled:true,logic:''});
+  return {armed:false,schedule_hours:4,top_n:50,navi_update:true,acr:[],removal:{enabled:false,tags:[],pause_minutes:30,navi_update:true},notify:{enabled:true,to:''},agents:ag}; }
+function contractHTML(){ return `
+  <div class="card"><div class="row"><div class="logo sm">📜</div><div><h2 class="ct">AI Navi Contract</h2><div class="sub" style="font-size:12px">Covenant · capture your policy once — the loop tags, sets ACR, waits, re-runs. Blank per-agent policy = risk-weighted top-N.</div></div>
+    <span class="chip" id="ctArmed" style="margin-left:auto">○ Disarmed — plan only</span></div>
+    <div class="kpis" id="ctKpis" style="margin-top:12px"></div>
+    <div class="row" style="margin-top:10px"><button class="btn" id="ctBuild">⬇ Build from tag log</button><button class="btn" id="ctPlanBtn">🔍 Plan (no writes)</button><button class="btn" id="ctRunBtn">▶ Run one cycle now</button><button class="btn pri" id="ctArm" style="margin-left:auto">⚡ Arm contract</button></div>
+    <div class="row" style="margin-top:8px"><button class="btn sm" id="ctExport">⬇ Export JSON</button><button class="btn sm" id="ctImport">⬆ Import JSON</button><button class="btn sm" id="ctScript">⬇ Export navi script</button><button class="btn sm" id="ctSave">💾 Save contract</button><span class="sub" id="ctMsg" style="font-size:12px"></span></div>
+    <input type="file" id="ctFile" accept="application/json" style="display:none"></div>
+  <div class="card"><h2 class="ct">🔍 Plan preview</h2><div id="ctPlan"><p class="sub" style="font-size:12.5px;margin-top:8px">Click <b>Plan (no writes)</b> to preview what the contract would tag — per agent, no writes.</p></div></div>
+  <div class="card"><h2 class="ct">Per-agent policy</h2><p class="sub" style="font-size:12.5px;margin:2px 0 6px">Leave a policy blank to fall back to the risk-weighted top-N. E.g. IoT → <i>"tag all IoT but not Dell or Intel — those are laptops"</i>; Custom apps → <i>"only /opt apps and jenkins matter"</i>.</p><div id="ctAgents"></div></div>
+  <div class="card"><div class="row"><h2 class="ct">ACR changes</h2><button class="btn sm" id="ctAcrAdd" style="margin-left:auto">+ ACR rule</button></div>
+    <p class="sub" style="font-size:12.5px;margin:2px 0 0">ACR is never auto-ranked — add explicit rules here.</p><div id="ctAcrList"></div></div>
+  <div class="card"><div class="row"><div class="logo sm">🗑</div><h2 class="ct">Tag removal (Garmr)</h2><button class="btn sm" id="ctRemAdd" style="margin-left:auto">+ tag</button></div>
+    <p class="sub" style="font-size:12.5px;margin:2px 0 6px">When armed, the contract <b>removes these tags first</b>, forces a pause, runs <code>navi update</code>, then re-runs tagging. (Scheduling + email are navi/repo — export feeds them.)</p>
+    <div class="row"><label><input type="checkbox" id="ctRemEnable"> enable removal phase</label> <span class="sub">pause</span> <input type="text" id="ctRemPause" value="30" style="width:56px"> <span class="sub">min</span> <label><input type="checkbox" id="ctRemUpd" checked> run <code>navi update</code> after</label></div>
+    <div id="ctRemList"></div></div>`; }
+function renderContract(){ if(!CONTRACT)CONTRACT=defaultContract();
+  const enabled=TAGGERS.filter(t=>CONTRACT.agents[t.id].enabled).length;
+  const k=(v,l)=>'<div class="kpi"><div class="v">'+v+'</div><div class="l">'+l+'</div></div>';
+  if($('ctKpis')) $('ctKpis').innerHTML=k(enabled,'agents enabled')+k(CONTRACT.top_n,'default top-N (risk)')+k(CONTRACT.schedule_hours+'h','cadence')+k('gated','writes');
+  if($('ctArmed')){ $('ctArmed').textContent=CONTRACT.armed?'● Armed — writes on cycle':'○ Disarmed — plan only'; $('ctArmed').className='chip '+(CONTRACT.armed?'live':'demo'); }
+  // per-agent policy rows
+  if($('ctAgents')) $('ctAgents').innerHTML=TAGGERS.map(t=>'<div style="display:grid;grid-template-columns:190px 1fr;gap:10px;align-items:start;margin-top:8px">'+
+    '<label style="padding-top:7px"><input type="checkbox" class="agEn" data-id="'+t.id+'"'+(CONTRACT.agents[t.id].enabled?' checked':'')+'> <b>'+esc(t.label)+'</b></label>'+
+    '<textarea class="agPol" data-id="'+t.id+'" rows="2" placeholder="policy (blank = risk-weighted top-N)">'+esc(CONTRACT.agents[t.id].logic)+'</textarea></div>').join('');
+  if($('ctAgents')){ $('ctAgents').querySelectorAll('.agEn').forEach(c=>c.onchange=()=>{CONTRACT.agents[c.dataset.id].enabled=c.checked; renderContract();});
+    $('ctAgents').querySelectorAll('.agPol').forEach(t=>t.oninput=()=>{CONTRACT.agents[t.dataset.id].logic=t.value;}); }
+  // ACR rules
+  if($('ctAcrList')){ const A=CONTRACT.acr;
+    $('ctAcrList').innerHTML=A.length?('<div class="tablewrap"><table><thead><tr><th>Category</th><th>Value</th><th>Mod</th><th>ACR</th><th>Reason</th><th></th></tr></thead><tbody>'+
+      A.map((r,i)=>'<tr><td><input class="ar" data-i="'+i+'" data-f="category" value="'+esc(r.category||'')+'" style="width:130px"></td><td><input class="ar" data-i="'+i+'" data-f="value" value="'+esc(r.value||'')+'" style="width:150px"></td>'+
+        '<td><select class="ar" data-i="'+i+'" data-f="mod"><option'+(r.mod!=='inc'&&r.mod!=='dec'?' selected':'')+'>set</option><option'+(r.mod==='inc'?' selected':'')+'>inc</option><option'+(r.mod==='dec'?' selected':'')+'>dec</option></select></td>'+
+        '<td><input class="ar" data-i="'+i+'" data-f="score" value="'+esc(r.score||9)+'" style="width:44px"></td>'+
+        '<td><select class="ar" data-i="'+i+'" data-f="reason">'+REASONS.map(x=>'<option'+((r.reasons&&r.reasons[0]===x)?' selected':'')+'>'+x+'</option>').join('')+'</select></td>'+
+        '<td><button class="btn sm arDel" data-i="'+i+'">✕</button></td></tr>').join('')+'</tbody></table></div>')
+      :'<p class="sub" style="margin-top:8px">No ACR rules. ACR is never auto-ranked — add explicit rules here.</p>';
+    $('ctAcrList').querySelectorAll('.ar').forEach(inp=>inp.oninput=inp.onchange=()=>{const r=A[+inp.dataset.i],f=inp.dataset.f; if(f==='reason')r.reasons=[inp.value]; else r[f]=(f==='score')?(parseInt(inp.value,10)||9):inp.value;});
+    $('ctAcrList').querySelectorAll('.arDel').forEach(b=>b.onclick=()=>{A.splice(+b.dataset.i,1); renderContract();}); }
+  // removal phase
+  if($('ctRemEnable')){ $('ctRemEnable').checked=CONTRACT.removal.enabled; $('ctRemPause').value=CONTRACT.removal.pause_minutes; $('ctRemUpd').checked=CONTRACT.removal.navi_update;
+    const T=CONTRACT.removal.tags;
+    $('ctRemList').innerHTML=T.length?T.map((t,i)=>'<div class="selrow"><input class="rr" data-i="'+i+'" data-f="category" value="'+esc(t.category||'')+'" style="width:130px"><span class="sub">:</span><input class="rr" data-i="'+i+'" data-f="value" value="'+esc(t.value||'')+'" style="width:170px"><button class="btn sm rrDel" data-i="'+i+'" style="margin-left:auto">✕</button></div>').join('')
+      :'<p class="sub" style="margin-top:6px">No tags to remove. Add from Tag removal, or click <b>+ tag</b>.</p>';
+    $('ctRemList').querySelectorAll('.rr').forEach(inp=>inp.oninput=()=>{T[+inp.dataset.i][inp.dataset.f]=inp.value;});
+    $('ctRemList').querySelectorAll('.rrDel').forEach(b=>b.onclick=()=>{T.splice(+b.dataset.i,1); renderContract();}); }
+}
+async function ctSelector(t){ const pol=CONTRACT.agents[t.id].logic.trim();
+  if(pol && window.cowork && window.cowork.askClaude){
+    const p='For a Tenable navi.db, write ONE SELECT returning asset_uuid for the "'+t.label+'" enrichment agent, honoring this policy: "'+pol+'". '+SCHEMA+' Base cohort SQL (refine this): '+(t.sql||'')+'. Return ONLY the SQL, single statement, no fences.';
+    try{ let r=await window.cowork.askClaude(p,[]); r=(typeof r==='string')?r:(r&&(r.text||r.output||''))+''; const sql=r.replace(/```sql|```/gi,'').trim().replace(/;+$/,''); if(/select/i.test(sql)) return {sql, note:'policy'}; }catch(e){}
+  }
+  return {sql:t.sql, note:'risk-weighted top-'+CONTRACT.top_n};
+}
+async function ctPlan(){ $('ctPlan').innerHTML='<p class="sub">planning (no writes)…</p>';
+  const on=TAGGERS.filter(t=>CONTRACT.agents[t.id].enabled); const out=[];
+  for(const t of on){
+    if(t.special==='groups'){ const g=await info('agent_groups'); out.push({label:t.label,n:g.ok?rows(g.data).length:'—',note:'each agent group',value:'per group'}); continue; }
+    const sel=await ctSelector(t); const r=await query(sel.sql,CONTRACT.top_n);
+    out.push({label:t.label,n:r.ok?rows(r.data).length:('✗ '+esc(r.error)),note:sel.note,value:t.category+' : '+t.value}); }
+  $('ctPlan').innerHTML='<div class="tablewrap"><table><thead><tr><th>Agent</th><th>Would tag</th><th>Assets (≤top-N)</th><th>Basis</th></tr></thead><tbody>'+
+    out.map(o=>'<tr><td><b>'+esc(o.label)+'</b></td><td class="mono">'+esc(o.value)+'</td><td class="mono">'+esc(o.n)+'</td><td class="sub">'+esc(o.note)+'</td></tr>').join('')+'</tbody></table></div>';
+}
+async function ctRun(){ const on=TAGGERS.filter(t=>CONTRACT.agents[t.id].enabled);
+  const okc=await confirmWrite('Run one contract cycle','Run the contract now: '+(CONTRACT.removal.enabled?'removal phase, then ':'')+'<b>'+on.length+'</b> agent(s)'+(CONTRACT.acr.length?' + '+CONTRACT.acr.length+' ACR rule(s)':'')+'. Each is a gated navi write, logged. The 30-min pause + schedule are enforced only in the navi/repo scheduler.','');
+  if(!okc) return; $('ctMsg').textContent='running cycle…';
+  const logrun=async(op,tool,args)=>{ const e={ts:new Date().toLocaleTimeString(),op,category:args.category,value:args.value,selector:(args.query?'query':args.group?'group':args.remove?'remove':''),status:'running',detail:'contract'}; TAGLOG.unshift(e); renderTagLog(); const r=await mcp(tool,Object.assign({confirm:true},args)); e.status=r.ok?'done':'error'; e.detail=r.ok?'contract':(r.error||'failed'); if(r.ok&&r.data&&r.data.writes_enabled===false){e.status='blocked';e.detail='writes gated';} renderTagLog(); return r; };
+  if(CONTRACT.removal.enabled){ for(const t of CONTRACT.removal.tags){ if(t.category&&t.value) await logrun('remove','navi_enrich_tag',{category:t.category,value:t.value,remove:true}); } }
+  for(const t of on){ if(t.special==='groups'){ const g=await info('agent_groups'); const gs=rows(g.data); const nk=gs.length?(Object.keys(gs[0]).find(k=>/name/i.test(k))||Object.keys(gs[0])[0]):null; for(const grp of gs){ if(nk) await logrun('tag','navi_enrich_tag',{category:'Agent Group',value:grp[nk],group:grp[nk]}); } continue; }
+    const sel=await ctSelector(t); await logrun('tag','navi_enrich_tag',{category:t.category,value:t.value,query:sel.sql}); }
+  for(const a of CONTRACT.acr){ if(a.category&&a.value){ const args={category:a.category,value:a.value,score:a.score||9,mod:a.mod||'set'}; args[(a.reasons&&a.reasons[0])||'business']=true; await logrun('acr','navi_enrich_acr',args); } }
+  $('ctMsg').innerHTML='<span style="color:var(--ok)">✓ cycle queued — see Tag log. ~30 min propagation.</span>';
+}
+function ctExportScript(){ let s='#!/usr/bin/env bash\n# The Hounds — AI Navi Contract (exported)\nset -e\n';
+  if(CONTRACT.removal.enabled) CONTRACT.removal.tags.forEach(t=>{ if(t.category&&t.value) s+='navi enrich tag --c "'+t.category+'" --v "'+t.value+'" -remove\n'; });
+  if(CONTRACT.removal.enabled) s+='echo "waiting '+CONTRACT.removal.pause_minutes+'m"; sleep '+(CONTRACT.removal.pause_minutes*60)+'\n'+(CONTRACT.removal.navi_update?'navi update -d\n':'');
+  TAGGERS.filter(t=>CONTRACT.agents[t.id].enabled).forEach(t=>{ if(t.special==='groups'){ s+='# agent groups: loop navi enrich tag --c "Agent Group" --v <name> --group <name>\n'; return; }
+    const pol=CONTRACT.agents[t.id].logic.trim(); s+=(pol?('# policy: '+pol+'\n'):'')+'navi enrich tag --c "'+t.category+'" --v "'+t.value+'" --query "'+(t.sql||'').replace(/"/g,'\\"')+'"\n'; });
+  CONTRACT.acr.forEach(a=>{ if(a.category&&a.value) s+='navi enrich acr --c "'+a.category+'" --v "'+a.value+'" --acr '+(a.score||9)+' --'+((a.reasons&&a.reasons[0])||'business')+'\n'; });
+  const blob=new Blob([s],{type:'text/plain'}); const el=document.createElement('a'); el.href=URL.createObjectURL(blob); el.download='hounds-contract.sh'; el.click();
+}
+function wireContract(){
+  $('ctPlanBtn').onclick=ctPlan; $('ctRunBtn').onclick=ctRun;
+  $('ctArm').onclick=()=>{ CONTRACT.armed=!CONTRACT.armed; renderContract(); $('ctMsg').innerHTML=CONTRACT.armed?'<span style="color:var(--ok)">armed — the recurring loop runs in navi/repo; use Run one cycle here.</span>':'disarmed'; };
+  $('ctBuild').onclick=()=>{ // seed removal + ACR from this session's tag log
+    TAGLOG.forEach(e=>{ if(e.op==='remove'&&e.category&&!CONTRACT.removal.tags.find(t=>t.category===e.category&&t.value===e.value)){ CONTRACT.removal.tags.push({category:e.category,value:e.value}); CONTRACT.removal.enabled=true; } });
+    renderContract(); $('ctMsg').textContent='seeded from tag log'; };
+  $('ctAcrAdd').onclick=()=>{ CONTRACT.acr.push({category:'',value:'',mod:'set',score:9,reasons:['business']}); renderContract(); };
+  $('ctRemAdd').onclick=()=>{ CONTRACT.removal.tags.push({category:'',value:''}); CONTRACT.removal.enabled=true; renderContract(); };
+  $('ctRemEnable').onchange=e=>CONTRACT.removal.enabled=e.target.checked;
+  $('ctRemPause').oninput=e=>CONTRACT.removal.pause_minutes=parseInt(e.target.value,10)||30;
+  $('ctRemUpd').onchange=e=>CONTRACT.removal.navi_update=e.target.checked;
+  $('ctExport').onclick=()=>{ const blob=new Blob([JSON.stringify(CONTRACT,null,2)],{type:'application/json'}); const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='navi-contract.json'; a.click(); };
+  $('ctScript').onclick=ctExportScript;
+  $('ctImport').onclick=()=>$('ctFile').click();
+  $('ctFile').onchange=e=>{ const f=e.target.files[0]; if(!f)return; const rd=new FileReader(); rd.onload=()=>{ try{ CONTRACT=JSON.parse(rd.result); renderContract(); $('ctMsg').textContent='imported'; }catch(x){ $('ctMsg').innerHTML='<span style="color:var(--crit)">invalid JSON</span>'; } }; rd.readAsText(f); };
+  $('ctSave').onclick=()=>{ try{ localStorage.setItem('hounds-contract',JSON.stringify(CONTRACT)); $('ctMsg').textContent='saved in this browser'; }catch(x){ $('ctMsg').textContent='save unavailable'; } };
+  try{ const s=localStorage.getItem('hounds-contract'); if(s) CONTRACT=JSON.parse(s); }catch(x){}
+}
+
+/* ============================ Tag log panel ============================ */
+function taglogHTML(){ return `<div class="card"><div class="row"><h2 class="ct">Session tag log</h2><button class="btn sm" id="tlClear" style="margin-left:auto">Clear</button></div>
+  <p class="sub" style="font-size:12.5px;margin:2px 0 0">Every gated write this artifact made. Session-scoped — durable history lives in navi's tag-job store (a future navi MCP capability).</p>
+  <div id="tlBody"></div></div>`; }
+
+/* ============================ SHELL / BUILD ============================ */
+const PANELS=[
+ {v:'classify',label:'Classify'},{v:'iot',label:'IoT / OT'},{v:'identity',label:'Identity'},
+ {v:'software',label:'Software'},{v:'customapp',label:'Custom App'},{v:'groups',label:'Agent groups'},
+ {v:'acr',label:'ACR'},{v:'contract',label:'AI Contract'},{v:'taglog',label:'Tag log'}];
+function build(){
+  $('tabs').innerHTML=PANELS.map((p,i)=>'<button data-v="'+p.v+'"'+(i===0?' class="on"':'')+'>'+p.label+'</button>').join('');
+  let html='';
+  html+='<section class="view on" id="v-classify">'+classifyHTML()+'</section>';
+  html+='<section class="view" id="v-iot">'+signalHTML(IOT_CFG)+'</section>';
+  html+='<section class="view" id="v-identity">'+signalHTML(IDENT_CFG)+'</section>';
+  ENRICH.forEach(c=>{ html+='<section class="view" id="v-'+c.id+'">'+findTagHTML(c)+'</section>'; });
+  html+='<section class="view" id="v-software">'+softwareHTML()+'</section>';
+  html+='<section class="view" id="v-customapp">'+customappHTML()+'</section>';
+  html+='<section class="view" id="v-groups">'+groupsHTML()+'</section>';
+  html+='<section class="view" id="v-acr">'+acrHTML()+'</section>';
+  html+='<section class="view" id="v-contract">'+contractHTML()+'</section>';
+  html+='<section class="view" id="v-taglog">'+taglogHTML()+'</section>';
+  $('panels').innerHTML=html;
+  wireClassify(); wireSignal(IOT_CFG); wireSignal(IDENT_CFG); ENRICH.forEach(wireFindTag); wireSoftware(); wireCustomapp(); wireGroups(); wireAcr(); wireContract();
+  $('tlClear').onclick=()=>{ TAGLOG=[]; renderTagLog(); renderContract(); };
+  $('tabs').querySelectorAll('button').forEach(b=>b.onclick=()=>{
+    $('tabs').querySelectorAll('button').forEach(x=>x.classList.remove('on')); b.classList.add('on');
+    document.querySelectorAll('.view').forEach(v=>v.classList.remove('on')); $('v-'+b.dataset.v).classList.add('on');
+    if(b.dataset.v==='contract') renderContract(); if(b.dataset.v==='taglog') renderTagLog(); });
+  renderTagLog(); renderContract();
+}
+async function probe(){ LASTERR='';
+  const r=await query("SELECT COUNT(uuid) AS c FROM assets",1); LIVE=r.ok;
+  const s=$('srcChip'); s.className='chip '+(LIVE?'live':'demo');
+  s.textContent=LIVE?('● live · '+fmt((rows(r.data)[0]||{}).c)+' assets'):'not connected to navi';
+  const eb=$('err');
+  if(!LIVE){ eb.style.display='block'; eb.innerHTML='<b>navi MCP not reachable.</b> <code>'+esc(LASTERR)+'</code> — connect the navi plugin, then ⟳ recheck.'; } else eb.style.display='none';
+}
+$('retry').onclick=probe;
+build(); probe();
+</script>
+</body></html>

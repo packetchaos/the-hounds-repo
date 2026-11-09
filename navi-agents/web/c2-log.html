@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>C2 Log — The Hounds</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>
+.kpi{display:flex;gap:10px;flex-wrap:wrap;margin:12px 0}
+.kpi .k{flex:1 1 120px;border:1px solid var(--line);border-radius:10px;background:var(--panel);padding:10px 12px;color:inherit;text-decoration:none}
+a.k:hover{border-color:var(--accent)}
+.kpi .v{font-size:22px;font-weight:800}.kpi .l{font-size:11px;color:var(--mut)}
+.st{display:inline-block;padding:2px 9px;border-radius:999px;font-size:11px;font-weight:700;border:1px solid var(--line);white-space:nowrap}
+.st.ok,.st.changed{color:var(--ok);background:var(--ok-bg)}
+.st.failed,.st.auth_failed,.st.unreachable,.st.port_closed,.st.dns_failed,.st.timeout,.st.no_credentials,.st.refused{color:var(--crit);background:var(--crit-bg)}
+.st.hostkey_mismatch{color:#fff;background:var(--crit);border-color:var(--crit)}
+.st.hostkey_unknown,.st.blocked,.st.skipped,.st.cancelled{color:var(--warn);background:var(--warnbg)}
+.st.not_applicable{color:var(--mut)}
+.dim{color:var(--mut)}
+#tbl th[data-k]{cursor:pointer;white-space:nowrap;user-select:none}#tbl th[data-k]:hover{color:var(--accent)}
+#tbl th .ar{font-size:10px;color:var(--accent);margin-left:3px}
+#tbl td{vertical-align:top}
+.flt{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 8px}
+.flt select,.flt input{padding:5px 8px;border-radius:6px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink);max-width:100%}
+.flt select{max-width:min(240px,58vw)}
+.cmd{font-family:var(--mono);font-size:11px;white-space:normal;word-break:break-all;max-width:360px}
+.chain{border:1px solid var(--line);border-left-width:4px;border-radius:9px;padding:9px 12px;margin:10px 0;font-size:13px}
+.inv0{font-size:10.5px;color:var(--warn);border:1px solid var(--warn);border-radius:99px;padding:0 6px;margin-left:4px;white-space:nowrap}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="logo"><span class="hcrest brand" role="img" aria-label="The Hounds"></span></div>
+    <h1>C2 Log <small>THE HOUNDS · EVERY COMMAND ON EVERY HOST</small></h1>
+    <div class="meta"><a class="btn ghost sm" href="/agents/c2/page.html">🐺 Command &amp; Control</a> <a class="btn ghost sm" href="/web/tags-log.html">🏷️ Tagging log</a></div>
+  </header>
+  <p class="sub" style="margin:14px 0 0">One row per host per command that any hound sent through <span class="mono">navi action push</span> — when, which run, who asked (<b>c2</b>, a <b>handoff:</b> from another hound, a <b>remediation:</b> plan), the target (and whether navi.db knows it), the command (secrets masked) and its sha256, the result, exit code, duration and host-key policy. <b>Replies are never stored</b> — the output was shown on the C2 page and is gone. Rows are append-only and hash-chained: an edited, deleted or re-ordered row breaks the chain below.</p>
+  <div id="chain" class="chain">verifying the hash chain…</div>
+  <div class="kpi" id="kpi"></div>
+  <div class="flt">
+    <label class="sub">Status <select id="fStatus"><option value="">(any)</option></select></label>
+    <label class="sub">Source <select id="fSource"><option value="">(any)</option></select></label>
+    <label class="sub">Mode <select id="fMode"><option value="">(any)</option></select></label>
+    <label class="sub">navi.db <select id="fInv"><option value="">(any)</option><option value="1">in navi.db</option><option value="0">not in navi.db</option></select></label>
+    <label class="sub">From <input id="fFrom" type="date"></label>
+    <label class="sub">To <input id="fTo" type="date"></label>
+    <input id="fQ" placeholder="host / IP / command / run id…" style="flex:1;min-width:180px">
+    <button class="btn ghost sm" id="reset">✕ Clear filters</button>
+    <button class="btn ghost sm" id="refresh">↻ Refresh</button>
+    <button class="btn ghost sm" id="exportCsv" title="Download the rows matching the filters as CSV (incl. the hash chain)">⬇ Export CSV</button>
+  </div>
+  <p class="sub" id="fCount" style="margin:0 0 6px"></p>
+  <div id="flash" class="flash"></div>
+  <div style="overflow-x:auto">
+  <table id="tbl" class="norsz" style="table-layout:auto;width:100%"><thead><tr>
+    <th data-k="ts">When</th><th data-k="target">Target</th><th data-k="source">Source</th><th data-k="mode">Mode · check</th>
+    <th data-k="command">Command</th><th data-k="status">Status</th><th data-k="exit_code">Exit</th><th data-k="duration_ms">Time</th>
+    <th data-k="hostkey_policy">Host key</th><th data-k="run_id">Run</th></tr></thead>
+    <tbody><tr><td colspan="10" class="sub">loading…</td></tr></tbody></table></div>
+  <footer>C2 Log · stored next to the Tagging log (<span class="mono">tag_jobs.db</span> · <span class="mono">c2_log</span>) · append-only, hash-chained · no command output is ever stored · read-only page</footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('c2');
+let ROWS=[], TOTAL=0, LIMIT=5000, SORT={k:'ts',dir:-1};
+const N=n=>Number(n||0).toLocaleString();
+const ts=t=>t?new Date(t*1000).toLocaleString():'—';
+const P=new URLSearchParams(location.search);
+const fStatus=document.getElementById('fStatus'), fSource=document.getElementById('fSource'), fMode=document.getElementById('fMode'),
+      fInv=document.getElementById('fInv'), fFrom=document.getElementById('fFrom'), fTo=document.getElementById('fTo'), fQ=document.getElementById('fQ');
+/* deep-link-only filters (from the C2 page's cards / a run): kept until ✕ Clear */
+const LINK={}; ['since','until','target','run_id','agent','catalog_id'].forEach(k=>{ if(P.get(k)) LINK[k]=P.get(k); });
+function filters(){ const f=Object.assign({},LINK,{status:fStatus.value,source:fSource.value,mode:fMode.value,in_inventory:fInv.value,q:fQ.value.trim()});
+  if(fFrom.value) f.since=new Date(fFrom.value+'T00:00:00').getTime()/1000;
+  if(fTo.value) f.until=new Date(fTo.value+'T00:00:00').getTime()/1000+86400;
+  return f; }
+const fv=v=>(v==null||v==='')?'__none':String(v);
+function fillSel(sel, list, cur){ const o=['<option value="">(any)</option>'].concat((list||[]).map(x=>
+  '<option value="'+esc(fv(x.v))+'">'+esc(x.v||'(none)')+' ('+N(x.n)+')</option>'));
+  if(cur && !(list||[]).some(x=>fv(x.v)===cur)) o.push('<option value="'+esc(cur)+'">'+esc(cur==='__none'?'(none)':cur)+' (0)</option>');
+  sel.innerHTML=o.join(''); sel.value=cur||''; }
+function sv(r,k){ if(['ts','exit_code','duration_ms'].includes(k)) return +r[k]||0; return String(r[k]==null?'':r[k]).toLowerCase(); }
+function render(){
+  const k=SORT.k,d=SORT.dir; const v=ROWS.slice().sort((a,b)=>{ const x=sv(a,k),y=sv(b,k); return x<y?-d:x>y?d:(b.id-a.id); });
+  document.querySelectorAll('#tbl th[data-k]').forEach(th=>{ const a=th.querySelector('.ar'); if(a) a.remove();
+    if(th.dataset.k===k) th.insertAdjacentHTML('beforeend','<span class="ar">'+(d>0?'▲':'▼')+'</span>'); });
+  const lk=Object.keys(LINK).length?' · link filter: '+Object.entries(LINK).map(([a,b])=>a+'='+(a==='since'||a==='until'?new Date(+b*1000).toLocaleString():b)).join(', '):'';
+  document.getElementById('fCount').textContent=N(TOTAL)+' row(s) match'+lk+(TOTAL>ROWS.length?' — showing the newest '+N(ROWS.length)+' (narrow the filters, or ⬇ Export CSV for all)':'')+'.';
+  document.querySelector('#tbl tbody').innerHTML = v.length ? v.map(r=>`<tr>
+    <td class="dim" style="font-size:11px;white-space:nowrap">${esc(ts(r.ts))}<div class="dim" style="font-size:10.5px">${esc(r.operator||'')}</div></td>
+    <td><span class="mono">${esc(r.target||'')}</span>${r.in_inventory===0?'<span class="inv0">not in navi.db</span>':''}${r.hostname?'<div class="dim" style="font-size:11px">'+(r.asset_uuid?'<a class="applink" href="/agents/argos/page.html?target='+encodeURIComponent(r.asset_uuid)+'">'+esc(r.hostname)+'</a>':esc(r.hostname))+'</div>':''}</td>
+    <td style="font-size:12px">${esc(r.source||'')}${r.agent&&r.agent!==r.source?'<div class="dim" style="font-size:11px">'+esc(r.agent)+'</div>':''}</td>
+    <td style="font-size:12px">${esc(r.mode||'')}<div class="dim" style="font-size:11px">${esc(r.catalog_id||'')}</div></td>
+    <td class="cmd" title="sha256 ${esc(r.command_sha256||'')}${r.plan_sha256?' · plan '+esc(r.plan_sha256):''}">${esc(String(r.command||'').slice(0,300))}${String(r.command||'').length>300?'…':''}</td>
+    <td><span class="st ${esc(r.status||'')}">${esc(String(r.status||'').replace(/_/g,' '))}</span></td>
+    <td class="mono">${r.exit_code==null?'<span class="dim">—</span>':esc(r.exit_code)}</td>
+    <td class="mono" style="white-space:nowrap">${r.duration_ms==null?'—':(r.duration_ms>=1000?(r.duration_ms/1000).toFixed(1)+' s':esc(r.duration_ms)+' ms')}</td>
+    <td style="font-size:11.5px">${esc(r.hostkey_policy||'')}</td>
+    <td class="mono" style="font-size:10.5px;word-break:break-all"><a class="applink" href="?run_id=${encodeURIComponent(r.run_id||'')}" data-run="${esc(r.run_id||'')}">${esc(r.run_id||'')}</a></td></tr>`).join('')
+    : '<tr><td colspan="10" class="sub">'+(TOTAL||Object.values(filters()).some(x=>x)?'No rows match the filters.':'No commands yet. Run a check, a credential test or a command on the <a href="/agents/c2/page.html">Command &amp; Control</a> page and every host it touched appears here.')+'</td></tr>';
+  document.querySelectorAll('#tbl a[data-run]').forEach(a=>a.onclick=e=>{ e.preventDefault(); LINK.run_id=a.dataset.run; load(); });
+}
+function kpis(fc){ const R={}; (fc.status||[]).forEach(x=>R[x.v]=x.n); const tot=Object.values(R).reduce((a,b)=>a+b,0);
+  const bad=tot-(R.ok||0)-(R.changed||0)-(R.not_applicable||0)-(R.skipped||0);
+  const card=(v,l,st)=>`<a class="k" href="?status=${encodeURIComponent(st)}" data-st="${esc(st)}"><div class="v">${N(v)}</div><div class="l">${esc(l)}</div></a>`;
+  document.getElementById('kpi').innerHTML=card(tot,'commands in the C2 log','')+card(R.ok,'ok','ok')+card(R.timeout,'timed out','timeout')
+    +`<div class="k" title="every status except ok / changed / not applicable / skipped — pick one in the Status filter"><div class="v">${N(bad)}</div><div class="l">did not succeed (all non-ok)</div></div>`+card(R.auth_failed,'auth failed','auth_failed')+card(R.hostkey_mismatch,'host key CHANGED','hostkey_mismatch')
+    +card(R.unreachable,'unreachable','unreachable')+card(R.blocked,'blocked (gate closed)','blocked');
+  document.querySelectorAll('#kpi a[data-st]').forEach(a=>a.onclick=e=>{ e.preventDefault(); fStatus.value=a.dataset.st; load(); }); }
+function chain(c){ const el=document.getElementById('chain'); c=c||{};
+  if(c.ok){ el.style.borderLeftColor='var(--ok)'; el.innerHTML='🔗 <b>Hash chain intact</b> — '+N(c.rows)+' row(s) verified (head <span class="mono">'+esc(String(c.head||'').slice(0,16))+'…</span>).'; }
+  else if(c.state==='unverifiable'){ el.style.borderLeftColor='var(--warn)'; el.style.background='var(--warnbg)'; el.innerHTML='⚠ <b>Hash chain UNVERIFIABLE</b> — '+esc(c.reason||'head file missing')+' ('+N(c.rows)+' row(s)).'; }
+  else { el.style.borderLeftColor='var(--crit)'; el.style.background='var(--crit-bg)'; el.innerHTML='⚠ <b>Hash chain BROKEN</b>'+(c.broken_at?' at row #'+esc(c.broken_at):'')+' — '+esc(c.reason||'unknown')+'. Someone changed the log outside the Hounds.'; } }
+let LOADING=0;
+async function load(){
+  const my=++LOADING; let o;
+  try{ o=await API.post('c2log',Object.assign({limit:LIMIT},filters())); }catch(e){ flash('flash','✗ '+esc(e.message),'crit'); return; }
+  if(my!==LOADING) return;
+  if(!o||!o.ok){ flash('flash','✗ '+esc((o&&o.error)||'could not read the C2 log'),'crit'); return; }
+  flashClear('flash'); ROWS=o.rows||[]; TOTAL=o.total||0; const fc=o.facets||{};
+  fillSel(fStatus,fc.status,fStatus.value); fillSel(fSource,fc.source,fSource.value); fillSel(fMode,fc.mode,fMode.value);
+  kpis(fc); chain(o.chain); render();
+}
+document.querySelectorAll('#tbl th[data-k]').forEach(th=>th.onclick=()=>{ const k=th.dataset.k;
+  SORT=SORT.k===k?{k,dir:-SORT.dir}:{k,dir:(['ts','exit_code','duration_ms'].includes(k))?-1:1}; render(); });
+[fStatus,fSource,fMode,fInv,fFrom,fTo].forEach(el=>el.onchange=load);
+let qt=null; fQ.oninput=()=>{ clearTimeout(qt); qt=setTimeout(load,300); };
+document.getElementById('refresh').onclick=load;
+document.getElementById('reset').onclick=()=>{ [fStatus,fSource,fMode,fInv,fFrom,fTo,fQ].forEach(el=>el.value=''); Object.keys(LINK).forEach(k=>delete LINK[k]); history.replaceState(null,'',location.pathname); load(); };
+document.getElementById('exportCsv').onclick=async()=>{ let o; try{ o=await API.post('c2log_export',filters()); }catch(e){ o=null; }
+  if(!o||!o.ok){ flash('flash','✗ export failed','crit'); return; }
+  if(!o.count){ flash('flash','Nothing to export — no rows match the filters.','warn'); return; }
+  downloadText(o.filename||'hounds-c2-log.csv',o.csv,'text/csv'); flash('flash','✓ exported '+N(o.count)+' row(s) → '+esc(o.filename),'ok'); };
+/* deep links from the C2 page's cards: ?status=…&source=…&mode=…&in_inventory=…&q=… (+ since/target/run_id above) */
+(function(){ const pre=(sel,k)=>{ const v=P.get(k); if(v!=null&&v!==''){ sel.innerHTML='<option value="">(any)</option><option value="'+esc(v)+'">'+esc(v)+'</option>'; sel.value=v; } };
+  pre(fStatus,'status'); pre(fSource,'source'); pre(fMode,'mode'); if(P.get('in_inventory')) fInv.value=P.get('in_inventory'); if(P.get('q')) fQ.value=P.get('q'); })();
+load();
+</script>
+</body>
+</html>

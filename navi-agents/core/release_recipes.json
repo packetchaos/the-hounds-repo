@@ -1,0 +1,41 @@
+{
+  "_doc": "Release the Hounds — what each hound's ▶ Run does, in the left-sidebar order — except On the Scent (insights), first in the sidebar but run LAST: it summarises every other hound's released result (core/insights.scent_digest), so it must come after them. kind 'page': the page's run button(s) (steps) and the read requests they send — run server-side and saved as the page's cache entry, so opening the page shows the run. kind 'snapshot': the hound keeps a server snapshot — build it (the page peeks it on open). kind 'live': the page loads its own live list on open, nothing to pre-run. 'download': needs an external catalog (approval). Recorded from the pages with tools in the repo; rate_s_per_mrow = seconds per million vulns rows for the first-run estimate (measured on a 600k-finding navi.db); after a release, the measured time is used instead.",
+  "version": 1,
+  "pages": [
+    {"agent": "mitre", "label": "MITRE ATT&CK", "kind": "page", "steps": ["run"], "download": "mitre", "requests": [{"agent": "mitre", "action": "run", "body": {"approved": true, "csv_text": "", "scope": "navidb"}}, {"agent": "mitre", "action": "source", "body": {}}], "rate_s_per_mrow": 2, "min_s": 2},
+    {"agent": "cisakev", "label": "CISA KEV", "kind": "page", "steps": ["load"], "download": "cisakev", "requests": [{"agent": "cisakev", "action": "run", "body": {"approved": true, "json_text": ""}}, {"agent": "cisakev", "action": "source", "body": {}}], "rate_s_per_mrow": 2, "min_s": 2},
+    {"agent": "eol", "label": "EOL / Unsupported", "kind": "page", "steps": ["run"], "requests": [{"agent": "eol", "action": "run", "body": {}}], "rate_s_per_mrow": 2, "min_s": 1},
+    {"agent": "certificate", "label": "Certificates", "kind": "page", "steps": ["run"], "requests": [{"agent": "certificate", "action": "run", "body": {}}], "rate_s_per_mrow": 2, "min_s": 1},
+    {"agent": "iot_squad", "label": "IoT Discovery", "kind": "page", "steps": ["runIot"], "requests": [{"agent": "iot_squad", "action": "run", "body": {"use_pack": false}}, {"agent": "iot_squad", "action": "registry", "body": {}}], "rate_s_per_mrow": 2, "min_s": 1},
+    {"agent": "postquantum", "label": "Post-Quantum", "kind": "page", "steps": ["run"], "requests": [{"agent": "postquantum", "action": "run", "body": {}}], "rate_s_per_mrow": 3, "min_s": 1},
+    {"agent": "ai", "label": "AI Inventory", "kind": "page", "steps": ["run"], "key_ignore": ["fp", "allow"], "requests": [{"agent": "ai", "action": "run", "body": {"fp": {}}}], "rate_s_per_mrow": 3, "min_s": 1},
+    {"agent": "identity", "label": "Identity", "kind": "page", "steps": ["run"], "requests": [{"agent": "identity", "action": "run", "body": {}}], "rate_s_per_mrow": 3, "min_s": 1},
+    {"agent": "software", "label": "Software", "kind": "page", "steps": ["runAll"], "requests": [{"agent": "software", "action": "run_sql", "body": {"sql": "SELECT asset_uuid, software_string FROM software WHERE software_string IS NOT NULL AND software_string<>''"}}, {"agent": "software", "action": "run_sql", "body": {"sql": "SELECT asset_uuid, cpe_string FROM cpes WHERE cpe_string IS NOT NULL AND cpe_string<>''"}}, {"agent": "software", "action": "run_sql", "body": {"sql": "SELECT DISTINCT asset_uuid FROM vulns WHERE lower(plugin_name) LIKE '%unsupported%' OR lower(plugin_name) LIKE '%end of life%' OR lower(plugin_name) LIKE '%end-of-life%' OR lower(plugin_name) LIKE '%no longer supported%' OR lower(plugin_name) LIKE '%obsolete%' OR lower(plugin_name) LIKE '%seol%'"}}, {"agent": "software", "action": "run_sql", "body": {"sql": "SELECT asset_uuid, lower(plugin_name) pn, MAX(CASE WHEN xrefs LIKE '%CISA-KNOWN-EXPLOITED%' THEN 1 ELSE 0 END) kev, MAX(CASE WHEN lower(severity)='critical' OR severity='4' THEN 1 ELSE 0 END) crit, MAX(CAST(score AS REAL)) vpr, COUNT(*) n FROM vulns GROUP BY asset_uuid, lower(plugin_name)"}}], "rate_s_per_mrow": 6, "min_s": 2},
+    {"agent": "customapp", "label": "Custom Apps", "kind": "page", "steps": ["runCapp"], "requests": [{"agent": "customapp", "action": "run", "body": {}}], "rate_s_per_mrow": 4, "min_s": 1},
+    {"agent": "was", "label": "Web Apps (WAS)", "kind": "page", "steps": ["refresh"], "requests": [{"agent": "was", "action": "overview", "body": {}}, {"agent": "was", "action": "tag_plan", "body": {}}], "rate_s_per_mrow": 1, "min_s": 1},
+    {"agent": "compliance", "label": "Compliance", "kind": "page", "steps": ["refresh"], "requests": [{"agent": "compliance", "action": "overview", "body": {}}], "rate_s_per_mrow": 2, "min_s": 1},
+    {"agent": "attackpath", "label": "Attack Paths", "kind": "page", "steps": ["run"], "requests": [{"agent": "attackpath", "action": "run", "body": {"crown_acr": 7}}], "rate_s_per_mrow": 6, "min_s": 2},
+    {"agent": "scan_eval", "label": "Scan Evaluations", "kind": "page", "steps": ["run"], "requests": [{"agent": "scan_eval", "action": "run", "body": {}}], "rate_s_per_mrow": 2, "min_s": 1},
+    {"agent": "agentgroup", "label": "Agent Groups", "kind": "live"},
+    {"agent": "classify", "label": "Asset Classification", "kind": "page", "steps": ["run"], "requests": [{"agent": "classify", "action": "run", "body": {}}, {"agent": "classify", "action": "tree", "body": {"by": "class"}}, {"agent": "classify", "action": "os_breakdown", "body": {}}, {"agent": "classify", "action": "signals", "body": {}}], "rate_s_per_mrow": 26, "min_s": 1},
+    {"agent": "exproute", "label": "Exposure Routes", "kind": "snapshot", "action": "snapshot", "body": {}, "rate_s_per_mrow": 6, "min_s": 1},
+    {"agent": "asset_ownership", "label": "Asset Ownership", "kind": "page", "steps": ["load"], "requests": [{"agent": "asset_ownership", "action": "overview", "body": {}}], "rate_s_per_mrow": 56, "min_s": 1},
+    {"agent": "sla", "label": "SLA Adherence", "kind": "snapshot", "action": "snapshot", "body": {}, "rate_s_per_mrow": 10, "min_s": 1},
+    {"agent": "fused_score", "label": "Exposure Score", "kind": "snapshot", "action": "snapshot", "body": {}, "rate_s_per_mrow": 3, "min_s": 1},
+    {"agent": "insights", "label": "On the Scent", "kind": "snapshot", "action": "scent", "body": {}, "rate_s_per_mrow": 1, "min_s": 1}
+  ],
+  "excluded": {
+      "acr": "ACR Calibration — a live editor; changes happen by hand",
+      "custom_audit": "Custom Audit — an authoring tool",
+      "email": "Email · Gabriel — sends mail",
+      "alert": "Alert Raven — its own scheduler",
+      "tagremoval": "Tag Removal — a live list of tags to remove",
+      "c2": "Command & Control — runs commands",
+      "contract": "AI Contract — its own scheduled loop",
+      "dashboard": "Dashboards — built from the other hounds",
+      "argos": "Argos — a search hound (one asset at a time)",
+      "was_asset": "Web App Recon — one app at a time",
+      "compliance_asset": "Compliance Deep-Dive — one asset at a time",
+      "search": "Search Hounds — run per search"
+  }
+}
