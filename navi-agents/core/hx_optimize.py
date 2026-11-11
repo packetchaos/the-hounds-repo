@@ -76,7 +76,8 @@ def _ro(path):
     """A read connection for status(): mode=ro, falling back to a plain open when the WAL
     -shm file can't be created read-only (navi idle, directory read-only)."""
     try:
-        c = sqlite3.connect("file:%s?mode=ro" % path, uri=True, timeout=5)
+        from core import db as _db
+        c = sqlite3.connect(_db._ro_uri(path), uri=True, timeout=5)
         c.execute("SELECT 1 FROM sqlite_master LIMIT 1")
         return c
     except sqlite3.Error:

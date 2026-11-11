@@ -130,7 +130,7 @@ function renderKpis(){
     tile('Certificates',r.cert_rows||0)+
     tile('Expired',r.expired_count||0,(r.expired_count?'crit':'ok'))+
     tile('Failing ≤12mo',r.failing_count||0,(r.failing_count?'warn':'ok'))+
-    tile('Distinct common names',cns.size)+
+    tile('Distinct common names',(r.metrics&&r.metrics.common_names!=null)?r.metrics.common_names:cns.size)+
     tile('Cert plugins',(r.cert_issue_matrix||[]).length)+
     tile('Plugin hits',plugAssets);
 }
@@ -256,14 +256,27 @@ function applyMonthParam(){
 }
 
 /* --- load --- */
+const CERT_CAP=5000;
 async function load(){
   const b=document.getElementById('load'); b.disabled=true;
   flash('flash','<span class="spin"></span> reading certs + certificate plugins from navi.db…','run');
   let o; try{ o=await API.post('run'); }catch(e){ o={ok:false,error:e.message}; }
-  b.disabled=false; const res=o.result||o;
-  if(!res||!res.ok&&!res.twelve_month){ flash('flash','✗ '+esc2((res&&res.error)||o.error||'failed'),'crit'); return; }
-  MODEL=res.result||res; flashClear('flash');
-  CERTS=(MODEL.expired||[]).concat(MODEL.twelve_month||[]);
+  if(!o||!o.ok){ b.disabled=false; flash('flash','✗ '+esc2((o&&(o.message||o.error))||'failed'),'crit'); return; }
+  MODEL=o.result||{};
+  // build 455+: the certificate rows (expired + failing in 12 months) are paged on the server —
+  // read them page by page (200 per call), up to CERT_CAP rows, for the timeline + views.
+  CERTS=[]; let nxt=null, guard=0, total=(o.total&&o.total.value)||0;
+  const run=o.drill&&o.drill.run;
+  if(run){
+    do{
+      let d; try{ d=await API.post('drill',{run, section:'certs', sort:'near', limit:200, next:nxt}); }catch(e){ d={ok:false,error:e.message}; }
+      if(!d||d.ok===false){ b.disabled=false; flash('flash','✗ '+esc2((d&&(d.message||d.error))||'could not read the certificate list'),'crit'); return; }
+      CERTS=CERTS.concat(d.top||[]); nxt=(d.page||{}).next||null;
+      if(nxt) flash('flash','<span class="spin"></span> reading certificates… '+CERTS.length.toLocaleString()+(total?' of '+total.toLocaleString():''),'run');
+    }while(nxt && CERTS.length<CERT_CAP && ++guard<100);
+  }
+  b.disabled=false; flashClear('flash');
+  if(nxt) flash('flash','Showing the '+CERTS.length.toLocaleString()+' nearest-to-expiry certificates of '+total.toLocaleString()+' — the KPIs and the timeline counts cover all of them; open the Certificate agent for the full paged list.','warn');
   renderKpis(); renderTimeline(); renderScope(); renderView(); renderPlugins();
   ['tlCard','viewCard','plugCard'].forEach(id=>document.getElementById(id).style.display='block');
   applyMonthParam();

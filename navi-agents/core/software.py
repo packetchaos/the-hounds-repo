@@ -344,9 +344,14 @@ def product_sets(db_path=None, only=None):
         if not names:
             return prod, {"ids": ids, "records": 0, "cpe_rows": 0, "soft_assets": soft_a, "cpe_assets": cpe_a,
                           "all_assets": all_a}
-        if len(names) <= 40:
+        # pre-filter on each name's longest token: the parsed name isn't always a substring of
+        # the raw string (parse_nvr_js drops middle "[…]" groups, collapses spaces), and SQLite
+        # LIKE folds ASCII case only — so a non-ASCII name skips the pre-filter entirely. The
+        # exact match after parsing still decides.
+        toks = [max(re.split(r"\s+", n.strip()) or [n], key=len) for n in names]
+        if len(names) <= 40 and all(t and t.isascii() for t in toks):
             where_s = " AND (" + " OR ".join(["software_string LIKE ? ESCAPE '\\'"] * len(names)) + ")"
-            args_s = ["%" + _like_lit(n) + "%" for n in names]
+            args_s = ["%" + _like_lit(t) + "%" for t in toks]
             where_c = " AND (" + " OR ".join(["cpe_string LIKE ? ESCAPE '\\'"] * len(names)) + ")"
             # cpe names are stored with '_' for ' ' — a '_' wildcard matches either
             args_c = ["%" + _like_lit(n).replace(" ", "_") + "%" for n in names]
@@ -621,8 +626,12 @@ def risk(run, db_path=None, top=40):
             # Phase 1: the per-plugin catalog IS hx_plugin (name / KEV xref / VPR are plugin attributes)
             cat = con.execute("SELECT plugin_id, lname, kev, vpr FROM hx_plugin").fetchall()
         else:
-            cat = con.execute("SELECT plugin_id, lower(MAX(plugin_name)), MAX(CASE WHEN xrefs LIKE '%CISA-KNOWN-EXPLOITED%' "
-                              "THEN 1 ELSE 0 END), MAX(CAST(score AS REAL)) FROM vulns GROUP BY plugin_id").fetchall()
+            vc = {r[1] for r in con.execute("PRAGMA table_info(vulns)")}
+            kx = ("MAX(CASE WHEN xrefs LIKE '%CISA-KNOWN-EXPLOITED%' THEN 1 ELSE 0 END)"
+                  if "xrefs" in vc else "0")             # older navi.db: no xrefs / score columns
+            sx = "MAX(CAST(score AS REAL))" if "score" in vc else "0"
+            cat = con.execute("SELECT plugin_id, lower(MAX(plugin_name)), %s, %s FROM vulns GROUP BY plugin_id"
+                              % (kx, sx)).fetchall()
         con.execute("CREATE TEMP TABLE IF NOT EXISTS _cat(plugin_id TEXT PRIMARY KEY, kev INT, vpr REAL)")
         con.execute("DELETE FROM _cat")
         con.executemany("INSERT OR REPLACE INTO _cat VALUES(?,?,?)", [(c[0], c[2] or 0, c[3] or 0.0) for c in cat])

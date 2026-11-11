@@ -171,9 +171,15 @@ async function runSoftwareEol(){
   if(!SW||!SW.run)return;
   var btn=document.getElementById('swEol'); if(btn)btn.disabled=true;
   var f=document.getElementById('swFlash');
-  let pl; try{ pl=await API.post('eol_plan',{run:SW.run}); }catch(e){ pl={ok:false,error:e.message}; }
-  if(!pl||!pl.ok){ if(f){f.className='flash show';f.style.background='var(--critbg)';f.style.color='var(--crit)';f.textContent='✗ '+((pl&&(pl.error||pl.message))||'failed');} if(btn)btn.disabled=false; return; }
-  var plan=pl.plan||[], results=[], done=0, bySlug={};
+  // the plan is paged (150 products per call; each product's versions as one "\n"-joined string)
+  var plan=[], start=0, guard=0, pl;
+  do{
+    try{ pl=await API.post('eol_plan',{run:SW.run,start:start}); }catch(e){ pl={ok:false,error:e.message}; }
+    if(!pl||!pl.ok){ if(f){f.className='flash show';f.style.background='var(--critbg)';f.style.color='var(--crit)';f.textContent='✗ '+((pl&&(pl.error||pl.message))||'failed');} if(btn)btn.disabled=false; return; }
+    (pl.plan||[]).forEach(function(x){ x.versions=x.vers?String(x.vers).split('\n'):(x.versions||[]); plan.push(x); });
+    start=pl.next_start;
+  }while(start!=null && ++guard<40);
+  var results=[], done=0, bySlug={};
   for(var i=0;i<plan.length;i++){ var x=plan[i]; done++;
     if(f){f.className='flash show';f.style.background='var(--runbg)';f.style.color='var(--accent)';f.innerHTML='<span class="spin"></span> checking lifecycle '+done+'/'+plan.length+' — '+esc(x.name)+' ('+esc(x.slug)+')…';}
     var cy=(x.slug in bySlug)?bySlug[x.slug]:(bySlug[x.slug]=await eolCycles(x.slug));

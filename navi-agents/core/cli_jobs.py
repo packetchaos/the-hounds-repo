@@ -87,7 +87,8 @@ def _record(argv, label, kind=None):
     jid = next(_IDS)
     job = {"id": jid, "label": label, "cmd": " ".join(argv), "status": "running", "kind": kind,
            "returncode": None, "lines": [], "cur": "", "_cr": False, "cwd": None,
-           "created": _now(), "started": _now(), "finished": None}
+           "created": _now(), "started": _now(), "finished": None,
+           "_local": _loopback()}
     with _LOCK:
         _JOBS[jid] = job
         _ORDER.append(jid)
@@ -211,12 +212,20 @@ def _after_sync(job):
         pass
 
 
+def _loopback():
+    try:
+        from core import gates
+        return bool(gates.client_is_loopback())
+    except Exception:
+        return False
+
+
 def _refresh_summaries(job):
     """After a console-launched vulns/assets sync: when the Hounds' summary tables (hx_plugin /
     hx_asset) were built before, they are now stale — start ⚡ Optimize to rebuild them (indexes
     already exist, so it is ANALYZE + the summaries). Never when they were never built: the user
     hasn't opted in to writes on navi.db yet."""
-    if job.get("kind") not in ("assets", "vulns", "full", "everything"):
+    if job.get("kind") not in ("assets", "vulns", "full", "everything") or job.get("_no_refresh"):
         return
     try:
         from core import hx_optimize, hx_summary
@@ -224,6 +233,14 @@ def _refresh_summaries(job):
         st = hx_optimize.status()
         sm = st.get("summary") or {}
         if not sm.get("present") or sm.get("fresh"):
+            return
+        if not job.get("_local"):
+            # Optimize writes navi.db (loopback + confirm when started by hand): a sync started
+            # from a remote browser doesn't get to start it implicitly
+            with _LOCK:
+                job["lines"].append("Hounds: the summary tables are now stale — run ⚡ Optimize in "
+                                    "Settings (from this machine) to refresh them; hounds use the "
+                                    "slower path until then.")
             return
 
         def _go():
@@ -321,13 +338,21 @@ def _start(sub_argv, label, answer=None, kind=None):
     return {"ok": True, "job": _view(job)}
 
 
-def start_update(kind):
-    """Start the navi command that rebuilds `kind`'s table, streaming its output."""
+def start_update(kind, refresh_summaries=True):
+    """Start the navi command that rebuilds `kind`'s table, streaming its output.
+    refresh_summaries=False: a chain of syncs (assets → vulns) refreshes the summary tables
+    only after its LAST sync — Optimize holds navi.db's write lock, so refreshing in between
+    would make the next sync refuse to start."""
     key = str(kind or "").strip().lower()
     argv = COMMANDS.get(key)
     if not argv:
         return {"ok": False, "error": "unknown update kind: " + (key or "(blank)")}
     r = _start(argv, "navi " + " ".join(argv), kind=key)
+    if not refresh_summaries:
+        jid = (r.get("job") or {}).get("id")
+        with _LOCK:
+            if jid in _JOBS:
+                _JOBS[jid]["_no_refresh"] = True
     _tag_kind(r, key)
     return r
 
@@ -401,7 +426,7 @@ def start_rebuild(tables="both", days=90, derived=True, hx=False):
             if st != "done":
                 return                    # the rebuild failed or was cancelled — leave the rest alone
             for k in (REBUILD_DERIVED if derived else ()):
-                rr = start_update(k)
+                rr = start_update(k, refresh_summaries=False)
                 kid = (rr.get("job") or {}).get("id")
                 while kid is not None:
                     with _LOCK:

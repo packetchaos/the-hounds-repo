@@ -218,12 +218,33 @@ def _hosts_where(where, params=(), db_path=None, budget="open"):
 _LIKE_CACHE = {}
 
 
+class _Like:
+    """SQLite `LIKE '%pat%'` (ASCII case-insensitive; % and _ wildcards) without backtracking:
+    the pattern is split on % into fixed-length segments ('_' = any one char) that must occur in
+    order — linear in the text, so a selector like '_%_%_%_%…' can't pin a thread (a translated
+    '.*' regex backtracks exponentially). Earliest match per segment is correct because every
+    segment has a fixed length."""
+
+    __slots__ = ("segs",)
+
+    def __init__(self, pat):
+        self.segs = [re.compile("".join("." if ch == "_" else re.escape(ch) for ch in seg), re.S)
+                     for seg in _alower(pat)[:200].split("%") if seg]
+
+    def search(self, text):
+        pos = 0
+        for rx in self.segs:
+            m = rx.search(text, pos)
+            if m is None:
+                return None
+            pos = m.end()
+        return True
+
+
 def _like(pat):
-    """SQLite `LIKE '%pat%'` (ASCII case-insensitive, % and _ wildcards) as a compiled regex."""
     rx = _LIKE_CACHE.get(pat)
     if rx is None:
-        rx = re.compile("".join(".*" if ch == "%" else ("." if ch == "_" else re.escape(ch))
-                                for ch in _alower(pat)), re.S)
+        rx = _Like(pat)
         if len(_LIKE_CACHE) > 200:
             _LIKE_CACHE.clear()
         _LIKE_CACHE[pat] = rx

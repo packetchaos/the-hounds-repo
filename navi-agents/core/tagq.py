@@ -268,7 +268,7 @@ def _run(idx):
         job = _get(job_id)
         if job is None or job.get("status") == "cancelled":     # a cancelled series page never runs
             _Q.task_done()
-            if job is not None and job.get("series"):
+            if job is not None and job.get("series") and not job.pop("_retry", False):
                 _advance(job["series"])
             continue
         with _LOCK:
@@ -296,8 +296,10 @@ def _run(idx):
             _db_update(job)
         finally:
             _Q.task_done()
-            if job.get("series"):
-                _advance(job["series"])     # one page at a time: queue the series' next page
+            # one page at a time: queue the series' next page — but not after a RETRIED page,
+            # whose series is already advancing on its own (that would run two pages at once)
+            if job.get("series") and not job.pop("_retry", False):
+                _advance(job["series"])
             if _GAP:
                 time.sleep(_GAP)            # serial pacing to stay under API rate limits
 
@@ -466,7 +468,8 @@ def retry_page(job_id) -> dict:
     if fn is None:
         return {"ok": False, "message": "no runner for this page"}
     with _LOCK:
-        job.update(status="queued", ok=None, message="retry", started=None, finished=None)
+        job.update(status="queued", ok=None, message="retry", started=None, finished=None,
+                   _retry=True)
     _db_update(job)
     _ensure_workers()
     _Q.put((jid, fn, job["spec"]))
@@ -510,18 +513,38 @@ def job_output(job_id) -> str:
     return (j or {}).get("output", "") if j else ""
 
 
-def list_jobs() -> list:
+_BRIEF_Q = 500
+
+
+def _brief(jobs):
+    """For the Tagging log poll (every 2 s): a tag-series page's spec carries its full --query
+    (1,999 inline UUIDs ≈ 78 KB) — send the one-line summary instead. Callers that replay or
+    re-run commands (tag_export, retry_page, the Contract) read the full spec."""
+    out = []
+    for j in jobs:
+        sp = j.get("spec") or {}
+        q = sp.get("query")
+        if isinstance(q, str) and len(q) > _BRIEF_Q:
+            from core import navi_cli
+            j = dict(j)
+            j["spec"] = dict(sp, query=navi_cli._query_summary(q), query_trimmed=True)
+        out.append(j)
+    return out
+
+
+def list_jobs(brief=False) -> list:
     """Newest-first. Reads the durable sidecar (shared + restart-proof); falls back
-    to this process's in-memory mirror only if the DB is unavailable."""
+    to this process's in-memory mirror only if the DB is unavailable.
+    brief=True: long --query selectors collapsed to a summary (the polled log view)."""
     db = _db_all()
     if db is not None:
-        return db
+        return _brief(db) if brief else db
     with _LOCK:
         jobs = [{k: v for k, v in j.items() if k not in ("output", "result", "runner")} for j in _JOBS]
         for j, src in zip(jobs, _JOBS):
             j["has_output"] = bool(src.get("output"))
     jobs.reverse()
-    return jobs
+    return _brief(jobs) if brief else jobs
 
 
 def counts() -> dict:
