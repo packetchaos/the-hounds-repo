@@ -13,7 +13,7 @@ Four jobs:
 import os
 import urllib.parse
 
-from core import cli_jobs, config_store, db, downloads, gates, llm, navi_cli, tagname
+from core import cli_jobs, config_store, db, downloads, gates, hx_optimize, llm, navi_cli, tagname
 
 # Environment variables surfaced on the page. secret=True → value is masked and never
 # echoed back; an empty submit for a secret means "leave unchanged" (don't wipe it).
@@ -356,7 +356,38 @@ def navi_rebuild(p):
     if not gates.client_is_loopback():
         return {"ok": False, "error": "A navi.db rebuild can only be started from this machine "
                 "(a loopback browser)."}, 403
-    r = cli_jobs.start_rebuild(p.get("tables", "both"), p.get("days", 90), bool(p.get("derived", True)))
+    r = cli_jobs.start_rebuild(p.get("tables", "both"), p.get("days", 90), bool(p.get("derived", True)),
+                               hx=gates.flag(p, "hx_optimize"))
+    return (r, 200) if r.get("ok") else (r, 400)
+
+
+def hx_status(p):
+    """⚡ Optimize for the Hounds — which hx_ indexes exist, stats / 'unordered' state, the
+    estimate for the missing ones, free disk, navi jobs running. Read-only and cheap
+    (catalog + sqlite_stat1 + MAX(rowid)); this is all the page does on open."""
+    r = hx_optimize.status()
+    return r, 200
+
+
+def hx_optimize_run(p):
+    """Build the Hounds' indexes on navi.db + ANALYZE + 'unordered' (a separate write
+    connection). Takes navi.db's write lock for up to ~1–1.7 h at 420M vulns, so: confirm ===
+    true AND a browser on this machine; refused while a navi job runs or on low disk."""
+    if not gates.confirmed(p):
+        return {"ok": False, "needs_confirm": True,
+                "error": "Optimize writes indexes into navi.db and holds its write lock — send confirm: true"}, 400
+    if not gates.client_is_loopback():
+        return {"ok": False, "error": "Optimize can only be started from this machine (a loopback browser)."}, 403
+    r = hx_optimize.run()
+    return (r, 200) if r.get("ok") else (r, 409)
+
+
+def hx_cancel(p):
+    """Stop ⚡ Optimize: the index being built is rolled back, the ones before it are kept,
+    and 'unordered' is still applied to any finished vulns index."""
+    if not gates.client_is_loopback():
+        return {"ok": False, "error": "Only a loopback browser can cancel Optimize."}, 403
+    r = cli_jobs.cancel(p.get("job_id"))
     return (r, 200) if r.get("ok") else (r, 400)
 
 
@@ -407,4 +438,5 @@ def downloads_status(p):
 ACTIONS = {"status": status, "downloads": downloads_status, "set_env": set_env, "config_mode": config_mode, "db_checks": db_checks,
            "navi_start": navi_start, "navi_poll": navi_poll, "navi_jobs": navi_jobs,
            "navi_rebuild": navi_rebuild, "asset_delta": asset_delta,
+           "hx_status": hx_status, "hx_optimize": hx_optimize_run, "hx_cancel": hx_cancel,
            "reset_usage": reset_usage, "sla_get": sla_get, "sla_set": sla_set}

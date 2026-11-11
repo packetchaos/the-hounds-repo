@@ -124,7 +124,32 @@ async def act(agent_id: str, action: str, request: Request):
     except Exception:
         payload = {}
     peer = request.client.host if request.client else None
-    return _resp(launcher.dispatch(agent_id, action, payload, peer=peer, http=True))
+    # Run the action on the threadpool (it no longer blocks the event loop) under a request
+    # budget (core/launcher.request_scope) and a cancel token tripped when the client
+    # disconnects (fetch aborted / tab closed) — the running SQL stops, see core/db.
+    import asyncio
+    from starlette.concurrency import run_in_threadpool
+    from core import db as _db
+    hint = (request.headers.get("x-hounds-budget") or "").strip().lower() or None
+    tab = (request.headers.get("x-hounds-tab") or "").strip()[:64] or None
+    token = _db.Cancel()
+    task = asyncio.ensure_future(run_in_threadpool(
+        launcher.dispatch, agent_id, action, payload, peer=peer, http=True,
+        budget_hint=hint, cancel=token, tab=tab))
+    while not task.done():
+        done, _ = await asyncio.wait({task}, timeout=0.25)
+        if not done and not token.is_set():
+            try:
+                if await request.is_disconnected():
+                    token.cancel()
+            except Exception:
+                pass
+    resp = _resp(task.result())
+    try:
+        launcher.note_response(agent_id, action, len(getattr(resp, "body", b"") or b""))  # > 2 MB → logged
+    except Exception:
+        pass
+    return resp
 
 
 @app.get("/")

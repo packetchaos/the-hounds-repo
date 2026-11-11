@@ -102,9 +102,9 @@ def _iot_tag_action(name, h, facet=IOT_DEFAULT_FACET):
     uuids = h.get("asset_uuids", []) or []
     sels = h.get("selectors")
     if not sels:
-        q = ("SELECT asset_uuid FROM vulns WHERE asset_uuid IN ("
-             + ",".join("'" + u + "'" for u in uuids) + ");") if uuids else ""
-        sels = [{"query": q}] if q else []
+        # no signature selector: the detected set (Python) in ≤1,999-UUID batches
+        sels = [{"query": sp["query"]} for sp in
+                navi_cli.uuid_specs(INVENTORY_CAT, "", uuids, col="asset_uuid", table="vulns")]
     # Unified inventory scheme (matches the Classifier): category 'Asset Inventory',
     # value '<Facet>: <Value>'. The operator can change the facet in the UI before writing.
     tagval = f"{facet}: {name}"

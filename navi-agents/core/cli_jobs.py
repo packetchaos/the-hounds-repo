@@ -83,9 +83,9 @@ def _now():
     return time.time()
 
 
-def _record(argv, label):
+def _record(argv, label, kind=None):
     jid = next(_IDS)
-    job = {"id": jid, "label": label, "cmd": " ".join(argv), "status": "running",
+    job = {"id": jid, "label": label, "cmd": " ".join(argv), "status": "running", "kind": kind,
            "returncode": None, "lines": [], "cur": "", "_cr": False, "cwd": None,
            "created": _now(), "started": _now(), "finished": None}
     with _LOCK:
@@ -181,23 +181,94 @@ def _reader(job, fd, proc):
     except OSError:
         pass
     rc = proc.wait()
+    if rc == 0:
+        _after_sync(job)                         # before "done", so a poller sees the note first
     with _LOCK:
         job["returncode"] = rc
         job["status"] = "done" if rc == 0 else "error"
         job["finished"] = _now()
 
 
-def _start(sub_argv, label, answer=None):
+def _after_sync(job):
+    """A console-launched assets/vulns sync (or navi's own `config optimize`, which runs a
+    bare ANALYZE) can leave the Hounds' vulns indexes without their 'unordered' stat — re-apply
+    it, only when those indexes exist. Cheap (catalog read + one UPDATE); never fatal."""
+    try:
+        from core import hx_optimize
+        if job.get("kind") not in hx_optimize.SYNC_KINDS:
+            return
+        r = hx_optimize.reapply_unordered()
+        msg = None
+        _refresh_summaries(job)
+        if r.get("applied"):
+            msg = "Hounds: re-applied 'unordered' to the hx_ vulns index stats (Settings ▸ Optimize)."
+        elif not r.get("ok"):
+            msg = "Hounds: could not re-apply 'unordered' (%s) — run ⚡ Optimize in Settings." % r.get("error")
+        if msg:
+            with _LOCK:
+                job["lines"].append(msg)
+    except Exception:                            # pragma: no cover
+        pass
+
+
+def _refresh_summaries(job):
+    """After a console-launched vulns/assets sync: when the Hounds' summary tables (hx_plugin /
+    hx_asset) were built before, they are now stale — start ⚡ Optimize to rebuild them (indexes
+    already exist, so it is ANALYZE + the summaries). Never when they were never built: the user
+    hasn't opted in to writes on navi.db yet."""
+    if job.get("kind") not in ("assets", "vulns", "full", "everything"):
+        return
+    try:
+        from core import hx_optimize, hx_summary
+        hx_summary.invalidate()
+        st = hx_optimize.status()
+        sm = st.get("summary") or {}
+        if not sm.get("present") or sm.get("fresh"):
+            return
+
+        def _go():
+            for _ in range(60):                 # wait for this sync job to be marked done
+                time.sleep(1)
+                with _LOCK:
+                    if job.get("status") != "running":
+                        break
+            r = hx_optimize.run()
+            line = ("Hounds: refreshing the summary tables (⚡ Optimize) — hounds use the slower "
+                    "path until it finishes." if r.get("ok") else
+                    "Hounds: summary tables are stale and could not refresh (%s) — run ⚡ Optimize "
+                    "in Settings." % r.get("error"))
+            with _LOCK:
+                job["lines"].append(line)
+        threading.Thread(target=_go, daemon=True, name="hounds-summary-refresh").start()
+    except Exception:                            # pragma: no cover
+        pass
+
+
+def hx_busy():
+    """The running ⚡ Optimize job, if any — it holds navi.db's write lock for the whole build,
+    so navi syncs launched from the console wait for it instead of failing 'database is locked'."""
+    with _LOCK:
+        for j in _JOBS.values():
+            if j.get("status") == "running" and j.get("kind") == "hx_optimize":
+                return j
+    return None
+
+
+def _start(sub_argv, label, answer=None, kind=None):
     """answer: bytes typed into navi's stdin right after it starts — only used to answer
     the y/N confirm of `-rebuild` (click.confirm), which the user already confirmed in
     the page. Anything else keeps navi's stdin a closed terminal / DEVNULL."""
+    hx = hx_busy()
+    if hx is not None:
+        return {"ok": False, "error": "⚡ Optimize for the Hounds is building indexes (job #%s) and holds "
+                "navi.db's write lock — wait for it to finish (or cancel it in Settings)." % hx["id"]}
     navi = navi_cli._resolve_navi()
     if not navi:
         return {"ok": False, "error": navi_cli.write_gate_reason()
                 or "navi CLI not found — install navi or set NAVI_BIN to its path."}
     cwd = _run_cwd()
     argv = [navi] + sub_argv
-    job = _record(argv, label)
+    job = _record(argv, label, kind)
     job["cwd"] = cwd or "(server working dir — set NAVI_DB_PATH so navi runs where your navi.db lives)"
     with _LOCK:
         job["lines"].append("cwd: " + cwd if cwd else
@@ -256,7 +327,7 @@ def start_update(kind):
     argv = COMMANDS.get(key)
     if not argv:
         return {"ok": False, "error": "unknown update kind: " + (key or "(blank)")}
-    r = _start(argv, "navi " + " ".join(argv))
+    r = _start(argv, "navi " + " ".join(argv), kind=key)
     _tag_kind(r, key)
     return r
 
@@ -301,13 +372,14 @@ def rebuild_argv(tables, days):
     return REBUILD_TABLES[t] + ["-rebuild", "--days", str(d)], None
 
 
-def start_rebuild(tables="both", days=90, derived=True):
+def start_rebuild(tables="both", days=90, derived=True, hx=False):
     """DROP + re-create navi.db's assets and/or vulns tables and pull `days` days fresh,
     via navi's own `-rebuild` (it asks y/N; the page already confirmed, so we answer y).
     Clears assets that aged out of the window or fell off licensing — navi's normal sync
     only upserts, so they otherwise stay in navi.db forever. With derived=True, the
     tables navi says go stale after a rebuild (certs, software, routes, paths) are
-    rebuilt one after another once it succeeds. Local navi.db only — nothing in Tenable."""
+    rebuilt one after another once it succeeds. With hx=True, ⚡ Optimize for the Hounds runs
+    last (a -rebuild drops vulns and every index on it). Local navi.db only — nothing in Tenable."""
     argv, err = rebuild_argv(tables, days)
     if err:
         return {"ok": False, "error": err}
@@ -315,10 +387,10 @@ def start_rebuild(tables="both", days=90, derived=True):
     if busy:
         return {"ok": False, "error": "another navi job is running (%s) — wait for it to finish, "
                 "a rebuild can't share navi.db with it" % busy[0].get("cmd", "?")}
-    r = _start(argv, "navi " + " ".join(argv), answer=b"y\n")
+    r = _start(argv, "navi " + " ".join(argv), answer=b"y\n", kind="rebuild")
     _tag_kind(r, "rebuild")
     jid = (r.get("job") or {}).get("id")
-    if r.get("ok") and derived and jid is not None:
+    if r.get("ok") and (derived or hx) and jid is not None:
         def _chain():
             while True:
                 with _LOCK:
@@ -328,7 +400,7 @@ def start_rebuild(tables="both", days=90, derived=True):
                 time.sleep(3)
             if st != "done":
                 return                    # the rebuild failed or was cancelled — leave the rest alone
-            for k in REBUILD_DERIVED:
+            for k in (REBUILD_DERIVED if derived else ()):
                 rr = start_update(k)
                 kid = (rr.get("job") or {}).get("id")
                 while kid is not None:
@@ -336,14 +408,28 @@ def start_rebuild(tables="both", days=90, derived=True):
                         if (_JOBS.get(kid) or {}).get("status") != "running":
                             break
                     time.sleep(3)
+            if hx:                        # after the derived tables, so it never races a navi writer
+                try:
+                    from core import hx_optimize
+                    rr = hx_optimize.run()
+                    if not rr.get("ok"):
+                        with _LOCK:
+                            if jid in _JOBS:
+                                _JOBS[jid]["lines"].append("⚡ Optimize for the Hounds not started: "
+                                                           + str(rr.get("error")))
+                except Exception as e:    # pragma: no cover
+                    with _LOCK:
+                        if jid in _JOBS:
+                            _JOBS[jid]["lines"].append("⚡ Optimize for the Hounds failed to start: %s" % e)
         threading.Thread(target=_chain, daemon=True, name="navi-rebuild-derived").start()
-        r["then"] = ["navi " + " ".join(COMMANDS[k]) for k in REBUILD_DERIVED]
+        r["then"] = (["navi " + " ".join(COMMANDS[k]) for k in REBUILD_DERIVED] if derived else []) \
+            + (["⚡ Optimize for the Hounds"] if hx else [])
     return r
 
 
 def start_optimize():
     """Start `navi config optimize` streaming (builds SQL indexes)."""
-    r = _start(COMMANDS["optimize"], "navi config optimize")
+    r = _start(COMMANDS["optimize"], "navi config optimize", kind="optimize")
     _tag_kind(r, "optimize")
     return r
 
@@ -355,7 +441,7 @@ def _view(job, since=0):
         s = max(0, int(since or 0))
         out = job["lines"][s:] if s < total else []
         el = (job["finished"] or _now()) - (job["started"] or _now())
-        return {"id": job["id"], "label": job["label"], "cmd": job["cmd"],
+        return {"id": job["id"], "label": job["label"], "cmd": job["cmd"], "kind": job.get("kind"),
                 "cwd": job.get("cwd"), "status": job["status"], "returncode": job["returncode"],
                 "lines": list(out), "n_lines": total, "since": s, "cur": job.get("cur", ""),
                 "elapsed": round(el, 1), "started": job["started"], "finished": job["finished"]}
@@ -376,3 +462,61 @@ def recent():
     return [{"id": j["id"], "label": j["label"], "status": j["status"], "kind": j.get("kind"),
              "returncode": j["returncode"], "n_lines": len(j["lines"]),
              "started": j["started"], "finished": j["finished"]} for j in reversed(jobs)]
+
+
+def start_task(label, kind, fn, cmd=None):
+    """Run an in-process Python job (⚡ Optimize for the Hounds) through the same job table,
+    so the Settings CLI window, Recent runs and poll() show it like a navi run.
+    fn(emit, live, cancel): emit(line) commits a line, live(text) sets the overwriting
+    status line, cancel is a threading.Event set by cancel(job_id). Return value with
+    ok False / cancelled → non-zero exit."""
+    job = _record([cmd or label], label, kind)
+    job["cwd"] = None
+    ev = threading.Event()
+    job["_cancel"] = ev
+
+    def emit(line):
+        with _LOCK:
+            if len(job["lines"]) < MAX_LINES:
+                job["lines"].append(str(line))
+
+    def live(text):
+        with _LOCK:
+            job["cur"] = str(text or "")
+
+    def body():
+        rc = 0
+        try:
+            res = fn(emit, live, ev)
+            if isinstance(res, dict) and res.get("cancelled"):
+                rc = 130
+            elif isinstance(res, dict) and res.get("ok") is False:
+                rc = 1
+        except Exception as e:
+            emit("[error] %s: %s" % (type(e).__name__, e))
+            rc = 1
+        with _LOCK:
+            job["cur"] = ""
+            job["returncode"] = rc
+            job["status"] = "done" if rc == 0 else ("cancelled" if rc == 130 else "error")
+            job["finished"] = _now()
+
+    threading.Thread(target=body, daemon=True, name="hounds-task-%s" % job["id"]).start()
+    return {"ok": True, "job": _view(job)}
+
+
+def cancel(jid):
+    """Ask an in-process job to stop (navi subprocess jobs are not cancellable here)."""
+    key = int(jid) if str(jid).isdigit() else None
+    with _LOCK:
+        job = _JOBS.get(key)
+        ev = job.get("_cancel") if job else None
+        st = job.get("status") if job else None
+    if not job:
+        return {"ok": False, "error": "no such job"}
+    if ev is None:
+        return {"ok": False, "error": "this job can't be cancelled from here"}
+    if st != "running":
+        return {"ok": True, "job": _view(job), "message": "already finished"}
+    ev.set()
+    return {"ok": True, "job": _view(job), "message": "cancelling — the index in progress is rolled back"}

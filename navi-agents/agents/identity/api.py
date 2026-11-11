@@ -40,13 +40,14 @@ def _enrich(res):
     uu = sorted({u for a in accts for u in (a.get("asset_uuids") or [])})
     acr = {}
     if uu:
-        inl = ",".join("'" + u.replace("'", "''") + "'" for u in uu)
         try:
-            for r in db.query(f"SELECT uuid, acr FROM assets WHERE uuid IN ({inl})"):
-                try:
-                    acr[r["uuid"]] = float(r.get("acr") or 0)
-                except (TypeError, ValueError):
-                    pass
+            for part in navi_cli.uuid_batches(uu, size=900):    # bounded SQL per statement
+                for r in db.query("SELECT uuid, acr FROM assets WHERE uuid IN (" + ",".join("?" * len(part)) + ")",
+                                  tuple(part)):
+                    try:
+                        acr[r["uuid"]] = float(r.get("acr") or 0)
+                    except (TypeError, ValueError):
+                        pass
         except Exception:
             pass
     try:
@@ -100,10 +101,14 @@ def run(p):
 
 
 def _tag_one(category, value, asset_uuids):
-    q = identity.selector_for(asset_uuids)
-    if not q:
+    """Identity → host mapping is computed in Python (accounts parsed from plugin output), so
+    the set goes as ≤1,999-UUID batches (core.navi_cli.tag_uuids_batched, add-only)."""
+    uu = [u for u in (asset_uuids or []) if u]
+    if not uu:
         return {"ok": False, "message": "no asset_uuids for this identity"}
-    return navi_cli.tag(category or "Identity", value, query=q, remove=False, agent="identity")
+    jobs = navi_cli.tag_uuids_batched(category or "Identity", value, uu, agent="identity")
+    sm = navi_cli.jobs_summary(jobs)
+    return {**(sm["result"] or {}), "jobs": sm["jobs"], "job_ids": sm["job_ids"]}
 
 
 def tag(p):

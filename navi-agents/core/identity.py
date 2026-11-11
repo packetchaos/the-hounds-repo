@@ -10,7 +10,7 @@ Reads are read-only (core.db). Tag writes go through navi (core.navi_cli).
 """
 import re
 
-from core import db
+from core import db, hx_summary
 
 # local-user / identity enumeration plugins (local-user enumeration plugins)
 ENUM_PLUGINS = [
@@ -168,6 +168,9 @@ _USER_RE = re.compile(r"(?:User(?:name)?\s*[:=]\s*|^\s*-\s+)([A-Za-z_][A-Za-z0-9
 _PASSWD_RE = re.compile(r"^([a-z_][a-z0-9_.\-]{1,31}):[^:]*:(\d+):\d+:[^:]*:([^:]*):(\S*)")
 
 
+_CHECK_EVERY = 200     # rows between db.checkpoint() calls in the Python parsing loops
+
+
 def _cols(table, path=None):
     try:
         return {r["name"] for r in db.query(f'PRAGMA table_info("{table}");', path=path)}
@@ -179,13 +182,84 @@ def _uset(sql, db_path):
     """Set of asset_uuids returned by a DISTINCT asset_uuid query (empty on error)."""
     try:
         return {r["asset_uuid"] for r in db.query(sql, path=db_path) if r.get("asset_uuid")}
+    except (db.QueryTimeout, db.TooManyRows):
+        raise                                  # a budget / cancel stops the run (launcher → budget:true)
     except Exception:
         return set()
+
+
+def _hx(db_path):
+    """⚡ Optimize summaries usable for this navi.db (fresh hx_plugin / hx_asset)."""
+    try:
+        return hx_summary.usable(db_path)
+    except Exception:
+        return False
+
+
+def _sqlit(xs):
+    return ",".join("'" + str(x).replace("'", "''") + "'" for x in xs)
+
+
+def _hx_plugins(cond, db_path):
+    """plugin ids from hx_plugin matching cond (plugin-level attributes: lname, sevn, kev …)."""
+    try:
+        return [str(r["plugin_id"]) for r in db.query("SELECT plugin_id FROM hx_plugin WHERE " + cond, path=db_path)]
+    except (db.QueryTimeout, db.TooManyRows):
+        raise
+    except Exception:
+        return []
+
+
+def _lname_any(terms):
+    return "(" + " OR ".join("lname LIKE '%" + t.replace("'", "''") + "%'" for t in terms) + ")"
+
+
+# the plugin-NAME arms of the scan's three name-or-output sweeps (lower-cased; SQLite LIKE is
+# ASCII case-insensitive, so plugin_name LIKE '%x%' ≡ lname LIKE '%x%')
+_DISC_NAME = ("user%enumerat", "enumerate%user", "local user", "user list", "users via",
+              "account%enumerat", "passwd")
+_DC_NAME = ("default cred", "default password", "blank password", "anonymous")
+_AD_NAME = ("kerberoast", "as-rep", "asrep", "delegation")
+_DC_OUT = ("default credentials", "blank password")
+_AD_OUT = ("krbtgt",)
+_SA_OUT = ("service account",)
+
+
+def _output_pass(db_path):
+    """ONE pass over vulns for every unrestricted OUTPUT arm of the scan (Phase 1 keeps the
+    output parsing; this only folds three full-table sweeps into one). Returns
+    (sa_rows [(rowid, asset_uuid, plugin_id, output)], dc_hosts, ad_hosts)."""
+    lo = "lower(output)"
+
+    def arm(terms):
+        return "(" + " OR ".join("%s LIKE '%%%s%%'" % (lo, t) for t in terms) + ")"
+    sa, dc, ad = arm(_SA_OUT), arm(_DC_OUT), arm(_AD_OUT)
+    sql = ("SELECT rowid AS rid, asset_uuid, plugin_id, %s AS sa, %s AS dc, %s AS ad, "
+           "CASE WHEN %s AND output<>'' AND plugin_id<>'95928' AND plugin_id<>'92364' THEN output END AS output "
+           "FROM vulns WHERE %s OR %s OR %s" % (sa, dc, ad, sa, sa, dc, ad))
+    sa_rows, dch, adh = [], set(), set()
+    try:
+        rows = db.query(sql, path=db_path)
+    except (db.QueryTimeout, db.TooManyRows):
+        raise
+    except Exception:
+        rows = []
+    for r in rows:
+        u = r.get("asset_uuid")
+        if r.get("output") is not None:
+            sa_rows.append((r["rid"], u, r.get("plugin_id"), r["output"]))
+        if u and r.get("dc"):
+            dch.add(u)
+        if u and r.get("ad"):
+            adh.add(u)
+    return sa_rows, dch, adh
 
 
 def _scalar0(sql, db_path):
     try:
         return db.scalar(sql, path=db_path) or 0
+    except (db.QueryTimeout, db.TooManyRows):
+        raise
     except Exception:
         return 0
 
@@ -204,14 +278,20 @@ def scan(db_path=None):
     """
     has_url = "url" in _cols("assets", db_path)
     amap = {}
-    for a in db.query("SELECT uuid, hostname, ip_address" + (", url" if has_url else "") +
-                      " FROM assets", path=db_path):
+    for i, a in enumerate(db.query("SELECT uuid, hostname, ip_address" + (", url" if has_url else "") +
+                                   " FROM assets", path=db_path)):
+        if not i % _CHECK_EVERY:
+            db.checkpoint("identity: assets")
         amap[a["uuid"]] = {"host": (a.get("hostname") or a.get("ip_address") or "").strip() or "host",
                            "url": a.get("url")}
 
     fresh = ""
+    hx = _hx(db_path)
     try:
-        row = db.query("SELECT MAX(last_found) f FROM vulns", path=db_path)
+        # data freshness: with the summaries, read it off assets (one row per asset) instead of
+        # a full vulns scan — an asset's last_found is its newest finding's
+        row = db.query("SELECT MAX(last_found) f FROM " + ("assets" if hx and "last_found" in _cols("assets", db_path)
+                                                            else "vulns"), path=db_path)
         fresh = (row[0].get("f") if row else "") or ""
     except Exception:
         fresh = ""
@@ -228,13 +308,22 @@ def scan(db_path=None):
                            "sid": "", "authority": ""}
         return a
 
+    _seen = {}                           # user -> (host set, uuid set) mirroring the lists
+
     def _touch(u, info, au=None, pid=""):
         """Create/return an account and attach host + uuid + plugin provenance."""
         a = _mk(u, info)
+        # membership via side sets (same ordered lists): `x not in list` made this O(hosts²) per
+        # account — on 600k assets a "daemon" on every host never finished the 95928 parse
+        seen = _seen.get(u)
+        if seen is None:
+            seen = _seen[u] = (set(a["hosts"]), set(a["asset_uuids"]))
         host = info.get("host", "host")
-        if host not in a["hosts"]:
+        if host not in seen[0]:
+            seen[0].add(host)
             a["hosts"].append(host)
-        if au and au not in a["asset_uuids"]:
+        if au and au not in seen[1]:
+            seen[1].add(au)
             a["asset_uuids"].append(au)
         if not a["url"]:
             a["url"] = info.get("url")
@@ -281,9 +370,14 @@ def scan(db_path=None):
     try:
         rows95928 = db.query("SELECT asset_uuid, output FROM vulns WHERE plugin_id='95928' "
                              "AND output IS NOT NULL AND output<>''", path=db_path)
+    except (db.QueryTimeout, db.TooManyRows):
+        raise
     except Exception:
         rows95928 = []
-    for r in rows95928:
+    # Python parsing of already-fetched rows: the SQL budget can't stop it, checkpoint() does
+    for i, r in enumerate(rows95928):
+        if not i % _CHECK_EVERY:
+            db.checkpoint("identity: 95928 parse")
         _block_parse(r.get("output"), amap.get(r["asset_uuid"], {}), r.get("asset_uuid"))
 
     # Other enumerators (Windows local users, passwd, etc.) — strict markers only, and
@@ -299,11 +393,33 @@ def scan(db_path=None):
         "OR lower(plugin_name) LIKE '%passwd%' "
         "OR lower(output) LIKE '%service account%' "
         f"OR plugin_id IN ({ph}))")
+    out_pass = None
     try:
-        rows = db.query(disc_sql, tuple(known), path=db_path)
+        if hx:
+            # name arms + known ids → plugin ids from hx_plugin (only THOSE plugins' rows are
+            # read); the output arm comes from the single shared output pass; merged in rowid
+            # (= table-scan) order so first-seen evidence wins exactly as before
+            pids = set(_hx_plugins(_lname_any(_DISC_NAME), db_path)) | set(known)
+            pids -= {"95928", "92364"}
+            got = {}
+            pl = sorted(pids)
+            for i in range(0, len(pl), 500):
+                for r in db.query("SELECT rowid AS rid, asset_uuid, plugin_id, output FROM vulns WHERE plugin_id IN ("
+                                  + _sqlit(pl[i:i + 500]) + ") AND output IS NOT NULL AND output<>''", path=db_path):
+                    got[r["rid"]] = r
+            out_pass = _output_pass(db_path)
+            for rid, u, pid_, out in out_pass[0]:
+                got.setdefault(rid, {"asset_uuid": u, "plugin_id": pid_, "output": out})
+            rows = [got[k] for k in sorted(got)]
+        else:
+            rows = db.query(disc_sql, tuple(known), path=db_path)
+    except (db.QueryTimeout, db.TooManyRows):
+        raise
     except Exception:
         rows = []
-    for r in rows:
+    for i, r in enumerate(rows):
+        if not i % _CHECK_EVERY:
+            db.checkpoint("identity: enumerator parse")
         info = amap.get(r["asset_uuid"], {})
         au = r.get("asset_uuid")
         pid = str(r.get("plugin_id") or "")
@@ -384,12 +500,16 @@ def scan(db_path=None):
 
     # non-expiring passwords (83303)
     try:
-        for r in db.query("SELECT output FROM vulns WHERE plugin_id='83303' "
-                          "AND output IS NOT NULL AND output<>''", path=db_path):
+        for i, r in enumerate(db.query("SELECT output FROM vulns WHERE plugin_id='83303' "
+                                       "AND output IS NOT NULL AND output<>''", path=db_path)):
+            if not i % _CHECK_EVERY:
+                db.checkpoint("identity: 83303 parse")
             for line in (r.get("output") or "").splitlines():
                 m = _USER_RE.search(line)
                 if m and m.group(1) in acct:
                     _flag(acct[m.group(1)], "non-expiring pw")
+    except (db.QueryTimeout, db.TooManyRows):
+        raise
     except Exception:
         pass
     # privileged names
@@ -404,7 +524,7 @@ def scan(db_path=None):
     host_sets = {}                       # flag -> host uuids (the page tags these directly)
 
     def _host_flag(sql, flag, klasses):
-        s = _uset(sql, db_path)
+        s = sql if isinstance(sql, set) else _uset(sql, db_path)
         host_sets[flag] = sorted(s)
         if s:
             for a in acct.values():
@@ -439,8 +559,10 @@ def scan(db_path=None):
     # footprint before flagging reuse.
     scan_hosts_by_user, scan_via_by_user = {}, {}
     _scan_re = re.compile(r"credentialed checks\s*:\s*yes,\s*as\s+'([^']+)'\s+via\s+(\w+)", re.I)
-    for r in db.query("SELECT asset_uuid, output FROM vulns WHERE plugin_id='19506' "
-                      "AND lower(output) LIKE '%credentialed checks : yes, as%'", path=db_path):
+    for i, r in enumerate(db.query("SELECT asset_uuid, output FROM vulns WHERE plugin_id='19506' "
+                                   "AND lower(output) LIKE '%credentialed checks : yes, as%'", path=db_path)):
+        if not i % _CHECK_EVERY:
+            db.checkpoint("identity: 19506 parse")
         m = _scan_re.search(r.get("output") or "")
         if not m:
             continue
@@ -485,7 +607,7 @@ def scan(db_path=None):
 
     # correlate identities to exploitable hosts (KEV / critical = crown jewels)
     def _corr(sql, flag):
-        s = _uset(sql, db_path)
+        s = sql if isinstance(sql, set) else _uset(sql, db_path)
         host_sets[flag] = sorted(s)
         if s:
             for a in acct.values():
@@ -493,20 +615,31 @@ def scan(db_path=None):
                     _flag(a, flag)
         return len(s)
 
-    kevHostN = _corr("SELECT DISTINCT asset_uuid FROM vulns WHERE xrefs LIKE '%CISA-KNOWN-EXPLOITED%'",
-                     "on KEV host")
-    critHostN = _corr("SELECT DISTINCT asset_uuid FROM vulns WHERE lower(severity)='critical' OR severity='4'",
-                      "on critical host")
-    dcHosts = _host_flag(
-        "SELECT DISTINCT asset_uuid FROM vulns WHERE lower(plugin_name) LIKE '%default cred%' "
-        "OR lower(plugin_name) LIKE '%default password%' OR lower(plugin_name) LIKE '%blank password%' "
-        "OR lower(plugin_name) LIKE '%anonymous%' OR lower(output) LIKE '%default credentials%' "
-        "OR lower(output) LIKE '%blank password%'", "default/blank cred", ("human", "service", "nhi"))
-    adHosts = _host_flag(
-        "SELECT DISTINCT asset_uuid FROM vulns WHERE lower(plugin_name) LIKE '%kerberoast%' "
-        "OR lower(plugin_name) LIKE '%as-rep%' OR lower(plugin_name) LIKE '%asrep%' "
-        "OR lower(plugin_name) LIKE '%delegation%' OR lower(output) LIKE '%krbtgt%'",
-        "AD attack path", ("human", "service", "nhi", "machine"))
+    if hx:
+        # KEV (any state) = hx_asset.kev_any; critical (any state) stays a per-finding severity
+        # test on the covering index, limited to critical plugins; the name arms of the two
+        # sweeps resolve on hx_plugin.lname and their output arms come from the shared pass
+        if out_pass is None:
+            out_pass = _output_pass(db_path)
+        kev_q = "SELECT asset_uuid FROM hx_asset WHERE kev_any"
+        crit_q = (hx_summary.assets_with("sevn = 4", path=db_path)
+                  + " AND (lower(severity)='critical' OR severity='4')")
+        dc_q = _uset(hx_summary.assets_with(_lname_any(_DC_NAME), path=db_path), db_path) | out_pass[1]
+        ad_q = _uset(hx_summary.assets_with(_lname_any(_AD_NAME), path=db_path), db_path) | out_pass[2]
+    else:
+        kev_q = "SELECT DISTINCT asset_uuid FROM vulns WHERE xrefs LIKE '%CISA-KNOWN-EXPLOITED%'"
+        crit_q = "SELECT DISTINCT asset_uuid FROM vulns WHERE lower(severity)='critical' OR severity='4'"
+        dc_q = ("SELECT DISTINCT asset_uuid FROM vulns WHERE lower(plugin_name) LIKE '%default cred%' "
+                "OR lower(plugin_name) LIKE '%default password%' OR lower(plugin_name) LIKE '%blank password%' "
+                "OR lower(plugin_name) LIKE '%anonymous%' OR lower(output) LIKE '%default credentials%' "
+                "OR lower(output) LIKE '%blank password%'")
+        ad_q = ("SELECT DISTINCT asset_uuid FROM vulns WHERE lower(plugin_name) LIKE '%kerberoast%' "
+                "OR lower(plugin_name) LIKE '%as-rep%' OR lower(plugin_name) LIKE '%asrep%' "
+                "OR lower(plugin_name) LIKE '%delegation%' OR lower(output) LIKE '%krbtgt%'")
+    kevHostN = _corr(kev_q, "on KEV host")
+    critHostN = _corr(crit_q, "on critical host")
+    dcHosts = _host_flag(dc_q, "default/blank cred", ("human", "service", "nhi"))
+    adHosts = _host_flag(ad_q, "AD attack path", ("human", "service", "nhi", "machine"))
     # SNMP write community (private) is worse than read (public)
     if _scalar0("SELECT COUNT(*) FROM vulns WHERE plugin_id='41028' AND lower(output) LIKE '%private%'",
                 db_path) and "__41028" in acct:
@@ -624,9 +757,10 @@ def host_identities(uuid, db_path=None):
 
 
 def selector_for(asset_uuids):
-    """navi tag-by-query SQL selecting the given assets (the identity's hosts)."""
+    """navi tag-by-query SQL selecting the given assets (the identity's hosts). One query —
+    for a set that may be large, tag with core.navi_cli.tag_uuids_batched (agents/identity/api)."""
     ids = [u for u in (asset_uuids or []) if u]
     if not ids:
         return ""
-    inlist = ",".join("'" + str(u).replace("'", "''") + "'" for u in ids)
-    return f"SELECT uuid AS asset_uuid FROM assets WHERE uuid IN ({inlist})"
+    from core import navi_cli
+    return navi_cli.uuids_query(ids)

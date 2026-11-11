@@ -7,13 +7,16 @@ Python install. For production you can still use app_fastapi.py / app_flask.py.
 """
 import json
 import os
+import select
+import socket
+import threading
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from core import security
 security.harden_process()                 # umask 077 before anything creates a file
 
-from core import launcher  # noqa: E402
+from core import launcher, db  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 WEB = os.path.join(HERE, "web")
@@ -35,6 +38,43 @@ def _safe_join(base, rel):
     p = os.path.abspath(os.path.join(base, *[s for s in rel.split("/") if s not in ("", ".", "..")]))
     b, pp = os.path.normcase(base), os.path.normcase(p)
     return p if (pp == b or pp.startswith(b + os.sep)) else None
+
+
+class _DisconnectWatch:
+    """Trip `token` (a db.Cancel) when the client closes the connection while its request is
+    still running — the browser aborted the fetch, the tab navigated away or was closed.
+    The server speaks HTTP/1.0 (one request per connection), so after the body is read the
+    client sends nothing more: a readable socket whose MSG_PEEK returns b'' (FIN) or an
+    error (RST) means it's gone. Polled every 0.2 s on a small daemon thread; the running
+    SQL then stops within ~10k VM steps (db progress handler) and the action returns."""
+
+    def __init__(self, sock, token, interval=0.2):
+        self.sock, self.token, self.interval = sock, token, interval
+        self.done = threading.Event()
+        self.t = None
+
+    def _loop(self):
+        while not self.done.wait(self.interval):
+            try:
+                r, _, x = select.select([self.sock], [], [self.sock], 0)
+                if x:
+                    raise OSError("socket exception")
+                if r and not self.sock.recv(1, socket.MSG_PEEK):
+                    self.token.cancel()
+                    return
+            except (OSError, ValueError):
+                self.token.cancel()
+                return
+
+    def __enter__(self):
+        if self.sock is not None:
+            self.t = threading.Thread(target=self._loop, name="hounds-disconnect-watch", daemon=True)
+            self.t.start()
+        return self
+
+    def __exit__(self, *exc):
+        self.done.set()
+        return False
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -142,8 +182,23 @@ class Handler(BaseHTTPRequestHandler):
                 payload = json.loads(self.rfile.read(n) or b"{}")
             except Exception:
                 payload = {}
-            body, status = launcher.dispatch(parts[1], parts[2], payload, peer=self._peer(), http=True)
-            return self._send(status, body)
+            # request budget + cancel: X-Hounds-Budget (open|run) is the page's hint, X-Hounds-Tab
+            # lets a newer identical request from the same tab supersede this one, and a client
+            # disconnect cancels the running SQL (core/launcher.dispatch, core/db.budget_scope)
+            hint = (self.headers.get("X-Hounds-Budget") or "").strip().lower() or None
+            tab = (self.headers.get("X-Hounds-Tab") or "").strip()[:64] or None
+            token = db.Cancel()
+            with _DisconnectWatch(self.connection, token):
+                body, status = launcher.dispatch(parts[1], parts[2], payload, peer=self._peer(),
+                                                 http=True, budget_hint=hint, cancel=token, tab=tab)
+            try:
+                if isinstance(body, (dict, list)):
+                    body = json.dumps(body).encode()
+                    launcher.note_response(parts[1], parts[2], len(body))   # > 2 MB → logged
+                return self._send(status, body)
+            except (BrokenPipeError, ConnectionResetError):
+                self.close_connection = True      # the client left — nothing to answer
+                return None
         self._send(404, {"error": "not found"})
 
     def log_message(self, *a):

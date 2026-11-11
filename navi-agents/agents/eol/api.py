@@ -54,10 +54,9 @@ def tag_eol_date(p):
     results = []
     for g in groups:
         uu = g.get("uuids") or []
-        inl = ",".join("'" + str(u).replace("'", "''") + "'" for u in uu)
-        jobs = navi_cli.tag_capped(DATE_CATEGORY, g["eol_date"], uuids=uu,
-                                   query=f"SELECT uuid AS asset_uuid FROM assets WHERE uuid IN ({inl})",
-                                   remove=False, agent="eol") if uu else []
+        # the date's own condition (core.eol.date_tag_query), computed here and paged
+        q = eol.date_tag_query(g) if uu else ""
+        jobs = navi_cli.tag_set(DATE_CATEGORY, g["eol_date"], sql=q, agent="eol") if q else []
         ids = [j["job_id"] for j in jobs if j.get("job_id") is not None]
         results.append({"eol_date": g["eol_date"], "products": g["products"], "plugins": len(g["plugin_ids"]),
                         "jobs": len(ids), "queued": bool(ids)})

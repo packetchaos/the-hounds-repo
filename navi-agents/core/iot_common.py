@@ -19,8 +19,9 @@ import csv
 import json
 import math
 import os
+import threading
 
-from . import db
+from . import db, hx_summary
 
 # Enumeration/info plugins that mention many vendors. Still flagged (as a
 # warning) if one slips into a kept list, but never silently dropped.
@@ -292,7 +293,7 @@ def candidate_filter(db_path=None, v="v", a="a"):
     return cond
 
 
-def _detection_where(det: dict, db_path=None):
+def _detection_where(det: dict, db_path=None, hx=False):
     """The shared WHERE for a detection: (device plugin id OR device plugin NAME OR
     an identity string in a SIGNAL plugin's output) AND the IoT-candidate filter
     (no software enum / no general-purpose OS). None when the detection has no match
@@ -304,7 +305,10 @@ def _detection_where(det: dict, db_path=None):
         clauses.append("v.plugin_id IN (" + ",".join("'" + p + "'" for p in pids) + ")")
     for t in det.get("name_contains", []):          # match the PLUGIN NAME (device-specific)
         if t:
-            clauses.append(_like("v.plugin_name", t))
+            # hx: the name is a plugin attribute — resolve it on hx_plugin (≈ plugins rows),
+            # so the whole match is plugin_id-driven and seeks the covering hx_v_plugin index
+            clauses.append(("v.plugin_id IN (SELECT plugin_id FROM hx_plugin WHERE %s)" % _like("name", t))
+                           if hx else _like("v.plugin_name", t))
     for t in det.get("output_contains", []):        # match OUTPUT only inside signal plugins
         if len(str(t)) >= 4:
             clauses.append(f"(v.plugin_id IN ({sig}) AND {_like('v.output', t)})")
@@ -318,7 +322,7 @@ def _detection_where(det: dict, db_path=None):
 
 def assets_for_detection(det: dict, db_path=None) -> list[dict]:
     """Agent 1 discovery — the detected asset rows + the plugin that matched."""
-    where = _detection_where(det, db_path)
+    where = _detection_where(det, db_path, hx=_hx(db_path))
     if not where:
         return []
     sql = (f"SELECT DISTINCT v.asset_uuid, a.hostname, a.ip_address, "
@@ -361,6 +365,99 @@ def carrier_plugins_on_assets(asset_uuids, terms, db_path=None) -> list[dict]:
     return out
 
 
+def _hx(db_path=None):
+    try:
+        return hx_summary.usable(db_path)
+    except Exception:
+        return False
+
+
+def plugin_carries_terms(plugin_id, terms, db_path=None) -> dict:
+    """{term: [asset_uuid, …]} for MANY terms of ONE plugin in (at most) two statements — the
+    batched form of plugin_carries_term's `plugin_name LIKE '%t%' OR output LIKE '%t%'`:
+      • the NAME arm is a plugin attribute → tested once per term on hx_plugin.name (the
+        plugin's name, the same LIKE); a name hit means every asset carrying the plugin
+        (covering hx_v_plugin range);
+      • the OUTPUT arm reads this plugin's rows ONCE with one LIKE column per remaining term
+        (output parsing stays — Phase 3 — but it is no longer repeated per term).
+    Only valid when the ⚡ Optimize summaries are usable; uuids come back sorted."""
+    pid = str(plugin_id)
+    good = list(dict.fromkeys(t for t in (terms or []) if valid_term(t)))
+    out = {t: set() for t in good}
+    if not good:
+        return {}
+    by_name = []
+    for i in range(0, len(good), 400):                 # ≤ 400 result columns per statement
+        part = good[i:i + 400]
+        names = db.query("SELECT " + ", ".join("(name LIKE ?) AS m%d" % j for j in range(len(part)))
+                         + " FROM hx_plugin WHERE plugin_id=?",
+                         tuple("%" + t + "%" for t in part) + (pid,), path=db_path)
+        by_name += [t for j, t in enumerate(part) if names and names[0].get("m%d" % j)]
+    if by_name:
+        ib = db.indexed_by("hx_v_plugin", db_path)
+        allu = {r["asset_uuid"] for r in db.query("SELECT DISTINCT asset_uuid FROM vulns%s WHERE plugin_id=?" % ib,
+                                                  (pid,), path=db_path) if r.get("asset_uuid")}
+        for t in by_name:
+            out[t] = set(allu)
+    rest = [t for t in good if t not in by_name]
+    for i in range(0, len(rest), 400):                 # ≤ 401 parameters per statement
+        part = rest[i:i + 400]
+        likes = ["(output LIKE ?)" for _ in part]
+        # the same LIKE text _like() builds (term between % … %, quotes doubled there only
+        # because it is inlined; bound here)
+        args = tuple("%" + t + "%" for t in part)
+        sql = ("SELECT asset_uuid, " + ", ".join("%s AS m%d" % (l, j) for j, l in enumerate(likes))
+               + " FROM vulns WHERE plugin_id=? AND (" + " OR ".join(likes) + ")")
+        for r in db.query(sql, args + (pid,) + args, path=db_path):
+            u = r.get("asset_uuid")
+            if not u:
+                continue
+            for j, t in enumerate(part):
+                if r.get("m%d" % j):
+                    out[t].add(u)
+    return {t: sorted(v) for t, v in out.items()}
+
+
+# Agent 3 calls plugin_carries_term(pid, term) for every carrier × every vocabulary term. With
+# the summaries usable those calls are answered from one plugin_carries_terms() per plugin:
+# the vocabulary seen so far is batched on the first miss of each plugin. Keyed by the navi.db
+# file signature, so any sync/write starts a fresh memo.
+_PCT_LOCK = threading.Lock()
+_PCT = {"key": None, "vocab": [], "hits": {}, "n": 0}
+_PCT_MAX_UUIDS = 2_000_000
+
+
+def _pct_key(db_path):
+    p = db_path or db.db_path()
+    sig = [p]
+    for suf in ("", "-wal"):
+        try:
+            st = os.stat(p + suf)
+            sig.append((st.st_size, st.st_mtime_ns))
+        except OSError:
+            sig.append(None)
+    return tuple(sig)
+
+
+def _pct_lookup(pid, term, db_path):
+    key = _pct_key(db_path)
+    with _PCT_LOCK:
+        if _PCT["key"] != key or _PCT["n"] > _PCT_MAX_UUIDS:
+            _PCT.update(key=key, vocab=[], hits={}, n=0)
+        if term not in _PCT["vocab"]:
+            _PCT["vocab"].append(term)
+        got = _PCT["hits"].setdefault(pid, {})
+        if term in got:
+            return got[term]
+        want = [t for t in _PCT["vocab"] if t not in got]
+    res = plugin_carries_terms(pid, want, db_path)
+    with _PCT_LOCK:
+        if _PCT["key"] == key:
+            _PCT["hits"].setdefault(pid, {}).update(res)
+            _PCT["n"] += sum(len(v) for v in res.values())
+    return res.get(term, [])
+
+
 def plugin_carries_term(plugin_id, term, db_path=None, total=None) -> dict:
     """Agent 3 — across the WHOLE population, how many assets have this plugin
     with the term inside its name/output, plus a sample of those asset UUIDs.
@@ -369,6 +466,10 @@ def plugin_carries_term(plugin_id, term, db_path=None, total=None) -> dict:
     if not valid_term(term):
         return {"count": 0, "prevalence": 0.0, "asset_uuids": []}
     total = max(1, total if total is not None else asset_total(db_path))
+    if _hx(db_path):
+        uuids = list(_pct_lookup(str(plugin_id), term, db_path))
+        n = len(uuids)
+        return {"count": n, "prevalence": round(n / total, 4), "asset_uuids": uuids}
     pid = str(plugin_id).replace("'", "''")
     cond = f"({_like('plugin_name', term)} OR {_like('output', term)})"
     rows = db.query(f"SELECT DISTINCT asset_uuid FROM vulns "
@@ -415,7 +516,24 @@ def device_exposure(asset_uuids, db_path=None, chunk=500) -> dict:
     vcols, acols = table_cols("vulns", db_path), table_cols("assets", db_path)
     per = {u: {"asset_uuid": u, "critical": 0, "high": 0, "medium": 0, "low": 0,
                "kev": 0, "acr": None, "aes": None} for u in uuids}
-    if uuids and "severity" in vcols:
+    if uuids and "severity" in vcols and _hx(db_path):
+        # ⚡ Optimize's per-asset summary: open findings by severity (per finding, exact — the
+        # same critical/'4' … low/'1' mapping) and an open CISA-KEV finding, one PK read each
+        for i in range(0, len(uuids), chunk):
+            part = uuids[i:i + chunk]
+            ph = ",".join("?" * len(part))
+            for r in db.query(f"SELECT asset_uuid, crit, high, med, low, kev FROM hx_asset "
+                              f"WHERE asset_uuid IN ({ph});", tuple(part), path=db_path):
+                d = per.get(r["asset_uuid"])
+                if not d:
+                    continue
+                d["critical"] += r.get("crit") or 0
+                d["high"] += r.get("high") or 0
+                d["medium"] += r.get("med") or 0
+                d["low"] += r.get("low") or 0
+                if r.get("kev") and "xrefs" in vcols:
+                    d["kev"] = 1
+    elif uuids and "severity" in vcols:
         kev = ("MAX(CASE WHEN xrefs LIKE '%CISA-KNOWN-EXPLOITED%' THEN 1 ELSE 0 END)"
                if "xrefs" in vcols else "0")
         # navi keeps fixed rows in vulns with state='fixed' — count OPEN findings only

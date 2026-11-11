@@ -281,6 +281,11 @@ def tag(category: str, value: str, query: str = "", remove: bool = False,
     # far and the navi command all carry the name that is actually written.
     if not remove:
         category = tagname.effective(category)
+    too_big = arg_too_big(category, value, query, cve, plugin_name, plugin, output, cpe, xrefs, xid, group)
+    if too_big:
+        # Refused up front (never queued): one argv element over the OS limit fails with
+        # "Argument list too long". Callers build predicates / batches (tag_uuids_batched).
+        return {"ok": False, "refused": True, "message": "not sent — " + too_big}
     kwargs = dict(category=category, value=value, query=query, remove=remove,
                   cve=cve, plugin_name=plugin_name, scanid=scanid, plugin=plugin,
                   output=output, route_id=route_id, group=group, xrefs=xrefs, xid=xid,
@@ -316,28 +321,193 @@ _BUILTIN_KEYS = ("plugin", "output", "regex", "plugin_name", "cve", "cpe",
                  "port", "route_id", "group", "xrefs", "xid", "scanid")
 
 
-def _uuids_query(uuids, col="asset_uuid", table="vulns"):
-    inl = ",".join("'" + str(u).replace("'", "''") + "'" for u in uuids)
+# --------------------------------------------------------------------------- #
+#  Tag-set size rules (scale).
+#  navi receives `--query "<SQL>"` as ONE argv element and Linux caps a single argument at
+#  128 KiB (MAX_ARG_STRLEN) — an inline `uuid IN ('…',…)` list fails with "Argument list too
+#  long" above ~3,300 UUIDs. So:
+#   1. a tag's --query is a SELECT over navi.db that DEFINES the set (the hound's own predicate)
+#      — navi re-evaluates it over the full set and the argument stays small at any scale;
+#   2. only a set computed in Python (a scoring model, parsed output) is sent as UUIDs, through
+#      tag_uuids_batched(): ≤ BATCH_UUIDS per navi job, add-only;
+#   3. every navi argument is checked against MAX_ARG_BYTES before it is queued or run.
+# --------------------------------------------------------------------------- #
+MAX_ARG_BYTES = int(os.environ.get("NAVI_MAX_ARG_BYTES", "100000"))   # < 128 KiB with headroom
+BATCH_UUIDS = max(1, min(UUID_CAP, 1999))
+
+
+def _arg_bytes(s) -> int:
+    return len(str("" if s is None else s).encode("utf-8"))
+
+
+def arg_too_big(*args) -> str:
+    """'' when every argument fits; else a reason naming the largest one (bytes)."""
+    big = max((_arg_bytes(a) for a in args), default=0)
+    if big >= MAX_ARG_BYTES:
+        return (f"a navi argument would be {big:,} bytes (limit {MAX_ARG_BYTES:,}; the OS refuses one "
+                f"argument over 128 KB) — the tag must be a SQL predicate or a batched UUID set")
+    return ""
+
+
+def _sql_lit(u) -> str:
+    return "'" + str(u).replace("'", "''") + "'"
+
+
+def uuids_query(uuids, col="uuid", table="assets"):
+    """--query selecting an explicit asset set. `table='assets'` keeps the long-standing
+    `SELECT uuid AS asset_uuid FROM assets WHERE uuid IN (…)` shape; another table (vulns,
+    compliance, apps) selects DISTINCT <col> from it — the same set the caller used before."""
+    inl = ",".join(_sql_lit(u) for u in uuids)
+    if table == "assets" and col in ("uuid", "asset_uuid"):
+        return f"SELECT uuid AS asset_uuid FROM assets WHERE uuid IN ({inl})"
     return f"SELECT DISTINCT {col} FROM {table} WHERE {col} IN ({inl})"
+
+
+def _uuids_query(uuids, col="asset_uuid", table="vulns"):        # back-compat name
+    return uuids_query(uuids, col, table)
+
+
+def uuid_batches(uuids, size=None, col="uuid", table="assets", max_bytes=None):
+    """Split an asset set into batches of ≤ `size` (default BATCH_UUIDS) unique, sorted UUIDs
+    whose --query also stays under max_bytes (default MAX_ARG_BYTES) — so a batch is always
+    a legal navi argument, whatever the UUID strings look like."""
+    size = max(1, min(int(size or BATCH_UUIDS), BATCH_UUIDS))
+    limit = int(max_bytes or MAX_ARG_BYTES) - 1
+    base = _arg_bytes(uuids_query([], col, table))
+    out, cur, cur_b = [], [], base
+    for u in sorted({str(x) for x in (uuids or []) if x not in (None, "")}):
+        b = _arg_bytes(_sql_lit(u)) + 1
+        if base + b > limit:
+            continue                       # a single absurd "uuid" can never be sent — skip it
+        if cur and (len(cur) >= size or cur_b + b > limit):
+            out.append(cur)
+            cur, cur_b = [], base
+        cur.append(u)
+        cur_b += b
+    if cur:
+        out.append(cur)
+    return out
+
+
+def uuid_specs(category, value, uuids, col="uuid", table="assets", size=None):
+    """navi_cli.tag kwargs (one per batch, remove=False) for a Python-computed asset set."""
+    return [{"category": category, "value": value, "remove": False,
+             "query": uuids_query(part, col, table)}
+            for part in uuid_batches(uuids, size=size, col=col, table=table)]
+
+
+def run_specs(specs, agent="", sync=False, business_case="", op="tag"):
+    """Queue navi_cli.tag for each spec (tag kwargs). Returns the list of job stubs."""
+    return [tag(agent=agent, sync=sync, business_case=business_case, op=op, **sp) for sp in (specs or [])]
+
+
+def collect_uuids(sql, params=(), path=None) -> list:
+    """The asset set a hound's SQL condition selects (first column), STREAMED from navi.db in
+    chunks (core.db.iter) — never one fetchall of millions of rows. Sorted, de-duplicated."""
+    from core import db
+    out = set()
+    try:
+        rows = db.iter(sql, params, path, budget="job", tuples=True)
+        for r in rows:
+            if r and r[0] not in (None, ""):
+                out.add(str(r[0]))
+    except TypeError:                      # an older core.db without iter()'s keywords
+        for r in db.query(sql, params, path=path):
+            v = next(iter(r.values()), None) if isinstance(r, dict) else (r[0] if r else None)
+            if v not in (None, ""):
+                out.add(str(v))
+    return sorted(out)
+
+
+def submit_pages(category, value, pages, agent="", sync=False, business_case="", op="tag",
+                 selector="uuid pages"):
+    """THE paging core. `pages` = [(query, n_assets), …], each query a ≤ BATCH_UUIDS-UUID page of
+    ONE tag (add-only). One page → ONE ordinary navi job (as before). More → a tag SERIES on the
+    Hounds' queue (core.tagq.submit_series): one job per page, run one at a time, each with its
+    own navi output, sharing a series id (progress, retry one page, cancel the rest).
+    Returns a LIST of job stubs (one per page). The same gates as tag(): Settings → Test run
+    prefix, the per-argument byte guard, and (at run time) NAVI_ALLOW_WRITES."""
+    pages = [(q, int(n or 0)) for q, n in (pages or []) if q]
+    if not pages:
+        return []
+    if len(pages) == 1:
+        return [tag(category, value, query=pages[0][0], remove=False, agent=agent, sync=sync,
+                    business_case=business_case, op=op)]
+    category = tagname.effective(category)
+    for q, _n in pages:
+        too_big = arg_too_big(category, value, q)
+        if too_big:
+            return [{"ok": False, "refused": True, "message": "not sent — " + too_big}]
+    kws = [({"category": category, "value": value, "query": q, "remove": False}, n) for q, n in pages]
+    if sync:
+        out = []
+        for i, (kw, n) in enumerate(kws, 1):
+            r = _tag_exec(**kw)
+            out.append({**r, "page": i, "pages": len(kws), "assets": n})
+        return out
+    from core import tagq
+    s = tagq.submit_series(_tag_exec, kws, {"agent": agent, "category": category, "value": value,
+                                            "selector": selector, "op": op,
+                                            "business_case": business_case or ""}, runner="tag")
+    base = {"ok": True, "queued": True, "series": s["series"], "pages": s["pages"],
+            "writes_enabled": writes_enabled(), "allow_writes_flag": allow_writes(),
+            "navi_available": navi_available(), "write_gate_reason": write_gate_reason()}
+    return [{**base, "job_id": jid, "page": i,
+             "message": f"queued page {i} of {s['pages']} (series {s['series']}) — track it in the Tagging log"}
+            for i, jid in enumerate(s["job_ids"], 1)]
+
+
+def tag_pages(category, value, uuid_pages, col="uuid", table="assets", **kw):
+    """submit_pages() for pre-built UUID pages (lists of ≤ BATCH_UUIDS UUIDs)."""
+    return submit_pages(category, value, [(uuids_query(p, col, table), len(p)) for p in uuid_pages if p], **kw)
+
+
+def tag_set(category, value, uuids=None, sql="", params=(), agent="", sync=False, col="uuid",
+            table="assets", business_case="", op="tag", path=None):
+    """THE standard tag mechanism (build 453): the Hounds compute the tag's asset set — from the
+    hound's own SQL condition (`sql`, streamed via collect_uuids) or a Python-computed `uuids`
+    list — and page it: ≤ 1,999 assets → ONE navi job; more → a tag series of ≤ 1,999-UUID pages
+    (submit_pages). Add-only: removal is Garmr / the Contract's removal phase only. Returns a
+    LIST of job stubs (empty when the set is empty)."""
+    if sql:
+        uuids = collect_uuids(sql, params, path)
+    return tag_pages(category, value, uuid_batches(uuids, col=col, table=table), col=col, table=table,
+                     agent=agent, sync=sync, business_case=business_case, op=op)
+
+
+def tag_uuids_batched(category, value, uuids, agent="", sync=False, col="uuid", table="assets",
+                      business_case="", size=None, op="tag"):
+    """Back-compat name for tag_set(uuids=…) — a Python-computed set, paged, add-only."""
+    return tag_set(category, value, uuids=uuids, agent=agent, sync=sync, col=col, table=table,
+                   business_case=business_case, op=op)
+
+
+def jobs_summary(jobs) -> dict:
+    """{ok, jobs, job_ids, result, error} for a list of job stubs (API responses)."""
+    jobs = [j for j in (jobs or []) if isinstance(j, dict)]
+    ids = [j.get("job_id") for j in jobs if j.get("job_id") is not None]
+    bad = [j for j in jobs if j.get("ok") is False]
+    return {"ok": bool(jobs) and not bad, "jobs": len(jobs), "job_ids": ids,
+            "result": (bad[0] if bad else (jobs[0] if jobs else {})),
+            "error": (bad[0].get("message") if bad else None)}
 
 
 def tag_capped(category, value, uuids=None, query="", fallbacks=None, regex=False,
                remove=False, agent="", sync=False, threshold=None,
-               col="asset_uuid", table="vulns", count=None):
-    """Tag an asset set, automatically dodging the ~1999-UUID endpoint cap.
+               col="uuid", table="assets", count=None):
+    """Tag an asset set at any size. Returns a LIST of job stubs (one per navi command).
+    New code calls tag_set() (THE standard: compute the set, page it); this stays for the
+    callers that already hand navi a set-defining query or built-in fallbacks.
 
-    - Small sets (<= threshold UUIDs): tag by the PRECISE --query (exact asset
-      match — most accurate).
-    - Large sets (> threshold): shift to navi BUILT-IN selectors supplied in
-      `fallbacks` so navi does the paging server-side. Each fallback is a dict of
-      navi selector kwargs, e.g. {"plugin": 20811, "output": "OpenSSL", "regex": True},
-      {"cpe": "cpe:/a:openssl:openssl"}, or {"plugin_name": "Unsupported"}.
-
-    `uuids` is the source of truth for the count and the small-set query (built
-    from it if `query` is empty). If the set is over the cap but NO fallbacks were
-    supplied, it still tags by --query (navi's internal loop handles it) — nothing
-    breaks, it's just slower. Returns a LIST of job stubs (one per navi command).
-    """
+    - `query`: a SELECT over navi.db that defines the set — sent as ONE --query (legacy paths
+      only: ai apply's plugin-family query).
+    - no query, only `uuids`: tag_set() — ≤ BATCH_UUIDS per page over `table`.`col` (default
+      assets.uuid), a tag series above one page, add-only.
+    - over `threshold` (default UUID_CAP) WITH `fallbacks` (navi BUILT-IN selector dicts, e.g.
+      {"plugin": 20811, "output": "OpenSSL", "regex": True}, {"cpe": …}, {"plugin_name": …}):
+      one navi built-in per fallback instead.
+    A --query too big for one argument is never sent: it falls back to batching `uuids`
+    when given, else is refused (job stub ok=False)."""
     uuids = uuids or []
     n = len(uuids) if count is None else int(count)
     fallbacks = [f for f in (fallbacks or []) if any(f.get(k) for k in _BUILTIN_KEYS)]
@@ -349,8 +519,15 @@ def tag_capped(category, value, uuids=None, query="", fallbacks=None, regex=Fals
             sel.setdefault("regex", regex if (f.get("plugin") and f.get("output")) else False)
             jobs.append(tag(category, value, remove=remove, agent=agent, sync=sync, **sel))
         return jobs
-    q = query or (_uuids_query(uuids, col, table) if uuids else "")
-    return [tag(category, value, query=q, remove=remove, agent=agent, sync=sync)]
+    if query and not (uuids and arg_too_big(query)):
+        return [tag(category, value, query=query, remove=remove, agent=agent, sync=sync)]
+    if uuids:
+        if remove:
+            return [{"ok": False, "refused": True,
+                     "message": "not sent — a UUID-batched tag is add-only (-remove on batch 2 would "
+                                "strip batch 1)"}]
+        return tag_set(category, value, uuids=uuids, agent=agent, sync=sync, col=col, table=table)
+    return [tag(category, value, query=query, remove=remove, agent=agent, sync=sync)]
 
 
 def _tag_exec(category: str, value: str, query: str = "", remove: bool = False,
@@ -431,6 +608,9 @@ def _tag_exec(category: str, value: str, query: str = "", remove: bool = False,
         cmd.append("-remove")
     else:
         cmd += ["--query", query]
+    too_big = arg_too_big(*cmd)
+    if too_big:                    # hard safety net — never hand the OS an argument it refuses
+        return {"ok": False, "refused": True, "message": "not sent — " + too_big}
     pretty = " ".join(shlex.quote(c) for c in cmd)
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, cwd=_navi_cwd(),
@@ -906,6 +1086,9 @@ def _acr_exec(category: str, value: str, score: float, mod: str = "set",
            "--score", _score_arg(score), "--mod", mod] + ["-" + r for r in flags]
     if note:
         cmd += ["--note", note]
+    too_big = arg_too_big(*cmd)
+    if too_big:
+        return {"ok": False, "refused": True, "message": "not sent — " + too_big}
     pretty = " ".join(shlex.quote(c) for c in cmd)
     try:
         p = subprocess.run(cmd, capture_output=True, text=True, cwd=_navi_cwd(),
@@ -1320,3 +1503,18 @@ def push(target: str, command: str = "", file: str = "", agent: str = "c2",
     except Exception:
         pass
     return res
+
+
+
+def retry_page(job_id) -> dict:
+    """Re-run ONE failed/cancelled page of a tag series, alone (the write gate is re-checked
+    when it runs, like every tag job)."""
+    from core import tagq
+    tagq.register_runner("tag", lambda **kw: _tag_exec(**kw))
+    return tagq.retry_page(job_id)
+
+
+def cancel_series(series) -> dict:
+    """Stop the rest of a tag series (pages still waiting → cancelled)."""
+    from core import tagq
+    return {"ok": True, "series": series, "cancelled": tagq.cancel_series(series)}

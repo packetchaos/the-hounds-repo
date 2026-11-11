@@ -35,11 +35,33 @@ def tag_uuids(p):
     uu = [u for u in (p.get("uuids") or []) if u]
     if not uu:
         return {"ok": False, "error": "no asset uuids supplied"}, 400
-    inlist = ",".join("'" + str(u).replace("'", "''") + "'" for u in uu)
-    q = "SELECT uuid AS asset_uuid FROM assets WHERE uuid IN (" + inlist + ")"
-    r = navi_cli.tag(category, value, query=q, remove=False, agent="postquantum")
-    return {"ok": bool(r.get("ok", True)), "category": category, "value": value,
-            "count": len(uu), "result": r, "writes_enabled": navi_cli.writes_enabled()}, 200
+    sm = navi_cli.jobs_summary(navi_cli.tag_uuids_batched(category, value, uu, agent="postquantum"))
+    return {"ok": bool(sm["result"].get("ok", True)), "category": category, "value": value,
+            "count": len(uu), "result": sm["result"], "jobs": sm["jobs"], "job_ids": sm["job_ids"],
+            "writes_enabled": navi_cli.writes_enabled()}, 200
+
+
+def tag_signal(p):
+    """Gated: tag one transport signal's hosts PQC Transport : <signal>. Only the signal KEY
+    comes from the page; the set is the signal's own SQL (agent.PQT_SIGNALS), computed here and
+    paged (≤1,999 per navi job) — the page never posts a UUID list."""
+    if not confirmed(p):
+        return {"ok": False, "error": "confirm=true required to write tags"}, 400
+    from .agent import PQT_SIGNALS, TRANSPORT_CAT
+    key = (p.get("key") or "").strip()
+    sig = next((s for s in PQT_SIGNALS if s["key"] == key), None)
+    if sig is None:
+        return {"ok": False, "error": "unknown transport signal"}, 400
+    try:
+        n = db.scalar("SELECT COUNT(*) FROM (" + sig["sql"] + ")") or 0
+    except Exception:
+        n = 0
+    if not n:
+        return {"ok": False, "error": f"no assets show '{key}'"}, 200
+    sm = navi_cli.jobs_summary(navi_cli.tag_set(TRANSPORT_CAT, key, sql=sig["sql"], agent="postquantum"))
+    return {"ok": bool(sm["result"].get("ok", True)), "category": TRANSPORT_CAT, "value": key, "count": n,
+            "result": sm["result"], "jobs": sm["jobs"], "job_ids": sm["job_ids"],
+            "writes_enabled": navi_cli.writes_enabled()}, 200
 
 
 def run(p):
@@ -78,12 +100,13 @@ def roadmap_tag(p):
     if not uu:
         return {"ok": False, "error": "nothing to tag — build the roadmap first"}, 400
     value = p.get("value") or "Crown Jewel"
-    inlist = ",".join("'" + str(u).replace("'", "''") + "'" for u in uu)
-    q = "SELECT uuid AS asset_uuid FROM assets WHERE uuid IN (" + inlist + ")"
-    r = navi_cli.tag(ROADMAP_CAT, value, query=q, remove=False, agent="postquantum")
+    # roadmap scores are computed in Python → ≤1,999-UUID batches (add-only)
+    sm = navi_cli.jobs_summary(navi_cli.tag_uuids_batched(ROADMAP_CAT, value, uu, agent="postquantum"))
     return {"ok": True, "category": ROADMAP_CAT, "value": value, "count": len(uu),
-            "result": r, "writes_enabled": navi_cli.writes_enabled()}, 200
+            "result": sm["result"], "jobs": sm["jobs"], "job_ids": sm["job_ids"],
+            "writes_enabled": navi_cli.writes_enabled()}, 200
 
 
-ACTIONS = {"run": run, "tag": tag, "tag_uuids": tag_uuids, "cert": cert, "transport": transport,
+ACTIONS = {"run": run, "tag": tag, "tag_uuids": tag_uuids, "tag_signal": tag_signal,
+           "cert": cert, "transport": transport,
            "roadmap": roadmap_run, "roadmap_tag": roadmap_tag}

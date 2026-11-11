@@ -51,31 +51,55 @@ def run(p):
     return {"ok": True, "agent": _agent().meta(), "result": res}, 200
 
 
+def _open_only():
+    vc = scan_eval._cols("vulns")
+    return " AND lower(COALESCE(state,'open')) IN ('open','reopened')" if "state" in vc else ""
+
+
+# Keys whose set IS a navi.db condition (no Python parsing) are selected by that SQL; every
+# other key is computed from parsed plugin-19506 output / worst-state ranking in Python. Either
+# way the set is computed HERE and paged by core.navi_cli.tag_set (≤1,999 UUIDs per navi job).
+def _predicate(key):
+    if key == "patch:failed":     # evaluate(): patch == 'failed' ⇔ an open 21745 finding
+        return "SELECT DISTINCT asset_uuid FROM vulns WHERE plugin_id='21745'" + _open_only()
+    return ""
+
+
+def tag_target(key, name="", ev=None):
+    """(value, sorted asset uuids, error) for one Scan Health key. Shared by tag() and the AI
+    Contract adapter so both write the same set."""
+    if key in VALUES:
+        value = VALUES[key]
+        q = _predicate(key)
+        if q:
+            return value, navi_cli.collect_uuids(q), None
+        ev = ev or scan_eval.evaluate(keep_uuids=True)
+        uuids = ev["_sets"].get(key, set())
+    elif key in DIM_PREFIX:
+        ev = ev or scan_eval.evaluate(keep_uuids=True)
+        uuids = ev["_dim_uuids"][key].get(name)
+        if uuids is None:
+            return None, [], f"no {key} named '{name}' in navi.db"
+        value = DIM_PREFIX[key] + name
+    else:
+        return None, [], "unknown tag key"
+    return value, sorted(u for u in uuids if u), None
+
+
 def tag(p):
     if not confirmed(p):
         return {"ok": False, "error": "confirm=true required to write tags"}, 400
     key = (p.get("key") or "").strip()
-    ev = scan_eval.evaluate(keep_uuids=True)
-    if key in VALUES:
-        value, uuids = VALUES[key], ev["_sets"].get(key, set())
-    elif key in DIM_PREFIX:
-        name = (p.get("name") or "").strip()
-        uuids = ev["_dim_uuids"][key].get(name)
-        if uuids is None:
-            return {"ok": False, "error": f"no {key} named '{name}' in navi.db"}, 400
-        value = DIM_PREFIX[key] + name
-    else:
-        return {"ok": False, "error": "unknown tag key"}, 400
-    uu = sorted(u for u in uuids if u)
+    value, uu, err = tag_target(key, (p.get("name") or "").strip())
+    if err:
+        return {"ok": False, "error": err}, 400
     if not uu:
         return {"ok": False, "error": f"no assets for {value}"}, 200
-    inl = ",".join("'" + str(u).replace("'", "''") + "'" for u in uu)
-    jobs = navi_cli.tag_capped(CATEGORY, value, uuids=uu,
-                               query=f"SELECT uuid AS asset_uuid FROM assets WHERE uuid IN ({inl})",
-                               remove=False, agent="scan_eval")
+    jobs = navi_cli.tag_set(CATEGORY, value, uuids=uu, agent="scan_eval")
     ids = [j.get("job_id") for j in jobs if j.get("job_id") is not None]
     return {"ok": True, "category": CATEGORY, "value": value, "count": len(uu), "jobs": len(ids),
-            "job_ids": ids, "result": (jobs[0] if jobs else {}),
+            "job_ids": ids, "series": (jobs[0].get("series") if jobs else None),
+            "result": (jobs[0] if jobs else {}),
             "writes_enabled": navi_cli.writes_enabled()}, 200
 
 

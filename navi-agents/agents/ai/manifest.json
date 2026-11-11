@@ -9,6 +9,8 @@
   "page": "page.html",
   "actions": [
     "run",
+    "counts",
+    "drill",
     "tag",
     "apply",
     "acr_roles",

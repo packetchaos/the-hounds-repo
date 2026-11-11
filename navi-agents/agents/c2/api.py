@@ -14,7 +14,7 @@ import threading
 import time
 import uuid
 
-from core import db, navi_cli, c2_catalog, c2_targets, c2log, c2_remediate
+from core import db, navi_cli, c2_catalog, c2_targets, c2log, c2_remediate, hx_summary
 from .agent import C2Agent
 from core.gates import confirmed, flag
 
@@ -102,6 +102,210 @@ def _breakdown(hs):
 
 
 # --------------------------------------------------------------------------- #
+#  Scale path (build 455): nothing on open reads every asset into Python or ships
+#  every host. OS classes come from a GROUP BY over the distinct OS strings (cached
+#  per navi.db signature); the host picker is a server-side search (keyset pages of
+#  ≤ 200); patch-from-vuln resolves the selector on the PLUGIN dimension first and
+#  reads only the matched plugins' findings through hx_v_plugin.
+# --------------------------------------------------------------------------- #
+_WS = "' '||char(9)||char(10)||char(11)||char(12)||char(13)"   # Python str.strip()'s ASCII set
+_SIG_CACHE = {}
+_SIG_LOCK = threading.Lock()
+_HOST_CAP = 500           # plan(): hosts shipped per list (counts stay exact)
+
+
+def _sig_cached(kind, db_path, build):
+    """build() once per navi.db file signature (navi replacing / rewriting the file refreshes it)."""
+    p = db_path or db.db_path()
+    try:
+        sig = db._sig(p)
+    except Exception:
+        return build()
+    with _SIG_LOCK:
+        hit = _SIG_CACHE.get((kind, p))
+        if hit and hit[0] == sig:
+            return hit[1]
+    v = build()
+    with _SIG_LOCK:
+        _SIG_CACHE[(kind, p)] = (sig, v)
+    return v
+
+
+def _asset_sql(db_path=None):
+    """(select-list, ip expression, os expression) for the assets table — _hosts_raw's columns."""
+    cols = _cols("assets", db_path)
+    ipc = "ip_address" if "ip_address" in cols else ("ip" if "ip" in cols else None)
+    ip = f'"{ipc}"' if ipc else "''"
+    os_ = "operating_system" if "operating_system" in cols else "''"
+    sel = ", ".join(["uuid", f"{ip} AS ip", ("hostname" if "hostname" in cols else "''") + " AS hostname",
+                     f"{os_} AS os", ("acr" if "acr" in cols else "NULL") + " AS acr"])
+    return sel, ip, os_, bool(cols)
+
+
+def _host(r):
+    """One assets row → the host dict _hosts_raw builds (same rules)."""
+    acr = r.get("acr")
+    try:
+        acrn = float(acr) if acr not in (None, "") else None
+    except (TypeError, ValueError):
+        acrn = None
+    return {"uuid": r.get("uuid"), "ip": (r.get("ip") or "").strip(),
+            "hostname": r.get("hostname") or "", "os": r.get("os") or "",
+            "os_class": _classify_os(r.get("os")), "acr": acrn,
+            "crown": (acrn is not None and acrn >= 9)}
+
+
+def _os_stats(db_path=None):
+    """{linux, excluded, breakdown, linux_os:[the distinct OS strings classified linux]} —
+    _classify_os applied to each DISTINCT operating_system (hundreds), counts summed in SQL."""
+    def build():
+        sel, ip, os_, ok = _asset_sql(db_path)
+        if not ok:
+            return {"linux": 0, "excluded": 0, "breakdown": {}, "linux_os": []}
+        rows = db.query(f"SELECT {os_} AS os, COUNT(*) AS n, SUM(TRIM(COALESCE({ip},''),{_WS})<>'') AS n_ip "
+                        f"FROM assets GROUP BY 1", path=db_path, budget="run")
+        lin, lin_os, bd, total = 0, [], {}, 0
+        for r in rows:
+            cls, n, nip = _classify_os(r.get("os")), int(r.get("n") or 0), int(r.get("n_ip") or 0)
+            total += n
+            rest = n
+            if cls == "linux":
+                lin_os.append(r.get("os"))
+                lin += nip
+                rest = n - nip
+            if rest:
+                bd[cls] = bd.get(cls, 0) + rest
+        return {"linux": lin, "excluded": total - lin, "breakdown": bd, "linux_os": lin_os}
+    return _sig_cached("os_stats", db_path, build)
+
+
+def _linux_where(st, ip):
+    """SQL + params selecting the Linux hosts that have an IP (the push-able set)."""
+    return (f"operating_system IN (SELECT value FROM json_each(?)) AND TRIM(COALESCE({ip},''),{_WS})<>''",
+            [json.dumps(st["linux_os"])])
+
+
+def _host_page(q="", limit=50, after=0, db_path=None):
+    """One keyset page (rowid > after, assets-table order — the order the old list had) of
+    Linux hosts with an IP, optionally filtered: q is matched like the page's old client-side
+    filter (substring of 'ip hostname os', case-insensitive) or an exact uuid. → (hosts, next)."""
+    st = _os_stats(db_path)
+    sel, ip, os_, ok = _asset_sql(db_path)
+    if not ok or not st["linux_os"] or os_ == "''":
+        return [], None
+    w, params = _linux_where(st, ip)
+    w = "rowid > ? AND " + w
+    params = [int(after or 0)] + params
+    if q:
+        w += (f" AND (instr(lower(TRIM(COALESCE({ip},''),{_WS})||' '||COALESCE(hostname,'')||' '||"
+              f"COALESCE(operating_system,'')), ?) > 0 OR uuid = ?)")
+        params += [q.lower(), q]
+    rows = db.query(f"SELECT rowid AS _rid, {sel} FROM assets WHERE {w} ORDER BY rowid LIMIT ?",
+                    tuple(params) + (limit + 1,), path=db_path, budget="open")
+    nxt = rows[limit - 1]["_rid"] if len(rows) > limit else None
+    return [_host(r) for r in rows[:limit]], nxt
+
+
+def _hosts_where(where, params=(), db_path=None, budget="open"):
+    """Hosts for a WHERE over assets, in assets-table order."""
+    sel, _ip, _os, ok = _asset_sql(db_path)
+    if not ok:
+        return []
+    return [_host(r) for r in db.query(f"SELECT {sel} FROM assets WHERE {where} ORDER BY rowid",
+                                       tuple(params), path=db_path, budget=budget)]
+
+
+_LIKE_CACHE = {}
+
+
+def _like(pat):
+    """SQLite `LIKE '%pat%'` (ASCII case-insensitive, % and _ wildcards) as a compiled regex."""
+    rx = _LIKE_CACHE.get(pat)
+    if rx is None:
+        rx = re.compile("".join(".*" if ch == "%" else ("." if ch == "_" else re.escape(ch))
+                                for ch in _alower(pat)), re.S)
+        if len(_LIKE_CACHE) > 200:
+            _LIKE_CACHE.clear()
+        _LIKE_CACHE[pat] = rx
+    return rx
+
+
+def _alower(s):
+    return str(s).translate(_ASCII_LOWER)
+
+
+_ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
+
+
+def _plugin_dim(db_path=None):
+    """({plugin_id: [(name, family, cves), …]}, {plugin_id: vulns plugin_name}) — the plugin dimension the selector is matched on:
+    navi's `plugins` table (when synced) plus, with hx_v_plugin, one row per plugin present in
+    vulns (DISTINCT over the narrow index + one seek each; cached per navi.db signature). None
+    when navi.db has no hx_v_plugin index (plan() then falls back to the row-level scan)."""
+    if not db.has_index("hx_v_plugin", db_path):
+        return None
+    vc = _cols("vulns", db_path)
+
+    def build():
+        dim, vnames = {}, {}
+        pc = _cols("plugins", db_path)
+        if "plugin_id" in pc:
+            nm = "name" if "name" in pc else ("plugin_name" if "plugin_name" in pc else "NULL")
+            fm = "family" if "family" in pc else ("plugin_family" if "plugin_family" in pc else "NULL")
+            cv = "cves" if "cves" in pc else "NULL"
+            for r in db.iter(f"SELECT plugin_id, {nm} AS n, {fm} AS f, {cv} AS c FROM plugins",
+                             path=db_path, budget="run", tuples=True):
+                if r[0] not in (None, ""):
+                    dim.setdefault(str(r[0]), []).append((r[1], r[2], r[3]))
+        nm = "plugin_name" if "plugin_name" in vc else "NULL"
+        fm = "plugin_family" if "plugin_family" in vc else "NULL"
+        cv = "cves" if "cves" in vc else "NULL"
+        ib = db.indexed_by("hx_v_plugin", db_path)
+        if hx_summary.usable(db_path):
+            # ⚡ Optimize's hx_plugin IS this list (one representative finding per plugin) —
+            # a ~100 B/plugin read instead of a DISTINCT over the index + one seek per plugin
+            sql = ("SELECT plugin_id, name, family, cves FROM hx_plugin" if "NULL" not in (nm, fm, cv)
+                   else "SELECT plugin_id, NULL, NULL, NULL FROM hx_plugin")
+        else:
+            sql = (f"SELECT d.plugin_id, v.{nm}, v.{fm}, v.{cv} FROM "
+                   f"(SELECT DISTINCT plugin_id FROM vulns{ib}) d JOIN vulns v ON v.rowid = "
+                   f"(SELECT rowid FROM vulns{ib} WHERE plugin_id = d.plugin_id LIMIT 1)"
+                   if "NULL" not in (nm, fm, cv) else
+                   f"SELECT DISTINCT plugin_id, NULL, NULL, NULL FROM vulns{ib}")
+        try:
+            for r in db.iter(sql, path=db_path, budget="run", tuples=True):
+                if r[0] not in (None, ""):
+                    dim.setdefault(str(r[0]), []).append((r[1], r[2], r[3]))
+                    vnames[str(r[0])] = r[1]
+        except db.QueryTimeout:
+            # a navi.db too big to list its plugins inside the run budget: match on navi's
+            # plugins table alone (+ the exact plugin-id seek in plan()); names come from it too
+            if not dim:
+                raise
+            vnames = {pid: a[0][0] for pid, a in dim.items() if a and a[0][0]}
+        return dim, vnames
+    return _sig_cached("plugin_dim", db_path, build)
+
+
+def _match_plugins(sel, dim, vcols):
+    """Plugin ids whose id equals the selector, or whose name / CVEs / family contain it — the
+    same predicates plan() applied row by row, evaluated once per plugin."""
+    rx = _like(sel)
+    out = []
+    for pid, attrs in dim.items():
+        if "plugin_id" in vcols and pid == sel:
+            out.append(pid)
+            continue
+        for n, f, c in attrs:
+            if ("plugin_name" in vcols and n is not None and rx.search(_alower(n))) or \
+               ("cves" in vcols and c is not None and rx.search(_alower(c))) or \
+               ("plugin_family" in vcols and f is not None and rx.search(_alower(f))):
+                out.append(pid)
+                break
+    return out
+
+
+# --------------------------------------------------------------------------- #
 #  Read-only actions
 # --------------------------------------------------------------------------- #
 def run(p):
@@ -117,11 +321,21 @@ def status(p):
 
 
 def hosts(p):
-    allh = _hosts_raw()
-    linux = [h for h in allh if h["os_class"] == "linux" and h["ip"]]
-    other = [h for h in allh if not (h["os_class"] == "linux" and h["ip"])]
-    return {"ok": True, "linux": linux, "linux_count": len(linux),
-            "excluded_count": len(other), "excluded_breakdown": _breakdown(other),
+    """Host picker: counts over the whole estate + ONE page (≤ 200, default 50) of Linux hosts
+    with an IP — `q` searches IP / hostname / OS (substring) or an exact uuid server-side,
+    `after` is the keyset token from the previous page's `next`."""
+    q = str(p.get("q") or "").strip()[:200]
+    limit = _int(p.get("limit"), 50, 1, 200)
+    after = _int(p.get("after"), 0, 0, 2 ** 62)
+    try:
+        st = _os_stats()
+        page, nxt = _host_page(q, limit, after)
+    except db.QueryTimeout as e:
+        return {**db.budget_payload(e), **navi_cli.push_status()}, 200
+    except Exception:
+        st, page, nxt = {"linux": 0, "excluded": 0, "breakdown": {}}, [], None
+    return {"ok": True, "linux": page, "linux_count": st["linux"], "q": q, "next": nxt,
+            "excluded_count": st["excluded"], "excluded_breakdown": st["breakdown"],
             **navi_cli.push_status()}, 200
 
 
@@ -133,10 +347,12 @@ def precheck(p):
     dangers = navi_cli.scan_command(cmd) if cmd else []
     host = None
     if target:
-        for h in _hosts_raw():
-            if h["ip"] == target or h["uuid"] == target:
-                host = h
-                break
+        try:
+            _sel, ip, _os, _ok = _asset_sql()
+            hs = _hosts_where(f"TRIM(COALESCE({ip},''),{_WS}) = ? OR uuid = ?", (target, target))
+            host = hs[0] if hs else None
+        except Exception:
+            host = None
     warnings = []
     if host:
         if host["os_class"] != "linux":
@@ -175,23 +391,63 @@ def plan(p):
         params.append(f"%{sel}%")
     if not ors:
         return {"ok": False, "error": "vulns table not available in navi.db"}, 200
-    wsql = "(" + " OR ".join(ors) + ")"
-    if "state" in vcols:
-        wsql += " AND UPPER(COALESCE(state,'OPEN')) IN ('OPEN','REOPENED')"
+    opened = " AND UPPER(COALESCE(state,'OPEN')) IN ('OPEN','REOPENED')" if "state" in vcols else ""
     try:
-        rows = db.query(f"SELECT DISTINCT asset_uuid, plugin_id, plugin_name FROM vulns WHERE {wsql}", tuple(params))
+        dim = _plugin_dim()
+    except db.QueryTimeout:
+        dim = None
+    except Exception:
+        dim = None
+    try:
+        if dim is not None:
+            # plugin-first: the selector is matched on the plugin dimension, then only the matched
+            # plugins' open findings are read — index-only via hx_v_plugin(plugin_id, asset_uuid, state)
+            dim, vnames = dim
+            mp = _match_plugins(sel, dim, vcols)
+            if "plugin_id" in vcols and sel not in mp and db.scalar(
+                    f"SELECT 1 FROM vulns{db.indexed_by('hx_v_plugin')} WHERE plugin_id=? LIMIT 1", (sel,), budget="open"):
+                mp.append(sel)              # a plugin id navi's plugins table doesn't list
+            ib = db.indexed_by("hx_v_plugin")
+            vin = f"FROM vulns{ib} WHERE plugin_id IN (SELECT value FROM json_each(?)){opened}"
+            jp = (json.dumps(mp),)
+            pr = db.query(f"SELECT DISTINCT plugin_id {vin}", jp, budget="run") if mp else []
+            pids = {str(r["plugin_id"]) for r in pr if r.get("plugin_id") not in (None, "")}
+            names = sorted({vnames.get(pid) for pid in pids if vnames.get(pid)})[:8]
+            n_uuids = int(db.scalar(f"SELECT COUNT(DISTINCT asset_uuid) {vin} AND asset_uuid IS NOT NULL "
+                                    f"AND asset_uuid<>''", jp, budget="run") or 0) if mp else 0
+            hit_where = f"uuid IN (SELECT asset_uuid {vin})"
+        else:
+            wsql = "(" + " OR ".join(ors) + ")" + opened
+            rows = db.query(f"SELECT DISTINCT asset_uuid, plugin_id, plugin_name FROM vulns WHERE {wsql}",
+                            tuple(params), budget="run")
+            uuids = sorted({r["asset_uuid"] for r in rows if r.get("asset_uuid")})
+            pids = {str(r.get("plugin_id")) for r in rows if r.get("plugin_id") not in (None, "")}
+            names = sorted({r.get("plugin_name") for r in rows if r.get("plugin_name")})[:8]
+            n_uuids, jp = len(uuids), (json.dumps(uuids),)
+            hit_where = "uuid IN (SELECT value FROM json_each(?))"
+        linux, excluded, n_lin, n_exc = [], [], 0, 0
+        if n_uuids:
+            sel_, _ip, _os, ok = _asset_sql()
+            for r in (db.iter(f"SELECT {sel_} FROM assets WHERE {hit_where} ORDER BY rowid", jp,
+                              budget="run") if ok else ()):
+                h = _host(r)
+                if h["os_class"] == "linux" and h["ip"]:
+                    n_lin += 1
+                    if len(linux) < _HOST_CAP:
+                        linux.append(h)
+                else:
+                    n_exc += 1
+                    if len(excluded) < _HOST_CAP:
+                        excluded.append(h)
+    except db.QueryTimeout as e:
+        return db.budget_payload(e), 200
     except Exception as e:
         return {"ok": False, "error": f"query failed: {e}"}, 200
-    uuids = {r["asset_uuid"] for r in rows if r.get("asset_uuid")}
-    pids = {str(r.get("plugin_id")) for r in rows if r.get("plugin_id") not in (None, "")}
-    names = sorted({r.get("plugin_name") for r in rows if r.get("plugin_name")})[:8]
-    hosts_hit = [h for h in _hosts_raw() if h["uuid"] in uuids]
-    linux = [h for h in hosts_hit if h["os_class"] == "linux" and h["ip"]]
-    excluded = [h for h in hosts_hit if h not in linux]
     sols = _solutions(pids)                 # Tenable's OWN remediation text, from the plugins table
     pkg = _guess_pkg(sel, names, sols)
-    return {"ok": True, "selector": sel, "matched_assets": len(uuids), "plugin_names": names,
-            "linux_hosts": linux, "excluded": excluded, "excluded_count": len(excluded),
+    return {"ok": True, "selector": sel, "matched_assets": n_uuids, "plugin_names": names,
+            "linux_hosts": linux, "linux_count": n_lin, "excluded": excluded, "excluded_count": n_exc,
+            "truncated": n_lin > len(linux) or n_exc > len(excluded),
             "package_guess": pkg, "templates": _remediation_templates(pkg),
             "solutions": sols["items"], "solutions_available": sols["available"],
             "solutions_note": sols["note"],
@@ -291,7 +547,13 @@ def verify(p):
     wsql = "(" + " OR ".join(ors) + ")"
     if "state" in vcols:
         wsql += " AND UPPER(COALESCE(state,'OPEN')) IN ('OPEN','REOPENED')"
-    uuids = [h["uuid"] for h in _hosts_raw() if (h["ip"] in targets or h["uuid"] in targets)]
+    try:
+        _sel, ip, _os, _ok = _asset_sql()
+        uuids = [h["uuid"] for h in _hosts_where(
+            f"TRIM(COALESCE({ip},''),{_WS}) IN (SELECT value FROM json_each(?)) OR uuid IN "
+            f"(SELECT value FROM json_each(?))", (json.dumps(targets), json.dumps(targets)))] if _ok else []
+    except Exception:
+        uuids = []
     still = []
     if uuids:
         inl = ",".join("?" * len(uuids))
@@ -693,7 +955,7 @@ def glance(p):
     with _RUNS_LOCK:
         active = sum(1 for r in _RUNS.values() if r["status"] in ("queued", "running"))
     try:
-        nlin = len(_linux_hosts())
+        nlin = _os_stats()["linux"]
     except Exception:
         nlin = 0
     return {"ok": True, **st, "chain": ch, "active_runs": active, "linux_hosts": nlin,

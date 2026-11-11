@@ -9,6 +9,8 @@
   "page": "page.html",
   "actions": [
     "run",
+    "drill",
+    "dates",
     "tags_apply",
     "tags_issues"
   ],

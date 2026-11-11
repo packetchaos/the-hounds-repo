@@ -7,6 +7,15 @@
   "summary": "Ownership from the ASSET's point of view (Terminus). Three layers — business leaders (Business Owner: groups of assets/apps), technology owners (Owner: routes & paths, from Atlas), and a single complete Asset Owner who owns an asset's every route & path (or 'the rest'). Shows per-asset ownership %, what's unclaimed / blind, crown jewels (ACR >= 9) and what the Hounds already know about them, mitigated/accepted/ignored share, and assigns owners from plain English that reads each asset's tags. All writes gated.",
   "needs_backend": true,
   "page": "page.html",
-  "actions": ["load", "run", "overview", "plan", "apply", "assign", "refresh"],
+  "actions": [
+    "load",
+    "drill",
+    "run",
+    "overview",
+    "plan",
+    "apply",
+    "assign",
+    "refresh"
+  ],
   "codename": "Terminus"
 }

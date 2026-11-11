@@ -25,7 +25,7 @@ from core.gates import confirmed
 AGENT = FusedScoreAgent()
 SNAP = snapcache.Snapshots("fused", version=4)   # 3: cert dates/PQ plugin, half-up rounding, tiebreak · 4: kpi.stack/cooccur
 PRIORITIES = ("P1", "P2", "P3", "P4")
-CHUNK = 1500          # UUIDs per navi job: ~57 KB of query, well under the 128 KB argument limit
+CHUNK = navi_cli.BATCH_UUIDS   # ≤1,999 UUIDs per navi job, byte-guarded (core.navi_cli.uuid_batches)
 
 
 def _weights(p):
@@ -141,17 +141,12 @@ def tag(p):
 
 
 def _tag_set(uuids, value):
-    """Queue Priority : <value> on `uuids`. One navi job per chunk: a single --query with
-    thousands of inlined UUIDs passes the OS per-argument limit (~128 KB) and fails with
-    "Argument list too long"."""
+    """Queue Priority : <value> on `uuids`. The set comes from the scoring model (Python), not
+    a navi.db predicate; core.navi_cli.tag_set pages it (≤1,999 UUIDs and < 100 KB per --query,
+    a tag series above one page — one argument over 128 KB fails with "Argument list too long")."""
     if not uuids:
         return {"ok": False, "error": "no assets to tag", "count": 0}
-    jobs = []
-    for i in range(0, len(uuids), CHUNK):
-        part = uuids[i:i + CHUNK]
-        inl = ",".join("'" + u.replace("'", "''") + "'" for u in part)
-        q = "SELECT uuid AS asset_uuid FROM assets WHERE uuid IN (" + inl + ")"
-        jobs += navi_cli.tag_capped("Priority", value, uuids=part, query=q, remove=False, agent="fused_score")
+    jobs = navi_cli.tag_set("Priority", value, uuids=uuids, agent="fused_score")
     ok = bool(jobs) and all(j.get("ok") or j.get("blocked") for j in jobs)   # gated = queued but blocked
     return {"ok": ok, "count": len(uuids), "value": value, "jobs": jobs,
             "writes_enabled": navi_cli.writes_enabled(),

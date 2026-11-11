@@ -39,8 +39,9 @@ def tag(p):
     if not uuids:
         return {"ok": False, "error": "no assets fail that control — nothing to tag"}, 400
     cat = _c.TAG_OWNER_CATEGORY
-    jobs = navi_cli.tag_capped(cat, owner, uuids=uuids, col="asset_uuid", table="compliance",
-                               agent="compliance")
+    # the control's failing set, computed here and paged (≤1,999 per navi job; a series above)
+    jobs = navi_cli.tag_set(cat, owner, uuids=uuids, col="asset_uuid", table="compliance",
+                            agent="compliance")
     job_ids = [j.get("job_id") for j in jobs if j.get("job_id") is not None]
     first = jobs[0] if jobs else {}
     ok = all(j.get("ok") or j.get("queued") for j in jobs) if jobs else False

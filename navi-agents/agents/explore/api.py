@@ -13,6 +13,7 @@ Actions
   cert_month payload {month}  -> assets whose cert fails in YYYY-MM + the cert
                                  plugins seen on those assets
 """
+import json
 import re
 
 from core import db, llm, navi_cli
@@ -148,11 +149,24 @@ def cert_month(p):
     # relevant cert plugins seen on exactly those assets
     plugins = []
     if uuids:
-        ph = ",".join("?" * len(uuids))
-        plugins = db.query(
-            "SELECT plugin_id, plugin_name, COUNT(DISTINCT asset_uuid) AS asset_count "
-            "FROM vulns WHERE plugin_name LIKE '%Certificate%' AND asset_uuid IN (" + ph + ") "
-            "GROUP BY plugin_id, plugin_name ORDER BY asset_count DESC;", tuple(uuids))
+        # the uuid set rides in ONE json parameter: a busy month is 40k+ assets, past SQLite's
+        # bound-variable limit (the old "IN (?,?,…)" raised "too many SQL variables")
+        ju = (json.dumps(sorted(uuids)),)
+        from core import hx_summary
+        if hx_summary.usable():
+            # the certificate plugins from hx_plugin, then a covered (plugin_id, asset_uuid)
+            # seek per plugin on hx_v_plugin — no vulns rows read for the name test
+            plugins = db.query(
+                "SELECT p.plugin_id, p.name AS plugin_name, COUNT(DISTINCT v.asset_uuid) AS asset_count "
+                "FROM hx_plugin p CROSS JOIN vulns v" + db.indexed_by("hx_v_plugin") + " ON v.plugin_id = p.plugin_id "
+                "WHERE p.name LIKE '%Certificate%' AND v.asset_uuid IN (SELECT value FROM json_each(?)) "
+                "GROUP BY p.plugin_id, p.name ORDER BY asset_count DESC;", ju)
+        else:
+            plugins = db.query(
+                "SELECT plugin_id, plugin_name, COUNT(DISTINCT asset_uuid) AS asset_count "
+                "FROM vulns WHERE plugin_name LIKE '%Certificate%' AND asset_uuid IN "
+                "(SELECT value FROM json_each(?)) "
+                "GROUP BY plugin_id, plugin_name ORDER BY asset_count DESC;", ju)
     return {"ok": True, "month": month, "assets": assets, "plugins": plugins,
             "counts": {"assets": len(assets), "plugins": len(plugins)}}, 200
 
@@ -375,6 +389,32 @@ def tag_job_output(p):
     return {"ok": True, "id": p.get("id"), "output": tagq.job_output(p.get("id"))}, 200
 
 
+def tag_series(p):
+    """Progress of one tag series (page n of N, assets done / total)."""
+    from core import tagq
+    sid = str(p.get("series") or "")
+    if not sid:
+        return {"ok": False, "error": "series required"}, 400
+    return {"ok": True, "result": tagq.series_progress(sid)}, 200
+
+
+def tag_retry(p):
+    """Gated: re-run ONE failed / cancelled page of a tag series, alone."""
+    from core.gates import confirmed
+    if not confirmed(p):
+        return {"ok": False, "error": "confirm=true required to retry a tag page"}, 400
+    r = navi_cli.retry_page(p.get("id"))
+    return r, (200 if r.get("ok") else 400)
+
+
+def tag_cancel(p):
+    """Stop the rest of a tag series (pages still waiting are cancelled; nothing is removed)."""
+    sid = str(p.get("series") or "")
+    if not sid:
+        return {"ok": False, "error": "series required"}, 400
+    return navi_cli.cancel_series(sid), 200
+
+
 def tag_clear(p):
     """Drop finished jobs from the log (keeps queued/running)."""
     from core import tagq
@@ -570,4 +610,5 @@ ACTIONS = {"activity": activity, "asset": asset, "vuln": vuln, "cert_month": cer
            "schema": schema, "advanced_translate": advanced_translate,
            "navi_refresh": navi_refresh, "navi_optimize": navi_optimize,
            "tag_workers": tag_workers,
-           "tag_jobs": tag_jobs, "tag_job_output": tag_job_output, "tag_clear": tag_clear, "tag_export": tag_export}
+           "tag_jobs": tag_jobs, "tag_job_output": tag_job_output, "tag_clear": tag_clear, "tag_export": tag_export,
+           "tag_series": tag_series, "tag_retry": tag_retry, "tag_cancel": tag_cancel}

@@ -19,7 +19,9 @@ Three ownership layers, read off tags:
 Crown jewels = ``assets.acr >= CROWN_ACR`` (9) or an explicit crown-jewel business
 tag. All reads are read-only; every write goes through the gated navi tag path.
 """
-from core import db, navi_cli, tagname
+import re
+
+from core import db, hx_summary, navi_cli, tagname
 
 CROWN_ACR = 9
 _CROWN_TAG_VALUES = {"crown jewel", "crown-jewel", "mission critical", "mission-critical",
@@ -112,13 +114,33 @@ def assets_with_tags(db_path=None) -> list[dict]:
 
 
 def _route_members(db_path=None) -> dict:
-    """uuid -> set(route app_name) it sits on."""
+    """uuid -> set(route app_name) it sits on.
+
+    Build 455: the old form joined vuln_route to EVERY vulns row with a LIKE on the quoted
+    plugin_list (``plugin_list LIKE '%<q>' || plugin_id || '<q>%'``) — O(routes × findings),
+    50 s at 600k assets and unbounded at 420 M findings. A route's plugin_list is a quoted list
+    ("['51192', '35291']"), so the same membership is "the finding's plugin id is one of the
+    quoted ids": one ``plugin_id IN (…)`` probe per route through the covering
+    (plugin_id, asset_uuid) index when ⚡ Optimize built it (hx_v_plugin)."""
     out = {}
     if not _has_table("vuln_route", db_path):
         return out
-    for r in _q(_RA + "SELECT app, au FROM ra", path=db_path):
-        if r.get("au") and r.get("app"):
-            out.setdefault(r["au"], set()).add(r["app"])
+    hv = db.indexed_by("hx_v_plugin", db_path)
+    for r in _q("SELECT app_name, plugin_list FROM vuln_route", path=db_path):
+        app = r.get("app_name")
+        pids = sorted(set(re.findall(r"'([^']*)'", str(r.get("plugin_list") or ""))))
+        if not app or not pids:
+            continue
+        for i in range(0, len(pids), 500):
+            part = pids[i:i + 500]
+            try:
+                for (u,) in db.iter("SELECT DISTINCT asset_uuid FROM vulns%s WHERE plugin_id IN (%s)"
+                                    % (hv, ",".join("?" * len(part))), tuple(part), path=db_path,
+                                    tuples=True, budget="job"):
+                    if u:
+                        out.setdefault(u, set()).add(app)
+            except Exception:
+                continue
     return out
 
 
@@ -141,6 +163,19 @@ def _vuln_risk(db_path=None) -> dict:
     vc = {r["name"] for r in _q("PRAGMA table_info(vulns)", path=db_path)}
     if "asset_uuid" not in vc:
         return {}
+    try:
+        hx = hx_summary.usable(db_path)
+    except Exception:
+        hx = False
+    if hx:
+        # ⚡ Optimize's per-asset summary: hx_asset.crit = open findings with severity
+        # critical/'4' (per finding, exact), .kev = an open finding of a CISA-KEV plugin;
+        # n_open > 0 keeps exactly the assets the GROUP BY over open findings returned
+        out = {}
+        for r in _q("SELECT asset_uuid u, crit c, kev k FROM hx_asset WHERE n_open > 0", path=db_path):
+            if r.get("u"):
+                out[r["u"]] = (int(r.get("c") or 0), bool(r.get("k")))
+        return out
     sev = "lower(severity) IN ('critical','4')" if "severity" in vc else "0"
     kev = "xrefs LIKE '%CISA-KNOWN-EXPLOITED%'" if "xrefs" in vc else "0"
     where = ("WHERE lower(COALESCE(state,'open')) IN ('open','reopened')" if "state" in vc else "")
@@ -257,21 +292,77 @@ def _hound_signals(a):
     return sig
 
 
-def overview(db_path=None) -> dict:
-    """The Asset Ownership dashboard payload — per-asset rollup + KPIs + crown
-    jewels (what the Hounds know) + blind spots. Read-only."""
+def _iter_assets_with_tags(db_path=None):
+    """assets_with_tags(), STREAMED (build 455): assets ordered by uuid merge-joined with their
+    tags ordered by (asset_uuid, rowid) — the covering tags(asset_uuid, …) index when present —
+    so each asset's tags keep the table's order, as before. Each asset carries `_rid` (its
+    rowid) so callers break ties in the old (table) order. Memory: one asset at a time."""
     if not _has_table("assets", db_path):
-        return {"ok": False, "error": "no assets table in navi.db — run `navi config update assets`"}
-    assets = assets_with_tags(db_path)
+        return
+    cols = _asset_cols(db_path)
+    acr = "acr" if "acr" in cols else "NULL AS acr"
+    aes = "aes" if "aes" in cols else "NULL AS aes"
+    url = "url" if "url" in cols else "NULL AS url"
+    cloud_cols = [c for c in ("aws_id", "azure_vm_id", "gcp_instance_id") if c in cols]
+    cc = "".join(", " + c for c in cloud_cols)
+    arows = db.iter(f"SELECT rowid AS _rid, uuid, hostname, ip_address ip, {acr}, {aes}, {url}{cc} FROM assets "
+                    "WHERE uuid IS NOT NULL AND uuid<>'' ORDER BY uuid, rowid", path=db_path, budget="job")
+    trows = iter(())
+    if _has_table("tags", db_path):
+        try:
+            trows = db.iter("SELECT asset_uuid, tag_key, tag_value FROM tags WHERE asset_uuid IS NOT NULL "
+                            "ORDER BY asset_uuid, rowid", path=db_path, budget="job", tuples=True)
+        except Exception:
+            trows = iter(())
+    tnext = next(trows, None)
+    cur = None
+    for r in arows:
+        u = r.get("uuid")
+        if cur is not None and cur["uuid"] == u:          # duplicate asset rows: the last row's attributes win
+            cur.update(hostname=r.get("hostname"), ip=r.get("ip"), acr=_fnum(r.get("acr")),
+                       aes=_fnum(r.get("aes")), url=r.get("url"))
+            if cloud_cols and any(r.get(c) for c in cloud_cols):
+                cur["cloud"] = True
+            continue
+        if cur is not None:
+            yield cur
+        cur = {"uuid": u, "hostname": r.get("hostname"), "ip": r.get("ip"), "acr": _fnum(r.get("acr")),
+               "aes": _fnum(r.get("aes")), "url": r.get("url"), "tags": [], "_tagmap": {}, "_rid": r.get("_rid")}
+        if cloud_cols and any(r.get(c) for c in cloud_cols):
+            cur["cloud"] = True
+        while tnext is not None and (tnext[0] or "") < u:
+            tnext = next(trows, None)
+        while tnext is not None and tnext[0] == u:
+            k, v = (tnext[1] or "").strip(), (tnext[2] or "").strip()
+            if k:
+                cur["tags"].append({"key": k, "value": v})
+                cur["_tagmap"].setdefault(k.lower(), []).append(v)
+                bk = tagname.base(k)
+                if bk != k:
+                    cur["_tagmap"].setdefault(bk.lower(), []).append(v)
+            tnext = next(trows, None)
+    if cur is not None:
+        yield cur
+
+
+def _rollup(db_path, emit):
+    """THE ownership rollup, one asset at a time (build 455). For every asset it builds the
+    per-asset row exactly as before and calls emit(row, rid, is_crown, is_blind); the KPIs are
+    accumulated as counters (no per-asset lists). Returns (kpi, owners list); raises LookupError
+    when navi.db has no assets table."""
+    if not _has_table("assets", db_path):
+        raise LookupError("no assets table in navi.db — run `navi config update assets`")
     routes_by = _route_members(db_path)
     paths_by = _path_members(db_path)
     risk_by = _vuln_risk(db_path)
-
-    rows, crown, blind = [], [], []
     owners = {}                       # name -> {assets, crown, business, asset, tech}
-    surf_owned = surf_disp = surf_handled = 0
-    kev_count = 0
-    for a in assets:
+    K = dict(n=0, with_surface=0, unclaimed=0, fully=0, biz=0, asset=0, tech=0, claimed_sum=0.0, claimed_n=0,
+             surf_total=0, mit=0, acc=0, ign=0, owned=0, crown=0, crown_owned=0, crown_unclaimed=0, crown_biz=0,
+             crown_no_owner=0, kev=0, blind=0, no_signal=0, cred_fail=0, surf_owned=0, surf_disp=0, surf_handled=0,
+             surface_items=0, ao_complete=0, ao_remainder=0, crit_assets=0, kev_findings=0, unowned_crit=0,
+             unowned_crit_findings=0, unowned_kev=0)
+    tu, tu_key = None, None
+    for a in _iter_assets_with_tags(db_path):
         ro = routes_by.get(a["uuid"], set())
         pa = paths_by.get(a["uuid"], set())
         own = _asset_ownership(a, ro, pa)
@@ -279,6 +370,7 @@ def overview(db_path=None) -> dict:
         is_crown = _is_crown(a)
         primary_owner = (own["asset_owner"] or (own["tech_owners"][0] if own["tech_owners"] else None)
                          or (own["business_owners"][0] if own["business_owners"] else None))
+        crit, kevf = risk_by.get(a["uuid"], (0, False))
         row = {
             "uuid": a["uuid"], "hostname": a.get("hostname"), "ip": a.get("ip"),
             "acr": a.get("acr"), "crown": is_crown, "cloud": a.get("cloud", False),
@@ -290,13 +382,13 @@ def overview(db_path=None) -> dict:
             "unclaimed": own["unclaimed"], "has_owner": own["has_owner"],
             "mitigated": own["mitigated"], "accepted": own["accepted"], "ignored": own["ignored"],
             "signals": sig, "signal_count": len(sig),
-            "crit": risk_by.get(a["uuid"], (0, False))[0],
-            "kev": risk_by.get(a["uuid"], (0, False))[1],
+            "crit": crit, "kev": kevf,
         }
-        rows.append(row)
-        surf_owned += own["owned"]
-        surf_disp += own["dispositioned"]
-        surf_handled += own["handled"]
+        K["n"] += 1
+        K["surf_owned"] += own["owned"]
+        K["surf_disp"] += own["dispositioned"]
+        K["surf_handled"] += own["handled"]
+        K["surface_items"] += row["surface"]
         layers = ([("asset", own["asset_owner"])] if own["asset_owner"] else []) \
             + [("business", b) for b in own["business_owners"]] + [("tech", t) for t in own["tech_owners"]]
         seen = set()
@@ -309,87 +401,183 @@ def overview(db_path=None) -> dict:
                 o["assets"] += 1
                 o["crown"] += 1 if is_crown else 0
         if any(_nk(k) == "cisa kev" or "kev" in _nk(k) for k in sig):
-            kev_count += 1
+            K["kev"] += 1
+        # blind spots — unclaimed crown jewels or unclaimed high-ACR assets
+        is_blind = bool(own["unclaimed"] and (is_crown or (a.get("acr") or 0) >= 7))
+        if row["surface"] > 0:
+            K["with_surface"] += 1
+            K["surf_total"] += row["surface"]
+            K["unclaimed"] += 1 if row["unclaimed"] else 0
+            K["fully"] += 1 if row["claimed_pct"] == 100.0 else 0
+            if row["claimed_pct"] is not None:
+                K["claimed_sum"] += row["claimed_pct"]
+                K["claimed_n"] += 1
+        K["biz"] += 1 if row["business_owners"] else 0
+        if row["asset_owner"]:
+            K["asset"] += 1
+            K["ao_remainder" if row["asset_owner_mode"] == "remainder" else "ao_complete"] += 1
+        K["tech"] += 1 if row["tech_owners"] else 0
+        K["mit"] += row["mitigated"]
+        K["acc"] += row["accepted"]
+        K["ign"] += row["ignored"]
+        K["owned"] += 1 if row["has_owner"] else 0
         if is_crown:
-            crown.append(row)
-        # blind spots — unclaimed crown jewels, unclaimed high-ACR, or exposed-but-no-signal
-        if own["unclaimed"] and (is_crown or (a.get("acr") or 0) >= 7):
-            blind.append(row)
+            K["crown"] += 1
+            K["crown_owned"] += 1 if row["has_owner"] else 0
+            K["crown_unclaimed"] += 1 if (row["surface"] > 0 and not row["has_owner"]) else 0
+            K["crown_biz"] += 1 if row["business_owners"] else 0
+            K["crown_no_owner"] += 0 if row["has_owner"] else 1
+        K["blind"] += 1 if is_blind else 0
+        K["no_signal"] += 1 if row["signal_count"] == 0 else 0
+        if any("cred failure" in _nk(k) + " " + _nk(str(v)) for k, vs in sig.items() for v in (vs or [""])):
+            K["cred_fail"] += 1
+        if crit:
+            K["crit_assets"] += 1
+        if kevf:
+            K["kev_findings"] += 1
+        if not row["has_owner"]:
+            if crit:
+                K["unowned_crit"] += 1
+            K["unowned_crit_findings"] += crit
+            if kevf:
+                K["unowned_kev"] += 1
+            key = (row["acr"] or 0, crit, row["surface"], -(a.get("_rid") or 0))   # max(): first in table order on a tie
+            if tu_key is None or key > tu_key:
+                tu_key, tu = key, row
+        emit(row, a.get("_rid") or 0, is_crown, is_blind)
 
-    # ---- KPIs ----
-    n = len(rows)
-    with_surface = [r for r in rows if r["surface"] > 0]
-    unclaimed = [r for r in with_surface if r["unclaimed"]]
-    fully = [r for r in with_surface if r["claimed_pct"] == 100.0]
-    biz_owned = [r for r in rows if r["business_owners"]]
-    asset_owned = [r for r in rows if r["asset_owner"]]
-    tech_owned = [r for r in rows if r["tech_owners"]]
-    claimed_vals = [r["claimed_pct"] for r in with_surface if r["claimed_pct"] is not None]
-    avg_claimed = round(sum(claimed_vals) / len(claimed_vals), 1) if claimed_vals else 0.0
-    # surface-level disposition tally (routes+paths handled by a disposition)
-    surf_total = sum(r["surface"] for r in with_surface) or 1
-    mit = sum(r["mitigated"] for r in rows)
-    acc = sum(r["accepted"] for r in rows)
-    ign = sum(r["ignored"] for r in rows)
-
-    def pct(a, b):
-        return round(100.0 * a / b, 1) if b else 0.0
-
-    owned_rows = [r for r in rows if r["has_owner"]]
-    _tu = max((r for r in rows if not r["has_owner"]),
-              key=lambda r: (r["acr"] or 0, r["crit"], r["surface"]), default=None)
-    top_unowned = ({"uuid": _tu["uuid"], "hostname": _tu["hostname"], "ip": _tu["ip"],
-                    "acr": _tu["acr"], "crit": _tu["crit"]} if _tu else None)
-    crown_owned = [r for r in crown if r["has_owner"]]
-    crown_unclaimed = [r for r in crown if r["surface"] > 0 and not r["has_owner"]]
-    crown_biz = [r for r in crown if r["business_owners"]]
-
-    # blind by category
-    blind_no_signal = [r for r in rows if r["signal_count"] == 0]
-    cred_fail = [r for r in rows if any("cred failure" in _nk(k) + " " + _nk(str(v))
-                                        for k, vs in r["signals"].items() for v in (vs or [""]))]
-
+    def pct(x, y):
+        return round(100.0 * x / y, 1) if y else 0.0
+    n = K["n"]
+    surf_total = K["surf_total"] or 1
+    top_unowned = ({"uuid": tu["uuid"], "hostname": tu["hostname"], "ip": tu["ip"],
+                    "acr": tu["acr"], "crit": tu["crit"]} if tu else None)
     kpi = {
-        "assets": n, "with_surface": len(with_surface),
-        "fully_claimed": len(fully), "fully_claimed_pct": pct(len(fully), len(with_surface)),
-        "unclaimed": len(unclaimed), "unclaimed_pct": pct(len(unclaimed), len(with_surface)),
-        "avg_claimed_pct": avg_claimed,
-        "business_owned": len(biz_owned), "business_owned_pct": pct(len(biz_owned), n),
-        "asset_owned": len(asset_owned), "tech_owned": len(tech_owned),
-        "mitigated": mit, "mitigated_pct": pct(mit, surf_total),
-        "accepted": acc, "accepted_pct": pct(acc, surf_total),
-        "ignored": ign, "ignored_pct": pct(ign, surf_total),
-        "crown": len(crown), "crown_owned": len(crown_owned),
-        "crown_unclaimed": len(crown_unclaimed), "crown_owned_pct": pct(len(crown_owned), len(crown)),
-        "crown_business_owned": len(crown_biz),
-        "kev_assets": kev_count, "blind": len(blind),
-        "blind_no_signal": len(blind_no_signal), "cred_fail": len(cred_fail),
+        "assets": n, "with_surface": K["with_surface"],
+        "fully_claimed": K["fully"], "fully_claimed_pct": pct(K["fully"], K["with_surface"]),
+        "unclaimed": K["unclaimed"], "unclaimed_pct": pct(K["unclaimed"], K["with_surface"]),
+        "avg_claimed_pct": round(K["claimed_sum"] / K["claimed_n"], 1) if K["claimed_n"] else 0.0,
+        "business_owned": K["biz"], "business_owned_pct": pct(K["biz"], n),
+        "asset_owned": K["asset"], "tech_owned": K["tech"],
+        "mitigated": K["mit"], "mitigated_pct": pct(K["mit"], surf_total),
+        "accepted": K["acc"], "accepted_pct": pct(K["acc"], surf_total),
+        "ignored": K["ign"], "ignored_pct": pct(K["ign"], surf_total),
+        "crown": K["crown"], "crown_owned": K["crown_owned"],
+        "crown_unclaimed": K["crown_unclaimed"], "crown_owned_pct": pct(K["crown_owned"], K["crown"]),
+        "crown_business_owned": K["crown_biz"],
+        "kev_assets": K["kev"], "blind": K["blind"],
+        "blind_no_signal": K["no_signal"], "cred_fail": K["cred_fail"],
         "crown_acr": CROWN_ACR,
         # --- "At a glance" (build 441) — all derived from the rollup above ---
-        "owned": len(owned_rows), "owned_pct": pct(len(owned_rows), n),
-        "no_owner": n - len(owned_rows), "no_owner_pct": pct(n - len(owned_rows), n),
-        "no_business": n - len(biz_owned), "no_business_pct": pct(n - len(biz_owned), n),
-        "asset_owned_complete": sum(1 for r in asset_owned if r["asset_owner_mode"] != "remainder"),
-        "asset_owned_remainder": sum(1 for r in asset_owned if r["asset_owner_mode"] == "remainder"),
+        "owned": K["owned"], "owned_pct": pct(K["owned"], n),
+        "no_owner": n - K["owned"], "no_owner_pct": pct(n - K["owned"], n),
+        "no_business": n - K["biz"], "no_business_pct": pct(n - K["biz"], n),
+        "asset_owned_complete": K["ao_complete"],
+        "asset_owned_remainder": K["ao_remainder"],
         "owners_distinct": len(owners),
-        "surface_items": sum(r["surface"] for r in rows), "surface_owned": surf_owned,
-        "surface_dispositioned": surf_disp, "surface_handled": surf_handled,
-        "surface_handled_pct": pct(surf_handled, sum(r["surface"] for r in rows)),
-        "crown_no_owner": len([r for r in crown if not r["has_owner"]]),
+        "surface_items": K["surface_items"], "surface_owned": K["surf_owned"],
+        "surface_dispositioned": K["surf_disp"], "surface_handled": K["surf_handled"],
+        "surface_handled_pct": pct(K["surf_handled"], K["surface_items"]),
+        "crown_no_owner": K["crown_no_owner"],
         "has_vulns": bool(risk_by),
-        "crit_assets": sum(1 for r in rows if r["crit"]),
-        "kev_finding_assets": sum(1 for r in rows if r["kev"]),
-        "unowned_crit": sum(1 for r in rows if r["crit"] and not r["has_owner"]),
-        "unowned_crit_findings": sum(r["crit"] for r in rows if not r["has_owner"]),
-        "unowned_kev": sum(1 for r in rows if r["kev"] and not r["has_owner"]),
+        "crit_assets": K["crit_assets"],
+        "kev_finding_assets": K["kev_findings"],
+        "unowned_crit": K["unowned_crit"],
+        "unowned_crit_findings": K["unowned_crit_findings"],
+        "unowned_kev": K["unowned_kev"],
         "top_unowned": top_unowned,
     }
-    rows.sort(key=lambda r: (-(r["acr"] or 0), r["claimed_pct"] if r["claimed_pct"] is not None else 999))
-    crown.sort(key=lambda r: (0 if not r["has_owner"] else 1, -(r["acr"] or 0)))
-    blind.sort(key=lambda r: -(r["acr"] or 0))
     ol = sorted(owners.values(), key=lambda o: (-o["assets"], o["name"].lower()))
-    return {"ok": True, "kpi": kpi, "assets": rows, "crown_jewels": crown,
-            "blind_spots": blind[:200], "owners": ol[:100], "owners_total": len(ol)}
+    return kpi, ol
+
+
+def _claimed_key(r):
+    return r["claimed_pct"] if r["claimed_pct"] is not None else 999
+
+
+def overview(db_path=None) -> dict:
+    """The Asset Ownership dashboard payload — per-asset rollup + KPIs + crown jewels (what the
+    Hounds know) + blind spots. Read-only. The FULL result, for server-side callers and tests;
+    the page reads overview_store() (summary + top lists + server-paged rows)."""
+    rows, crown, blind = [], [], []
+
+    def emit(row, rid, is_crown, is_blind):
+        rows.append((rid, row))
+        if is_crown:
+            crown.append((rid, row))
+        if is_blind:
+            blind.append((rid, row))
+    try:
+        kpi, ol = _rollup(db_path, emit)
+    except LookupError as e:
+        return {"ok": False, "error": str(e)}
+    rows.sort(key=lambda t: (-(t[1]["acr"] or 0), _claimed_key(t[1]), t[0]))
+    crown.sort(key=lambda t: (0 if not t[1]["has_owner"] else 1, -(t[1]["acr"] or 0), t[0]))
+    blind.sort(key=lambda t: (-(t[1]["acr"] or 0), t[0]))
+    return {"ok": True, "kpi": kpi, "assets": [r for _i, r in rows], "crown_jewels": [r for _i, r in crown],
+            "blind_spots": [r for _i, r in blind][:200], "owners": ol[:100], "owners_total": len(ol)}
+
+
+SCOPE_FLAGS = ("unclaimed", "crown", "owned", "noowner", "full", "biz", "nobiz", "asset", "complete", "remainder",
+               "tech", "crownnone", "ucrit", "ukev", "nosig")
+
+
+def _row_flags(r):
+    """The page's table scopes as stored filter flags (agents/asset_ownership/page.html SCOPES)."""
+    f = {"unclaimed": r["unclaimed"], "crown": r["crown"], "owned": r["has_owner"], "noowner": not r["has_owner"],
+         "full": r["surface"] > 0 and r["claimed_pct"] == 100, "biz": bool(r["business_owners"]),
+         "nobiz": not r["business_owners"], "asset": bool(r["asset_owner"]),
+         "complete": bool(r["asset_owner"]) and r["asset_owner_mode"] != "remainder",
+         "remainder": bool(r["asset_owner"]) and r["asset_owner_mode"] == "remainder",
+         "tech": bool(r["tech_owners"]), "crownnone": r["crown"] and not r["has_owner"],
+         "ucrit": (not r["has_owner"]) and r["crit"] > 0, "ukev": (not r["has_owner"]) and bool(r["kev"]),
+         "nosig": not r["signal_count"]}
+    return [k for k, v in f.items() if v]
+
+
+def overview_store(db_path=None):
+    """▶ Run for the page (build 455): the same rollup, STREAMED into the result store
+    (core.payload) — every asset row once (sort keys ACR ↓ / claimed ↑ / table order, the
+    scope flags, host/IP/owner search text), plus the crown jewels and blind spots as their own
+    sections. Python keeps only the KPI counters and the owners. Returns
+    {ok, run, kpi, owners (top 100), owners_total, signal_keys}."""
+    from core import payload
+    W = payload.STORE.begin("asset_ownership")
+    for sec in ("assets", "crown", "blind"):
+        W.section(sec)
+
+    def emit(row, rid, is_crown, is_blind):
+        neg_acr, cl = -(row["acr"] or 0), _claimed_key(row)
+        text = " ".join(str(x or "") for x in [row["hostname"], row["ip"], row["asset_owner"], row["uuid"]]
+                        + list(row["tech_owners"]) + list(row["business_owners"]))
+        W.add("assets", row, uid=row["uuid"], flags=_row_flags(row), keys=(neg_acr, cl, rid), text=text)
+        if is_crown:
+            W.add("crown", row, uid=row["uuid"], keys=(0 if not row["has_owner"] else 1, neg_acr, rid))
+        if is_blind:
+            W.add("blind", row, uid=row["uuid"], keys=(neg_acr, rid))
+    try:
+        kpi, ol = _rollup(db_path, emit)
+        W.meta = {"owners_total": len(ol)}
+    except LookupError as e:
+        W.close(ok=False)
+        return {"ok": False, "error": str(e)}
+    except BaseException:
+        W.close(ok=False)
+        raise
+    W.close()
+    # the ✨ Ask hints: the first tag keys in the table's own order (ACR ↓, claimed ↑)
+    keys, after = [], None
+    for _ in range(10):
+        rows, after, _n, _e = payload.STORE.page(W.run, "assets", sort=("s1", "s2", "s3"), limit=200, after=after,
+                                                 count=False)
+        for r in rows:
+            for k in (r.get("signals") or {}):
+                if k not in keys:
+                    keys.append(k)
+        if len(keys) >= 6 or not after:
+            break
+    return {"ok": True, "run": W.run, "kpi": kpi, "owners": ol[:100], "owners_total": len(ol),
+            "signal_keys": keys[:6]}
 
 
 # --------------------------------------------------------------------------- #
@@ -502,6 +690,28 @@ def _extract_owner(pl, schema):
     return None
 
 
+def clean_filter(filt) -> dict:
+    """A plan filter as _match_asset reads it — a model-built (or page-echoed) filter may be
+    loosely shaped, so keep only well-formed conditions."""
+    filt = dict(filt) if isinstance(filt, dict) else {}
+    filt["tags"] = [c for c in (filt.get("tags") or []) if isinstance(c, dict) and (str(c.get("key") or "")).strip()]
+    filt["host_like"] = [h for h in (filt.get("host_like") or []) if isinstance(h, str) and h.strip()]
+    for k in ("acr_min", "acr_max"):
+        if filt.get(k) is not None:
+            try:
+                filt[k] = float(filt[k])
+            except (TypeError, ValueError):
+                filt.pop(k, None)
+    return filt
+
+
+def match_filter(filt, db_path=None) -> list:
+    """The assets a plan's filter selects, re-evaluated HERE (apply never trusts a UUID list
+    from the page; it sends the plan's filter and the server rebuilds the set)."""
+    filt = clean_filter(filt)
+    return [a["uuid"] for a in assets_with_tags(db_path) if a.get("uuid") and _match_asset(a, filt)]
+
+
 def plan(prompt, db_path=None) -> dict:
     """Turn a plain-English instruction into a preview: which owner, which layer
     (business vs single asset owner), and the matched assets — considering each
@@ -537,10 +747,7 @@ def plan(prompt, db_path=None) -> dict:
         return {"ok": False, "error": "couldn't find an owner in that — try “assign <name> to …”",
                 "llm_available": used_llm}
 
-    filt = parsed.get("filter") if isinstance(parsed.get("filter"), dict) else {}
-    # a model-built filter may be loosely shaped — keep only well-formed conditions
-    filt["tags"] = [c for c in (filt.get("tags") or []) if isinstance(c, dict) and (c.get("key") or "").strip()]
-    filt["host_like"] = [h for h in (filt.get("host_like") or []) if isinstance(h, str) and h.strip()]
+    filt = clean_filter(parsed.get("filter"))
     matched = [a for a in assets if _match_asset(a, filt)]
     # resolve owner to a canonical navi user/group when possible (business leaders are
     # often NOT in the directory — accept the literal name, but flag it).
@@ -583,23 +790,33 @@ def plan(prompt, db_path=None) -> dict:
 #  Writes (gated)                                                              #
 # --------------------------------------------------------------------------- #
 def _uuid_query(uuids):
-    inlist = ",".join("'" + str(u).replace("'", "''") + "'" for u in uuids if u)
-    return "SELECT uuid AS asset_uuid FROM assets WHERE uuid IN (" + inlist + ")"
+    return navi_cli.uuids_query([u for u in uuids if u])       # one asset (assign_asset_owner)
 
 
 def apply_business_owner(owner, uuids, db_path=None) -> dict:
-    """Tag ``Business Owner: <owner>`` on a set of assets (gated, persistent)."""
+    """Tag ``Business Owner: <owner>`` on a set of assets (gated, persistent). The set comes
+    from a Python filter over assets + tags, so it goes as ≤1,999-UUID batches
+    (core.navi_cli.tag_uuids_batched, add-only) — any size."""
     if not owner or not uuids:
         return {"ok": False, "message": "owner and assets required"}
-    return navi_cli.tag(BUSINESS_OWNER_KEY, owner, query=_uuid_query(uuids),
-                        remove=False, agent="asset_ownership")
+    sm = navi_cli.jobs_summary(navi_cli.tag_uuids_batched(BUSINESS_OWNER_KEY, owner, uuids,
+                                                          agent="asset_ownership"))
+    return {**(sm["result"] or {}), "jobs": sm["jobs"], "job_ids": sm["job_ids"]}
 
 
 def _asset_routes_paths(uuid, db_path=None):
-    routes = [r["app"] for r in _q(_RA + "SELECT DISTINCT app FROM ra WHERE au=?", (uuid,), db_path) if r.get("app")]
-    if not routes:  # some sqlite builds dislike WHERE on the CTE alias; fall back to a filter
-        routes = [r["app"] for r in _q(_RA + "SELECT app, au FROM ra", path=db_path)
-                  if r.get("au") == uuid and r.get("app")]
+    """The routes and paths ONE asset sits on. Build 455: the asset's plugin ids (an index probe
+    on vulns(asset_uuid, plugin_id) — hx_v_asset when present) matched against each route's
+    quoted plugin_list — the same membership the old LIKE join over every finding computed."""
+    routes = []
+    if _has_table("vuln_route", db_path):
+        hv = db.indexed_by("hx_v_asset", db_path)
+        mine = {str(r.get("plugin_id")) for r in _q("SELECT DISTINCT plugin_id FROM vulns%s WHERE asset_uuid=?" % hv,
+                                                    (uuid,), db_path) if r.get("plugin_id") is not None}
+        if mine:
+            for r in _q("SELECT app_name, plugin_list FROM vuln_route", path=db_path):
+                if r.get("app_name") and mine & set(re.findall(r"'([^']*)'", str(r.get("plugin_list") or ""))):
+                    routes.append(r["app_name"])
     paths = [r["path"] for r in _q("SELECT DISTINCT path FROM vuln_paths WHERE asset_uuid=? AND path IS NOT NULL",
                                     (uuid,), db_path) if r.get("path")]
     return sorted(set(routes)), sorted(set(paths))

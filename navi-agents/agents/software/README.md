@@ -18,4 +18,10 @@ assets on a specific version as `Software:<product> <version>` — applied by
 `navi enrich tag --query` over the exact asset set. Writes need
 `NAVI_ALLOW_WRITES=1` and `navi` on PATH.
 
-Actions: `run` (analyze), `tag` (gated `Software:` tag for a set of assets).
+Scale (build 455): the analysis runs on the server (`core/software.py` — the page's parsers,
+ported) and the page receives decision data only: `inventory` (▶ Run — KPIs + page 1),
+`drill` (page / filter / search the products), `product` (one product's versions),
+`eol_plan` + `lifecycle` (endoflife.date verdicts → asset counts), `crown`, `risk` (top 40).
+`tag` takes a KEY (`{product}`, `{product, version}`, `{product, kind:"eol"|"behind"}`,
+`{role}`) and rebuilds the asset set server-side; `run_sql` (✨ Ask only) is capped at 200
+rows a page / 10,000 in all.

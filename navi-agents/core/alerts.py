@@ -17,7 +17,7 @@ import os
 import re
 import time
 
-from core import db, navi_cli, tagname
+from core import db, hx_summary, navi_cli, tagname
 from core.security import private_open as _popen
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -207,6 +207,40 @@ def _read_only(sql):
     return s
 
 
+_FM_HEAD = re.compile(r"^select\s+count\s*\(\s*distinct\s+asset_uuid\s*\)\s+from\s+vulns\s+where\s+(.+)$", re.I | re.S)
+_FM_NAME = re.compile(r"^\(?\s*(?:lower\s*\(\s*plugin_name\s*\)|plugin_name)\s+like\s+'(%[^'%]+%)'\s*\)?$", re.I)
+_FM_KEV = re.compile(r"^\(?\s*xrefs\s+like\s+'%CISA-KNOWN-EXPLOITED%'\s*\)?$", re.I)
+_FM_CRIT = re.compile(r"^\(?\s*lower\s*\(\s*severity\s*\)\s*=\s*'critical'\s*\)?$", re.I)
+
+
+def _fast_metric(sql, db_path=None):
+    """Phase 1: an equivalent of the stock asset-count metrics (the kev_new / new_criticals /
+    eol_rise templates, and the same shapes when written by hand or by the model) that reads the
+    hx summaries or a covering index instead of every vulns row — or None to run the SQL as written.
+    The stored/shown metric_sql never changes, so it keeps working on a navi.db without summaries.
+      COUNT(DISTINCT asset_uuid) … xrefs LIKE '%CISA-KNOWN-EXPLOITED%'  → hx_asset.kev_any
+      … lower(plugin_name) LIKE '%x%' [OR …]                           → hx_plugin.lname + hx_v_plugin
+      … lower(severity)='critical'                                      → per finding, hx_v_plugin only"""
+    m = _FM_HEAD.match(re.sub(r"\s+", " ", (sql or "").strip().rstrip(";")).strip())
+    if not m:
+        return None
+    cond = m.group(1).strip()
+    if not hx_summary.usable(db_path):
+        return None
+    if _FM_CRIT.match(cond):
+        ib = db.indexed_by("hx_v_plugin", db_path)
+        return ("SELECT COUNT(DISTINCT asset_uuid) FROM vulns%s WHERE lower(severity)='critical'" % ib) if ib else None
+    if _FM_KEV.match(cond):
+        return "SELECT COUNT(*) FROM hx_asset WHERE kev_any"
+    pats = []
+    for part in re.split(r"\s+or\s+", cond, flags=re.I):
+        n = _FM_NAME.match(part.strip())
+        if not n:
+            return None
+        pats.append("lname LIKE '%s'" % n.group(1))
+    return "SELECT COUNT(asset_uuid) FROM (%s)" % hx_summary.assets_with("(" + " OR ".join(pats) + ")", path=db_path)
+
+
 def _metric_of(alert, db_path):
     """{value, unit, affected, note} for either a builtin or a SQL alert."""
     if alert.get("source") == "builtin":
@@ -221,7 +255,9 @@ def _metric_of(alert, db_path):
     if not sql:
         return {"value": None, "unit": alert.get("unit", ""), "affected": [], "note": "metric query must be a read-only SELECT"}
     try:
-        rows = db.user_query(sql, path=db_path)      # user/LLM SQL: secret tables unreadable
+        fast = _fast_metric(sql, db_path)
+        rows = db.query(fast, path=db_path) if fast else \
+            db.user_query(sql, path=db_path)      # user/LLM SQL: secret tables unreadable
     except Exception as e:
         return {"value": None, "unit": alert.get("unit", ""), "affected": [], "note": "query error: %s" % e}
     value = None
@@ -504,7 +540,7 @@ def suggest(db_path=None):
     have_defs = {d.get("template") for d in _load_defs()}
     def scalar(sql):
         try:
-            return db.scalar(sql, path=db_path) or 0
+            return db.scalar(_fast_metric(sql, db_path) or sql, path=db_path) or 0
         except Exception:
             return 0
     def has_table(t):

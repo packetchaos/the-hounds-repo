@@ -14,6 +14,7 @@
 .st.running{color:var(--cx-7cc4ff);background:rgba(96,165,250,.14)}
 .st.done{color:var(--ok);background:rgba(52,211,153,.14)}
 .st.error{color:var(--crit);background:rgba(251,113,133,.14)}
+.st.cancelled{color:var(--mut);background:rgba(148,163,184,.14)}
 td .mono,.dim{color:var(--mut)}
 #tbl th[data-k]{cursor:pointer;white-space:nowrap;user-select:none}#tbl th[data-k]:hover{color:var(--accent)}
 #tbl th .ar{font-size:10px;color:var(--accent);margin-left:3px}
@@ -97,7 +98,10 @@ function renderJobs(){
   const jobs=viewJobs();
   document.querySelector('#tbl tbody').innerHTML = jobs.length ? jobs.map(j=>{
     const ok=j.status==='done', err=j.status==='error';
-    const res=(ok||err)?esc((j.message||'').slice(0,(err||j.op==='remove')?400:140))+(j.has_output?` <button type="button" class="btn ghost sm" data-out="${esc(j.id)}" title="Show what navi printed for this job" style="padding:0 6px;font-size:10.5px">navi output</button>`:''):(j.status==='running'?'<span class="spin"></span> running…':'waiting…');
+    const ser=j.series?` <span class="badge" title="tag series ${esc(j.series)}">page ${esc(j.page)}/${esc(j.pages)}</span>`:'';
+    const sbtn=j.series?((err||j.status==='cancelled')?` <button type="button" class="btn ghost sm" data-retry="${esc(j.id)}" title="Re-run only this page" style="padding:0 6px;font-size:10.5px">↻ retry page</button>`:
+      (j.status==='queued'?` <button type="button" class="btn ghost sm" data-cancel="${esc(j.series)}" title="Stop the pages of this series that have not run yet" style="padding:0 6px;font-size:10.5px">■ cancel rest</button>`:'')):'';
+    const res=((ok||err)?esc((j.message||'').slice(0,(err||j.op==='remove')?400:140))+(j.has_output?` <button type="button" class="btn ghost sm" data-out="${esc(j.id)}" title="Show what navi printed for this job" style="padding:0 6px;font-size:10.5px">navi output</button>`:''):(j.status==='running'?'<span class="spin"></span> running…':(j.status==='cancelled'?esc(j.message||'cancelled'):'waiting…')))+ser+sbtn;
     return `<tr><td class="mono" style="white-space:nowrap;width:1%">${esc(j.id)}</td><td><span class="st ${esc(j.status)}">${esc(j.status)}</span></td><td>${landedCell(j)}</td>`+
       `<td>${esc(j.category||'')}</td><td>${j.op==='remove'?'<span class="badge b-err" title="tag removal (navi -remove)">🗑 remove</span> ':''}<b>${esc(j.value||'')}</b></td>`+
       `<td class="mono" style="font-size:11px">${esc(j.selector||'')}</td>`+
@@ -109,6 +113,13 @@ function renderJobs(){
 }
 /* navi's own output for one job — fetched on demand (it can be a few KB per job) */
 document.querySelector('#tbl tbody').addEventListener('click', async ev=>{
+  const rb=ev.target.closest&&ev.target.closest('[data-retry]'), cb=ev.target.closest&&ev.target.closest('[data-cancel]');
+  if(rb){ if(!confirm('Re-run tag page (job #'+rb.dataset.retry+') on its own?')) return;
+    let o; try{ o=await EXPLORE.post('tag_retry',{id:+rb.dataset.retry,confirm:true}); }catch(e){ o={ok:false,message:e.message}; }
+    flash('flash',o&&o.ok?'✓ page re-queued':'✗ '+esc((o&&(o.message||o.error))||'retry failed'),o&&o.ok?'ok':'crit'); load(); return; }
+  if(cb){ if(!confirm('Stop the pages of this tag series that have not run yet? (Pages already applied stay applied.)')) return;
+    let o; try{ o=await EXPLORE.post('tag_cancel',{series:cb.dataset.cancel}); }catch(e){ o={ok:false,message:e.message}; }
+    flash('flash',o&&o.ok?('✓ cancelled '+(+o.cancelled||0)+' waiting page(s)'):'✗ '+esc((o&&(o.message||o.error))||'cancel failed'),o&&o.ok?'ok':'crit'); load(); return; }
   const b=ev.target.closest&&ev.target.closest('[data-out]'); if(!b) return;
   const tr=b.closest('tr'), nx=tr.nextElementSibling;
   if(nx&&nx.classList.contains('outrow')){ nx.remove(); return; }

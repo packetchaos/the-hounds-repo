@@ -115,7 +115,9 @@ def evaluate(db_path=None, keep_uuids=False):
     by_scanner, by_policy, by_scan = {}, {}, {}
     all_durs = []
     latest = {}                                    # asset -> its most recent 19506 parse
-    for r in rows:
+    for i, r in enumerate(rows):
+        if not i % 200:                            # the SQL budget can't stop Python parsing
+            db.checkpoint("scan evaluation: 19506 parse")
         out = r.get("output") or ""
         u = r.get("asset_uuid")
         stype = _field(out, "Scan type")

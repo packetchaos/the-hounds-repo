@@ -92,12 +92,13 @@ NEEDS_INPUT = frozenset(AGENT_DEFAULTS)
 # Agents whose policy text IS the adapter's input (an owner mapping), not a selection filter.
 PROMPT_DRIVEN = frozenset({"exproute", "asset_ownership"})
 
-# A --query is ONE argv element; the OS caps a single argument at 128 KB. 1,500 quoted
-# UUIDs ≈ 60 KB, so chunk any inlined UUID list at this size (one candidate per chunk).
-CHUNK_UUIDS = 1500
+# A --query is ONE argv element; the OS caps a single argument at 128 KB. Adapters use the
+# hound's own SQL predicate where the set is defined in navi.db; a Python-computed set is
+# inlined in navi_cli.uuid_batches() batches (≤ 1,999 UUIDs, < navi_cli.MAX_ARG_BYTES each).
+CHUNK_UUIDS = navi_cli.BATCH_UUIDS
 CUSTOMAPP_MAX = 50              # candidates looked up per plan (ranked by evidence)
 CUSTOMAPP_MAX_ROUTES = 10       # route selectors per custom app
-MAX_QUERY_BYTES = 100_000
+MAX_QUERY_BYTES = navi_cli.MAX_ARG_BYTES
 
 
 def agent_default(aid) -> dict:
@@ -403,12 +404,10 @@ def _q(s):
 
 def _uuid_specs(category, value, uuids, prefix="SELECT uuid AS asset_uuid FROM assets WHERE uuid IN (",
                 suffix=")"):
-    """Tag specs for an explicit asset set, chunked at CHUNK_UUIDS so no single --query
-    argument passes the OS 128 KB per-argument limit. Same SELECT shape as the agent's own."""
-    uu = sorted({str(u) for u in (uuids or []) if u})
+    """Tag specs for a Python-computed asset set, in navi_cli.uuid_batches() batches (≤ 1,999
+    UUIDs and < MAX_ARG_BYTES per --query, add-only). Same SELECT shape as the agent's own."""
     out = []
-    for i in range(0, len(uu), CHUNK_UUIDS):
-        part = uu[i:i + CHUNK_UUIDS]
+    for part in navi_cli.uuid_batches(uuids, max_bytes=MAX_QUERY_BYTES - len(prefix) + 48):
         out.append({"category": category, "value": value, "remove": False,
                     "query": prefix + ",".join(_q(u) for u in part) + suffix})
     return out
@@ -440,11 +439,36 @@ def _enforce_size(items):
             out.append(it)
             continue
         vals = re.findall(r"'(?:[^']|'')*'", m.group(2))
-        for i in range(0, len(vals), CHUNK_UUIDS):
+        if it["spec"].get("remove"):
+            out.append(it)               # never split a removal (navi_cli refuses it as too big)
+            continue
+        fixed = len((m.group(1) + m.group(3)).encode("utf-8"))
+        parts, cur, cur_b = [], [], fixed
+        for v in vals:
+            b = len(v.encode("utf-8")) + 1
+            if cur and (len(cur) >= CHUNK_UUIDS or cur_b + b >= MAX_QUERY_BYTES):
+                parts.append(cur)
+                cur, cur_b = [], fixed
+            cur.append(v)
+            cur_b += b
+        if cur:
+            parts.append(cur)
+        for i, part in enumerate(parts):
             sp = dict(it["spec"])
-            sp["query"] = m.group(1) + ",".join(vals[i:i + CHUNK_UUIDS]) + m.group(3)
-            out.append({**it, "spec": sp, "label": it["label"] + f" [{i // CHUNK_UUIDS + 1}]"})
+            sp["query"] = m.group(1) + ",".join(part) + m.group(3)
+            out.append({**it, "spec": sp, "label": it["label"] + f" [{i + 1}]"})
     return out
+
+
+def _is_page(spec):
+    """An add-only spec whose only selector is an inlined UUID page (from _uuid_specs)."""
+    return (not spec.get("remove") and set(spec) <= {"category", "value", "query", "remove"}
+            and bool(_IN_RE.match(spec.get("query") or "")))
+
+
+def _page_n(q):
+    m = _IN_RE.match(q or "")
+    return len(re.findall(r"'(?:[^']|'')*'", m.group(2))) if m else 0
 
 
 def _idcat(klass):
@@ -566,8 +590,10 @@ def _ad_eol(cfg):
     # tag_eol_date(): Lifecycle EOL : <YYYY-MM-DD> on the exact assets
     for dg in (res.get("view") or {}).get("date_groups", []) or []:
         uu = dg.get("uuids") or []
-        if uu:
-            out += _items("EOL " + dg["eol_date"], len(uu), _uuid_specs("Lifecycle EOL", dg["eol_date"], uu))
+        q = _eol.date_tag_query(dg) if uu else ""      # the date's own condition → its set, paged
+        su = navi_cli.collect_uuids(q) if q else []
+        if su:
+            out += _items("EOL " + dg["eol_date"], len(su), _uuid_specs("Lifecycle EOL", dg["eol_date"], su))
     return out
 
 
@@ -584,7 +610,8 @@ def _ad_software(cfg):
     from core import software as _sw
     if not _has_table("software"):
         raise NeedsInput("no software table in navi.db — run navi update assets first")
-    res = _agent_run("software")
+    # the engine itself (build 455): the page's `run` action now ships only the contract payload
+    res = _sw.analyze()
     out = []
     for pr in sorted(res.get("products", []) or [], key=lambda x: -(x.get("nasset") or 0))[:100]:
         uu = sorted({u for u in (pr.get("assets") or []) if u})
@@ -606,7 +633,7 @@ def _ad_software(cfg):
 
 def _ad_ai(cfg):
     from core import ai_assets
-    res = _agent_run("ai")
+    res = ai_assets.scan()          # the engine (the page's `run` ships the paged contract payload)
     assets = res.get("assets") or []
     out = []
     allu = [x.get("asset_uuid") for x in assets]
@@ -690,11 +717,10 @@ def _ad_scan_eval(cfg):
     from core import scan_eval as _se
     api = import_module("agents.scan_eval.api")
     ev = _se.evaluate(keep_uuids=True)
-    sets = ev.get("_sets") or {}
     out = []
-    for key, value in api.VALUES.items():
-        uu = sorted(u for u in (sets.get(key) or ()) if u)
-        if uu:
+    for key in api.VALUES:
+        value, uu, _err = api.tag_target(key, ev=ev)     # the page's own set (SQL or parsed)
+        if value is not None and uu:
             out += _items(value, len(uu), _uuid_specs(api.CATEGORY, value, uu))
     return out
 
@@ -702,7 +728,9 @@ def _ad_scan_eval(cfg):
 def _ad_certificate(cfg):
     if not _has_table("certs"):
         raise NeedsInput("no certs table in navi.db — run navi config certificates first")
-    res = _agent_run("certificate")
+    # the engine (CertificateAgent._run): full tag_actions / cert_issue_matrix — the page's `run`
+    # ships only the contract payload. _run leaves the page's AGENT.result / status alone.
+    res = import_module("agents.certificate.api").AGENT._run(None)
     out = []
     # tags_apply(): Cert failure : <expiry> with the agent's exact-asset query
     seen = set()
@@ -711,8 +739,9 @@ def _ad_certificate(cfg):
         if not v or v in seen or not a.get("assets"):
             continue
         seen.add(v)
-        out += _items(v, a.get("assets", 0), [{"category": a.get("category", "Cert failure"), "value": v,
-                                               "query": a.get("query", ""), "remove": False}])
+        su = navi_cli.collect_uuids(a.get("query", "").rstrip(";")) if a.get("query") else []
+        if su:                                     # the date's set, paged like tags_apply()
+            out += _items(v, len(su), _uuid_specs(a.get("category", "Cert failure"), v, su))
     # tags_issues(): Cert Issue : <plugin name> via --plugin
     for mx in res.get("cert_issue_matrix", []) or []:
         pid, nm = str(mx.get("plugin_id") or "").strip(), (mx.get("plugin_name") or "").strip()
@@ -740,16 +769,21 @@ def _ad_cisakev(cfg):
         rows = api._cves_for(lambda c: True, {})
     except Exception:
         rows = []
-    rw = sorted({u for r in rows if r.get("ransomware") for u in r.get("uuids", []) if u})
-    if rw:
-        out += _items("CISA KEV : Ransomware", len(rw), _uuid_specs("CISA KEV", "Ransomware", rw))
+    from core import kev as _kev        # the analysis' own rule as SQL (kev.cve_tag_query)
+
+    def _kev_items(label, cat, val, rs):
+        rs = [r for r in rs if r.get("uuids")]
+        n = len({u for r in rs for u in r.get("uuids", []) if u})
+        q = _kev.cve_tag_query(rs) if n else ""
+        uu = navi_cli.collect_uuids(q) if q else []       # the condition's set, paged like the page's
+        return _items(label, len(uu), _uuid_specs(cat, val, uu)) if uu else []
+    out += _kev_items("CISA KEV : Ransomware", "CISA KEV", "Ransomware", [r for r in rows if r.get("ransomware")])
     dues = {}
     for r in rows:
         if r.get("due_date"):
-            dues.setdefault(r["due_date"], set()).update(u for u in r.get("uuids", []) if u)
-    for due, uu in sorted(dues.items()):
-        if uu:
-            out += _items("CISA KEV Due : " + due, len(uu), _uuid_specs(api.DUE_CATEGORY, due, uu))
+            dues.setdefault(r["due_date"], []).append(r)
+    for due, rs in sorted(dues.items()):
+        out += _kev_items("CISA KEV Due : " + due, api.DUE_CATEGORY, due, rs)
     return out
 
 
@@ -857,8 +891,7 @@ def _ad_compliance(cfg):
         if not cid or not int(r.get("failed_assets") or 0) or (want and str(cid) not in want):
             continue
         # control_targets(failed_only=True) as SQL — no inlined UUIDs, no size limit
-        q = ("SELECT DISTINCT asset_uuid FROM compliance WHERE check_id=" + _q(cid)
-             + " AND upper(status) LIKE 'FAIL%'")
+        q = _c.control_query(cid, failed_only=True)
         out += _items(f"{r.get('check_name') or cid} → {owner}", int(r.get("failed_assets") or 0),
                       [{"category": _c.TAG_OWNER_CATEGORY, "value": owner, "query": q, "remove": False}],
                       unit="check:" + str(cid))
@@ -1173,10 +1206,10 @@ def export_script(contract=None, db_path=None) -> str:
                       % len(protect_ids)]
             if not protect_ids:
                 lines.append("# (no assets to protect)")
-            for i in range(0, len(protect_ids), acr_protect.CHUNK):
+            for part in acr_protect.batches(protect_ids):
                 lines.append("navi enrich tag --c %s --v %s --query %s" % (
                     _sh(acr_protect.PROTECT_CATEGORY), _sh(acr_protect.PROTECT_VALUE),
-                    _sh(acr_protect._query_for(protect_ids[i:i + acr_protect.CHUNK]))))
+                    _sh(acr_protect._query_for(part))))
     lines += ["", 'echo "✓ Done."']
     return "\n".join(lines) + "\n"
 
@@ -1195,13 +1228,31 @@ def execute(contract=None, db_path=None, enforce_pause=True, skip_tags=None, app
     skip = {(str(a).strip(), str(b).strip()) for a, b in (skip_tags or ())}
     queued, held, acr_done = 0, 0, 0
     for blk in p["agents"]:
+        run = []                                      # consecutive UUID pages of ONE tag
+
+        def _flush():
+            if len(run) == 1:
+                navi_cli.tag(agent=blk["agent"], **run[0])
+            elif run:                                 # >1 page → one tag series on the queue
+                navi_cli.submit_pages(run[0]["category"], run[0]["value"],
+                                      [(sp["query"], _page_n(sp["query"])) for sp in run],
+                                      agent=blk["agent"])
+            run.clear()
         for it in blk["items"]:
             spec = dict(it["spec"])
             if (str(spec.get("category") or "").strip(), str(spec.get("value") or "").strip()) in skip:
                 held += 1
                 continue
-            navi_cli.tag(agent=blk["agent"], **spec)     # -> background tag queue
+            if _is_page(spec) and run and (run[0]["category"], run[0]["value"]) == (spec["category"], spec["value"]):
+                run.append(spec)
+            else:
+                _flush()
+                if _is_page(spec):
+                    run.append(spec)
+                else:
+                    navi_cli.tag(agent=blk["agent"], **spec)     # -> background tag queue
             queued += 1
+        _flush()
         if wait and blk["items"]:
             time.sleep(wait)
     applied = []                      # (batch, business case) of ACR rules that went through
@@ -1368,12 +1419,17 @@ def run_cycle(contract=None, enforce_pause=True, apply=False) -> dict:
         removal_info["navi_update"] = upd
     else:
         upd = _navi_update_bg() if c.get("navi_update") else {"skipped": "disabled"}
-    try:
-        before = db.scalar("SELECT COUNT(*) FROM tags;")
-    except Exception:
-        before = None
-    ex = execute(c, enforce_pause=enforce_pause, skip_tags=skip, apply=live)
-    qa = _qa(before)
+    # every navi.db read of the cycle (discovery, plan, QA, alerts) runs under the background
+    # "job" budget (core/db.budget_scope: 45 min, heavy) — the scheduler thread has no request
+    # scope of its own, and run_now's launcher scope is replaced by this one AFTER the removal
+    # pause, so a 30-min pause can't eat the budget. Tag/ACR writes are queued jobs (navi).
+    with db.budget_scope("job"):
+        try:
+            before = db.scalar("SELECT COUNT(*) FROM tags;")
+        except Exception:
+            before = None
+        ex = execute(c, enforce_pause=enforce_pause, skip_tags=skip, apply=live)
+        qa = _qa(before)
     # ── Alert Raven alert sweep ──────────────────────────────────────────────
     # Every cycle, evaluate the enabled alerts against the (freshly-updated) navi.db
     # and email a digest of anything that NEWLY fired. Read-only detection; the send
@@ -1381,7 +1437,8 @@ def run_cycle(contract=None, enforce_pause=True, apply=False) -> dict:
     alerts_info = {"skipped": "no alerts engine"}
     try:
         from core import alerts as _alerts
-        _ar = _alerts.evaluate_all(send=True, source="contract")
+        with db.budget_scope("job"):
+            _ar = _alerts.evaluate_all(send=True, source="contract")
         alerts_info = {"evaluated": len(_ar.get("evaluated", [])),
                        "newly_fired": [r["name"] for r in _ar.get("newly_fired", [])],
                        "sent": bool(_ar.get("sent") and _ar["sent"].get("ok"))}

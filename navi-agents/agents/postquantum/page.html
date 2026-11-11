@@ -201,7 +201,7 @@ function renderTransport(){
   hPaginate('trTbl', sig, s=>`<tr><td><b>${esc(s.key)}</b><br><span class="sub" style="font-size:11px">${esc(s.note)}</span></td><td><span class="pill" style="color:${s.sev==='high'?'var(--crit)':'var(--l-27)'}">${esc(s.sev)}</span></td><td>${N(s.assets)}</td>`+
       `<td><button class="btn ghost sm" data-s="${esc(s.key)}">🏷️ Tag</button></td></tr>`,
     {cols:4, empty:'<tr><td colspan="4" class="sub">No quantum-weak transport signals found.</td></tr>',
-     wire:tb=>tb.querySelectorAll('button[data-s]').forEach(b=>b.onclick=()=>{ const s=sig.find(x=>x.key===b.dataset.s); if(s) tagUuids('PQC Transport',s.key,s.uuids,b); })});
+     wire:tb=>tb.querySelectorAll('button[data-s]').forEach(b=>b.onclick=()=>{ const s=sig.find(x=>x.key===b.dataset.s); if(s) tagSignal(s,b); })});
 }
 
 function agShown(){ const h=((R.transport||{}).agility||{}).hosts||[]; return AGT?h.filter(x=>x.tier===AGT):h; }
@@ -244,6 +244,11 @@ async function gated(btn, label, call, okMsg, ask){   /* ask: plain-text questio
   if(!o||!o.ok||r.ok===false){ flash('flash','✗ '+esc((o&&(o.error||o.message))||r.message||r.error||'failed'),'crit'); scroll(); return o; }
   flash('flash','✓ '+okMsg(o)+' — sent to the <a href="/web/tags-log.html">Tagging log</a>.'+(o.writes_enabled===false?' Writes are gated, so nothing reaches Tenable until NAVI_ALLOW_WRITES=1.':' Tags take ~30 min to land in Tenable.'),'ok'); scroll();
   return o;
+}
+function tagSignal(s,btn){   // the server tags by the signal's own SQL — no UUID list is sent
+  return gated(btn,`queuing ${esc('PQC Transport')} : ${esc(s.key)}`,()=>API.post('tag_signal',{key:s.key,confirm:true}),
+    o=>`queued <span class="tagval">${esc(tagCat('PQC Transport'))} : ${esc(s.key)}</span> on ${N(o.count)} asset(s)`,
+    ()=>`Tag ${tagCat('PQC Transport')} : ${s.key} on ${N(s.assets)} asset${s.assets===1?'':'s'}?`);
 }
 function tagUuids(cat,val,uuids,btn){
   const uu=[...new Set((uuids||[]).filter(Boolean))]; if(!uu.length){ flash('flash','Nothing to tag.','warn'); return; }

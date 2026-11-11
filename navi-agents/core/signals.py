@@ -11,7 +11,7 @@ expect (IOT / CERTS / IDENTITY / SHADOW / ROUTES / PATHS).
 import re
 from collections import defaultdict
 
-from core import db
+from core import db, hx_summary
 
 _MONTHS = {m: i for i, m in enumerate(
     ["Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -30,6 +30,30 @@ def _scalar(sql, path, params=()):
         return db.scalar(sql, params, path=path)
     except Exception:
         return None
+
+
+def _hx(path):
+    """⚡ Optimize's hx_plugin / hx_asset are present and match this navi.db."""
+    try:
+        return hx_summary.usable(path)
+    except Exception:
+        return False
+
+
+def _plugin_assets(pid, path):
+    """COUNT(DISTINCT asset_uuid) of one plugin — hx_plugin.assets when the summaries are usable."""
+    if _hx(path):
+        return _scalar("SELECT assets FROM hx_plugin WHERE plugin_id=?", path, (pid,))
+    return _scalar("SELECT COUNT(DISTINCT asset_uuid) FROM vulns WHERE plugin_id=?", path, (pid,))
+
+
+def _name_assets(like, path):
+    """COUNT(DISTINCT asset_uuid) over the plugins whose NAME matches `like` — resolved on
+    hx_plugin + the covering hx_v_plugin index when usable (no vulns table rows)."""
+    if _hx(path):
+        return _scalar("SELECT COUNT(*) FROM (" + hx_summary.assets_with("name LIKE ?", path=path) + ")",
+                       path, (like,))
+    return _scalar("SELECT COUNT(DISTINCT asset_uuid) FROM vulns WHERE plugin_name LIKE ?", path, (like,))
 
 
 # ----------------------------------------------------------------- 01 IoT
@@ -62,7 +86,7 @@ def _iot(path):
            ("66717", "mDNS Detection (Local Network)"), ("33276", "Enumerate MAC via SSH")]
     coverage = []
     for pid, name in sig:
-        n = _scalar("SELECT COUNT(DISTINCT asset_uuid) FROM vulns WHERE plugin_id=?", path, (pid,)) or 0
+        n = _plugin_assets(pid, path) or 0
         if n:
             coverage.append({"plugin": int(pid), "name": name, "assets": n})
 
@@ -177,9 +201,14 @@ def _sig(sig):
 def _certs(path):
     import datetime
     today = datetime.date.today().isoformat()
-    fail = _q("SELECT plugin_id, plugin_name, COUNT(DISTINCT asset_uuid) AS assets FROM vulns "
-              "WHERE plugin_name LIKE '%SSL%' OR plugin_name LIKE '%TLS%' OR plugin_name LIKE '%Certificate%' "
-              "GROUP BY plugin_id, plugin_name ORDER BY assets DESC", path)
+    if _hx(path):   # plugin explorer → hx_plugin (one row per plugin, assets = all states)
+        fail = _q("SELECT plugin_id, name AS plugin_name, assets FROM hx_plugin "
+                  "WHERE name LIKE '%SSL%' OR name LIKE '%TLS%' OR name LIKE '%Certificate%' "
+                  "ORDER BY assets DESC", path)
+    else:
+        fail = _q("SELECT plugin_id, plugin_name, COUNT(DISTINCT asset_uuid) AS assets FROM vulns "
+                  "WHERE plugin_name LIKE '%SSL%' OR plugin_name LIKE '%TLS%' OR plugin_name LIKE '%Certificate%' "
+                  "GROUP BY plugin_id, plugin_name ORDER BY assets DESC", path)
     failure = []
     for r in fail:
         nm = r.get("plugin_name", "")
@@ -211,11 +240,11 @@ def _identity(path):
                 ("10914", "Local Users — Never Changed Password"), ("10915", "Local Users — Never Logged In")]
     enum = []
     for pid, name in enum_ids:
-        n = _scalar("SELECT COUNT(DISTINCT asset_uuid) FROM vulns WHERE plugin_id=?", path, (pid,)) or 0
+        n = _plugin_assets(pid, path) or 0
         if n:
             enum.append({"plugin": int(pid), "name": name, "assets": n})
     # parse usernames from enumeration output (best-effort)
-    acct = {}
+    acct, seen = {}, {}
     amap = {a["uuid"]: (a.get("hostname") or a.get("ip_address") or "") for a in _q("SELECT uuid, hostname, ip_address FROM assets", path)}
     for r in _q("SELECT asset_uuid, output FROM vulns WHERE plugin_id IN ('95928','10860')", path):
         host = (amap.get(r["asset_uuid"]) or "").strip() or "host"
@@ -227,7 +256,9 @@ def _identity(path):
             if u in ("the", "this", "list", "users", "note", "plugin"):
                 continue
             a = acct.setdefault(u, {"user": u, "klass": "system", "shell": "", "hosts": [], "note": "", "risk": "info"})
-            if host not in a["hosts"]:
+            hs = seen.setdefault(u, set())           # O(1) membership (the list kept its order);
+            if host not in hs:                       # `in list` was O(hosts²) at 600k assets
+                hs.add(host)
                 a["hosts"].append(host)
     # classify by well-known names
     NHI = {"jenkins", "dockerroot", "pihole", "lighttpd", "www-data", "lxd", "cockpit-ws", "gitlab-runner"}
@@ -267,7 +298,7 @@ def _shadow(path):
     fam = []
     for label, like in (("Web Servers", "%HTTP%"), ("Service detection", "%Service Detection%"),
                         ("Databases", "%SQL%"), ("DNS", "%DNS%")):
-        n = _scalar("SELECT COUNT(DISTINCT asset_uuid) FROM vulns WHERE plugin_name LIKE ?", path, (like,)) or 0
+        n = _name_assets(like, path) or 0
         if n:
             fam.append({"family": label, "seen": n, "label": like.strip("%")})
     return {"invAssets": inv, "totalAssets": total, "blindAssets": max(0, total - inv),

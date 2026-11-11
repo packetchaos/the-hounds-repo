@@ -19,6 +19,11 @@ Two files per page:
 navi.db gets nothing (its own run is not someone else's data).
 Reads/writes go through the hub agent (agents/hub/api.py: pc_get / pc_put / pc_patch /
 pc_del), which the launcher never caches.
+
+Oversized entries (build 455): an entry over MAX_BYTES is no longer deleted — put() keeps a
+SUMMARY entry (summarize(): each big response cut to its decision data, flagged
+`_pc_trimmed`) so the page shows the last run on open instead of re-running live. Pages that
+follow the payload contract (core/payload.py) never get near the limit.
 """
 import gzip
 import hashlib
@@ -117,22 +122,65 @@ def put(key, entry, db_path=None):
         return False, "bad key or entry"
     entry = dict(entry, key=key, db=db_id(db_path))
     raw = json.dumps(entry, default=str, separators=(",", ":")).encode("utf-8")
+    trimmed = 0
     if len(raw) > MAX_BYTES:
-        # a stale smaller copy must not be replayed in its place (it has the steps but
-        # not these responses, so every read would go live on each open)
-        delete(key)
-        return False, "entry too large (%s, limit %s)" % (_size(len(raw)), _size(MAX_BYTES))
+        # build 455: keep a SUMMARY entry — every response cut down to its decision data
+        # (summary / totals / top rows; long lists trimmed by core.payload.cap) — so the page
+        # still shows the last run instead of re-running live on every open. Only when even
+        # that doesn't fit is the entry dropped (and a stale smaller copy with it: it has the
+        # steps but not these responses, so every read would go live on each open).
+        small, trimmed = summarize(entry)
+        raw2 = json.dumps(small, default=str, separators=(",", ":")).encode("utf-8") if small else b""
+        if not small or len(raw2) > MAX_BYTES:
+            delete(key)
+            return False, "entry too large (%s, limit %s)" % (_size(len(raw)), _size(MAX_BYTES))
+        entry, raw = small, raw2
     p = _path(key)
     tmp = p + ".tmp.%d.%d" % (os.getpid(), threading.get_ident())
     with _LOCK:
         with _popen(tmp, "wb") as f:
             f.write(gzip.compress(raw, 5))
         os.replace(tmp, p)
-        _write_json(_meta_path(key), {"key": key, "at": entry.get("at"), "title": entry.get("title"),
-                                      "released": entry.get("released"), "db": entry["db"],
-                                      "size": os.path.getsize(p)})
+        m = {"key": key, "at": entry.get("at"), "title": entry.get("title"),
+             "released": entry.get("released"), "db": entry["db"], "size": os.path.getsize(p)}
+        if trimmed:
+            m["trimmed"] = trimmed
+        _write_json(_meta_path(key), m)
     _prune()
     return True, None
+
+
+SUMMARY_BODY_BYTES = int(os.environ.get("NAVI_PAGECACHE_SUMMARY_BODY_BYTES", str(2 * 1024 * 1024)))
+
+
+def summarize(entry, body_limit=None):
+    """(summary entry, n responses trimmed) — `entry` with each oversized response body cut to
+    its decision data: lists ≤ 200 rows, then the longest halved until the body fits
+    `body_limit` (core.payload.cap — the same rule every contract response follows). Trimmed
+    bodies carry meta.truncated and `_pc_trimmed: true`. Small bodies are kept as they are."""
+    from core import payload
+    lim = SUMMARY_BODY_BYTES if body_limit is None else int(body_limit)
+    try:
+        out = dict(entry)
+        resp, n = {}, 0
+        for k, v in (entry.get("resp") or {}).items():
+            body = (v or {}).get("body") if isinstance(v, dict) else None
+            if isinstance(body, (dict, list)) and payload._jsize(body) > lim:
+                b = json.loads(json.dumps(body, default=str))        # a copy we may cut
+                if isinstance(b, list):
+                    b = b[:payload.TOP_MAX]
+                else:
+                    payload.cap(b, limit=lim)
+                    b["_pc_trimmed"] = True
+                resp[k] = dict(v, body=b)
+                n += 1
+            else:
+                resp[k] = v
+        out["resp"] = resp
+        out["trimmed"] = n
+        return out, n
+    except Exception:
+        return None, 0
 
 
 def patch(key, fields, db_path=None):

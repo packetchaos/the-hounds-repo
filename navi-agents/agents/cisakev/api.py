@@ -67,16 +67,15 @@ def _cves_for(pred, p):
     return [c for c in a.get("cves", []) if pred(c)]
 
 
-def _tag_uuids(category, value, uuids):
-    """Tag the exact assets with an OPEN finding for these CVEs (navi --cve would also match
-    FIXED findings and longer ids by LIKE)."""
-    uu = sorted({u for u in uuids if u})
-    if not uu:
+def _tag_rows(category, value, rows):
+    """Tag the assets with an OPEN finding for these KEV CVEs (navi --cve would also match
+    FIXED findings and longer ids by LIKE). The set is core.kev.cve_tag_query — the analysis'
+    own rule as SQL — computed here (streamed) and paged: ≤1,999 per navi job, a series above."""
+    rows = [r for r in rows or [] if r.get("uuids")]
+    q = kev.cve_tag_query(rows)
+    if not q:
         return []
-    inl = ",".join("'" + str(u).replace("'", "''") + "'" for u in uu)
-    return navi_cli.tag_capped(category, value, uuids=uu,
-                               query=f"SELECT uuid AS asset_uuid FROM assets WHERE uuid IN ({inl})",
-                               remove=False, agent="cisakev")
+    return navi_cli.tag_set(category, value, sql=q, agent="cisakev")
 
 
 def tag_due(p):
@@ -91,7 +90,7 @@ def tag_due(p):
         return {"ok": False, "error": "none of those due dates have KEV CVEs on assets in navi.db"}, 400
     results = []
     for due in sorted(want):
-        jobs = _tag_uuids(DUE_CATEGORY, due, [u for r in rows if r["due_date"] == due for u in r.get("uuids", [])])
+        jobs = _tag_rows(DUE_CATEGORY, due, [r for r in rows if r["due_date"] == due])
         ids = [j["job_id"] for j in jobs if j.get("job_id") is not None]
         results.append({"due_date": due, "cves": sum(1 for r in rows if r["due_date"] == due),
                         "jobs": len(ids), "queued": bool(ids)})
@@ -105,7 +104,7 @@ def tag_ransomware(p):
     rows = _cves_for(lambda c: c.get("ransomware"), p)
     if not rows:
         return {"ok": False, "error": "no ransomware-linked KEV CVEs on assets in navi.db"}, 400
-    ids = [j["job_id"] for j in _tag_uuids("CISA KEV", "Ransomware", [u for r in rows for u in r.get("uuids", [])])
+    ids = [j["job_id"] for j in _tag_rows("CISA KEV", "Ransomware", rows)
            if j.get("job_id") is not None]
     return {"ok": True, "queued": len(ids), "cves": len(rows), "writes_enabled": navi_cli.writes_enabled()}, 200
 

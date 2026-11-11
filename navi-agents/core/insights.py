@@ -7,7 +7,7 @@ on high-ACR assets, and custom apps. Each figure links to the agent that owns it
 import datetime
 import re
 
-from core import db, signals, tagname
+from core import db, hx_summary, signals, tagname
 from core.certdates import parse_cert_date
 
 _CVE = re.compile(r"CVE-\d{4}-\d{3,}", re.I)
@@ -24,6 +24,13 @@ def compute(db_path=None):
             return db.scalar(sql, path=db_path) or 0
         except Exception:
             return 0
+
+    # Phase 1: plugin-level counters (KEV xref, family, name) read hx_plugin / hx_asset and the
+    # covering hx_v_plugin index when the summaries match this navi.db; else the plain scans.
+    hx = hx_summary.usable(db_path)
+
+    def assets_of(cond):
+        return sc("SELECT COUNT(asset_uuid) FROM (" + hx_summary.assets_with(cond, path=db_path) + ")")
 
     today = datetime.date.today()
     try:
@@ -94,9 +101,21 @@ def compute(db_path=None):
         rows, _ = mitre.fetch_mapping(allow_live=downloads.auto_approve())
         cset = {r["cve"] for r in rows}
         hits = set()
-        for r in db.query("SELECT v.asset_uuid, v.cves FROM vulns v LEFT JOIN assets a "
+        if hx:
+            # Phase 1: CVEs are a plugin attribute — match them once per plugin on hx_plugin.cves,
+            # then the high-ACR assets carrying those plugins off covering hx_v_plugin ranges.
+            pids = [str(r["plugin_id"]) for r in db.query(
+                "SELECT plugin_id, cves FROM hx_plugin WHERE TRIM(COALESCE(cves,''))<>''", path=db_path)
+                if any(c.upper() in cset for c in _CVE.findall(r.get("cves") or ""))]
+            for i in range(0, len(pids), 5000):
+                inl = ",".join("'" + x.replace("'", "''") + "'" for x in pids[i:i + 5000])
+                hits.update(r["asset_uuid"] for r in db.query(
+                    "SELECT DISTINCT v.asset_uuid FROM vulns v%s JOIN assets a ON a.uuid=v.asset_uuid "
+                    "WHERE v.plugin_id IN (%s) AND CAST(a.acr AS REAL)>7" % (db.indexed_by("hx_v_plugin", db_path), inl),
+                    path=db_path))
+        for r in ([] if hx else db.query("SELECT v.asset_uuid, v.cves FROM vulns v LEFT JOIN assets a "
                           "ON a.uuid=v.asset_uuid WHERE CAST(a.acr AS REAL)>7 "
-                          "AND TRIM(COALESCE(v.cves,''))<>''", path=db_path):
+                          "AND TRIM(COALESCE(v.cves,''))<>''", path=db_path)):
             for c in _CVE.findall(r.get("cves") or ""):
                 if c.upper() in cset:
                     hits.add(r["asset_uuid"]); break
@@ -107,11 +126,13 @@ def compute(db_path=None):
     custom = sc("SELECT COUNT(*) FROM vuln_route")
 
     # Docker hosts / containers — plugin 93561 (output lists running containers)
-    docker = sc("SELECT COUNT(DISTINCT asset_uuid) FROM vulns WHERE plugin_id='93561' "
-                "OR plugin_name LIKE '%Docker%'")
+    docker = (assets_of("plugin_id='93561' OR lname LIKE '%docker%'") if hx else
+              sc("SELECT COUNT(DISTINCT asset_uuid) FROM vulns WHERE plugin_id='93561' "
+                 "OR plugin_name LIKE '%Docker%'"))
     # Web applications — Web Servers / CGI plugin families
-    web = sc("SELECT COUNT(DISTINCT asset_uuid) FROM vulns WHERE plugin_family IN "
-             "('Web Servers','CGI abuses')")
+    web = (assets_of("family IN ('Web Servers','CGI abuses')") if hx else
+           sc("SELECT COUNT(DISTINCT asset_uuid) FROM vulns WHERE plugin_family IN "
+              "('Web Servers','CGI abuses')"))
     # Cloud assets — any AWS / GCP / Azure provenance on the asset record
     acols = set()
     try:
@@ -124,8 +145,9 @@ def compute(db_path=None):
         where = " OR ".join(f"COALESCE({c},'')<>''" for c in cc)
         cloud = sc(f"SELECT COUNT(uuid) FROM assets WHERE {where}")
     # AI — Tenable's Artificial Intelligence plugin family
-    ai = sc("SELECT COUNT(DISTINCT asset_uuid) FROM vulns WHERE plugin_family "
-            "LIKE '%Artificial Intelligence%'")
+    ai = (assets_of("family LIKE '%Artificial Intelligence%'") if hx else
+          sc("SELECT COUNT(DISTINCT asset_uuid) FROM vulns WHERE plugin_family "
+             "LIKE '%Artificial Intelligence%'"))
 
     # ===== graphical stories — the unknowns, visualized (charts on the page) =====
     def rows(sql):
@@ -135,13 +157,20 @@ def compute(db_path=None):
             return []
     has_plugins = bool(rows("SELECT name FROM sqlite_master WHERE type='table' AND name='plugins'"))
     sev = []
-    sr = rows("SELECT p.severity sev, COUNT(*) c FROM vulns v JOIN plugins p ON p.plugin_id=v.plugin_id GROUP BY p.severity") if has_plugins else []
-    if not sr:
-        sr = rows("SELECT severity sev, COUNT(*) c FROM vulns GROUP BY severity")
+    if hx:   # findings per plugin severity = Σ hx_plugin.findings; else per finding off the covering index
+        sr = rows("SELECT p.severity sev, SUM(h.findings) c FROM hx_plugin h JOIN plugins p ON p.plugin_id=h.plugin_id "
+                  "GROUP BY p.severity") if has_plugins else []
+        if not sr:
+            sr = rows("SELECT severity sev, COUNT(*) c FROM vulns%s GROUP BY severity" % db.indexed_by("hx_v_plugin", db_path))
+    else:
+        sr = rows("SELECT p.severity sev, COUNT(*) c FROM vulns v JOIN plugins p ON p.plugin_id=v.plugin_id GROUP BY p.severity") if has_plugins else []
+        if not sr:
+            sr = rows("SELECT severity sev, COUNT(*) c FROM vulns GROUP BY severity")
     for r in sr:
         if r.get("sev") is not None:
             sev.append({"sev": r.get("sev"), "count": int(r.get("c") or 0)})
-    kev = sc("SELECT COUNT(DISTINCT asset_uuid) FROM vulns WHERE xrefs LIKE '%CISA-KNOWN-EXPLOITED%'")
+    kev = (sc("SELECT COUNT(*) FROM hx_asset WHERE kev_any") if hx else
+           sc("SELECT COUNT(DISTINCT asset_uuid) FROM vulns WHERE xrefs LIKE '%CISA-KNOWN-EXPLOITED%'"))
     acr_bands = {}
     for r in rows("SELECT CASE WHEN CAST(acr AS REAL)>=9 THEN 'crit' WHEN CAST(acr AS REAL)>=7 THEN 'high' "
                   "WHEN CAST(acr AS REAL)>=4 THEN 'med' WHEN CAST(acr AS REAL)>=1 THEN 'low' ELSE 'unrated' END b, "
@@ -154,8 +183,9 @@ def compute(db_path=None):
                   for r in rows("SELECT app_name, total_vulns FROM vuln_route WHERE total_vulns IS NOT NULL "
                                 "ORDER BY total_vulns DESC LIMIT 8")]
     funnel, champion = {}, None
+    present = "SELECT plugin_id FROM hx_plugin" if hx else "SELECT DISTINCT plugin_id FROM vulns"
     if has_plugins:
-        fr = rows("WITH present AS (SELECT DISTINCT plugin_id FROM vulns) SELECT (SELECT COUNT(*) FROM vulns) findings,"
+        fr = rows("WITH present AS (" + present + ") SELECT (SELECT COUNT(*) FROM vulns) findings,"
                   "(SELECT COUNT(*) FROM present) plugins,(SELECT COUNT(DISTINCT app_name) FROM vuln_route) routes,"
                   "(SELECT SUM((length(p.cves)-length(replace(p.cves,'CVE-','')))/4) FROM plugins p "
                   "JOIN present ON present.plugin_id=p.plugin_id WHERE p.cves IS NOT NULL AND p.cves NOT IN ('','[]','None')) cves")
@@ -164,9 +194,10 @@ def compute(db_path=None):
             funnel = {"cves": int(x.get("cves") or 0), "findings": int(x.get("findings") or 0),
                       "plugins": int(x.get("plugins") or 0), "routes": int(x.get("routes") or 0),
                       "paths": int(sc("SELECT COUNT(*) FROM vuln_paths") or 0)}
-        cr = rows("WITH present AS (SELECT DISTINCT plugin_id FROM vulns) SELECT p.name nm, p.plugin_id pid,"
+        cr = rows("WITH present AS (" + present + ") SELECT p.name nm, p.plugin_id pid,"
                   "(length(p.cves)-length(replace(p.cves,'CVE-','')))/4 n,"
-                  "(SELECT COUNT(DISTINCT asset_uuid) FROM vulns v WHERE v.plugin_id=p.plugin_id) a "
+                  + ("(SELECT assets FROM hx_plugin h WHERE h.plugin_id=p.plugin_id) a " if hx else
+                     "(SELECT COUNT(DISTINCT asset_uuid) FROM vulns v WHERE v.plugin_id=p.plugin_id) a ") +
                   "FROM plugins p JOIN present ON present.plugin_id=p.plugin_id "
                   "WHERE p.cves IS NOT NULL AND p.cves NOT IN ('','[]','None') ORDER BY n DESC LIMIT 1")
         if cr:
@@ -800,8 +831,13 @@ def scent_digest(db_path=None):
         u = u or "%s %s →" % (_icon(agent), _name(agent))
         return {"v": v, "l": l, "u": u, "href": href, "sev": sev, "zero": not v, "agent": agent}
 
-    sw = R("software", "run_sql", 0) or {}
-    sw_inv = len({r.get("asset_uuid") for r in (sw.get("rows") or []) if isinstance(r, dict) and r.get("asset_uuid")})
+    # Mimir's ▶ Run (software/inventory, build 455) answers the payload contract: assets
+    # inventoried = summary.nasset, counted over the full software (+cpes) set server-side
+    sw = R("software", "inventory") or {}
+    try:
+        sw_inv = int((sw.get("summary") or {}).get("nasset") or 0)
+    except (TypeError, ValueError):
+        sw_inv = 0
     comp_fail_assets = sum(1 for x in comp.get("assets_rows") or [] if (x.get("failed") or 0) > 0)
     det = g(iot, "discovery", "detected", default=[]) or []
     iot_n = len({d.get("asset_uuid") for d in det if isinstance(d, dict) and d.get("asset_uuid")})

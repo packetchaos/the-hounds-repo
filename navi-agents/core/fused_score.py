@@ -24,7 +24,7 @@ import math
 import re
 import sqlite3
 
-from core import db, tagname
+from core import db, hx_summary, tagname
 
 CROWN_ACR = 9
 
@@ -145,15 +145,18 @@ def _build_query(db_path, only=None):
                         for name, num in (("critical", "4"), ("high", "3"), ("medium", "2"), ("low", "1"))
                         if th.get(name) is not None) + " ELSE 0 END)")
         creds = ",".join("'%s'" % p for p in _CRED_PLUGINS)
-        ctes.append(f"""v AS (SELECT asset_uuid u,
-          MAX(CASE WHEN {xr} LIKE '%CISA-KNOWN-EXPLOITED%' THEN 1 ELSE 0 END) kev,
-          MAX(CAST({sc} AS REAL)) vpr,
-          MAX(CASE WHEN {eol_like} THEN 1 ELSE 0 END) veol,
-          SUM(CASE WHEN lower({sev}) IN ('critical','4') OR {xr} LIKE '%CISA-KNOWN-EXPLOITED%' THEN 1 ELSE 0 END) vol,
-          {sla_expr} slabr,
-          MAX(CASE WHEN CAST({pid} AS TEXT) IN ({creds}) THEN 1 ELSE 0 END) blind,
-          MAX(CASE WHEN CAST({pid} AS TEXT)='{_PQ_EXPOSED}' THEN 1 ELSE 0 END) pqv
-          FROM vulns {open_where} GROUP BY asset_uuid)""")
+        if not lit and _hx(db_path):
+            ctes += _hx_vuln_ctes(db_path, open_where, eol_like, sla_expr, creds)
+        else:
+            ctes.append(f"""v AS (SELECT asset_uuid u,
+              MAX(CASE WHEN {xr} LIKE '%CISA-KNOWN-EXPLOITED%' THEN 1 ELSE 0 END) kev,
+              MAX(CAST({sc} AS REAL)) vpr,
+              MAX(CASE WHEN {eol_like} THEN 1 ELSE 0 END) veol,
+              SUM(CASE WHEN lower({sev}) IN ('critical','4') OR {xr} LIKE '%CISA-KNOWN-EXPLOITED%' THEN 1 ELSE 0 END) vol,
+              {sla_expr} slabr,
+              MAX(CASE WHEN CAST({pid} AS TEXT) IN ({creds}) THEN 1 ELSE 0 END) blind,
+              MAX(CASE WHEN CAST({pid} AS TEXT)='{_PQ_EXPOSED}' THEN 1 ELSE 0 END) pqv
+              FROM vulns {open_where} GROUP BY asset_uuid)""")
         joins.append("LEFT JOIN v ON v.u=a.uuid")
         cols += ["COALESCE(v.kev,0) kev", "v.vpr vpr", "COALESCE(v.veol,0) veol",
                  "COALESCE(v.vol,0) vol", "COALESCE(v.slabr,0) slabr", "COALESCE(v.blind,0) blind",
@@ -232,6 +235,53 @@ def _build_query(db_path, only=None):
             + " FROM assets a " + " ".join(joins) + (" WHERE a.uuid=" + lit if lit else ""))
 
 
+_OPEN = "lower(COALESCE(state,'open')) IN ('open','reopened')"
+
+
+def _hx(db_path):
+    """⚡ Optimize's summary tables (hx_plugin / hx_asset) are present and match this navi.db."""
+    try:
+        return hx_summary.usable(db_path)
+    except Exception:
+        return False
+
+
+def _hx_vuln_ctes(db_path, open_where, eol_like, sla_expr, creds):
+    """The per-asset vulns rollup (CTE `v`, same columns as the plain GROUP BY) from the summary
+    tables. kev / vpr / open critical count come from hx_asset; the EOL rule (this hound's own
+    four name terms), the KEV-but-not-critical part of `vol`, and the credential-failure / PQ
+    plugins are plugin filters on hx_plugin answered by the covering hx_v_plugin index — no
+    vulns table rows. Only the SLA flag is per FINDING (first_found age) and keeps its scan
+    of open findings (restricted to the severities that have an SLA window)."""
+    ib = db.indexed_by("hx_v_plugin", db_path)
+    # the hound's own EOL clause verbatim, over hx_plugin's name (aliased plugin_name)
+    eol_p = "SELECT plugin_id FROM (SELECT plugin_id, name AS plugin_name FROM hx_plugin) WHERE " + eol_like
+    out = [
+        f"""ve AS (SELECT asset_uuid u, 1 veol FROM vulns{ib}
+          WHERE plugin_id IN ({eol_p}) AND {_OPEN} GROUP BY asset_uuid)""",
+        f"""vk AS (SELECT asset_uuid u, COUNT(*) kn FROM vulns{ib}
+          WHERE plugin_id IN (SELECT plugin_id FROM hx_plugin WHERE kev) AND {_OPEN}
+            AND lower(COALESCE(severity,'')) NOT IN ('critical','4') GROUP BY asset_uuid)""",
+        f"""vb AS (SELECT asset_uuid u,
+          MAX(CASE WHEN plugin_id IN ({creds}) THEN 1 ELSE 0 END) blind,
+          MAX(CASE WHEN plugin_id='{_PQ_EXPOSED}' THEN 1 ELSE 0 END) pqv FROM vulns{ib}
+          WHERE plugin_id IN ({creds},'{_PQ_EXPOSED}') AND {_OPEN} GROUP BY asset_uuid)""",
+    ]
+    sla_on = sla_expr.strip() != "0"
+    if sla_on:
+        sevs = sorted(set(re.findall(r"IN \('(\w+)','(\d)'\)", sla_expr)))
+        sev_in = ",".join("'%s','%s'" % x for x in sevs)
+        out.append(f"""vs AS (SELECT asset_uuid u, {sla_expr} slabr FROM vulns
+          WHERE {_OPEN} AND lower(severity) IN ({sev_in}) GROUP BY asset_uuid)""")
+    out.append(f"""v AS (SELECT h.asset_uuid u, h.kev kev, h.vpr vpr, COALESCE(ve.veol,0) veol,
+          h.crit + COALESCE(vk.kn,0) vol, {"COALESCE(vs.slabr,0)" if sla_on else "0"} slabr,
+          COALESCE(vb.blind,0) blind, COALESCE(vb.pqv,0) pqv
+          FROM hx_asset h LEFT JOIN ve ON ve.u=h.asset_uuid LEFT JOIN vk ON vk.u=h.asset_uuid
+          LEFT JOIN vb ON vb.u=h.asset_uuid {"LEFT JOIN vs ON vs.u=h.asset_uuid" if sla_on else ""}
+          WHERE h.n_open > 0)""")
+    return out
+
+
 def _sla_days(db_path):
     """SLA days per severity from navi.db's `sla` table (Sköll's thresholds); the old
     hard-coded 15 / 30 days for critical / high when none are configured."""
@@ -266,6 +316,33 @@ def _epss_map(db_path, cap):
         if not emap:
             return {}, True
         out = {}
+        if _hx(db_path):
+            # CVEs are a plugin attribute: score each plugin once from hx_plugin.cves, then take
+            # the per-asset MAX over open findings through the covering hx_v_plugin index
+            pe = {}
+            for pid, cves in con.execute("SELECT plugin_id, cves FROM hx_plugin WHERE cves LIKE '%CVE-%'"):
+                best = 0.0
+                for c in _cves(cves):
+                    e = emap.get(c.upper())
+                    if e and e > best:
+                        best = e
+                if best:
+                    pe[str(pid)] = best
+            if not pe:
+                return out, True
+            items = sorted(pe.items())
+            ib = db.indexed_by("hx_v_plugin", db_path)
+            for i in range(0, len(items), 450):            # 900 parameters per statement
+                part = items[i:i + 450]
+                vals = ",".join("(?,?)" for _ in part)
+                args = tuple(x for kv in part for x in kv)
+                for u, best in con.execute(
+                        f"WITH pe(pid, e) AS (VALUES {vals}) SELECT v.asset_uuid, MAX(pe.e) FROM pe "
+                        f"JOIN vulns v{ib} ON v.plugin_id = pe.pid WHERE {_OPEN.replace('state', 'v.state')} "
+                        f"GROUP BY v.asset_uuid", args):
+                    if u and best and best > out.get(u, 0.0):
+                        out[u] = best
+            return out, True
         st = ("AND lower(COALESCE(state,'open')) IN ('open','reopened')" if "state" in _cols("vulns", db_path) else "")
         for u, cves in con.execute(f"SELECT asset_uuid, cves FROM vulns WHERE cves LIKE '%CVE-%' {st}"):
             best = out.get(u, 0.0)
