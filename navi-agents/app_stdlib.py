@@ -174,6 +174,12 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(411, {"ok": False, "error": "Content-Length required"})
         if u == "/api/jobs/clear":
             return self._send(200, launcher.jobs_clear())
+        if u == "/api/jobs/cancel":
+            try:
+                body = json.loads(self.rfile.read(n) or b"{}")
+            except ValueError:
+                body = {}
+            return self._send(200, launcher.jobs_cancel((body or {}).get("job_id") if isinstance(body, dict) else None))
         if u == "/api/profile/clear":
             return self._send(200, launcher.profile_clear())
         parts = u.strip("/").split("/")

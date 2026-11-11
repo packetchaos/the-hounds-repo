@@ -20,7 +20,7 @@ One release at a time, on its own thread (it waits on snapshot builds that run o
 job queue, so it must not occupy a queue worker). Cancel stops before the next request and
 trips the running statement's cancel token (db.cancel_scope), so a 2-minute scan stops too.
 Budgets: each hound runs under db.budget_scope("job", heavy=True) — the background budget
-(NAVI_JOB_BUDGET_S, 45 min per hound) for every statement that passes none, and the
+(NAVI_JOB_BUDGET_S, 2 h per hound) for every statement that passes none, and the
 one-heavy-scan-at-a-time semaphore, so a release never overlaps two big scans (snapshot
 builds on the job queue take the same semaphore). Budget / cancel / row-cap hits are
 recorded per hound (item["budget"] = {hits, kinds, first}) and totalled in state["budget_hits"].

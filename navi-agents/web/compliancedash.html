@@ -92,7 +92,8 @@
     <div class="ctabs" id="cTabs"></div>
     <div class="fwpick">
       <span style="font-size:12px;color:var(--ink-3)">Framework</span>
-      <select id="fwSelect"><option value="">— loading frameworks —</option></select>
+      <button class="btn run sm" id="cdLoad" data-run type="button" title="Read the frameworks and this board from navi.db — nothing loads on its own">▶ Load</button>
+      <select id="fwSelect"><option value="">— click ▶ Load —</option></select>
       <span class="lock">🔒 board locked to framework</span>
       <span class="chip" id="fwChip" style="margin-left:auto"></span>
     </div>
@@ -370,12 +371,19 @@ async function renderWidgets(){
 function syncActive(){ mountCTabs(); const fw=cActive().framework; const sel=document.getElementById('fwSelect'); if(sel) sel.value=fw||''; renderBoard(); }
 document.getElementById('refresh').onclick=()=>{ renderBoard(); };
 
-async function loadWrites(){ try{ const o=await CAPI.post('overview'); const r=o||{}; WRITES=r.writes||(r.result&&r.result.writes)||{enabled:false}; }catch(e){ WRITES={enabled:false}; } }
+// the write gate from /api/health (it used to run the whole compliance overview just for this flag)
+async function loadWrites(){ try{ const h=await jget('/api/health'); WRITES={enabled:!!(h&&h.writes_enabled)}; }catch(e){ WRITES={enabled:false}; } }
 
 (async function init(){
   mountAgentHeader({icon:'⚖️',name:'Compliance Dashboard',sub:'Minos · framework adherence · up to 5 dashboards'});
   mountCTabs();
-  await Promise.all([loadFrameworks(), loadWrites()]);
+  loadWrites();
+  // explicit-run: the frameworks list and the board read navi.db's compliance table — ▶ Load
+  flash('flash','Nothing loads automatically — click <b>▶ Load</b> to read the frameworks and this board from navi.db.','idle');
+  const lb=document.getElementById('cdLoad');
+  await new Promise(res=>{ lb.onclick=()=>{ lb.onclick=reload; res(); }; });
+  lb.disabled=true; flashClear('flash');
+  await loadFrameworks();
   // ?framework=<name> deep-link (e.g. from Minos' Framework exposure bars) — focus
   // the active dashboard on that framework when it exists in this navi.db.
   const _fwq=new URLSearchParams(location.search).get('framework')||'';
@@ -390,7 +398,10 @@ async function loadWrites(){ try{ const o=await CAPI.post('overview'); const r=o
     }
   }
   await renderBoard();
+  lb.disabled=false;
   if(_fwWarn) flash('flash',_fwWarn,'warn');
 })();
+async function reload(){ const lb=document.getElementById('cdLoad'); lb.disabled=true; flashClear('flash');
+  try{ await loadFrameworks(); await renderBoard(); } finally { lb.disabled=false; } }
 </script>
 </body></html>

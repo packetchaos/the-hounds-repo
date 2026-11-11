@@ -7,6 +7,7 @@ api.ACTIONS are mounted under /api/<id>/<action>, and the hub lists it.
 import contextvars
 import hashlib
 import json
+import re
 import os
 import sqlite3
 import threading
@@ -83,10 +84,30 @@ def _store_runs(body, depth=0, out=None):
     return out
 
 
+def _db_sig():
+    """navi.db's (size, mtime) incl. its WAL — a sync changes it."""
+    p = db.db_path()
+    out = []
+    for suf in ("", "-wal"):
+        try:
+            st = os.stat(p + suf)
+            out.append((st.st_size, st.st_mtime_ns))
+        except (OSError, TypeError):
+            out.append(None)
+    return tuple(out)
+
+
 def _cache_hit(key, now):
-    """The remembered (body, status) for `key` while fresh AND its stored runs still exist."""
+    """The remembered (body, status) for `key` while fresh AND its stored runs still exist.
+    Entries a DETACHED run left (see _detached) live for _DETACHED_TTL instead of _CACHE_TTL,
+    until navi.db changes — so coming back to a page after a long run shows its result."""
     hit = _CACHE.get(key)
-    if not hit or (now - hit[0]) >= _CACHE_TTL:
+    if not hit:
+        return None
+    ttl = hit[2] if len(hit) > 2 else _CACHE_TTL
+    if (now - hit[0]) >= ttl or (len(hit) > 3 and hit[3] != _db_sig()):
+        if len(hit) > 2:
+            _CACHE.pop(key, None)
         return None
     runs = _store_runs(hit[1][0] if isinstance(hit[1], tuple) else None)
     if runs:
@@ -168,12 +189,23 @@ def health() -> dict:
 
 
 def jobs_list() -> dict:
-    return redact.scrub({"ok": True, "jobs": jobq.list_jobs(), "counts": jobq.counts()})
+    return redact.scrub({"ok": True, "jobs": jobq.list_jobs(), "counts": jobq.counts(), "boot": jobq.BOOT})
 
 
 def jobs_get(job_id) -> dict:
-    j = jobq.get(job_id)
-    return redact.scrub({"ok": True, "job": j} if j else {"ok": False, "error": "no such job"})
+    try:
+        j = jobq.get(job_id)
+    except (TypeError, ValueError):
+        j = None
+    # `now`: the server's clock, so a page shows a run's elapsed time without trusting its own
+    return redact.scrub({"ok": True, "job": j, "now": time.time(), "boot": jobq.BOOT} if j
+                        else {"ok": False, "error": "no such job", "boot": jobq.BOOT})
+
+
+def jobs_cancel(job_id) -> dict:
+    """Stop a detached ▶ Run (its SQL raises QueryCancelled at the next statement). Only runs
+    of the "run" pool — never a confirmed tag job, a snapshot or a Release run."""
+    return {"ok": bool(jobq.cancel(job_id, pool="run"))}
 
 
 def jobs_clear() -> dict:
@@ -208,7 +240,7 @@ def request_gate(method, path, get_header, peer_addr=None):
 # ---- request budgets (core/db.budget_scope) -------------------------------------------
 # Every HTTP request runs under a DEFAULT query budget picked here, so no hound has to pass
 # one: page-open reads → "open" (NAVI_OPEN_BUDGET_S, 5 s for the whole request), ▶ Run →
-# "run" (NAVI_RUN_BUDGET_S, 300 s), background work → "job" (core/jobq, core/release).
+# "run" (NAVI_RUN_BUDGET_S, 2 h), background work → "job" (core/jobq, core/release).
 # Statements that pass their own budget= keep it. Writes (mutating actions / confirm) get NO
 # default budget and are never cancelled mid-way — exactly as before.
 # Page-open reads: what each page POSTs on load before any click (recorded with Playwright
@@ -233,7 +265,7 @@ _OPEN_ACTIONS = {
     ("hub", "release_plan"), ("hub", "release_status"), ("hub", "release_start"),
     ("hub", "release_cancel"),
 }
-# long orchestration runs started from a page → the background budget (45 min, heavy)
+# long orchestration runs started from a page → the background budget (2 h, heavy)
 _JOB_ACTIONS = {("contract", "run_now"), ("contract", "plan")}
 _HINTS = ("open", "run")                 # what a client may ask for (never "job")
 _RUN_SET = None
@@ -255,6 +287,139 @@ def _run_actions() -> set:
             pass
         _RUN_SET = out
     return _RUN_SET
+
+
+# ---- detached ▶ Runs (build 458) ---------------------------------------------------------------
+# A ▶ Run from the console (X-Hounds-Budget: run-bg) runs as a jobq job from the start. The request
+# waits up to _FOREGROUND_S for it: a quick run answers inline exactly as before; a long one answers
+# 202 {pending, job_id, started, now} and keeps running on the server under the "job" budget (2 h by
+# default) — the page shows it as running with its elapsed time, and leaving the page doesn't stop
+# it. An identical ▶ Run while it runs attaches to the same job. Its result stays in the read cache
+# for _DETACHED_TTL (until navi.db changes), so a later ▶ shows it instantly.
+_FOREGROUND_S = float(os.environ.get("HOUNDS_FOREGROUND_S", "20"))
+_DETACHED_TTL = float(os.environ.get("HOUNDS_DETACHED_CACHE_S", str(24 * 3600)))
+_NODETACH_AGENTS = {"hub", "settings", "jobs", "profile"}
+_DET: dict = {}                           # cache key (agent, action, payload, navi.db, tag prefix) -> job id
+_TL = threading.local()                   # .in_job: this thread runs a detached job (its own Runs entry)
+_DET_LOCK = threading.Lock()
+
+
+# never detached: anything that writes (the console's H_WRITE_RE — a write without `confirm` too)
+# and the quick reads a page fires around a run (drill-downs, paging, live status polls…)
+_WRITE_NAME = re.compile(
+    r"^(apply|bulk_apply|assign|tag|tag_.+|.+_tag|tags_.+|send|send_.+|delete|remove|rotate|encrypt|"
+    r"decrypt|refresh|save|set|set_.+|.+_set|toggle|add_.+|arm|disarm|run_now|command|upload|push_file|"
+    r"campaign|abort|verify|run_checks|cred_test|path_check|deploy|rollback|promote|ignore_.+|"
+    r"detections_.+|evaluate|test|trust|run_all|reset_usage|navi_.+|build_from_.+)$")
+_READ_OK_NAMES = {"tag_plan", "os_plan", "detections_export"}
+_QUICK_NAME = re.compile(
+    r"^(drill|page|.+_page|count|counts|status|.+_status|poll|.+_poll|glance|hosts|catalog|c2log|log|"
+    r".+_log|detail|lookup|info|source|platforms|benchmarks|render|get|tag_jobs|activity|which_agent)$")
+
+
+def _detachable(agent_id, action, payload) -> bool:
+    acts = DISPATCH.get(agent_id) or {}
+    if _WRITE_NAME.match(action) and action not in _READ_OK_NAMES:
+        return False
+    return (agent_id not in _NODETACH_AGENTS and action in acts and action not in _LIVE
+            and not _QUICK_NAME.match(action)
+            and not payload.get("background") and not payload.get("peek")
+            and not is_mutating(action, payload))
+
+
+_MAX_RUNS = int(os.environ.get("HOUNDS_MAX_DETACHED", "12"))           # queued + running ▶ Runs
+_MAX_RUNS_AGENT = int(os.environ.get("HOUNDS_MAX_DETACHED_AGENT", "3"))  # … per hound
+
+
+def _detached(agent_id, action, payload):
+    p = dict(payload)
+    pc = {x: v for x, v in p.items() if x != "_run"}
+    # the cache / attach key and navi.db's signature are taken NOW, at the start: a run that
+    # outlives a sync or a navi.db switch must not be filed under the new database
+    key0 = _cache_key(agent_id, action, pc)
+    sig0 = _db_sig()
+    if not (p.get("refresh") or p.get("_nocache")) and agent_id not in _NOCACHE_AGENTS \
+            and action not in _OWN_CACHE:
+        hit = _cache_hit(key0, time.time())
+        if hit:                                   # answered before (e.g. by a detached run): no job
+            return _dispatch_run(agent_id, action, p)
+    with _DET_LOCK:
+        jid = _DET.get(key0)
+        j = jobq.get(jid) if jid else None
+        if j and j.get("boot") != jobq.BOOT:
+            j = None
+        if not j or j["status"] not in ("queued", "running"):
+            if jobq.active(pool="run") >= _MAX_RUNS or jobq.active(pool="run", agent=agent_id) >= _MAX_RUNS_AGENT:
+                return {"ok": False, "busy": True,
+                        "error": "too many runs in progress — wait for one to finish (or cancel one in the "
+                                 "Runs log) and run this again",
+                        "message": "too many runs in progress"}, 429
+            ctx = contextvars.copy_context()
+
+            def _work():
+                # on a jobq "run" worker: the "job" budget + this job's cancel token (core/jobq._run)
+                _TL.in_job = True
+                t_start = time.time()
+                try:
+                    # the "run" scope (2 h, NOT heavy), as the same ▶ had inline: jobq's "job" scope
+                    # makes every statement heavy, and one long run would serialise every other ▶
+                    with db.budget_scope("run"):
+                        out = _dispatch_run(agent_id, action, dict(p))
+                finally:
+                    _TL.in_job = False
+                body = out[0] if isinstance(out, tuple) and len(out) == 2 else out
+                k_end = _cache_key(agent_id, action, pc)
+                if k_end != key0 or _db_sig() != sig0:
+                    # navi.db changed (a sync) or was switched while this ran: keep nothing
+                    _CACHE.pop(k_end, None)
+                    _CACHE.pop(key0, None)
+                else:
+                    hit = _CACHE.get(key0)
+                    # only an entry THIS run wrote (not an older one it bypassed with ↻ fresh, or
+                    # one left over when it was cancelled / budget-limited / failed)
+                    if hit is not None and hit[0] >= t_start:
+                        _CACHE[key0] = (hit[0], hit[1], _DETACHED_TTL, sig0)
+                return body if isinstance(body, dict) else {"ok": True, "result": body}
+
+            stub = jobq.submit(lambda: ctx.run(_work), {"agent": agent_id, "action": action,
+                                                         "label": p.get("_label") or action}, pool="run")
+            jid = stub["id"]
+            _DET[key0] = jid
+            if len(_DET) > 500:
+                for k in list(_DET)[:250]:
+                    _DET.pop(k, None)
+    t_end = time.time() + _FOREGROUND_S
+    nap = 0.05
+    while True:
+        j = jobq.get(jid)
+        if j is None:
+            return {"ok": False, "error": "the run was lost — run it again"}, 200
+        if j["status"] in ("done", "error"):
+            res = j.get("result")
+            if not isinstance(res, dict):
+                res = {"ok": False, "error": j.get("message") or "failed"}
+            return res, 200
+        if time.time() >= t_end:
+            return {"ok": True, "pending": True, "job_id": jid, "boot": jobq.BOOT, "status": j["status"],
+                    "created": j.get("created"), "started": j.get("started"), "now": time.time(),
+                    "label": j.get("label") or action, "agent": agent_id, "action": action,
+                    "message": "still running on the server — it keeps going if you leave this page"}, 202
+        time.sleep(nap)
+        nap = min(0.5, nap * 1.5)
+
+
+def _cache_only(agent_id, action, payload, cancel=None, tab=None):
+    if is_mutating(action, payload):
+        return {"ok": False, "skipped": True, "error": "write skipped while restoring this page"}, 200
+    token = cancel or db.Cancel()
+    with db.budget_scope("open"), db.cancel_scope(token):
+        out = _dispatch_run(agent_id, action, payload)
+    body, status = (out if isinstance(out, tuple) and len(out) == 2 else (out, 200))
+    if isinstance(body, dict) and (body.get("budget") or body.get("budget_partial")):
+        return {"ok": False, "not_cached": True,
+                "error": "The saved result is no longer on the server — click ▶ Run to compute it again.",
+                "message": "The saved result is no longer on the server — click ▶ Run to compute it again."}, 200
+    return body, status
 
 
 def is_mutating(action, payload) -> bool:
@@ -314,6 +479,16 @@ def dispatch(agent_id: str, action: str, payload: dict, peer=None, http=False, *
     from . import gates
     tok = gates.set_client(peer, http=http)
     try:
+        if isinstance(payload, dict) and payload.get("_cacheonly"):
+            # a page-cache replay of a ▶ step whose answer the browser no longer has (console.js
+            # HC): opening a page must never start a hound — serve the server's cached answer, or
+            # run it under the 5 s "open" budget and say it isn't cached when that isn't enough
+            return _cache_only(agent_id, action, {k: v for k, v in payload.items() if k != "_cacheonly"}, cancel, tab)
+        detach = budget_hint == "run-bg"          # the console's ▶ Run: may detach (see _detached)
+        if detach:
+            budget_hint = "run"
+        if detach and isinstance(payload, dict) and _detachable(agent_id, action, payload):
+            return _detached(agent_id, action, payload)
         scope = request_scope(agent_id, action, payload, budget_hint)
         if is_mutating(action, payload if isinstance(payload, dict) else {}):
             # a write is never cancelled midway (disconnect / supersede): a confirmed Contract
@@ -470,7 +645,7 @@ def _dispatch(agent_id: str, action: str, payload: dict):
         bud = isinstance(e, (db.QueryTimeout, db.TooManyRows)) or (
             sc is not None and len(sc.hits) > n0 and isinstance(e, sqlite3.OperationalError)
             and "interrupt" in str(e).lower())
-        if not mutating and qs:
+        if not mutating and qs and not getattr(_TL, "in_job", False):
             jobq.record({"agent": agent_id, "action": action,
                          "label": payload.get("_label") or action, "status": "error",
                          "ok": False, "message": (("budget: " if bud else "") + f"{type(e).__name__}: {e}"),
@@ -484,7 +659,7 @@ def _dispatch(agent_id: str, action: str, payload: dict):
     if hit:
         cacheable = False                        # never remember a budget-limited answer
 
-    if not mutating and qs:                      # log every read run that touched the db
+    if not mutating and qs and not getattr(_TL, "in_job", False):   # log every read run that touched the db
         body = out[0] if isinstance(out, tuple) else out
         ok = True if not isinstance(body, dict) else (body.get("ok", True) is not False)
         total_ms = sum(q.get("ms", 0) for q in qs)

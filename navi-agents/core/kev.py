@@ -123,7 +123,7 @@ def due_bucket(days_left):
 def cve_tag_query(rows, db_path=None) -> str:
     """navi --query that DEFINES "assets with an OPEN finding for any of these KEV CVEs" — the
     exact set analyze() puts in each row's `uuids` (same open-state rule, same CVE token rule:
-    the regex CVE-\d{4}-\d{3,} matched case-insensitively, so the id must not run on into
+    the regex CVE-\\d{4}-\\d{3,} matched case-insensitively, so the id must not run on into
     more digits). `rows` = analyze(keep_uuids=True)['cves'] entries; their `plugins` (the plugin
     ids that carried the CVE) let navi use its plugin_id index. Size grows with the CVE count,
     never with assets."""
@@ -304,7 +304,7 @@ def analyze(db_path=None, json_text: str = "", force: bool = False, keep_uuids: 
                            "kev": len(mine), "overdue": sum(1 for c in mine if c["bucket"] == "overdue"),
                            "ransomware": sum(1 for c in mine if c["ransomware"]),
                            "cves": [c["cve"] for c in mine][:12]})
-    crown_rows.sort(key=lambda r: (-(r["acr"] or 0), -r["overdue"], -r["kev"]))
+    crown_rows.sort(key=lambda r: (-(r["acr"] or 0), -r["overdue"], -r["kev"], str(r["host"]), r["asset_uuid"]))
 
     # ---- remediated KEV (navi's `fixed` table, when present)
     remediated = None

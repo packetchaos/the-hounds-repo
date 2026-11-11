@@ -333,7 +333,7 @@ def analyze(db_path=None, groups=None):
                           "products": [q["product"] for q in by_asset.get(u, [])][:8],
                           "os": any(q["kind"] == "Operating system" for q in by_asset.get(u, [])),
                           "kev": u in kev_a, "critical": crit_a.get(u, 0)} for u in crown),
-                        key=lambda r: (-(r["acr"] or 0), -r["critical"]))
+                        key=lambda r: (-(r["acr"] or 0), -r["critical"], str(r["host"]), r["asset_uuid"]))
 
     os_assets = set().union(*[q["_assets"] for q in products if q["kind"] == "Operating system"]) if products else set()
     dated = [q for q in products if q["eol_date"]]

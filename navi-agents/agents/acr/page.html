@@ -26,7 +26,7 @@
       <p class="sub" style="margin:2px 0 0">Adjust ACR for assets carrying a tag. <b>Set</b> absolute 1–10, or nudge <b>+N / −N</b>. Justification required. Tags from <span class="mono">navi explore info tags</span>. navi never changes the ACR of an asset tagged <span class="tagval">NO : UPDATE</span> — <b>protect</b> an ACR here once it is right; every change is recorded per asset in the <a class="applink" href="/web/acr-log.html">ACR log</a>.</p></div>
       <span style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <a class="btn ghost sm" href="/web/acr-log.html" title="Per-asset registry of every ACR change the Hounds made">🎯 ACR log →</a>
-        <button id="runAcr" class="btn ghost sm" title="Re-fetch the tag list and the metrics (both load when the page opens)">↻ Reload</button></span></div>
+        <button id="runAcr" class="btn run sm" data-run title="Load the tag list (navi explore info tags) and the ACR metrics — nothing loads on its own">▶ Load</button></span></div>
     <p class="sub" id="acrTrHint" style="display:none;margin:6px 0 0;color:var(--warn,#fbbf24)"></p>
     <div id="acrFlash" class="flash"></div>
   </section>
@@ -104,6 +104,7 @@ const N=n=>(n==null?'—':Number(n).toLocaleString());
 let ACR=null, BULK={changes:[]}; let WRITES=false; jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});
 let MET=null, PSHOW='all';
 async function runAcr(){
+  flashClear('acrFlash');
   document.getElementById('runAcr').disabled=true;
   try{const o=await API.post('run');ACR=o.result||{tags:[]};renderAcr();}catch(e){flash('acrFlash','✗ '+esc(e.message),'crit');}
   document.getElementById('runAcr').disabled=false;
@@ -351,9 +352,9 @@ document.getElementById('acrCollapseAll').onclick=()=>{ ACR_OPEN={}; renderAcr()
 mountAgentHeader({id:'acr',icon:'🎯',name:'ACR Calibration Agent',sub:'set / +N / −N per tag · NL bulk · NO : UPDATE protection'});
 try{ hMailAuto(); }catch(e){}
 mountSectionNav();
-/* loads on open: the tag list is live from Tenable (navi explore info tags), and the metrics are two
-   small reads (navi.db NO : UPDATE tags + the ACR log) — not a navi.db crunch */
-runAcr(); loadMetrics();
+/* explicit-run: nothing loads on open (the tag list calls Tenable via navi, the metrics read
+   navi.db). ▶ Load fetches both; the page cache restores the last load. */
+flash('acrFlash','Nothing loads automatically — click <b>▶ Load</b> (it reads live, so the list is always current).','idle');
 // Settings → Test run: ACR targets the tag exactly as listed; say what Hound-created tags are called now
 testRunStatus().then(t=>{ const el=document.getElementById('acrTrHint'); if(!el||!t||!t.enabled) return; el.style.display='';
   el.innerHTML='🧪 Test run is on — tags the Hounds create now read <span class="mono">'+esc(t.prefix)+'&lt;category&gt;</span>. ACR applies to the category exactly as listed; pick the <span class="mono">'+esc(t.prefix)+'…</span> one to target a test-run tag. The protection tag is always exactly <span class="mono">NO : UPDATE</span>.'; });

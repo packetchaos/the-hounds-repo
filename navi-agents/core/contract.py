@@ -1423,7 +1423,7 @@ def run_cycle(contract=None, enforce_pause=True, apply=False) -> dict:
     else:
         upd = _navi_update_bg() if c.get("navi_update") else {"skipped": "disabled"}
     # every navi.db read of the cycle (discovery, plan, QA, alerts) runs under the background
-    # "job" budget (core/db.budget_scope: 45 min, heavy) — the scheduler thread has no request
+    # "job" budget (core/db.budget_scope: 2 h, heavy) — the scheduler thread has no request
     # scope of its own, and run_now's launcher scope is replaced by this one AFTER the removal
     # pause, so a 30-min pause can't eat the budget. Tag/ACR writes are queued jobs (navi).
     with db.budget_scope("job"):

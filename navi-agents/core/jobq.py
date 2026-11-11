@@ -16,11 +16,22 @@ from . import db, qprofile
 
 _JOBS = []                     # newest-last list of job dicts (the log)
 _LOCK = threading.Lock()
-_Q = _queue.Queue()
 _IDS = itertools.count(1)
-
+# Two pools (build 458): "default" for background work the user asked for explicitly (Run in
+# background, snapshots, confirmed tag jobs, Release) and "run" for DETACHED ▶ Runs
+# (core/launcher._detached). Hours-long ▶ Runs can never take every worker and leave a confirmed
+# write or a snapshot queued behind them.
+_QS = {"default": _queue.Queue(), "run": _queue.Queue()}
+_Q = _QS["default"]
 # A small pool — several heavy reads can run at once (each in its own thread).
-_DESIRED = max(1, min(16, int(os.environ.get("NAVI_JOB_WORKERS", "3"))))
+_DESIRED = max(1, min(16, int(os.environ.get("NAVI_JOB_WORKERS", "4"))))
+_POOL_SIZE = {"default": _DESIRED,
+              "run": max(1, min(16, int(os.environ.get("NAVI_RUN_WORKERS", "3"))))}
+# finished jobs keep their (possibly large) result only while a page may still collect it
+_KEEP_RESULTS = int(os.environ.get("NAVI_JOB_KEEP_RESULTS", "20"))
+# job ids restart at 1 with the process: pages remember (boot, id) so an id from before a
+# restart never matches an unrelated new job
+BOOT = "%x" % int(time.time() * 1000)
 _WORKERS = []
 _WLOCK = threading.Lock()
 # Keep the log from growing unbounded over a long session.
@@ -35,11 +46,14 @@ def _now():
 def _ensure_workers():
     with _WLOCK:
         _WORKERS[:] = [t for t in _WORKERS if t.is_alive()]
-        while len(_WORKERS) < _DESIRED:
-            idx = len(_WORKERS)
-            t = threading.Thread(target=_run, args=(idx,), name=f"jobq-worker-{idx}", daemon=True)
-            _WORKERS.append(t)
-            t.start()
+        for pool, n in _POOL_SIZE.items():
+            have = sum(1 for t in _WORKERS if getattr(t, "_pool", "default") == pool)
+            while have < n:
+                t = threading.Thread(target=_run, args=(have, pool), name=f"jobq-{pool}-{have}", daemon=True)
+                t._pool = pool
+                _WORKERS.append(t)
+                t.start()
+                have += 1
 
 
 def workers_alive() -> int:
@@ -55,17 +69,18 @@ def _get(job_id):
     return None
 
 
-def _run(idx):
+def _run(idx, pool="default"):
+    q = _QS[pool]
     while True:
-        if idx >= _DESIRED:
+        if idx >= _POOL_SIZE.get(pool, 0):
             return
         try:
-            job_id, fn = _Q.get(timeout=1.0)
+            job_id, fn = q.get(timeout=1.0)
         except _queue.Empty:
             continue
         job = _get(job_id)
         if job is None:
-            _Q.task_done()
+            q.task_done()
             continue
         with _LOCK:
             job["status"] = "running"
@@ -74,7 +89,7 @@ def _run(idx):
         m = qprofile.mark()
         tok = _TOKENS.setdefault(job_id, db.Cancel())
         try:
-            # background work: the "job" budget (45 min, NAVI_JOB_BUDGET_S) for every statement
+            # background work: the "job" budget (2 h, NAVI_JOB_BUDGET_S) for every statement
             # that passes none, heavy (one big scan at a time), stoppable via cancel(job_id)
             with db.budget_scope("job") as sc, db.cancel_scope(tok):
                 try:
@@ -102,7 +117,19 @@ def _run(idx):
         finally:
             _TOKENS.pop(job_id, None)
             qprofile.clear_context()
-            _Q.task_done()
+            _drop_old_results()
+            q.task_done()
+
+
+def _drop_old_results():
+    """Finished jobs keep `result` only for the newest _KEEP_RESULTS (a page collects its run's
+    result within seconds; an 80 MB body must not live in the log for the session)."""
+    with _LOCK:
+        done = [j for j in _JOBS if j["status"] in ("done", "error") and j.get("result") is not None
+                and j.get("pool") == "run"]     # Release / background jobs keep theirs (core.release reads them)
+        for j in done[:-_KEEP_RESULTS] if _KEEP_RESULTS > 0 else done:
+            j["result"] = None
+            j["result_dropped"] = True
 
 
 def _trim():
@@ -112,20 +139,22 @@ def _trim():
         _JOBS[:] = done[-(max(0, _MAX - len(keep))):] + keep
 
 
-def submit(fn, meta=None) -> dict:
-    """Enqueue fn() (returns the action's result dict); returns the job stub now."""
+def submit(fn, meta=None, pool="default") -> dict:
+    """Enqueue fn() (returns the action's result dict); returns the job stub now.
+    pool="run": a detached ▶ Run (its own workers; cancellable from the page)."""
     meta = meta or {}
+    pool = pool if pool in _QS else "default"
     jid = next(_IDS)
     job = {"id": jid, "status": "queued", "ok": None, "message": "",
            "created": _now(), "started": None, "finished": None,
            "agent": meta.get("agent", ""), "action": meta.get("action", ""),
            "label": meta.get("label", "") or meta.get("action", ""),
-           "elapsed": None, "queries": [], "result": None}
+           "elapsed": None, "queries": [], "result": None, "pool": pool, "boot": BOOT}
     with _LOCK:
         _JOBS.append(job)
         _trim()
     _ensure_workers()
-    _Q.put((jid, fn))
+    _QS[pool].put((jid, fn))
     return {k: v for k, v in job.items() if k not in ("result", "queries")}
 
 
@@ -148,14 +177,30 @@ def record(meta) -> dict:
     return {k: v for k, v in job.items() if k not in ("result", "queries")}
 
 
-def cancel(job_id) -> bool:
-    """Stop a queued or running job's SQL (its statements raise db.QueryCancelled)."""
+def active(pool=None, agent=None) -> int:
+    """Queued + running jobs (optionally of one pool / agent)."""
+    with _LOCK:
+        return sum(1 for j in _JOBS if j["status"] in ("queued", "running")
+                   and (pool is None or j.get("pool") == pool) and (agent is None or j.get("agent") == agent))
+
+
+def _jid(job_id):
     try:
-        jid = int(job_id)
-    except (TypeError, ValueError):
+        return int(job_id)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def cancel(job_id, pool=None) -> bool:
+    """Stop a queued or running job's SQL (its statements raise db.QueryCancelled).
+    pool: only a job of that pool (the page's Cancel stops ▶ Runs, never a confirmed write)."""
+    jid = _jid(job_id)
+    if jid is None:
         return False
     j = _get(jid)
     if not j or j["status"] not in ("queued", "running"):
+        return False
+    if pool is not None and j.get("pool") != pool:
         return False
     _TOKENS.setdefault(jid, db.Cancel()).cancel()
     return True
@@ -163,7 +208,8 @@ def cancel(job_id) -> bool:
 
 def get(job_id) -> dict:
     """Full job record INCLUDING its result + queries (for the detail poller)."""
-    j = _get(int(job_id))
+    jid = _jid(job_id)
+    j = _get(jid) if jid is not None else None
     return dict(j) if j else None
 
 
@@ -186,7 +232,7 @@ def counts() -> dict:
         c = {"queued": 0, "running": 0, "done": 0, "error": 0, "total": len(_JOBS)}
         for j in _JOBS:
             c[j["status"]] = c.get(j["status"], 0) + 1
-    c["workers"] = workers_alive() or _DESIRED
+    c["workers"] = workers_alive() or sum(_POOL_SIZE.values())
     return c
 
 

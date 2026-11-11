@@ -92,6 +92,15 @@ def jobs_clear():
     return launcher.jobs_clear()
 
 
+@app.post("/api/jobs/cancel")
+async def jobs_cancel(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    return launcher.jobs_cancel(body.get("job_id") if isinstance(body, dict) else None)
+
+
 @app.get("/api/profile")
 def profile():
     return launcher.profile()

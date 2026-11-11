@@ -11,7 +11,7 @@
   <section class="card">
     <div class="toolbar"><div><h2 style="margin:0">⚖ Tenable MCP vs navi MCP</h2>
       <p class="sub" style="margin:2px 0 0">Two tools, one platform. What each surface is for, where they overlap, the limits that force a handoff — plus a navi-side snapshot.</p></div>
-      <button id="snap" style="margin-left:auto" class="btn ghost sm" title="Re-fetch the list (it loads automatically when the page opens)">↻ Reload</button></div>
+      <button id="snap" style="margin-left:auto" class="btn run sm" data-run title="Read the navi-side snapshot from navi.db — nothing loads on its own">▶ Load</button></div>
     <div id="flash" class="flash"></div>
     <div class="kpi" id="kpi"></div>
     <div id="ident"></div>
@@ -81,6 +81,7 @@ document.getElementById('snap').onclick=snap;
 mountAgentHeader({icon:'⚖',name:'MCP Compare',sub:'Tenable MCP vs navi MCP'});
 try{ hMailAuto(); }catch(e){}
 renderMatrix();
-snap();   // the navi-side snapshot loads on open
+// explicit-run: the snapshot reads navi.db — ▶ Load (the page cache restores the last one)
+flash('flash','Nothing loads automatically — click <b>▶ Load</b> (it reads live, so the list is always current).','idle');
 </script>
 </body></html>
