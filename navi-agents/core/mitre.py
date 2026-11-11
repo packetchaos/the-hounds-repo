@@ -117,9 +117,69 @@ def fetch_mapping(url: str = CSV_URL, timeout: int = 30, csv_text: str = "",
             return [], "unavailable"
 
 
+def _hx(db_path=None) -> bool:
+    """hx_plugin / hx_asset (⚡ Optimize) exist and match this navi.db — read CVEs per plugin
+    from hx_plugin and (plugin, asset) pairs from the covering hx_v_* indexes instead of
+    scanning every 5.5 KB vulns row three times. CVEs are a plugin attribute in Tenable data;
+    hx_plugin carries one representative finding's `cves` per plugin."""
+    try:
+        from core import hx_summary
+        return hx_summary.usable(db_path)
+    except Exception:
+        return False
+
+
+def _hx_plugin_cves(db_path=None) -> dict:
+    """{plugin_id: {CVE, …}} for every plugin present in vulns that references a CVE."""
+    out = {}
+    for row in db.query("SELECT plugin_id, cves FROM hx_plugin WHERE TRIM(COALESCE(cves,''))<>''",
+                        path=db_path):
+        cs = {c.upper() for c in _CVE.findall(row.get("cves") or "")}
+        if cs:
+            out[str(row.get("plugin_id"))] = cs
+    return out
+
+
+def _hx_cve_assets(db_path=None, only=None) -> dict:
+    """cve_assets() over hx_plugin + hx_v_plugin: only the plugins carrying a wanted CVE are
+    read, one covering index range each (no table rows)."""
+    pc = _hx_plugin_cves(db_path)
+    if only is not None:
+        pc = {p: cs & only for p, cs in pc.items() if cs & only}
+    out = {}
+    if not pc:
+        return out
+    for r in db.iter("SELECT DISTINCT plugin_id, asset_uuid FROM vulns" + db.indexed_by("hx_v_plugin", db_path)
+                     + " WHERE plugin_id IN (SELECT value FROM json_each(?))",
+                     (json.dumps(sorted(pc)),), path=db_path, tuples=True):
+        for c in pc.get(str(r[0]), ()):
+            out.setdefault(c, set()).add(r[1])
+    return out
+
+
+def _hx_high_acr_rows(db_path=None, cset=()):
+    """(asset_uuid, hostname, ip_address, acr, cves) for ACR > 7 assets carrying a plugin whose
+    CVEs are in the mapping — only those plugins' (plugin, asset) pairs, from the covering
+    hx_v_plugin index, joined to `assets` by uuid; CVEs from hx_plugin."""
+    want = {c.upper() for c in cset}
+    pids = sorted(p for p, cs in _hx_plugin_cves(db_path).items() if cs & want)
+    if not pids:
+        return []
+    return db.query("SELECT DISTINCT a.uuid AS asset_uuid, a.hostname, a.ip_address, a.acr, p.cves "
+                    "FROM hx_plugin p CROSS JOIN vulns v" + db.indexed_by("hx_v_plugin", db_path)
+                    + " ON v.plugin_id = p.plugin_id CROSS JOIN assets a ON a.uuid = v.asset_uuid "
+                    "WHERE p.plugin_id IN (SELECT value FROM json_each(?)) AND CAST(a.acr AS REAL)>7",
+                    (json.dumps(pids),), path=db_path)
+
+
 def cve_assets(db_path=None, only=None) -> dict:
     """CVE → set(asset_uuid) from navi.db findings (vulns.cves); `only` limits the CVEs kept."""
     out = {}
+    if _hx(db_path):
+        try:
+            return _hx_cve_assets(db_path, None if only is None else set(only))
+        except Exception:
+            pass                                    # fall back to the row scan below
     try:
         for row in db.query("SELECT asset_uuid, cves FROM vulns WHERE TRIM(COALESCE(cves,''))<>''", path=db_path):
             for c in _CVE.findall(row.get("cves") or ""):
@@ -135,6 +195,11 @@ def cve_assets(db_path=None, only=None) -> dict:
 def navi_cves(db_path=None) -> set:
     """All CVE IDs referenced by findings in navi.db (vulns.cves)."""
     out = set()
+    if _hx(db_path):
+        try:
+            return set().union(*_hx_plugin_cves(db_path).values())
+        except Exception:
+            pass
     try:
         for row in db.query("SELECT cves FROM vulns WHERE TRIM(COALESCE(cves,''))<>''", path=db_path):
             for c in _CVE.findall(row.get("cves") or ""):
@@ -170,9 +235,10 @@ def build_plan(db_path=None, scope: str = "navidb", url: str = CSV_URL,
     cset = {r["cve"] for r in mapping}
     high = {}
     try:
-        for r in db.query("SELECT v.asset_uuid, a.hostname, a.ip_address, a.acr, v.cves "
-                          "FROM vulns v LEFT JOIN assets a ON a.uuid=v.asset_uuid "
-                          "WHERE CAST(a.acr AS REAL)>7 AND TRIM(COALESCE(v.cves,''))<>''", path=db_path):
+        for r in (_hx_high_acr_rows(db_path, cset) if _hx(db_path) else
+                  db.query("SELECT v.asset_uuid, a.hostname, a.ip_address, a.acr, v.cves "
+                           "FROM vulns v LEFT JOIN assets a ON a.uuid=v.asset_uuid "
+                           "WHERE CAST(a.acr AS REAL)>7 AND TRIM(COALESCE(v.cves,''))<>''", path=db_path)):
             ms = [c.upper() for c in _CVE.findall(r.get("cves") or "") if c.upper() in cset]
             if not ms:
                 continue

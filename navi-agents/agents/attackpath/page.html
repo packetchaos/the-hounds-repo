@@ -369,7 +369,7 @@ function renderFix(){
   hPaginate('fixTbl', f, x=>`<tr><td><b>${esc(x.label)}</b>${x.kev?' <span class="pill" style="color:var(--crown)">KEV</span>':''}<div class="sub">${esc(x.detail||'')}</div></td><td>${esc(x.type)}</td><td>${N(x.assets)}</td><td><span class="lbar"><i style="width:${Math.min(100,x.exposure_cut_pct)}%"></i></span><b>${x.exposure_cut_pct}%</b></td><td>${N(x.paths)}</td><td>${x.cuts?`<b style="color:var(--ok)">${N(x.cuts)}</b>`:'0'}</td>`+
       `<td><button class="btn ghost sm" data-fx="${esc(x.fix)}" ${(x.uuids||[]).length?'':'disabled'} title="Tag the ${N(x.assets)} asset(s) carrying this">🏷️ Tag</button></td></tr>`,
     {cols:7, empty:'<tr><td colspan="7" class="sub">No choke points.</td></tr>',
-     wire:tb=>tb.querySelectorAll('button[data-fx]').forEach(bt=>bt.onclick=()=>{ const x=f.find(o=>o.fix===bt.dataset.fx); if(x) tagUuids('Choke Point',x.uuids,bt); })});
+     wire:tb=>tb.querySelectorAll('button[data-fx]').forEach(bt=>bt.onclick=()=>{ const x=f.find(o=>o.fix===bt.dataset.fx); if(x) tagKey('Choke Point','fix:'+x.fix,(x.uuids||[]).length,bt); })});
 }
 function renderEntries(){
   const e=R.entries||[]; const reach=e.filter(x=>x.reaches_any);
@@ -424,18 +424,18 @@ async function gated(btn,label,call,okMsg,ask){   /* ask: plain-text question na
   flash('flash','✓ '+okMsg(o)+' — sent to the <a href="/web/tags-log.html">Tagging log</a>.'+(o.writes_enabled===false?' Writes are gated, so nothing reaches Tenable until NAVI_ALLOW_WRITES=1.':' Tags take ~30 min to land in Tenable.'),'ok'); scroll();
   return o;
 }
-function tagUuids(value,uuids,btn){
-  const uu=[...new Set((uuids||[]).filter(Boolean))]; if(!uu.length){ flash('flash','Nothing to tag.','warn'); return; }
-  return gated(btn,'queuing Attack Path : '+esc(value),()=>API.post('tag',{value,uuids:uu,confirm:true}),o=>`queued <span class="tagval">Attack Path : ${esc(value)}</span> on ${N(o.count)} asset(s)`,
-    ()=>`Tag ${tagCat('Attack Path')} : ${value} on ${uu.length} asset${uu.length===1?'':'s'}?`);
+function tagKey(value,key,n,btn){   // the server rebuilds the set from its own analysis — no UUID list is posted
+  if(!n){ flash('flash','Nothing to tag.','warn'); return; }
+  return gated(btn,'queuing Attack Path : '+esc(value),()=>API.post('tag',{key,confirm:true}),o=>`queued <span class="tagval">Attack Path : ${esc(value)}</span> on ${N(o.count)} asset(s)`,
+    ()=>`Tag ${tagCat('Attack Path')} : ${value} on ${n} asset${n===1?'':'s'}?`);
 }
-document.getElementById('tagTargets').onclick=function(){ tagUuids('Target',R.reachable||(R.paths||[]).map(p=>p.target.uuid),this); };
+document.getElementById('tagTargets').onclick=function(){ tagKey('Target','target',new Set(R.reachable||(R.paths||[]).map(p=>p.target.uuid)).size,this); };
 document.getElementById('tagPivots').onclick=function(){
   const piv=new Set();
   (R.paths||[]).forEach(p=>p.steps.slice(0,-1).forEach(s=>{ const u=s.to.split(':')[0];
     if(/^[0-9a-f-]{20,}$/i.test(u)&&u!==p.target.uuid&&u!==p.entry.uuid) piv.add(u); }));
-  tagUuids('Pivot',[...piv],this); };
-document.getElementById('tagEntry').onclick=function(){ tagUuids('Entry Point',(R.entries||[]).filter(e=>e.reaches_any).map(e=>e.uuid),this); };
+  tagKey('Pivot','pivot',piv.size,this); };
+document.getElementById('tagEntry').onclick=function(){ tagKey('Entry Point','entry',new Set((R.entries||[]).filter(e=>e.reaches_any).map(e=>e.uuid)).size,this); };
 document.getElementById('csv').onclick=()=>{ const rows=shownPaths(); downloadCSV('attack-paths.csv',
   ['risk','likelihood','crown_jewel','acr','level','hops','entry','route','techniques','kev','credential','relay','domain','control'],
   rows.map(p=>({risk:p.risk,likelihood:p.likelihood,crown_jewel:p.target.host,acr:p.target.acr,level:p.level,hops:p.hops,entry:p.entry.host||'',

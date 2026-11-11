@@ -93,7 +93,19 @@ def profile_clear():
 @app.post("/api/<agent_id>/<action>")
 def act(agent_id, action):
     payload = request.get_json(force=True, silent=True) or {}
-    return _resp(launcher.dispatch(agent_id, action, payload, peer=request.remote_addr, http=True))
+    # request budget (core/launcher.request_scope): the page's X-Hounds-Budget hint and its
+    # X-Hounds-Tab id (a newer identical request from the tab supersedes this one). WSGI gives
+    # no portable "client disconnected" signal, so Flask can't cancel on abort — use the
+    # stdlib or FastAPI server for that; the budgets still bound every read.
+    hint = (request.headers.get("X-Hounds-Budget") or "").strip().lower() or None
+    tab = (request.headers.get("X-Hounds-Tab") or "").strip()[:64] or None
+    resp, status = _resp(launcher.dispatch(agent_id, action, payload, peer=request.remote_addr,
+                                           http=True, budget_hint=hint, tab=tab))
+    try:
+        launcher.note_response(agent_id, action, resp.calculate_content_length() or 0)  # > 2 MB → logged
+    except Exception:
+        pass
+    return resp, status
 
 
 @app.get("/")

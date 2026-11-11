@@ -17,7 +17,7 @@ Read-only; the tag writes are gated (navi_cli). scan() returns structured JSON.
 """
 import re
 
-from core import db, tagname
+from core import db, hx_summary, tagname
 
 FAMILY = "Artificial Intelligence"
 
@@ -148,6 +148,18 @@ ATLAS_TACTIC_ORDER = ["Reconnaissance", "Resource Development", "Initial Access"
 
 _UUID_RE = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", re.I)
 
+
+
+def _bulk_hint(n_assets, db_path=None):
+    """' NOT INDEXED' when a per-asset IN (…) list covers more than ~5% of all assets (build 455).
+    Past that, hx_v_asset makes the planner fetch each finding by random row reads (the
+    selected columns aren't in the index) — measured 6 s → 27 s; one sequential scan is cheaper.
+    Small lists keep the index (milliseconds)."""
+    try:
+        total = int(db.scalar("SELECT MAX(rowid) FROM assets", path=db_path) or 0)
+    except Exception:
+        return ""
+    return " NOT INDEXED" if total and n_assets > 0.05 * total else ""
 
 def _cols(table):
     try:
@@ -340,8 +352,17 @@ def scan(db_path=None, fp=None, allow=None):
     # 1) Tenable AI plugin family
     if "plugin_family" in vcols:
         try:
-            for r in db.query("SELECT asset_uuid, plugin_id, plugin_name" + (", url" if "url" in vcols else "") +
-                              " FROM vulns WHERE plugin_family LIKE '%Artificial Intelligence%'", path=db_path):
+            ucol = ", url" if "url" in vcols else ""
+            if hx_summary.usable(db_path):
+                # Phase 1: family is a plugin attribute — resolve it on hx_plugin and read only those
+                # plugins' findings (hx_v_plugin); rowid order keeps the evidence order of the scan.
+                rws = db.query("SELECT rowid AS _rid, asset_uuid, plugin_id, plugin_name" + ucol + " FROM vulns WHERE "
+                               + hx_summary.plugins_where("family LIKE '%Artificial Intelligence%'"), path=db_path)
+                rws.sort(key=lambda r: r.pop("_rid"))
+            else:
+                rws = db.query("SELECT asset_uuid, plugin_id, plugin_name" + ucol +
+                               " FROM vulns WHERE plugin_family LIKE '%Artificial Intelligence%'", path=db_path)
+            for r in rws:
                 u = r.get("asset_uuid")
                 if not u:
                     continue
@@ -371,64 +392,76 @@ def scan(db_path=None, fp=None, allow=None):
             pass
 
     # 3) plugin name / output (distinct AI terms; generic terms blocked)
-    if vcols:
-        try:
-            where = " OR ".join(f"(plugin_name LIKE '%{_lit(e[0])}%' OR output LIKE '%{_lit(e[0])}%')" for e in OUT_CATALOG)
-            for r in db.query(f"SELECT asset_uuid, plugin_id, plugin_name, output FROM vulns WHERE {where}", path=db_path):
-                u = r.get("asset_uuid")
-                if not u:
-                    continue
-                hit = _match(((r.get("plugin_name") or "") + " " + (r.get("output") or "")).lower(), OUT_CATALOG)
-                if not hit:
-                    continue
-                add_ev(u, {"src": "output", "term": hit["name"], "role": hit["role"], "pid": r.get("plugin_id") or "",
-                           "pname": r.get("plugin_name") or "",
-                           "snip": _snip((r.get("plugin_name") or "") + " — " + (r.get("output") or ""), hit["kw"])})
-        except Exception:
-            pass
-
     # 4) exposed AI endpoints — port match requires port CONTEXT, not a bare substring
+    # Build 455: steps 3 and 4 used to be two full scans of vulns that both read `output` (the
+    # ~5 KB column — 20 s each at 6 M findings, 60 s at 16 M). They are ONE streamed scan now:
+    # the two WHERE clauses are evaluated by SQLite in the SELECT list (m3 / m4), so each row
+    # set is exactly the old one; step-4 evidence is held back and added after the scan, so
+    # every asset's evidence keeps the old order (all step-3 hits, then step-4 hits).
+    def step3(r):
+        u = r.get("asset_uuid")
+        if not u:
+            return
+        hit = _match(((r.get("plugin_name") or "") + " " + (r.get("output") or "")).lower(), OUT_CATALOG)
+        if not hit:
+            return
+        add_ev(u, {"src": "output", "term": hit["name"], "role": hit["role"], "pid": r.get("plugin_id") or "",
+                   "pname": r.get("plugin_name") or "",
+                   "snip": _snip((r.get("plugin_name") or "") + " — " + (r.get("output") or ""), hit["kw"])})
+
+    def step4(r, out):
+        u = r.get("asset_uuid")
+        if not u:
+            return
+        hay = ((r.get("plugin_name") or "") + " " + (r.get("output") or "")).lower()
+        auth = "unauth" if re.search(r"no authentication|unauthenticated|without credentials|anonymous access|"
+                                     r"default password|requires no auth|no login required", hay) else ""
+        try:
+            rport = int(r.get("port") or 0)
+        except (TypeError, ValueError):
+            rport = 0
+        for ep in ENDPOINTS:
+            kw_hit = any(w in hay for w in ep["kw"])
+            port_hit = ep["distinct"] and _port_hit(hay, ep["port"])
+            # EXPOSED needs a network observation: the finding sits on a real port, or the output
+            # names the service port. A keyword in local output alone is presence, not exposure.
+            seen_port = str(rport) if rport else (ep["port"] if _port_hit(hay, ep["port"]) else "")
+            if kw_hit and not (seen_port or port_hit):
+                out.append((u, {"src": "output", "term": ep["name"], "role": ep["role"],
+                                "pid": r.get("plugin_id") or "", "pname": r.get("plugin_name") or "",
+                                "snip": _snip((r.get("plugin_name") or "") + " — " + (r.get("output") or ""), ep["kw"][0])}))
+                continue
+            if kw_hit or port_hit:
+                out.append((u, {"src": "endpoint", "term": ep["name"], "role": ep["role"],
+                                "pid": r.get("plugin_id") or "", "pname": r.get("plugin_name") or "",
+                                "snip": _snip((r.get("plugin_name") or "") + " — " + (r.get("output") or ""),
+                                              ep["kw"][0] if kw_hit else ep["port"]),
+                                "port": seen_port or ep["port"], "auth": auth,
+                                "sig": "service name" if kw_hit else "port " + ep["port"]}))
+
     if vcols:
+        where3 = " OR ".join(f"(plugin_name LIKE '%{_lit(e[0])}%' OR output LIKE '%{_lit(e[0])}%')" for e in OUT_CATALOG)
         clauses = []
         for ep in ENDPOINTS:
             for k in ep["kw"]:
                 clauses += [f"plugin_name LIKE '%{_lit(k)}%'", f"output LIKE '%{_lit(k)}%'"]
             if ep["distinct"]:
                 clauses.append(f"output LIKE '%{ep['port']}%'")
+        where4 = " OR ".join(clauses)
+        pcol = "port" if "port" in vcols else "NULL AS port"
+        held = []
         try:
-            pcol = "port" if "port" in vcols else "NULL AS port"
-            for r in db.query(f"SELECT asset_uuid, plugin_id, plugin_name, output, {pcol} FROM vulns WHERE "
-                              + " OR ".join(clauses), path=db_path):
-                u = r.get("asset_uuid")
-                if not u:
-                    continue
-                hay = ((r.get("plugin_name") or "") + " " + (r.get("output") or "")).lower()
-                auth = "unauth" if re.search(r"no authentication|unauthenticated|without credentials|anonymous access|"
-                                             r"default password|requires no auth|no login required", hay) else ""
-                try:
-                    rport = int(r.get("port") or 0)
-                except (TypeError, ValueError):
-                    rport = 0
-                for ep in ENDPOINTS:
-                    kw_hit = any(w in hay for w in ep["kw"])
-                    port_hit = ep["distinct"] and _port_hit(hay, ep["port"])
-                    # EXPOSED needs a network observation: the finding sits on a real port, or the output
-                    # names the service port. A keyword in local output alone is presence, not exposure.
-                    seen_port = str(rport) if rport else (ep["port"] if _port_hit(hay, ep["port"]) else "")
-                    if kw_hit and not (seen_port or port_hit):
-                        add_ev(u, {"src": "output", "term": ep["name"], "role": ep["role"],
-                                   "pid": r.get("plugin_id") or "", "pname": r.get("plugin_name") or "",
-                                   "snip": _snip((r.get("plugin_name") or "") + " — " + (r.get("output") or ""), ep["kw"][0])})
-                        continue
-                    if kw_hit or port_hit:
-                        add_ev(u, {"src": "endpoint", "term": ep["name"], "role": ep["role"],
-                                   "pid": r.get("plugin_id") or "", "pname": r.get("plugin_name") or "",
-                                   "snip": _snip((r.get("plugin_name") or "") + " — " + (r.get("output") or ""),
-                                                 ep["kw"][0] if kw_hit else ep["port"]),
-                                   "port": seen_port or ep["port"], "auth": auth,
-                                   "sig": "service name" if kw_hit else "port " + ep["port"]})
+            for r in db.iter(f"SELECT asset_uuid, plugin_id, plugin_name, output, {pcol}, ({where3}) AS m3, "
+                             f"({where4}) AS m4 FROM vulns WHERE ({where3}) OR ({where4})", path=db_path,
+                             budget="job"):
+                if r.get("m3"):
+                    step3(r)
+                if r.get("m4"):
+                    step4(r, held)
         except Exception:
             pass
+        for u, ev in held:
+            add_ev(u, ev)
 
     # 5) CPE inventory — match on :product boundary
     if "cpe_string" in _cols("cpes"):
@@ -486,12 +519,25 @@ def scan(db_path=None, fp=None, allow=None):
             # unsupported-product plugins name the product as end-of-life.
             eol_like = ("lower(plugin_name) LIKE '%unsupported%' OR lower(plugin_name) LIKE '%end of life%' "
                         "OR lower(plugin_name) LIKE '%end-of-life%' OR lower(plugin_name) LIKE '%no longer supported%'")
-            for r in db.query(f"SELECT asset_uuid, "
-                              f"MAX(CASE WHEN xrefs LIKE '%CISA-KNOWN-EXPLOITED%' THEN 1 ELSE 0 END) kev, "
-                              f"MAX(CASE WHEN lower({sev_col})='critical' OR {sev_col}='4' THEN 1 ELSE 0 END) crit, "
-                              f"MAX(CASE WHEN {eol_like} THEN 1 ELSE 0 END) eol, "
-                              f"MAX(CAST({score_col} AS REAL)) vpr FROM vulns WHERE asset_uuid IN ({inl}) GROUP BY asset_uuid",
-                              path=db_path):
+            if hx_summary.usable(db_path):
+                # Phase 1 (S23): index-only over hx_v_asset (asset_uuid, plugin_id, state, severity) —
+                # no vulns rows. KEV / EOL / VPR are plugin attributes → hx_plugin (EOL with THIS
+                # hound's own name rule on lname); critical stays per finding from the index.
+                # All states, like the query below.
+                rq = (f"SELECT v.asset_uuid, MAX(p.kev) kev, "
+                      f"MAX(CASE WHEN lower(v.severity)='critical' OR v.severity='4' THEN 1 ELSE 0 END) crit, "
+                      f"MAX(CASE WHEN {eol_like.replace('lower(plugin_name)', 'p.lname')} THEN 1 ELSE 0 END) eol, "
+                      f"MAX(p.vpr) vpr FROM vulns v{db.indexed_by('hx_v_asset', db_path)} "
+                      f"LEFT JOIN hx_plugin p ON p.plugin_id = v.plugin_id "
+                      f"WHERE v.asset_uuid IN ({inl}) GROUP BY v.asset_uuid")
+            else:
+                rq = (f"SELECT asset_uuid, "
+                      f"MAX(CASE WHEN xrefs LIKE '%CISA-KNOWN-EXPLOITED%' THEN 1 ELSE 0 END) kev, "
+                      f"MAX(CASE WHEN lower({sev_col})='critical' OR {sev_col}='4' THEN 1 ELSE 0 END) crit, "
+                      f"MAX(CASE WHEN {eol_like} THEN 1 ELSE 0 END) eol, "
+                      f"MAX(CAST({score_col} AS REAL)) vpr FROM vulns{_bulk_hint(len(assets), db_path)} "
+                      f"WHERE asset_uuid IN ({inl}) GROUP BY asset_uuid")
+            for r in db.query(rq, path=db_path):
                 rk[r["asset_uuid"]] = {"kev": int(r.get("kev") or 0), "crit": int(r.get("crit") or 0),
                                        "eol": int(r.get("eol") or 0), "vpr": float(r.get("vpr") or 0)}
         except Exception:
@@ -566,10 +612,12 @@ def scan(db_path=None, fp=None, allow=None):
 
 # ---- gated tag helper (used by api.py) --------------------------------------
 def tag_uuids(category, value, uuids, agent="ai"):
+    """A Python-computed AI asset set → core.navi_cli.tag_uuids_batched (≤1,999 UUIDs per navi
+    job, add-only). Returns the first job stub plus {jobs, job_ids} for the whole series."""
     from core import navi_cli
     uu = [u for u in (uuids or []) if u]
     if not uu:
         return {"ok": False, "message": "no asset uuids supplied"}
-    inl = ",".join("'" + _lit(u) + "'" for u in uu)
-    q = f"SELECT uuid AS asset_uuid FROM assets WHERE uuid IN ({inl})"
-    return navi_cli.tag(category, value, query=q, remove=False, agent=agent)
+    jobs = navi_cli.tag_uuids_batched(category, value, uu, agent=agent)
+    sm = navi_cli.jobs_summary(jobs)
+    return {**(sm["result"] or {}), "jobs": sm["jobs"], "job_ids": sm["job_ids"]}

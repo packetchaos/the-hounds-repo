@@ -205,20 +205,56 @@ def _resolve(target):
     return None, "not found"
 
 
-def _vulns_for(uuid):
+_OPEN = ("open", "reopened")
+_ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
+_EOL_WORDS = ("unsupported", "end of life", "end-of-life", "no longer supported")
+
+
+def _vuln_rows(uuid):
+    """The asset's findings in ONE statement — a SEARCH on hx_v_asset(asset_uuid, …) when
+    ⚡ Optimize has built it (one scan of vulns on an un-optimized navi.db, instead of the
+    four separate ones Argos used to run). Never reads `output` (≈ 5 KB/row on a real
+    navi.db): the plugin-output drill-down (`output`) and the plugin-specific probes read it
+    for one (asset, plugin) at a time. Returns (rows, cols); every row carries the lookup's
+    columns plus the at-a-glance ones as _st/_xr/_ff/_age."""
     vc = _cols("vulns")
     if not vc or "asset_uuid" not in vc:
-        return []
-    sel = ["plugin_id", "plugin_name"]
-    for c in ("severity", "vpr", "cves", "plugin_family", "output", "last_found",
+        return [], vc
+    sel = [c if c in vc else "NULL AS %s" % c for c in ("plugin_id", "plugin_name")]
+    for c in ("severity", "vpr", "cves", "plugin_family", "last_found",
               "exploit_available", "exploitability_ease"):
         if c in vc:
             sel.append(c)
-    cols = ", ".join(sel)
+    sel.append("state AS _st" if "state" in vc else "NULL AS _st")
+    sel.append("xrefs AS _xr" if "xrefs" in vc else "'' AS _xr")
+    if "first_found" in vc:
+        sel.append("first_found AS _ff")
+        try:
+            from core import sla as _sla
+            sel.append(_sla._age_days("first_found") + " AS _age")
+        except Exception:
+            pass
+    return db.query(f"SELECT {', '.join(sel)} FROM vulns WHERE asset_uuid=?;", (uuid,),
+                    budget="open"), vc
+
+
+def _is_open(r):
+    """lower(COALESCE(state,'open')) IN ('open','reopened') — the SQL rule, in Python."""
+    st = r.get("_st")
+    return str("open" if st is None else st).translate(_ASCII_LOWER) in _OPEN
+
+
+def _vulns_for(uuid):
+    """All findings on the asset (no `output`) — kept for callers of the old helper."""
     try:
-        return db.query(f"SELECT {cols} FROM vulns WHERE asset_uuid=?;", (uuid,))
+        rows, vc = _vuln_rows(uuid)
+    except db.QueryTimeout:
+        raise
     except Exception:
         return []
+    if not {"plugin_id", "plugin_name"} <= set(vc or ()):
+        return []
+    return rows
 
 
 def _tags_for(uuid):
@@ -227,9 +263,34 @@ def _tags_for(uuid):
         return []
     try:
         return db.query("SELECT DISTINCT tag_key, tag_value FROM tags WHERE asset_uuid=? "
-                        "AND tag_value IS NOT NULL;", (uuid,))
+                        "AND tag_value IS NOT NULL;", (uuid,), budget="open")
     except Exception:
         return []
+
+
+_SW_SHAPE = {}
+
+
+def _sw_list_shaped():
+    """True when some software.asset_uuid holds more than one plain uuid (navi's stringified
+    list "['ec88…', 'd423…']" or any other non-36-char form) — only then does Argos need the
+    `LIKE '%uuid%'` scan of the software table. Probed once per navi.db file signature, on
+    the narrow hx_sw_asset index when present (it stops at the first long value)."""
+    try:
+        p = db.db_path()
+        key = (p, db._sig(p))
+    except Exception:
+        return True
+    hit = _SW_SHAPE.get(key)
+    if hit is None:
+        try:
+            hit = db.scalar("SELECT 1 FROM software" + db.indexed_by("hx_sw_asset") +
+                            " WHERE length(asset_uuid)<>36 LIMIT 1", budget=0) is not None
+        except Exception:
+            return True
+        _SW_SHAPE.clear()
+        _SW_SHAPE[key] = hit
+    return hit
 
 
 def _software_for(uuid):
@@ -242,8 +303,12 @@ def _software_for(uuid):
         _sw = None
     # software.asset_uuid is a single uuid on some navi datasets and a STRINGIFIED
     # LIST of uuids on others ("['ec88…', 'd423…']") — match both shapes.
-    rows = db.query("SELECT DISTINCT software_string FROM software "
-                    "WHERE asset_uuid=? OR asset_uuid LIKE ?;", (uuid, f"%{uuid}%"))
+    if _sw_list_shaped():
+        rows = db.query("SELECT DISTINCT software_string FROM software "
+                        "WHERE asset_uuid=? OR asset_uuid LIKE ?;", (uuid, f"%{uuid}%"), budget="open")
+    else:   # every row holds ONE uuid → the LIKE can only match the exact row: index SEARCH
+        rows = db.query("SELECT DISTINCT software_string FROM software WHERE asset_uuid IN (?,?,?);",
+                        (uuid, uuid.lower(), uuid.upper()), budget="open")
     out = []
     for r in rows:
         s = r.get("software_string") or ""
@@ -281,7 +346,7 @@ def _certs_for(uuid):
         from core.certdates import parse_cert_date
     except Exception:
         parse_cert_date = lambda s: None
-    rows = db.query(f"SELECT {', '.join(sel)} FROM certs WHERE asset_uuid=?;", (uuid,))
+    rows = db.query(f"SELECT {', '.join(sel)} FROM certs WHERE asset_uuid=?;", (uuid,), budget="open")
     for c in rows:
         d = parse_cert_date(c.get("not_valid_after")) if c.get("not_valid_after") else None
         c["expiry_iso"] = d.isoformat() if hasattr(d, "isoformat") else (d or None)
@@ -342,11 +407,55 @@ def _iso_date(text):
     return "%s-%02d-%02d" % (m.group(1), int(m.group(2)), int(m.group(3))) if m else None
 
 
-def _glance(uuid, tags):
+def _asset_dispositions(uuid, _sla):
+    """core.sla.dispositions(con)[uuid] for ONE asset: plugin ids on a route/path this asset's
+    Owner tag marks '<route|path>: Ignored/Accepted/Mitigated'. Reads this asset's tags, its
+    vuln_paths rows and the named vuln_route rows only (not the whole estate)."""
+    tables = {r["name"] for r in db.query("SELECT name FROM sqlite_master WHERE type='table' "
+                                          "AND name IN ('tags','vuln_paths','vuln_route')")}
+    if "tags" not in tables or not ({"vuln_paths", "vuln_route"} & tables):
+        return set()
+    sufs = [": " + d for d in _sla.DISPOSITIONS]
+    okf, okp = tagname.sql_in("tag_key", _sla.OWNER_KEY)
+    names = set()
+    for r in db.query("SELECT tag_value FROM tags WHERE asset_uuid=? AND " + okf + " AND (" +
+                      " OR ".join("tag_value LIKE ?" for _ in sufs) + ")",
+                      (uuid, *okp, *("%" + x for x in sufs)), budget="open"):
+        tv = r.get("tag_value")
+        for x in sufs:
+            if tv is not None and tv.endswith(x):
+                names.add(tv[:-len(x)])
+    if not names:
+        return set()
+    ex = set()
+    if "vuln_paths" in tables:
+        for r in db.query("SELECT plugin_id, path FROM vuln_paths WHERE asset_uuid=?", (uuid,), budget="open"):
+            if r.get("plugin_id") is not None and r.get("path") in names:
+                ex.add(str(r["plugin_id"]))
+    if "vuln_route" in tables:
+        nl = sorted(names)
+        for i in range(0, len(nl), 500):
+            part = nl[i:i + 500]
+            for r in db.query("SELECT app_name, plugin_list FROM vuln_route WHERE app_name IN (%s)"
+                              % ",".join("?" * len(part)), tuple(part), budget="open"):
+                if r.get("plugin_list"):
+                    ex.update(_sla._QUOTED.findall(str(r["plugin_list"])))
+    return ex
+
+
+def _glance(uuid, tags, vrows=None, certs=None):
+    """`vrows`: the asset's findings from _vuln_rows (fetched here when not given) — the
+    open-finding counts, past-SLA, oldest critical and EOL are computed from those rows in
+    Python instead of three more statements over vulns."""
     global _GLANCE_HOUNDS
     g = {}
-    vc = _cols("vulns")
-    opened = ("lower(COALESCE(state,'open')) IN ('open','reopened')" if "state" in vc else "1=1")
+    if vrows is None:
+        try:
+            vrows, vc = _vuln_rows(uuid)
+        except Exception:
+            vrows, vc = [], _cols("vulns")
+    else:
+        vc = _cols("vulns")
     # ---- Exposure Score (Nemesis): this asset's score now + its rank from the cached estate snapshot
     try:
         from core import fused_score as _fs
@@ -368,35 +477,24 @@ def _glance(uuid, tags):
         pass
     # ---- open critical / high, KEV, past-SLA, oldest open critical (open findings only)
     if vc and "asset_uuid" in vc:
-        sev = "severity" if "severity" in vc else "''"
-        xr = "xrefs" if "xrefs" in vc else "''"
-        ff = "first_found" if "first_found" in vc else None
-        pidc = "plugin_id" if "plugin_id" in vc else "''"
+        ff = "first_found" in vc
         try:
             from core import sla as _sla
-            agesql = _sla._age_days(ff) if ff else None
+            agesql = ff
         except Exception:
-            _sla, agesql = None, None
-        try:
-            # age in fractional days, in SQL, exactly as the SLA page measures it
-            rows = db.query(f"SELECT {sev} AS sev, {xr} AS xr, {pidc} AS pid"
-                            f"{', ' + ff + ' AS ff' if ff else ''}{', ' + agesql + ' AS age' if agesql else ''} "
-                            f"FROM vulns WHERE asset_uuid=? AND {opened}", (uuid,))
-        except Exception:
-            rows = []
+            _sla, agesql = None, False
+        # age in fractional days, computed in SQL (_vuln_rows' _age), exactly as the SLA page
+        rows = [r for r in vrows if _is_open(r)]
         # findings on a route/path the operator marked Accepted / Mitigated / Ignored don't
-        # count against SLA (core.sla.dispositions — the SLA page's rule)
+        # count against SLA (core.sla.dispositions — the SLA page's rule, for this asset)
         disp = set()
         try:
             if _sla is not None and db.scalar(
                     "SELECT 1 FROM tags WHERE asset_uuid=? AND " + tagname.sql_in("tag_key", _sla.OWNER_KEY)[0]
                     + " AND (" + " OR ".join("tag_value LIKE ?" for _ in _sla.DISPOSITIONS) + ") LIMIT 1",
-                    (uuid, *tagname.names(_sla.OWNER_KEY), *("%: " + d for d in _sla.DISPOSITIONS))):
-                con = db.connect()
-                try:
-                    disp = _sla.dispositions(con).get(uuid, set())
-                finally:
-                    con.close()
+                    (uuid, *tagname.names(_sla.OWNER_KEY), *("%: " + d for d in _sla.DISPOSITIONS)),
+                    budget="open"):
+                disp = _asset_dispositions(uuid, _sla)
         except Exception:
             disp = set()
         try:
@@ -406,40 +504,39 @@ def _glance(uuid, tags):
             th = {"critical": 15, "high": 30}
         crit = high = kev = past = 0
         oldest = None
+        eol = set()
         for r in rows:
-            sn = _sev_name(r.get("sev"))
+            sn = _sev_name(r.get("severity"))
             crit += sn == "critical"
             high += sn == "high"
-            kev += "CISA-KNOWN-EXPLOITED" in str(r.get("xr") or "").upper()
-            age = r.get("age") if agesql else (_days_since(r.get("ff")) if ff else None)
+            kev += "CISA-KNOWN-EXPLOITED" in str(r.get("_xr") or "").upper()
+            age = r.get("_age") if agesql else (_days_since(r.get("_ff")) if ff else None)
             try:
                 age = float(age) if age is not None else None
             except (TypeError, ValueError):
                 age = None
             if age is not None and sn in th and float(th[sn]) > 0 and age > float(th[sn]) \
-                    and str(r.get("pid")) not in disp:
+                    and str(r.get("plugin_id")) not in disp:
                 past += 1
             if sn == "critical" and age is not None and (oldest is None or age > oldest[0]):
-                oldest = (age, str(r.get("ff"))[:10])
+                oldest = (age, str(r.get("_ff"))[:10])
+            # EOL / unsupported software findings (Charon's signal): COUNT(DISTINCT plugin_id)
+            pn = str(r.get("plugin_name") or "").translate(_ASCII_LOWER)
+            if r.get("plugin_id") is not None and any(w in pn for w in _EOL_WORDS):
+                eol.add(r.get("plugin_id"))
         g["findings"] = {"critical": crit, "high": high, "kev": kev}
         g["sla"] = {"past": past, "windows": th, "first_found": bool(ff),
                     "oldest_critical_days": int(oldest[0]) if oldest else None,
                     "oldest_critical_since": oldest[1] if oldest else None}
-        # EOL / unsupported software findings (Charon's signal), plus a Lifecycle tag
-        try:
-            pn = "plugin_name" if "plugin_name" in vc else "''"
-            n = db.scalar(f"SELECT COUNT(DISTINCT plugin_id) FROM vulns WHERE asset_uuid=? AND {opened} AND "
-                          f"(lower({pn}) LIKE '%unsupported%' OR lower({pn}) LIKE '%end of life%' OR "
-                          f"lower({pn}) LIKE '%end-of-life%' OR lower({pn}) LIKE '%no longer supported%')", (uuid,))
-        except Exception:
-            n = None
-        g["eol"] = {"findings": int(n or 0),
+        g["eol"] = {"findings": len(eol),
                     "tagged": any(str(t.get("category") or "").lower().startswith("lifecycle") for t in tags)}
-        # last scan + credentialed (plugin 19506 — the most recent scan's own report)
+        # last scan + credentialed (plugin 19506 — the most recent scan's own report);
+        # the one place Argos reads `output` on open: one (asset, plugin) SEARCH
         try:
             out = db.query("SELECT output FROM vulns WHERE asset_uuid=? AND plugin_id='19506' "
                            "ORDER BY last_found DESC LIMIT 1" if "last_found" in vc else
-                           "SELECT output FROM vulns WHERE asset_uuid=? AND plugin_id='19506' LIMIT 1", (uuid,))
+                           "SELECT output FROM vulns WHERE asset_uuid=? AND plugin_id='19506' LIMIT 1", (uuid,),
+                           budget="open")
         except Exception:
             out = []
         if out:
@@ -456,7 +553,7 @@ def _glance(uuid, tags):
         try:
             r = db.query("SELECT SUM(CASE WHEN upper(status) LIKE 'PASS%' THEN 1 ELSE 0 END) p, "
                          "SUM(CASE WHEN upper(status) LIKE 'FAIL%' THEN 1 ELSE 0 END) f, COUNT(*) n "
-                         "FROM compliance WHERE asset_uuid=?", (uuid,))[0]
+                         "FROM compliance WHERE asset_uuid=?", (uuid,), budget="open")[0]
             p_, f_ = int(r.get("p") or 0), int(r.get("f") or 0)
             if r.get("n"):
                 g["compliance"] = {"pass_pct": round(100.0 * p_ / (p_ + f_), 1) if (p_ + f_) else None,
@@ -464,7 +561,8 @@ def _glance(uuid, tags):
         except Exception:
             pass
     # ---- certificates: expired / expiring soon (same parser as the Certificates card)
-    certs = _certs_for(uuid)
+    if certs is None:
+        certs = _certs_for(uuid)
     if certs:
         import datetime
         today = datetime.date.today()
@@ -497,7 +595,18 @@ def lookup(p):
                            f"or refresh navi.db.", "resolved_by": how}, 200
 
     uuid = row.get("uuid")
-    vulns = _vulns_for(uuid)
+    try:
+        vrows, vc = _vuln_rows(uuid)
+    except db.QueryTimeout as e:
+        # an un-optimized navi.db at production size: one asset's findings is a full scan of
+        # vulns — say so (and how to fix it) instead of hanging the page
+        return {"ok": False, "found": True, "target": target, "resolved_by": how,
+                "error": "Reading this asset's findings took too long — navi.db has no index on "
+                         "vulns.asset_uuid. Run ⚡ Optimize (Settings) or `navi config optimize`, "
+                         "then open Argos again.", **db.budget_payload(e)}, 200
+    except Exception:
+        vrows, vc = [], _cols("vulns")
+    vulns = vrows if {"plugin_id", "plugin_name"} <= set(vc or ()) else []
     tags_raw = _tags_for(uuid)
     software, software_source = _software_for(uuid)
     certs = _certs_for(uuid)
@@ -576,7 +685,7 @@ def lookup(p):
             "tables": {"software": bool(_cols("software")), "certs": bool(_cols("certs"))},
             "counts": {"vulns": len(vulns), "tags": len(tags),
                        "software": len(software), "certs": len(certs)},
-            "glance": _glance(uuid, tags)}, 200
+            "glance": _glance(uuid, tags, vrows, [dict(c) for c in certs])}, 200
 
 
 def live(p):

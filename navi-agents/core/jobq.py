@@ -12,7 +12,7 @@ import threading
 import time
 import queue as _queue
 
-from . import qprofile
+from . import db, qprofile
 
 _JOBS = []                     # newest-last list of job dicts (the log)
 _LOCK = threading.Lock()
@@ -25,6 +25,7 @@ _WORKERS = []
 _WLOCK = threading.Lock()
 # Keep the log from growing unbounded over a long session.
 _MAX = int(os.environ.get("NAVI_JOB_LOG_MAX", "200"))
+_TOKENS = {}                   # job id -> db.Cancel (cancel(job_id) stops its running SQL)
 
 
 def _now():
@@ -71,8 +72,17 @@ def _run(idx):
             job["started"] = _now()
         qprofile.set_context(job.get("agent", ""), job.get("action", ""))
         m = qprofile.mark()
+        tok = _TOKENS.setdefault(job_id, db.Cancel())
         try:
-            res = fn() or {}
+            # background work: the "job" budget (45 min, NAVI_JOB_BUDGET_S) for every statement
+            # that passes none, heavy (one big scan at a time), stoppable via cancel(job_id)
+            with db.budget_scope("job") as sc, db.cancel_scope(tok):
+                try:
+                    res = fn() or {}
+                except (db.QueryTimeout, db.TooManyRows) as e:
+                    res = db.budget_payload(e)
+            if sc.tripped and isinstance(res, dict):
+                res = dict(res, budget_hits=sc.summary()["hits"])
             ok = res.get("ok", True) is not False
             with _LOCK:
                 job["status"] = "done" if ok else "error"
@@ -90,6 +100,7 @@ def _run(idx):
                 job["message"] = f"{type(e).__name__}: {e}"
                 job["finished"] = _now()
         finally:
+            _TOKENS.pop(job_id, None)
             qprofile.clear_context()
             _Q.task_done()
 
@@ -135,6 +146,19 @@ def record(meta) -> dict:
         _JOBS.append(job)
         _trim()
     return {k: v for k, v in job.items() if k not in ("result", "queries")}
+
+
+def cancel(job_id) -> bool:
+    """Stop a queued or running job's SQL (its statements raise db.QueryCancelled)."""
+    try:
+        jid = int(job_id)
+    except (TypeError, ValueError):
+        return False
+    j = _get(jid)
+    if not j or j["status"] not in ("queued", "running"):
+        return False
+    _TOKENS.setdefault(jid, db.Cancel()).cancel()
+    return True
 
 
 def get(job_id) -> dict:

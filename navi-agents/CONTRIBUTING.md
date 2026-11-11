@@ -47,6 +47,23 @@ Restart (`python3 run.py`) and your agent appears in **Release the Hounds**.
 - Settings fields that would let a browser choose a binary, a working directory or a path the
   server executes are `env_only`; gate-opening fields are `guarded` (loopback + confirm).
 
+## Scale rules (navi.db up to ~600 GB)
+
+A real vulns row is ~5.5 KB (plugin output), so any query that reads vulns **rows** at scale is
+minutes. Pages return decision data through `core.payload` (summary, top ≤200, totals, paged
+drill-down); tags are applied by navi over the full set via `navi_cli.tag_set` (≤1,999 per page).
+
+- **Plugin-level filters** (KEV xref, plugin name / family LIKE, severity) and **per-asset
+  rollups** (crit/high/KEV/EOL/VPR per asset) read the summary tables when
+  `hx_summary.usable()` — `hx_plugin` (one row per plugin) and `hx_asset` (one row per asset),
+  built by ⚡ Optimize. Keep today's SQL as the `else` branch: summaries go stale after every
+  navi sync until Optimize refreshes them, and older navi.db files don't have them.
+- Sets navi will tag come from the covering index: `hx_summary.assets_with(cond)` or
+  `FROM vulns{db.indexed_by('hx_v_plugin')} WHERE plugin_id IN (SELECT plugin_id FROM hx_plugin WHERE …)`.
+- `asset_uuid IN (…)` over more than ~5 % of assets → `hx_asset` or `FROM vulns NOT INDEXED`.
+- Never `SELECT output` except for a small, bounded set of plugins / assets.
+- Add an equivalence test: the fast path equals `HOUNDS_NO_SUMMARY=1` (see `tests/test_hx_*.py`).
+
 ## Page conventions
 
 Every hound behaves the same way, so a user who knows one knows them all.

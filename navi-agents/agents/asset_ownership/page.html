@@ -110,7 +110,10 @@
 <script>
 const API=agentApi('asset_ownership');
 let DATA=null, WRITES=false, PLAN=null;
-let ROWS=[], PAGE=0; let PS=hPageSize('assetTbl'); let SCOPE='all', SORT='acr', BLIND=[];   // 20 by default, Rows selector up to 50
+/* build 455 — payload contract: ▶ Run returns the KPIs, the top crown jewels, the blind spots shown,
+   the top owners and page 1 of the per-asset table; the table (and "more crown jewels") page, filter
+   and search on the server (hDrill / the drill action). No asset list or uuid array reaches the page. */
+let RUN=null, FIRST=null, TT=null, SCOPE='all', SORT='acr', BLIND=[], CJ=[], CJNEXT=null;
 // deep-link from Exposure Score / Argos: ?focus=<uuid>&host=<host> — auto-load, filter, highlight, focus the owner input
 const Q=new URLSearchParams(location.search), FOCUS={uuid:Q.get('focus')||'', host:Q.get('host')||''};
 
@@ -155,7 +158,7 @@ function setScope(sc, opts){
   chip.style.display=seg?'none':'inline-flex'; document.getElementById('scopeLbl').textContent=seg?'':('Filter: '+SCOPES[SCOPE][0]);
   if(opts.sort){ SORT=opts.sort; document.querySelectorAll('#tblSort button').forEach(x=>x.classList.toggle('on',x.dataset.o===SORT)); }
   if(opts.clearText) document.getElementById('tblFilter').value='';
-  PAGE=0; renderTable();
+  renderTable();
 }
 function jumpTo(id){ const t=document.getElementById(id); if(t) t.scrollIntoView({behavior:'smooth',block:'start'}); }
 
@@ -228,8 +231,9 @@ function renderOwners(list,total){
 
 /* ---- Crown jewels ---- */
 function renderCrown(cj,k){
+  CJ=cj;
   document.getElementById('cjAcr').textContent=k.crown_acr;
-  document.getElementById('cjCount').textContent=cj.length+' jewels · '+k.crown_no_owner+' with no owner';
+  document.getElementById('cjCount').textContent=fnum(k.crown)+' jewels · '+fnum(k.crown_no_owner)+' with no owner';
   if(!cj.length){ document.getElementById('cjBody').innerHTML='<p class="sub">No assets at ACR ≥ '+num(k.crown_acr)+'. Calibrate ACR in <a class="applink" href="/agents/acr/page.html">ACR Calibration (Anubis)</a> to mark your crown jewels.</p>'; return; }
   document.getElementById('cjBody').innerHTML=cj.map(r=>{
     const owned=r.has_owner;
@@ -242,13 +246,17 @@ function renderCrown(cj,k){
         '<span class="chip">'+num(r.routes)+' routes · '+num(r.paths)+' paths</span></div>'+
         '<span style="margin-left:auto">'+own+'</span></div>'+
       '<div style="margin-top:6px">'+sigHtml+'</div></div>';
-  }).join('');
+  }).join('')+(CJNEXT?'<div class="toolbar" style="margin-top:6px"><span class="sub">Showing '+fnum(cj.length)+' of '+fnum(k.crown)+' (unclaimed first)</span><button class="btn ghost sm" id="cjMore">Show more ›</button></div>':'');
+  const mb=document.getElementById('cjMore'); if(mb) mb.onclick=async()=>{ mb.disabled=true;
+    let o; try{ o=await API.post('drill',{run:RUN,section:'crown',sort:'rank',limit:50,next:CJNEXT}); }catch(e){ o=null; }
+    if(!o||!o.ok){ mb.disabled=false; flash('flash','✗ '+esc((o&&o.error)||'could not load more crown jewels'),'crit'); return; }
+    CJNEXT=(o.page||{}).next||null; renderCrown(CJ.concat(o.top||[]), k); };
 }
 
 /* ---- Blind spots ---- */
 function renderBlind(b){
-  BLIND=b||[];
-  document.getElementById('blindCount').textContent=BLIND.length+' unclaimed';
+  BLIND=b||[]; const bt=(DATA&&DATA.blind_total)||BLIND.length;
+  document.getElementById('blindCount').textContent=fnum(BLIND.length)+(bt>BLIND.length?' of '+fnum(bt):'')+' unclaimed';
   document.getElementById('claimAllNote').textContent=BLIND.length?('tags one owner on all '+BLIND.length+' shown'):'';
   document.querySelector('#blindTbl tbody').innerHTML = BLIND.length ? BLIND.map(r=>
     '<tr data-u="'+esc(r.uuid||'')+'"><td>'+(r.crown?'<span class="crown">👑 </span>':'')+esc(r.hostname||'—')+'</td><td class="mono">'+esc(r.ip||'')+'</td>'+
@@ -263,26 +271,8 @@ function renderBlind(b){
   });
 }
 
-/* ---- Per-asset table (paginated + inline single-owner assign) ---- */
-function filteredRows(){
-  const f=(document.getElementById('tblFilter').value||'').toLowerCase();
-  const inScope=(SCOPES[SCOPE]||SCOPES.all)[1];
-  let rows=ROWS.filter(r=>{
-    if(!inScope(r)) return false;
-    if(f){ const hay=((r.hostname||'')+' '+(r.ip||'')+' '+(r.tech_owners||[]).join(' ')+' '+(r.business_owners||[]).join(' ')+' '+(r.asset_owner||'')).toLowerCase(); if(!hay.includes(f)) return false; }
-    return true;
-  });
-  rows.sort(SORT==='claimed'
-    ? (a,b)=>((a.claimed_pct==null?999:a.claimed_pct)-(b.claimed_pct==null?999:b.claimed_pct))||(-(a.acr||0)+(b.acr||0))
-    : (a,b)=>(-(a.acr||0)+(b.acr||0))||((a.claimed_pct==null?999:a.claimed_pct)-(b.claimed_pct==null?999:b.claimed_pct)));
-  return rows;
-}
-function renderTable(){
-  const rows=filteredRows(), total=rows.length, pages=Math.max(1,Math.ceil(total/PS));
-  if(PAGE>pages-1)PAGE=pages-1; if(PAGE<0)PAGE=0;
-  const pageRows=rows.slice(PAGE*PS,(PAGE+1)*PS);
-  document.getElementById('tblCount').textContent='('+total+' of '+ROWS.length+')';
-  document.querySelector('#assetTbl tbody').innerHTML = pageRows.length ? pageRows.map(r=>{
+/* ---- Per-asset table (server-paged + inline single-owner assign) ---- */
+function assetRow(r){
     const biz=(r.business_owners||[]).length?r.business_owners.map(o=>'<span class="ownpill" title="business owner">🏛 '+esc(o)+'</span>').join(' '):'<span class="sub">—</span>';
     return '<tr data-u="'+esc(r.uuid)+'">'+
       '<td>'+(r.crown?'<span class="crown">👑 </span>':'')+esc(r.hostname||'—')+'</td>'+
@@ -295,25 +285,19 @@ function renderTable(){
       '<td><div class="assignrow" style="display:flex;gap:5px;align-items:center">'+
         '<input class="aoOwner" placeholder="owner" style="width:92px">'+
         '<span class="miniseg aoMode"><button data-m="complete" class="on">All</button><button data-m="remainder">Rest</button></span>'+
-        '<button class="btn sm aoGo">🏷️ Tag owner</button></div></td></tr>';
-  }).join('') : '<tr><td colspan="8" class="sub">No assets match.</td></tr>';
-  // wire inline assign
-  document.querySelectorAll('#assetTbl tbody tr').forEach(tr=>{
-    tr.querySelectorAll('.aoMode button').forEach(b=>b.onclick=()=>{ tr.querySelectorAll('.aoMode button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); });
-    const go=tr.querySelector('.aoGo'); if(go) go.onclick=()=>assignOne(tr);
-  });
-  renderPager(total,pages);
-}
-function renderPager(total,pages){
-  const pg=document.getElementById('tblPager'), info=document.getElementById('tblPageInfo');
-  if(total<=10){ pg.style.display='none'; info.style.display='none'; return; }
-  info.style.display=''; info.textContent=(PAGE*PS+1)+'–'+Math.min(total,(PAGE+1)*PS)+' of '+total;
-  pg.style.display='flex';
-  pg.innerHTML='<button class="btn ghost sm" id="pgP" '+(PAGE<=0?'disabled':'')+'>‹ Prev</button><span class="chip">Page '+(PAGE+1)+' of '+pages+'</span><button class="btn ghost sm" id="pgN" '+(PAGE>=pages-1?'disabled':'')+'>Next ›</button>';
-  const p=document.getElementById('pgP'),n=document.getElementById('pgN');
-  if(p)p.onclick=()=>{ if(PAGE>0){PAGE--;renderTable();} };
-  if(n)n.onclick=()=>{ if(PAGE<pages-1){PAGE++;renderTable();} };
-  hSizeControl(pg,'assetTbl',v=>{ PS=v; PAGE=0; renderTable(); });
+        '<button class="btn sm aoGo">🏷️ Tag owner</button></div></td></tr>'; }
+function renderTable(){
+  if(!RUN) return Promise.resolve();
+  const flt=SCOPE!=='all'?[SCOPE]:[], n=((DATA||{}).kpi||{}).assets||0;
+  const opts={api:API, table:'assetTbl', run:RUN, section:'assets', sort:SORT, filter:flt, cols:8, row:assetRow, search:'tblFilter',
+    empty:'<tr><td colspan="8" class="sub">No assets match.</td></tr>',
+    wire:tb=>tb.querySelectorAll('tr').forEach(tr=>{
+      tr.querySelectorAll('.aoMode button').forEach(b=>b.onclick=()=>{ tr.querySelectorAll('.aoMode button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); });
+      const go=tr.querySelector('.aoGo'); if(go) go.onclick=()=>assignOne(tr); }),
+    onRender:T=>{ const t=T.total; document.getElementById('tblCount').textContent='('+fnum(t?t.value:0)+(t&&t.exact===false?'+':'')+' of '+fnum(n)+')'; }};
+  if(!TT){ const q=(document.getElementById('tblFilter').value||'').trim();
+    TT=hDrill(Object.assign(opts,{first:(SCOPE==='all'&&SORT==='acr'&&!q)?FIRST:null})); return Promise.resolve(); }
+  return TT.set({sort:SORT, filter:flt, q:(document.getElementById('tblFilter').value||'').trim()});
 }
 async function doAssign(uuid, owner, mode, btn){
   owner=(owner||'').trim(); if(!owner) return false;
@@ -334,15 +318,16 @@ async function assignOne(tr){
 async function claimAllBlind(){
   const owner=(document.getElementById('claimAllOwner').value||'').trim();
   if(!owner){ document.getElementById('claimAllOwner').focus(); return; }
-  const uuids=BLIND.map(r=>r.uuid).filter(Boolean);
-  if(!uuids.length){ flash('flash','No unclaimed assets to claim.','warn'); return; }
+  const nB=BLIND.length;
+  if(!nB){ flash('flash','No unclaimed assets to claim.','warn'); return; }
   await testRunStatus();
-  if(!confirm('Tag '+tagCat('Asset Owner')+' “'+owner+'” on all '+uuids.length+' unclaimed asset(s) as the COMPLETE owner (every route & path)?'+(WRITES?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.'))) return;
+  if(!confirm('Tag '+tagCat('Asset Owner')+' “'+owner+'” on all '+nB+' unclaimed asset(s) as the COMPLETE owner (every route & path)?'+(WRITES?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.'))) return;
   const btn=document.getElementById('claimAllBtn'); btn.disabled=true; btn.textContent='⏳ tagging…';
-  let o; try{ o=await API.post('apply',{owner,uuids,layer:'asset',mode:'complete',confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+  // the server rebuilds "the blind spots shown" from this run — no uuid list leaves the page
+  let o; try{ o=await API.post('apply',{owner,run:RUN,key:'blind',layer:'asset',mode:'complete',confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
   if(!o.ok){ flash('flash','✗ '+esc(o.error||'failed'),'crit'); btn.disabled=false; btn.textContent='🏷️ Tag owner on all shown'; return; }
-  if(o.queued){ flash('flash','✓ queued (job #'+esc(o.job_id)+') — tagging '+(o.assets||uuids.length)+' asset(s) with owner '+esc(owner)+' across their routes &amp; paths. Track it in the Tagging log; allow ~30 min propagation.','ok'); }
-  else { flash('flash','✓ tagged '+(o.assets||uuids.length)+' asset(s) with owner '+esc(owner)+' — cascaded '+(o.cascaded||0)+' owner tag(s). Allow ~30 min propagation, then Reload.','ok'); }
+  if(o.queued){ flash('flash','✓ queued (job #'+esc(o.job_id)+') — tagging '+esc(o.assets||nB)+' asset(s) with owner '+esc(owner)+' across their routes &amp; paths. Track it in the Tagging log; allow ~30 min propagation.','ok'); }
+  else { flash('flash','✓ tagged '+esc(o.assets||nB)+' asset(s) with owner '+esc(owner)+' — cascaded '+(o.cascaded||0)+' owner tag(s). Allow ~30 min propagation, then Reload.','ok'); }
   btn.textContent='✓ queued';
 }
 
@@ -376,7 +361,7 @@ async function applyPlan(){
   const what=layer==='asset'?('the '+(mode==='remainder'?'REMAINING':'COMPLETE')+' owner of '+PLAN.match_count+' asset(s) ('+tagCat('Asset Owner')+' tag)'):(tagCat('Business Owner')+' of '+PLAN.match_count+' asset(s)');
   if(!confirm('Tag “'+owner+'” as '+what+'?'+(WRITES?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.'))) return;
   const ap=document.getElementById('plApply'); if(ap){ap.dataset.label=ap.dataset.label||ap.textContent;ap.disabled=true;ap.textContent='⏳ tagging…';}
-  let o; try{ o=await API.post('apply',{owner,uuids:PLAN.uuids,layer,mode,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+  let o; try{ o=await API.post('apply',{owner,filter:PLAN.filter||{},layer,mode,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
   if(!o.ok){ flash('flash','✗ '+esc(o.error||'failed'),'crit'); if(ap){ap.disabled=false;ap.textContent=ap.dataset.label||'🏷️ Tag';} return; }
   if(layer==='asset' && o.queued){
     flash('flash','✓ queued in the background (job #'+esc(o.job_id)+') — assigning '+(o.assets||PLAN.match_count)+' asset(s) across their routes &amp; paths. You can leave this page; track it in the Tagging log. Allow ~30 min propagation.','ok');
@@ -394,7 +379,7 @@ async function load(){
   b.disabled=false;
   const res=o.result||o;
   if(!res||!res.ok){ flash('flash','✗ '+esc((res&&res.error)||o.error||'failed'),'crit'); return; }
-  DATA=res; ROWS=res.assets||[]; PAGE=0; flashClear('flash');
+  DATA=res; RUN=(o.drill||{}).run||res.run||null; FIRST=o; TT=null; CJNEXT=res.crown_next||null; flashClear('flash');
   const k=res.kpi||{};
   document.getElementById('idleCard').style.display='none';
   ['secMetrics','nlCard','cjCard','blindCard','secOwners','tblCard'].forEach(id=>document.getElementById(id).style.display='block');
@@ -405,23 +390,21 @@ async function load(){
   setScope(SCOPE);
   mountSectionNav();
   setNavCount('cjCard', fnum(k.crown||0)); setNavCount('blindCard', fnum(k.blind||0));
-  setNavCount('secOwners', fnum(res.owners_total||0)); setNavCount('tblCard', fnum(ROWS.length));
-  // NL hints from the live tag vocabulary
-  const keys=[...new Set(ROWS.flatMap(r=>Object.keys(r.signals||{})))];
+  setNavCount('secOwners', fnum(res.owners_total||0)); setNavCount('tblCard', fnum(k.assets||0));
+  // NL hints from the live tag vocabulary (the first tag keys in the table's order — from the server)
+  const keys=res.signal_keys||[];
   document.getElementById('nlHints').innerHTML='You can filter by any tag on your assets — e.g. '+
     (keys.slice(0,6).map(k=>'<span class="sig">'+esc(k)+'</span>').join('')||'<span class="sub">(load some Hound tags first)</span>')+
     ' plus ACR, crown-jewel, and cloud.';
   applyFocus();
 }
-function applyFocus(){
+async function applyFocus(){
   if(!(FOCUS.uuid||FOCUS.host)) return;
-  // show everything so the target isn't filtered out by scope, then narrow to the host
-  if(FOCUS.host){ document.getElementById('tblFilter').value=FOCUS.host; }
-  setScope('all');
-  const rows=filteredRows();
-  let idx=FOCUS.uuid?rows.findIndex(r=>r.uuid===FOCUS.uuid):-1;
-  if(idx<0 && FOCUS.host) idx=rows.findIndex(r=>(r.hostname||'')===FOCUS.host||(r.ip||'')===FOCUS.host);
-  if(idx>=0){ PAGE=Math.floor(idx/PS); renderTable(); }
+  // show everything so the target isn't filtered out by scope, then narrow (server-side search) to the asset
+  document.getElementById('tblFilter').value=FOCUS.uuid||FOCUS.host;
+  SCOPE='all'; document.querySelectorAll('#tblScope button').forEach(x=>x.classList.toggle('on',x.dataset.s==='all'));
+  document.getElementById('scopeChip').style.display='none';
+  await renderTable();
   requestAnimationFrame(()=>{
     const sel=FOCUS.uuid?('#assetTbl tbody tr[data-u="'+(window.CSS&&CSS.escape?CSS.escape(FOCUS.uuid):FOCUS.uuid)+'"]'):null;
     const tr=(sel&&document.querySelector(sel))||document.querySelector('#assetTbl tbody tr');
@@ -436,7 +419,6 @@ document.getElementById('nlPreview').onclick=previewPlan;
 document.getElementById('claimAllBtn').onclick=claimAllBlind;
 document.getElementById('claimAllOwner').addEventListener('keydown',e=>{ if(e.key==='Enter')claimAllBlind(); });
 document.getElementById('nlPrompt').addEventListener('keydown',e=>{ if(e.key==='Enter')previewPlan(); });
-document.getElementById('tblFilter').addEventListener('input',()=>{ PAGE=0; renderTable(); });
 document.querySelectorAll('#tblScope button').forEach(b=>b.onclick=()=>setScope(b.dataset.s));
 document.getElementById('scopeClr').onclick=()=>setScope('all');
 document.querySelectorAll('#tblSort button').forEach(b=>b.onclick=()=>{ document.querySelectorAll('#tblSort button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); SORT=b.dataset.o; renderTable(); });

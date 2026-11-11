@@ -90,8 +90,26 @@ def vulns(q="", offset=0, limit=None):
     return _page(rows, int(offset), n)
 
 
+def _hx_plugins(q, offset, n):
+    """Plugin Explorer from hx_plugin (one row per plugin, built by ⚡ Optimize) — the same
+    columns as the GROUP BY over vulns, without reading a single 5.5 KB vulns row. name/family
+    come from one representative finding per plugin (they are plugin attributes); `assets` is
+    COUNT(DISTINCT asset_uuid) over every state, as below."""
+    where, params = "", []
+    if q:
+        where = "WHERE name LIKE ? OR plugin_id LIKE ? OR family LIKE ?"
+        params = [f"%{q}%"] * 3
+    rows = db.query(
+        f"SELECT plugin_id, name, family, assets FROM hx_plugin {where} "
+        f"ORDER BY assets DESC, plugin_id LIMIT {n+1} OFFSET {int(offset)};", tuple(params))
+    return _page(rows, int(offset), n)
+
+
 def plugins(q="", offset=0, limit=None):
     n = _lim(limit)
+    from core import hx_summary
+    if hx_summary.usable():
+        return _hx_plugins(q, offset, n)
     cols = _cols("vulns")
     fam = "MAX(plugin_family)" if "plugin_family" in cols else "''"
     where, params = "", []

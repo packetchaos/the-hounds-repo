@@ -11,7 +11,7 @@ Both are navi's internal xref tagging — no external catalog download required.
 """
 import datetime
 
-from core import db, navi_cli
+from core import db, hx_summary, navi_cli
 from core.agents.base import Agent
 
 XREF = "CISA-KNOWN-EXPLOITED"
@@ -26,7 +26,34 @@ def fmt_date(d: str) -> str:
         return d
 
 
+def _kev_dates_fast(db_path=None) -> list[dict]:
+    """kev_dates() over the summaries: the KEV xref (and so its catalog date) is a plugin
+    attribute, so read ONE KEV finding's xrefs per KEV plugin, then count each date's findings
+    and assets with covering hx_v_plugin ranges — no vulns.xrefs scan."""
+    pd = db.query("SELECT plugin_id, (SELECT substr(xrefs, instr(xrefs, \"" + _MARK + "\")+%d, 10) FROM vulns x "
+                  "WHERE x.plugin_id = p.plugin_id AND x.xrefs LIKE '%%" % (len(_MARK),) + XREF + "%' LIMIT 1) AS d "
+                  "FROM hx_plugin p WHERE p.kev", path=db_path)
+    by = {}
+    for r in pd:
+        d = r.get("d") or ""
+        if len(d) == 10 and d[4] == "/" and d[7] == "/":           # = d LIKE '____/__/__'
+            by.setdefault(d, []).append(str(r["plugin_id"]))
+    if not by:
+        return []
+    lit = lambda v: "'" + v.replace("'", "''") + "'"
+    vals = ",".join("(%s,%s)" % (lit(p), lit(d)) for d, ps in by.items() for p in ps)
+    return db.query("WITH kp(plugin_id, d) AS (VALUES " + vals + ") "
+                    "SELECT kp.d AS kev_date, COUNT(DISTINCT v.asset_uuid) assets, COUNT(*) findings "
+                    "FROM kp CROSS JOIN vulns v" + db.indexed_by("hx_v_plugin", db_path) + " ON v.plugin_id = kp.plugin_id "
+                    "GROUP BY kp.d ORDER BY kp.d DESC", path=db_path)
+
+
 def kev_dates(db_path=None) -> list[dict]:
+    if hx_summary.usable(db_path):
+        rows = _kev_dates_fast(db_path)
+        for r in rows:
+            r["value"] = fmt_date(r.get("kev_date", ""))
+        return rows
     sql = ("SELECT d AS kev_date, COUNT(DISTINCT asset_uuid) assets, COUNT(*) findings FROM ("
            "SELECT asset_uuid, substr(xrefs, instr(xrefs, \"" + _MARK + "\")+%d, 10) AS d "
            "FROM vulns WHERE xrefs LIKE '%%" + XREF + "%%') "
@@ -38,6 +65,12 @@ def kev_dates(db_path=None) -> list[dict]:
 
 
 def summary(db_path=None) -> dict:
+    if hx_summary.usable(db_path):
+        # Phase 1: hx_asset.kev_any = an asset with a KEV-xref finding in any state (the rule
+        # below); findings = every finding of a KEV plugin (hx_plugin.findings).
+        a = db.scalar("SELECT COUNT(*) FROM hx_asset WHERE kev_any", path=db_path)
+        f = db.scalar("SELECT SUM(findings) FROM hx_plugin WHERE kev", path=db_path)
+        return {"kev_assets": a or 0, "kev_findings": f or 0}
     a = db.scalar("SELECT COUNT(DISTINCT asset_uuid) FROM vulns WHERE xrefs LIKE '%" + XREF + "%'", path=db_path)
     f = db.scalar("SELECT COUNT(*) FROM vulns WHERE xrefs LIKE '%" + XREF + "%'", path=db_path)
     return {"kev_assets": a or 0, "kev_findings": f or 0}

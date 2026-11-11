@@ -22,7 +22,7 @@ import threading
 import time
 import urllib.request
 
-from core import db, downloads
+from core import db, downloads, hx_summary
 
 FEED_URLS = (
     "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json",
@@ -119,7 +119,45 @@ def due_bucket(days_left):
     return "later"
 
 
+# ---------------------------------------------------------------- tag predicate
+def cve_tag_query(rows, db_path=None) -> str:
+    """navi --query that DEFINES "assets with an OPEN finding for any of these KEV CVEs" — the
+    exact set analyze() puts in each row's `uuids` (same open-state rule, same CVE token rule:
+    the regex CVE-\d{4}-\d{3,} matched case-insensitively, so the id must not run on into
+    more digits). `rows` = analyze(keep_uuids=True)['cves'] entries; their `plugins` (the plugin
+    ids that carried the CVE) let navi use its plugin_id index. Size grows with the CVE count,
+    never with assets."""
+    cves = sorted({str(r.get("cve") or "").upper() for r in rows or [] if r.get("cve")})
+    pids = sorted({str(p) for r in rows or [] for p in (r.get("plugins") or [])})
+    if not cves:
+        return ""
+    lit = lambda s: "'" + s.replace("'", "''") + "'"
+    vc = _cols("vulns", db_path)
+    w = []
+    if pids:
+        w.append("plugin_id IN (" + ",".join(lit(p) for p in pids) + ")")
+    if "state" in vc:
+        w.append("lower(COALESCE(state,'open')) IN ('open','reopened')")
+    w.append("(" + " OR ".join("upper(COALESCE(cves,'')||'#') GLOB " + lit("*" + c + "[^0-9]*")
+                               for c in cves) + ")")
+    return "SELECT DISTINCT asset_uuid FROM vulns WHERE " + " AND ".join(w)
+
+
 # ---------------------------------------------------------------- analysis
+def _kev_plugins(K, db_path=None):
+    """Plugin ids (from hx_plugin) whose CVE list names a catalog CVE, plus every plugin with the
+    KEV xref — the only plugins whose findings analyze() can count. None if unreadable."""
+    try:
+        out = []
+        for r in db.query("SELECT plugin_id, cves, kev FROM hx_plugin "
+                          "WHERE kev OR TRIM(COALESCE(cves,''))<>''", path=db_path):
+            if r.get("kev") or any(c.upper() in K for c in _CVE.findall(r.get("cves") or "")):
+                out.append(str(r["plugin_id"]))
+        return out
+    except Exception:
+        return None
+
+
 def analyze(db_path=None, json_text: str = "", force: bool = False, keep_uuids: bool = False,
             allow_live: bool = True) -> dict:
     cat, source = fetch_catalog(json_text, force=force, allow_live=allow_live)
@@ -128,7 +166,8 @@ def analyze(db_path=None, json_text: str = "", force: bool = False, keep_uuids: 
 
     vc = _cols("vulns", db_path)
     has_state, has_first = "state" in vc, "first_found" in vc
-    sel = ["asset_uuid", "cves", "xrefs"] + (["state"] if has_state else []) + (["first_found"] if has_first else [])
+    sel = (["asset_uuid", "cves", "xrefs"] + (["plugin_id"] if "plugin_id" in vc else [])
+           + (["state"] if has_state else []) + (["first_found"] if has_first else []))
     where = "TRIM(COALESCE(cves,''))<>''"
     if has_state:
         where += " AND lower(COALESCE(state,'open')) IN ('open','reopened')"
@@ -136,7 +175,20 @@ def analyze(db_path=None, json_text: str = "", force: bool = False, keep_uuids: 
     per = {}            # cve → {assets:set, findings:int, xref:int, first:date}
     xref_only = set()   # assets with a KEV xref whose CVE isn't in the catalog (rare)
     try:
-        rows = db.query(f"SELECT {', '.join(sel)} FROM vulns WHERE ({where}) OR xrefs LIKE '%{XREF}%'", path=db_path)
+        pids = _kev_plugins(K, db_path) if ("cves" in vc and hx_summary.usable(db_path)) else None
+        if pids is not None:
+            # Phase 1: a finding only counts here if its CVE list holds a catalog CVE or it carries
+            # the KEV xref — both plugin attributes — so read just those plugins' findings by
+            # plugin_id (hx_v_plugin) instead of every finding's cves/xrefs. Same WHERE on top;
+            # rowid order keeps every tie below breaking exactly as the full scan did.
+            rows = []
+            for i in range(0, len(pids), 5000):
+                inl = ",".join("'" + p.replace("'", "''") + "'" for p in pids[i:i + 5000])
+                rows += db.query(f"SELECT rowid AS _rid, {', '.join(sel)} FROM vulns WHERE plugin_id IN ({inl}) "
+                                 f"AND (({where}) OR xrefs LIKE '%{XREF}%')", path=db_path)
+            rows.sort(key=lambda r: r.pop("_rid"))
+        else:
+            rows = db.query(f"SELECT {', '.join(sel)} FROM vulns WHERE ({where}) OR xrefs LIKE '%{XREF}%'", path=db_path)
     except Exception:
         rows = []
     for r in rows:
@@ -148,8 +200,10 @@ def analyze(db_path=None, json_text: str = "", force: bool = False, keep_uuids: 
             if c not in K:
                 continue
             hit = True
-            p = per.setdefault(c, {"assets": set(), "findings": 0, "xref": 0, "first": None})
+            p = per.setdefault(c, {"assets": set(), "findings": 0, "xref": 0, "first": None, "plugins": set()})
             p["assets"].add(r.get("asset_uuid")); p["findings"] += 1; p["xref"] += 1 if has_x else 0
+            if r.get("plugin_id") not in (None, ""):
+                p["plugins"].add(str(r["plugin_id"]))
             if has_first:
                 d = _day(r.get("first_found"))
                 if d and (p["first"] is None or d < p["first"]):
@@ -188,7 +242,8 @@ def analyze(db_path=None, json_text: str = "", force: bool = False, keep_uuids: 
             "xref_findings": p["xref"], "first_seen": p["first"].isoformat() if p["first"] else None,
             "exposed_days": (today - p["first"]).days if p["first"] else None,
             "found_after_added": bool(p["first"] and added and p["first"] > added),
-            **({"uuids": sorted(u for u in p["assets"] if u)} if keep_uuids else {}),
+            **({"uuids": sorted(u for u in p["assets"] if u), "plugins": sorted(p["plugins"])}
+               if keep_uuids else {}),
         })
     cves.sort(key=lambda x: (x["days_left"] if x["days_left"] is not None else 10**6, -x["assets"]))
 

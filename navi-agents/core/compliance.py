@@ -440,6 +440,16 @@ def asset_detail(path=None, asset_uuid=None, focus_check=None):
 # --------------------------------------------------------------------------- #
 #  Tagging support (cohorts only; the gated write is core.navi_cli from the api)
 # --------------------------------------------------------------------------- #
+def control_query(check_id, failed_only=True):
+    """The navi --query that DEFINES a control's (failing) asset set — control_targets' own
+    predicate, so navi re-evaluates it over every asset (constant size at any scale)."""
+    cid = check_id or ""
+    if not cid.strip():
+        return ""
+    q = "SELECT DISTINCT asset_uuid FROM compliance WHERE check_id='" + cid.replace("'", "''") + "'"
+    return q + (" AND upper(status) LIKE 'FAIL%'" if failed_only else "")
+
+
 def control_targets(path=None, check_id=None, failed_only=True):
     """asset_uuids that FAIL (default) a given control — the assets an Audit Owner owns."""
     cid = check_id or ""                      # verbatim: a check_id may carry spaces
@@ -451,7 +461,8 @@ def control_targets(path=None, check_id=None, failed_only=True):
     rows = db.query("SELECT DISTINCT asset_uuid FROM compliance WHERE " + cond, (cid,), path=path)
     uuids = [r["asset_uuid"] for r in rows if r.get("asset_uuid")]
     name = db.scalar("SELECT check_name FROM compliance WHERE check_id=? LIMIT 1", (cid,), path=path) or ""
-    return {"check_id": cid, "check_name": name, "uuids": uuids}
+    return {"check_id": cid, "check_name": name, "uuids": uuids,
+            "query": control_query(cid, failed_only)}
 
 
 def correlation_targets(path=None, asset_uuid=None):

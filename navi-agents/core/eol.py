@@ -13,9 +13,10 @@ date : 2014/04/08", …), years past end of life, crown jewels, and the overlap 
 CISA KEV / critical findings on the same assets. Read-only over navi.db.
 """
 import datetime
+import functools
 import re
 
-from core import db
+from core import db, hx_summary
 
 # label -> substrings searched in plugin_name (navi --name matches each, substring)
 DEFAULT_GROUPS = [
@@ -24,12 +25,36 @@ DEFAULT_GROUPS = [
 ]
 
 
-def _clause(pats):
-    return " OR ".join("plugin_name LIKE '%" + p.replace("'", "''") + "%'" for p in pats)
+def _clause(pats, col="plugin_name"):
+    return " OR ".join(col + " LIKE '%" + p.replace("'", "''") + "%'" for p in pats)
+
+
+def _fast(db_path=None):
+    """Phase 1: the hx_plugin / hx_asset summaries exist and match this navi.db."""
+    return hx_summary.usable(db_path)
+
+
+def _scan_fast(db_path, groups):
+    """scan() over hx_plugin: the same name rule on hx_plugin.lname (LIKE is case-blind, so the
+    patterns match exactly as on vulns.plugin_name), open_assets = assets with an OPEN finding of
+    the plugin; the group's asset count is one covering hx_v_plugin range per plugin."""
+    out = []
+    for label, pats in groups:
+        cond = "(" + _clause(pats, "lname") + ")"
+        plugins = db.query(
+            "SELECT plugin_id, name AS plugin_name, open_assets AS assets FROM hx_plugin "
+            "WHERE " + cond + " AND open_assets > 0 ORDER BY assets DESC, plugin_id", path=db_path)
+        n = db.scalar("SELECT COUNT(asset_uuid) FROM (" + hx_summary.assets_with(cond, open_only=True, path=db_path)
+                      + ")", path=db_path) or 0
+        out.append({"label": label, "patterns": pats, "category": "Lifecycle",
+                    "plugins": plugins, "asset_count": n})
+    return {"groups": out}
 
 
 def scan(db_path=None, groups=None):
     groups = groups or DEFAULT_GROUPS
+    if _fast(db_path):
+        return _scan_fast(db_path, groups)
     out = []
     open_only = (" AND lower(COALESCE(state,'open')) IN ('open','reopened')"
                  if "state" in _cols("vulns", db_path) else "")
@@ -61,18 +86,53 @@ _FMTS = ("%Y-%m-%d", "%Y/%m/%d", "%B %d, %Y", "%b %d, %Y", "%d %B %Y", "%d %b %Y
 
 def parse_eol_date(text):
     """First end-of-life / end-of-support date stated in a plugin output, as 'YYYY-MM-DD'."""
+    return parse_eol_match(text)[0]
+
+
+def parse_eol_match(text):
+    """(date 'YYYY-MM-DD', the exact output text that stated it) — or (None, None). The text
+    is what date_tag_query() searches for, so navi re-selects the same rows by SQL."""
     for m in _DATE_LINE.finditer(text or ""):
-        raw = re.sub(r"\s+", " ", m.group(1)).strip().rstrip(".").strip()
-        raw = re.sub(r"(\d)(st|nd|rd|th)\b", r"\1", raw)
-        for cand in (raw, raw.split(" (")[0], " ".join(raw.split()[:3]), " ".join(raw.split()[:2]), raw.split()[0] if raw else ""):
-            for f in _FMTS:
-                try:
-                    d = datetime.datetime.strptime(cand.strip().rstrip(","), f).date()
-                    if 1990 <= d.year <= 2100:
-                        return d.isoformat()
-                except ValueError:
-                    continue
+        d = _raw_date(m.group(1))
+        if d:
+            return d, m.group(0)
+    return None, None
+
+
+@functools.lru_cache(maxsize=65536)
+def _raw_date(raw):
+    """The date one matched label line states (memoised: the same few phrasings repeat across
+    hundreds of thousands of findings, and strptime dominated analyze() at scale)."""
+    raw = re.sub(r"\s+", " ", raw).strip().rstrip(".").strip()
+    raw = re.sub(r"(\d)(st|nd|rd|th)\b", r"\1", raw)
+    for cand in (raw, raw.split(" (")[0], " ".join(raw.split()[:3]), " ".join(raw.split()[:2]), raw.split()[0] if raw else ""):
+        for f in _FMTS:
+            try:
+                d = datetime.datetime.strptime(cand.strip().rstrip(","), f).date()
+                if 1990 <= d.year <= 2100:
+                    return d.isoformat()
+            except ValueError:
+                continue
     return None
+
+
+def date_tag_query(group, db_path=None):
+    """navi --query that DEFINES an EOL-date group's assets (analyze()['date_groups'][i]): an
+    OPEN finding of one of the group's EOL plugins whose output states that date in the exact
+    words analyze() parsed it from. Size grows with the date's plugins/phrasings, never with
+    assets — navi re-selects the full set."""
+    pids = sorted({str(x) for x in group.get("plugin_ids") or []})
+    texts = sorted({t for t in group.get("match_texts") or [] if t})
+    if not pids or not texts:
+        return ""
+    lit = lambda s: "'" + str(s).replace("'", "''") + "'"
+    like = lambda t: ("output LIKE " + lit("%" + t.replace("\\", "\\\\").replace("%", "\\%")
+                                           .replace("_", "\\_") + "%") + " ESCAPE '\\'")
+    w = ["plugin_id IN (" + ",".join(lit(p) for p in pids) + ")"]
+    if "state" in _cols("vulns", db_path):
+        w.append("lower(COALESCE(state,'open')) IN ('open','reopened')")
+    w.append("(" + " OR ".join(like(t) for t in texts) + ")")
+    return "SELECT DISTINCT asset_uuid FROM vulns WHERE " + " AND ".join(w)
 
 
 def product_name(plugin_name):
@@ -125,8 +185,18 @@ def analyze(db_path=None, groups=None):
     sel = ["asset_uuid", "plugin_id", "plugin_name", "output"] + (["plugin_family"] if "plugin_family" in vc else []) \
         + (["state"] if has_state else []) + (["first_found"] if has_first else [])
     w = f"({where})" + (" AND lower(COALESCE(state,'open')) IN ('open','reopened')" if has_state else "")
+    fast = _fast(db_path)
     try:
-        rows = db.query(f"SELECT {', '.join(sel)} FROM vulns WHERE {w}", path=db_path)
+        if fast:
+            # Phase 1: resolve the name rule against hx_plugin (one row per plugin) and fetch only
+            # those plugins' open findings by plugin_id (hx_v_plugin) — no full vulns scan. The
+            # rows are put back in rowid order so every tie below breaks exactly as before.
+            pw = hx_summary.plugins_where("(" + _clause(pats, "lname") + ")")
+            rows = db.query(f"SELECT rowid AS _rid, {', '.join(sel)} FROM vulns WHERE {pw}"
+                            " AND lower(COALESCE(state,'open')) IN ('open','reopened')", path=db_path)
+            rows.sort(key=lambda r: r.pop("_rid"))
+        else:
+            rows = db.query(f"SELECT {', '.join(sel)} FROM vulns WHERE {w}", path=db_path)
     except Exception:
         rows = []
     today = datetime.date.today()
@@ -135,12 +205,14 @@ def analyze(db_path=None, groups=None):
     for r in rows:
         pid = str(r.get("plugin_id"))
         p = plugins.setdefault(pid, {"plugin_id": pid, "plugin_name": r.get("plugin_name") or "", "family": r.get("plugin_family") or "",
-                                     "assets": set(), "findings": 0, "dates": {}, "adates": {}, "first": None})
+                                     "assets": set(), "findings": 0, "dates": {}, "adates": {}, "first": None,
+                                     "dtexts": {}})
         p["assets"].add(r.get("asset_uuid")); p["findings"] += 1
-        d = parse_eol_date(r.get("output"))
+        d, dtext = parse_eol_match(r.get("output"))
         if d:
             p["dates"][d] = p["dates"].get(d, 0) + 1
             p["adates"].setdefault(r.get("asset_uuid"), set()).add(d)
+            p["dtexts"].setdefault(d, set()).add(dtext)
         if has_first and r.get("first_found"):
             try:
                 ff = datetime.date.fromisoformat(str(r["first_found"])[:10])
@@ -165,11 +237,23 @@ def analyze(db_path=None, groups=None):
             pass
         try:
             sw = " AND lower(COALESCE(state,'open')) IN ('open','reopened')" if has_state else ""
-            for r in db.query("SELECT asset_uuid, "
+            if fast:
+                # hx_asset: kev = an OPEN finding of a KEV plugin, crit = OPEN critical findings
+                # (per finding, exact). Only EOL assets are read back from it below.
+                kq = "SELECT asset_uuid, kev, crit FROM hx_asset WHERE kev > 0 OR crit > 0"
+            else:
+                kq = None
+            for r in (db.query(kq, path=db_path) if kq else db.query("SELECT asset_uuid, "
                               "MAX(CASE WHEN xrefs LIKE '%CISA-KNOWN-EXPLOITED%' THEN 1 ELSE 0 END) kev, "
                               "SUM(CASE WHEN lower(COALESCE(severity,''))='critical' THEN 1 ELSE 0 END) crit "
-                              f"FROM vulns WHERE asset_uuid IN (SELECT asset_uuid FROM vulns WHERE {where}){sw} "
-                              "GROUP BY asset_uuid", path=db_path):
+                              # NOT INDEXED (build 455): the EOL set is a large share of all assets, and
+                              # with hx_v_asset the planner would fetch every finding of every EOL asset
+                              # by random row reads (xrefs isn't in the index) — 41 s → 130 s at 16M rows.
+                              # One sequential scan is cheaper. Phase 1's hx_asset summary replaces this.
+                              f"FROM vulns NOT INDEXED WHERE asset_uuid IN (SELECT asset_uuid FROM vulns WHERE {where}){sw} "
+                              "GROUP BY asset_uuid", path=db_path)):
+                if kq and r.get("asset_uuid") not in eol_assets:
+                    continue
                 if r.get("kev"):
                     kev_a.add(r["asset_uuid"])
                 if r.get("crit"):
@@ -183,13 +267,16 @@ def analyze(db_path=None, groups=None):
     for p in plugins.values():
         name = product_name(p["plugin_name"])
         x = prods.setdefault(name, {"product": name, "kind": kind_of(p["plugin_name"], p["family"]), "plugins": [],
-                                    "assets": set(), "findings": 0, "dates": {}, "adates": {}, "first": None})
+                                    "assets": set(), "findings": 0, "dates": {}, "adates": {}, "first": None,
+                                    "dtexts": {}})
         x["plugins"].append({"plugin_id": p["plugin_id"], "plugin_name": p["plugin_name"], "assets": len(p["assets"])})
         x["assets"] |= p["assets"]; x["findings"] += p["findings"]
         for d, n in p["dates"].items():
             x["dates"][d] = x["dates"].get(d, 0) + n
         for u, ds in p["adates"].items():
             x["adates"].setdefault(u, set()).update(ds)
+        for d, ts in p["dtexts"].items():
+            x["dtexts"].setdefault(d, set()).update(ts)
         if p["first"] and (x["first"] is None or p["first"] < x["first"]):
             x["first"] = p["first"]
     products = []
@@ -204,7 +291,7 @@ def analyze(db_path=None, groups=None):
                          "crown_assets": len(x["assets"] & crown), "kev_assets": len(x["assets"] & kev_a),
                          "crit_assets": sum(1 for u in x["assets"] if u in crit_a),
                          "first_seen": x["first"].isoformat() if x["first"] else None,
-                         "_assets": x["assets"], "_adates": x["adates"],
+                         "_assets": x["assets"], "_adates": x["adates"], "_dtexts": x["dtexts"],
                          "_one_date": len(x["dates"]) == 1})
     products.sort(key=lambda q: (-q["assets"], q["product"]))
 
@@ -218,14 +305,17 @@ def analyze(db_path=None, groups=None):
             ds = q["_adates"].get(u) or set()
             for d in ds:
                 g = dgroups.setdefault(d, {"eol_date": d, "days_past": (today - datetime.date.fromisoformat(d)).days,
-                                           "products": set(), "plugin_ids": set(), "assets": set(), "crown": set()})
+                                           "products": set(), "plugin_ids": set(), "assets": set(), "crown": set(),
+                                           "texts": set()})
                 g["products"].add(q["product"]); g["plugin_ids"].update(q["plugin_ids"])
+                g["texts"].update(q["_dtexts"].get(d) or ())
                 g["assets"].add(u)
                 if u in crown:
                     g["crown"].add(u)
     date_groups = sorted(({"eol_date": g["eol_date"], "days_past": g["days_past"], "products": sorted(g["products"]),
                            "plugin_ids": sorted(g["plugin_ids"]), "assets": len(g["assets"]),
                            "uuids": sorted(u for u in g["assets"] if u),
+                           "match_texts": sorted(g["texts"]),
                            "crown_assets": len(g["crown"])} for g in dgroups.values()), key=lambda g: g["eol_date"])
     years = {}
     for q in products:
@@ -249,7 +339,7 @@ def analyze(db_path=None, groups=None):
     dated = [q for q in products if q["eol_date"]]
     past = sorted(q["days_past"] for q in dated if q["days_past"] is not None and q["days_past"] >= 0)
     for q in products:
-        q.pop("_assets", None); q.pop("_adates", None); q.pop("_one_date", None)
+        q.pop("_assets", None); q.pop("_adates", None); q.pop("_one_date", None); q.pop("_dtexts", None)
     metrics = {
         "eol_assets": len(eol_assets), "products": len(products), "plugins": len(plugins),
         "findings": sum(p["findings"] for p in plugins.values()),

@@ -52,6 +52,13 @@
   .trgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(300px,100%),1fr));gap:14px;margin-top:12px}
   #trEx{word-break:break-word}
   #trPhrase.bad{border-color:var(--crit)}
+  #hxTbl{width:100%;border-collapse:collapse;margin-top:10px;font-size:12.5px}
+  #hxTbl th,#hxTbl td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+  #hxTbl th{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.04em;font-weight:600}
+  #hxTbl td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  #hxTbl .mono{font-size:11.5px;word-break:break-word}
+  .hxwrap{overflow-x:auto}
+  #hxLive{font-family:var(--mono);font-size:12px;margin-top:8px;white-space:pre-wrap;word-break:break-word;color:var(--ink-3)}
 </style>
 </head><body>
 <div class="wrap">
@@ -131,10 +138,25 @@
       <label class="sub" style="display:flex;flex-direction:column;gap:3px">Days to pull
         <input id="rbDays" class="fld" type="number" min="1" max="3650" step="1" value="90" inputmode="numeric" style="width:96px;padding:6px 9px;border-radius:7px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink)"></label>
       <label class="sub" style="display:flex;gap:6px;align-items:center" title="certs, software, routes and paths are built from assets/vulns — navi says they're stale after a rebuild"><input type="checkbox" id="rbDerived" checked> then rebuild certs · software · routes · paths</label>
+      <label class="sub" style="display:flex;gap:6px;align-items:center" title="A rebuild drops vulns and every index on it — re-create the Hounds' indexes + ANALYZE + 'unordered' last, after the derived tables"><input type="checkbox" id="rbHx" checked> then ⚡ Optimize for the Hounds</label>
       <button class="btn run sm" id="rbGo" data-kind="rebuild">🧹 Rebuild navi.db</button>
       <button class="btn ghost sm" id="rbCheck" title="navi explore info licensed — Tenable's live licensed count">⚖ Check licensed</button>
     </div>
     <div id="rbFlash" class="flash" style="margin-top:10px"></div>
+  </section>
+
+  <!-- OPTIMIZE FOR THE HOUNDS -->
+  <section class="card" id="secHx">
+    <div class="toolbar"><div><h2 style="margin:0">⚡ Optimize navi.db for the Hounds <span id="hxChip" class="chip" style="margin-left:6px;display:none"></span></h2>
+      <p class="sub" style="margin:2px 0 0">Adds the Hounds' indexes to navi.db (vulns by plugin and by asset; tags, compliance, certs and software by <span class="mono">asset_uuid</span>), builds two small summary tables (<span class="mono">hx_plugin</span>, <span class="mono">hx_asset</span>: one row per plugin and per asset) that the hounds read instead of the findings, runs a bounded <span class="mono">ANALYZE</span> and marks the vulns indexes <span class="mono">unordered</span> so <span class="mono">GROUP BY asset_uuid</span> never turns into hours of random reads — navi's own <b>⚙ Optimize indexes</b> (<span class="mono">navi config optimize</span>) doesn't index <span class="mono">asset_uuid</span>. It holds navi.db's write lock while building (≈ 1–1.7 h at 420M vulns), won't start while a navi job runs, and a re-run only refreshes the statistics (seconds).</p></div>
+      <span style="margin-left:auto;display:flex;gap:6px">
+        <button class="btn ghost sm" id="hxRefresh">↻ Re-check</button>
+        <button class="btn ghost sm" id="hxCancel" style="display:none">⏹ Cancel</button>
+        <button class="btn run sm" id="hxGo" data-kind="hx_optimize">⚡ Optimize</button></span></div>
+    <div class="statline" id="hxStat"><span class="sub">checking navi.db indexes…</span></div>
+    <div class="hxwrap"><table id="hxTbl"></table></div>
+    <div id="hxLive"></div>
+    <div id="hxFlash" class="flash" style="margin-top:10px"></div>
   </section>
 
   <!-- SLA POLICY -->
@@ -444,7 +466,7 @@ async function pollNavi(tok){
       const okZero=j.returncode===0;
       if(live){ live.textContent=(j.cur?j.cur+'\n':'')+(okZero?'✓ done':'✗ exit '+j.returncode); live.style.color=okZero?'var(--ok)':'var(--crit)'; }
       setCliStatus((okZero?'done':('exit '+j.returncode))+' · '+fmtDur(j.elapsed||0), okZero?'ok':'err');
-      document.getElementById('cli').scrollTop=1e9; loadDb(); loadJobs(); if(typeof loadSla==='function')loadSla();
+      document.getElementById('cli').scrollTop=1e9; loadDb(); loadJobs(); if(typeof loadSla==='function')loadSla(); if(typeof loadHx==='function')loadHx();
       return;
     }
     const nc=j.cur||''; if(live && live.textContent!==nc){ live.textContent=nc; changed=true; }   // live overwriting line
@@ -515,20 +537,75 @@ async function loadDelta(live){
 document.getElementById('rbCheck').onclick=async (e)=>{ const b=e.currentTarget; b.disabled=true; b.innerHTML='<span class="spin"></span>Checking…';
   await loadDelta(true); b.disabled=false; b.innerHTML='⚖ Check licensed'; };
 document.getElementById('rbGo').onclick=async (e)=>{
-  const a=rbArgs(), btn=e.currentTarget, derived=document.getElementById('rbDerived').checked;
+  const a=rbArgs(), btn=e.currentTarget, derived=document.getElementById('rbDerived').checked, hxo=document.getElementById('rbHx').checked;
   if(RUNNING.rebuild!=null){ attachJob(RUNNING.rebuild); focusCli(); return; }
   if(!isFinite(a.days)||a.days<1||a.days>3650){ flash('rbFlash','Days must be a whole number from 1 to 3650.','warn'); return; }
   const what={both:'assets AND vulns tables',assets:'assets table',vulns:'vulns table'}[a.tables];
-  if(!confirm('Rebuild navi.db?\n\nThis DROPS the '+what+' in your local navi.db and pulls the last '+a.days+' days fresh:\n  '+a.cmd+(derived?'\nthen certs, software, routes and paths are rebuilt.':'')+
+  if(!confirm('Rebuild navi.db?\n\nThis DROPS the '+what+' in your local navi.db and pulls the last '+a.days+' days fresh:\n  '+a.cmd+(derived?'\nthen certs, software, routes and paths are rebuilt.':'')+(hxo?'\nthen ⚡ Optimize for the Hounds re-creates its indexes.':'')+
      '\n\nEvery hound reads these tables — until the pull finishes they will look empty. Nothing in Tenable changes. A large tenant can take an hour or more.')) return;
   btn.disabled=true; btn.innerHTML='<span class="spin"></span>Starting…'; focusCli();
-  let o; try{ o=await API.post('navi_rebuild',{tables:a.tables, days:a.days, derived, confirm:true}); }catch(err){ o={ok:false,error:err.message}; }
+  let o; try{ o=await API.post('navi_rebuild',{tables:a.tables, days:a.days, derived, hx_optimize:hxo, confirm:true}); }catch(err){ o={ok:false,error:err.message}; }
   btn.disabled=false; btn.innerHTML=btn.dataset.label||'🧹 Rebuild navi.db';
   if(!o||!o.ok){ flash('rbFlash','✗ '+esc((o&&o.error)||'could not start the rebuild'),'crit'); return; }
   flash('rbFlash','✓ Rebuild started (job #'+esc(o.job.id)+')'+(o.then?' — then '+esc(o.then.join(' → ')):'')+'. It streams in the navi CLI window below and keeps running if you leave.','ok');
   RUNNING.rebuild=o.job.id; markRunning(); attachJob(o.job.id); loadJobs();
 };
 rbCmd(); loadDelta(false);
+/* ⚡ Optimize for the Hounds — status() only on open; the build is an explicit, confirmed run */
+let HX=null, HX_T=null;
+function fmtB(b){ b=Number(b)||0; const u=['B','KB','MB','GB','TB']; let i=0; while(b>=1024&&i<u.length-1){ b/=1024; i++; } return (i<2?Math.round(b):b.toFixed(1))+' '+u[i]; }
+function fmtEst(s){ if(!s) return '—'; const lo=s[0]||0, hi=s[1]||0; return (hi<1)?'< 1s':(fmtDur(Math.max(1,lo))+(hi>lo+1?'–'+fmtDur(hi):'')); }
+function renderHx(o){
+  HX=o; const st=document.getElementById('hxStat'), tb=document.getElementById('hxTbl'), chip=document.getElementById('hxChip');
+  if(!o||!o.ok){ st.innerHTML='<span class="sub">'+esc((o&&o.error)||'Could not read navi.db.')+'</span>'; tb.innerHTML=''; chip.style.display='none'; return; }
+  const job=o.job, run=!!(job&&job.status==='running');
+  const c=(label,good,txt,tip)=>'<span class="chip" title="'+esc(tip||'')+'" style="border-color:'+(good?'var(--ok)':'var(--cx-e7c66b)')+';color:'+(good?'var(--ok)':'var(--cx-e7c66b)')+'">'+esc(label)+': '+esc(txt)+'</span>';
+  chip.style.display=''; const okAll=o.optimized;
+  const sm=o.summary||{};
+  chip.textContent=run?'running':(okAll?'optimized':(o.missing.length?o.missing.length+' index'+(o.missing.length>1?'es':'')+' missing':(sm.applies&&!sm.fresh?(sm.present?'summaries stale':'summaries not built'):'stats need refresh')));
+  chip.style.borderColor=chip.style.color=run?'var(--accent)':(okAll?'var(--ok)':'var(--cx-e7c66b)');
+  const per=(o.unordered&&o.unordered.per_index)||{}, nper=Object.keys(per).length;
+  st.innerHTML=
+     c('Statistics',o.stats_present,o.stats_present?'present':'missing','sqlite_stat1 rows for the hx_ indexes (PRAGMA analysis_limit=1000; ANALYZE)')
+    +c('unordered',o.unordered&&o.unordered.applied,nper?(o.unordered.applied?'applied':'erased — re-apply'):'n/a','Every ANALYZE erases it; without it DISTINCT/GROUP BY asset_uuid walks the index with random reads')
+    +c('Summary tables',!sm.applies||!!sm.fresh,!sm.applies?'n/a':(sm.fresh?('fresh · '+Number(sm.plugins||0).toLocaleString()+' plugins, '+Number(sm.assets||0).toLocaleString()+' assets'+(sm.build_s?' · built in '+fmtDur(Math.max(1,Number(sm.build_s))):'')):(sm.present?'stale — re-run':'not built')),'hx_plugin / hx_asset: one row per plugin and per asset, built from the indexes in one pass. Hounds read them when they are fresh and fall back to the slower path when navi.db has changed since (a sync re-runs Optimize when they were built before). '+(sm.built_at?'Built '+sm.built_at:''))
+    +c('Estimate',!o.missing.length,o.missing.length?(fmtEst(o.est_s)+' · +'+fmtB(o.est_bytes)):'nothing to build','From row counts: ~58.5 B/row per vulns index; build ≈ rows ÷ 600k/s, plus one read of navi.db per vulns index when it is not cached')
+    +c('Free disk',o.free_bytes==null||o.free_bytes>=o.need_free_bytes,o.free_bytes==null?'?':fmtB(o.free_bytes)+(o.need_free_bytes?' (needs '+fmtB(o.need_free_bytes)+')':''),'navi.db volume; the index sort spills about the index size again')
+    +c('navi jobs',!o.navi_busy.length,o.navi_busy.length?('running: '+o.navi_busy[0]):'none running','Optimize refuses while a navi job runs — it holds navi.db\'s write lock');
+  const row=i=>{ const s=!i.applies?'<span class="sub">— skipped ('+esc(i.reason)+')</span>':(i.exists?'<span style="color:var(--ok)">✓ built</span>':(i.outdated?'<span style="color:var(--cx-e7c66b)" title="built by an older Hounds with different columns — Optimize replaces it">outdated</span>':'<span style="color:var(--cx-e7c66b)">missing</span>'));
+    return '<tr><td class="mono">'+esc(i.name)+'</td><td class="mono">'+esc(i.table)+'('+esc(i.columns.join(', '))+')</td><td class="num">'+(i.rows==null?'—':Number(i.rows).toLocaleString())+'</td><td>'+s+'</td><td class="num">'+(i.applies&&!i.exists?esc(fmtEst(i.est_s)+' · '+fmtB(i.est_bytes)):'')+'</td></tr>'; };
+  tb.innerHTML='<thead><tr><th>Index</th><th>On</th><th style="text-align:right">Rows ≈</th><th>Status</th><th style="text-align:right">Est. time · disk</th></tr></thead><tbody>'+(o.indexes||[]).map(row).join('')+'</tbody>';
+  document.getElementById('hxCancel').style.display=run?'':'none';
+  const live=document.getElementById('hxLive');
+  if(run){ const ln=(job.lines||[]).filter(x=>x&&x.indexOf('cwd')!==0); live.textContent=(ln.length?ln[ln.length-1]:'')+(job.cur?'\n'+job.cur:'')+'\n'+fmtDur(job.elapsed||0)+' elapsed'; }
+  else live.textContent='';
+  clearTimeout(HX_T); if(run) HX_T=setTimeout(loadHx, 3000);
+}
+async function loadHx(){ let o; try{ o=await API.post('hx_status'); }catch(e){ o={ok:false,error:e.message}; } renderHx(o); }
+document.getElementById('hxRefresh').onclick=loadHx;
+document.getElementById('hxGo').onclick=async (e)=>{
+  const btn=e.currentTarget;
+  if(HX&&HX.job&&HX.job.status==='running'){ attachJob(HX.job.id); focusCli(); return; }
+  if(RUNNING.hx_optimize!=null){ attachJob(RUNNING.hx_optimize); focusCli(); return; }
+  const o0=HX||{}, miss=(o0.missing||[]);
+  const msg=miss.length
+    ?'Optimize navi.db for the Hounds?\n\nBuilds '+miss.length+' index'+(miss.length>1?'es':'')+' ('+miss.join(', ')+') in '+(o0.db_path||'navi.db')+'\n  estimated '+fmtEst(o0.est_s)+', +'+fmtB(o0.est_bytes)+' on disk\nthen ANALYZE + unordered + the summary tables (hx_plugin / hx_asset).\n\nnavi.db\'s write lock is held while it builds — navi syncs and tag runs wait. You can cancel between indexes (the one in progress is rolled back).'
+    :'Refresh the statistics (ANALYZE + unordered) and rebuild the summary tables (hx_plugin / hx_asset) on '+(o0.db_path||'navi.db')+'? All indexes are already built — this reads the two vulns indexes once (seconds to minutes; ≈ 20–30 min at 120M findings).';
+  if(!confirm(msg)) return;
+  btn.disabled=true; btn.innerHTML='<span class="spin"></span>Starting…';
+  let o; try{ o=await API.post('hx_optimize',{confirm:true}); }catch(err){ o={ok:false,error:err.message}; }
+  btn.disabled=false; btn.innerHTML=btn.dataset.label||'⚡ Optimize';
+  if(!o||!o.ok){ flash('hxFlash','✗ '+esc((o&&o.error)||'could not start'),'crit'); if(o&&o.status) renderHx(o.status); return; }
+  flash('hxFlash','✓ '+(o.already_running?'Already running':'Started')+' (job #'+esc(o.job.id)+'). Progress streams in the navi CLI window below; it keeps running if you leave.','ok');
+  RUNNING.hx_optimize=o.job.id; markRunning(); attachJob(o.job.id); loadJobs(); loadHx();
+};
+document.getElementById('hxCancel').onclick=async ()=>{
+  const j=HX&&HX.job; if(!j) return;
+  if(!confirm('Cancel Optimize? The index being built is rolled back; the ones already built are kept.')) return;
+  let o; try{ o=await API.post('hx_cancel',{job_id:j.id}); }catch(err){ o={ok:false,error:err.message}; }
+  flash('hxFlash',o&&o.ok?esc(o.message||'cancelling…'):'✗ '+esc((o&&o.error)||'could not cancel'),o&&o.ok?'warn':'crit'); loadHx();
+};
+loadHx();
 document.getElementById('cliClear').onclick=()=>{ CLI_TOKEN++; CLI_JOB=null; document.getElementById('cli').innerHTML='<span class="sub">Cleared.</span>'; document.getElementById('cliStatus').style.display='none'; };
 document.getElementById('dbRefresh').onclick=loadDb;
 setInterval(loadJobs, 5000);   // refresh Recent-runs list + durations every 5s (no jittery per-second tick)

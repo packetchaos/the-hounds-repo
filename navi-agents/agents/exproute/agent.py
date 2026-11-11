@@ -15,7 +15,7 @@ import re
 import threading
 import time as _time
 
-from core import db, navi_cli, tagname
+from core import db, navi_cli, tagname, hx_summary
 from core.agents.base import Agent
 from core.security import private_open as _popen
 
@@ -472,13 +472,27 @@ def _base(db_path=None) -> dict:
         app_plugins.setdefault(app, set()).update(pids)
         for pid in pids:
             plugin_apps.setdefault(pid, set()).add(app)
-    # findings: one scan of DISTINCT (plugin, asset) → route assets + per-plugin asset counts
+    # findings: DISTINCT (plugin, asset) for the ROUTE plugins only — an index SEARCH per plugin
+    # on hx_v_plugin(plugin_id, asset_uuid, …) — never every pair in vulns (that was 3.9M → 11.8M
+    # rows into Python on the scale DBs). plugin_asset_n holds those plugins' asset counts; the
+    # champion plugin's count is looked up on its own (plugin_assets()).
     route_assets, plugin_asset_n = {}, {}
-    for r in q("SELECT DISTINCT plugin_id, asset_uuid FROM vulns"):
-        pid, au = str(r.get("plugin_id")), r.get("asset_uuid")
-        plugin_asset_n[pid] = plugin_asset_n.get(pid, 0) + 1
-        for app in plugin_apps.get(pid, ()):
-            route_assets.setdefault(app, set()).add(au)
+    if plugin_apps:
+        ib = db.indexed_by("hx_v_plugin", db_path)
+        try:
+            it = db.iter("SELECT DISTINCT plugin_id, asset_uuid FROM vulns" + ib +
+                         " WHERE plugin_id IN (SELECT value FROM json_each(?))",
+                         (_json.dumps(sorted(plugin_apps)),), path=db_path,
+                         budget="run" if ib else "job", tuples=True)
+            for pid, au in it:
+                pid = str(pid)
+                plugin_asset_n[pid] = plugin_asset_n.get(pid, 0) + 1
+                for app in plugin_apps.get(pid, ()):
+                    route_assets.setdefault(app, set()).add(au)
+        except db.QueryTimeout:
+            raise
+        except Exception:
+            route_assets, plugin_asset_n = {}, {}
     path_assets, path_plugin, path_rows = {}, {}, set()
     for r in q("SELECT path, asset_uuid, plugin_id FROM vuln_paths WHERE path IS NOT NULL"):
         p, au, pid = r["path"], r.get("asset_uuid"), str(r.get("plugin_id"))
@@ -497,6 +511,29 @@ def _base(db_path=None) -> dict:
              plugin_asset_n=plugin_asset_n, path_assets=path_assets, path_plugin=path_plugin,
              path_rows=path_rows, route_paths=route_paths, path_routes=path_routes, apps=apps)
     return b
+
+
+def plugin_assets(b, pid, db_path=None) -> int:
+    """Distinct assets (NULL counted once, as the old DISTINCT pair scan did) carrying one plugin —
+    from _base's route-plugin counts when it's a route plugin, else one index SEARCH."""
+    pid = str(pid)
+    n = (b.get("plugin_asset_n") or {}).get(pid)
+    if n is not None:
+        return int(n)
+    try:
+        if hx_summary.usable(db_path):
+            # hx_plugin.assets = COUNT(DISTINCT asset_uuid) (NULL not counted) — add the NULL the
+            # old DISTINCT counted once: one covered seek on hx_v_plugin(plugin_id, asset_uuid)
+            n = db.scalar("SELECT assets FROM hx_plugin WHERE plugin_id=?", (pid,), path=db_path)
+            if n is not None:
+                return int(n) + int(db.scalar(
+                    "SELECT EXISTS(SELECT 1 FROM vulns" + db.indexed_by("hx_v_plugin", db_path) +
+                    " WHERE plugin_id=? AND asset_uuid IS NULL)", (pid,), path=db_path) or 0)
+        return int(db.scalar("SELECT COUNT(*) FROM (SELECT DISTINCT asset_uuid FROM vulns" +
+                             db.indexed_by("hx_v_plugin", db_path) + " WHERE plugin_id=?)", (pid,),
+                             path=db_path, budget="run") or 0)
+    except Exception:
+        return 0
 
 
 def _has_owner_tag(b, au, name):
@@ -520,8 +557,9 @@ def retag_owner_tags(from_name, to_name, db_path=None) -> dict:
     src = _nk(from_name)
     if not src or src in rt or src in pa:
         return {"ok": False, "message": f"'{from_name}' already matches a route/path — nothing to move"}
-    by_user = {}
-    for r in db.query("SELECT asset_uuid, tag_value FROM tags WHERE " + tagname.sql_lit("tag_key", "Owner") + " AND tag_value IS NOT NULL",
+    by_user, raw_vals = {}, {}
+    owner_key = tagname.sql_lit("tag_key", "Owner")
+    for r in db.query("SELECT asset_uuid, tag_value FROM tags WHERE " + owner_key + " AND tag_value IS NOT NULL",
                       path=db_path):
         val = (r.get("tag_value") or "").strip()
         if ": " not in val or not r.get("asset_uuid"):
@@ -529,15 +567,18 @@ def retag_owner_tags(from_name, to_name, db_path=None) -> dict:
         name, user = val.rsplit(": ", 1)
         if _nk(name) == src and user.strip():
             by_user.setdefault(user.strip(), set()).add(r["asset_uuid"])
+            raw_vals.setdefault(user.strip(), set()).add(r["tag_value"])
     if not by_user:
         return {"ok": False, "message": f"no Owner tags named '{from_name}: …' in navi.db"}
     jobs, out = [], []
     for user, aus in sorted(by_user.items()):
         uu = sorted(aus)
-        inl = ",".join("'" + u.replace("'", "''") + "'" for u in uu)
-        js = navi_cli.tag_capped("Owner", f"{target}: {user}", uuids=uu,
-                                 query=f"SELECT uuid AS asset_uuid FROM assets WHERE uuid IN ({inl})",
-                                 remove=False, agent="exproute")
+        # the set's own definition (assets carrying one of these exact Owner tag values),
+        # computed here and paged (≤1,999 per navi job)
+        vals = ",".join("'" + str(v).replace("'", "''") + "'" for v in sorted(raw_vals.get(user, ())))
+        q = ("SELECT uuid AS asset_uuid FROM assets WHERE uuid IN (SELECT asset_uuid FROM tags WHERE "
+             + owner_key + " AND tag_value IN (" + vals + "))")
+        js = navi_cli.tag_set("Owner", f"{target}: {user}", sql=q, agent="exproute", path=db_path)
         jobs += [j.get("job_id") for j in js if j.get("job_id") is not None]
         out.append({"owner": user, "assets": len(uu)})
     return {"ok": True, "target": target, "owners": out, "job_ids": jobs,
@@ -712,7 +753,12 @@ def ownership_map(db_path=None, base=None) -> dict:
         except (TypeError, ValueError):
             return None
     vpr_by_pid = {}
-    for r in q("SELECT plugin_id, MAX(score) m FROM vulns WHERE score IS NOT NULL GROUP BY plugin_id"):
+    # only the plugins that define a route/path are ever looked up — read just theirs (index
+    # SEARCH by plugin_id), not a GROUP BY over every finding
+    _score_pids = sorted(set().union(*b["app_plugins"].values(), *b["path_plugin"].values())) \
+        if (b["app_plugins"] or b["path_plugin"]) else []
+    for r in (q("SELECT plugin_id, MAX(score) m FROM vulns WHERE plugin_id IN (SELECT value FROM json_each(?)) "
+                "AND score IS NOT NULL GROUP BY plugin_id", (_json.dumps(_score_pids),)) if _score_pids else []):
         v = _fnum(r.get("m"))
         if v is not None:
             vpr_by_pid[str(r.get("plugin_id"))] = v
@@ -826,27 +872,52 @@ def ownership_map(db_path=None, base=None) -> dict:
     # duplicated work); owning apps collapses that. Champion = one fix clearing the most CVEs.
     funnel, champion = {}, None
     if q("SELECT name FROM sqlite_master WHERE type='table' AND name='plugins'"):
-        fr = q("WITH present AS (SELECT DISTINCT plugin_id FROM vulns) "
-               "SELECT (SELECT COUNT(*) FROM vulns) findings,(SELECT COUNT(*) FROM present) plugins,"
+        # the plugins present in vulns, read ONCE from the narrow hx_v_plugin index (it was a
+        # DISTINCT over the table, twice) and handed to both statements as a JSON list
+        _ib = db.indexed_by("hx_v_plugin", db_path)
+        _present = None
+        if hx_summary.usable(db_path):
+            # ⚡ Optimize's hx_plugin: the present plugins and their finding counts without a
+            # DISTINCT over the index or a COUNT(*) over vulns. Rows whose plugin_id is NULL (not
+            # in hx_plugin) are added back exactly — one covered range on hx_v_plugin.
+            try:
+                _nulls = int(db.scalar("SELECT COUNT(*) FROM vulns" + _ib + " WHERE plugin_id IS NULL",
+                                       path=db_path) or 0)
+                _present = _json.dumps([r["plugin_id"] for r in
+                                        db.query("SELECT plugin_id FROM hx_plugin", path=db_path)]
+                                       + ([None] if _nulls else []))
+                _findings = "(SELECT COALESCE(SUM(findings),0) + %d FROM hx_plugin)" % _nulls
+            except db.QueryTimeout:
+                raise
+            except Exception:
+                _present = None
+        if _present is None:
+            _present = _json.dumps([r["plugin_id"] for r in q("SELECT DISTINCT plugin_id FROM vulns" + _ib)])
+            _findings = "(SELECT COUNT(*) FROM vulns)"
+        _pw = "WITH present AS (SELECT value AS plugin_id FROM json_each(?)) "
+        fr = q(_pw +
+               "SELECT " + _findings + " findings,(SELECT COUNT(*) FROM present) plugins,"
                "(SELECT COUNT(DISTINCT path) FROM vuln_paths) paths,(SELECT COUNT(DISTINCT app_name) FROM vuln_route) routes,"
                "(SELECT SUM((length(p.cves)-length(replace(p.cves,'CVE-','')))/4) FROM plugins p "
-               "JOIN present ON present.plugin_id=p.plugin_id WHERE p.cves IS NOT NULL AND p.cves NOT IN ('','[]','None')) cves")
+               "JOIN present ON present.plugin_id=p.plugin_id WHERE p.cves IS NOT NULL AND p.cves NOT IN ('','[]','None')) cves",
+               (_present,))
         if fr:
             row = fr[0]
             funnel = {"cves": int(row.get("cves") or 0), "findings": int(row.get("findings") or 0),
                       "plugins": int(row.get("plugins") or 0), "paths": int(row.get("paths") or 0),
                       "routes": int(row.get("routes") or 0)}
-        cr = q("WITH present AS (SELECT DISTINCT plugin_id FROM vulns) "
+        cr = q(_pw +
                "SELECT p.plugin_id,p.name,(length(p.cves)-length(replace(p.cves,'CVE-','')))/4 cve_count "
                "FROM plugins p JOIN present ON present.plugin_id=p.plugin_id "
-               "WHERE p.cves IS NOT NULL AND p.cves NOT IN ('','[]','None') ORDER BY cve_count DESC LIMIT 1")
+               "WHERE p.cves IS NOT NULL AND p.cves NOT IN ('','[]','None') ORDER BY cve_count DESC LIMIT 1",
+               (_present,))
         if cr:
             c = cr[0]
             champion = {"plugin_id": c.get("plugin_id"), "name": c.get("name"),
                         "cve_count": int(c.get("cve_count") or 0),
                         # per-plugin asset count from _base's one scan (a correlated
                         # COUNT(DISTINCT) per plugin was the slowest query on big tenants)
-                        "assets": int(b["plugin_asset_n"].get(str(c.get("plugin_id")), 0))}
+                        "assets": plugin_assets(b, c.get("plugin_id"), db_path)}
 
     # Owner tags that DON'T map to any route or path — surfaced (not silently dropped) so
     # you can see exactly what's not landing on the Sankey and why. These are usually tags

@@ -51,7 +51,8 @@
     <p class="sub">Closest to today first. Select certificates to tag their assets by expiry date. Certificates sharing a date share a tag, so selecting one selects the date. <b>On assets</b> means the tag is already in navi.db.</p>
     <div class="toolbar"><span class="filterbtns" id="stF"><button data-b="" class="on">All</button><button data-b="last12">Expired · last 12 mo</button><button data-b="older">Expired · older</button><button data-b="failing">Failing · next 12 mo</button></span>
       <span id="filt"></span>
-      <span style="margin-left:auto;display:flex;gap:6px"><button class="btn ghost sm" id="cAll">Select shown</button><button class="btn ghost sm" id="cNone">None</button></span></div>
+      <input id="certQ" placeholder="search host / IP / CN / date…" style="padding:6px 9px;border-radius:7px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink);min-width:150px;flex:1;max-width:260px">
+      <span style="margin-left:auto;display:flex;gap:6px"><button class="btn ghost sm" id="cAll" title="every expiry date in this view, across all pages">Select shown</button><button class="btn ghost sm" id="cNone">None</button></span></div>
     <div class="toolbar" style="margin:4px 0"><button class="btn sm" id="tagDates" disabled>🏷️ Tag assets by selected expiry dates</button><span class="chip" id="cSel">0 selected</span></div>
     <table id="certTbl"><thead><tr><th style="width:34px"></th><th>Expiry</th><th>Status</th><th>Host</th><th>IP</th><th>Common name</th><th>Flags</th><th>Tag value</th></tr></thead><tbody></tbody></table>
   </section>
@@ -83,11 +84,14 @@
 <script src="/static/console.js"></script>
 <script>
 const API=agentApi('certificate');
-let M=null, WRITES=false, APPLIED=new Set(), CERTS=[], FILTER=null, STF='', SCOPE=null, _sel=new Set(), _isel=new Set(), iotF='all';
+/* build 455 — payload contract: ▶ Run ships the decision data (every metric, the timeline, the
+   cert-issue matrix, the top crown jewels, IoT counts, page 1 of the certificate list) and a
+   drill handle; the certificate / crown / IoT lists are paged + filtered on the server (hDrill). */
+let M=null, RUN=null, FIRST=null, WRITES=false, APPLIED=new Set(), FILTER=null, STF='', SCOPE=null, _sel=new Set(), _isel=new Set(), iotF='all';
+let TC=null, TCR=null, TIOT=null, _selN=null;
 const N=v=>(v==null?0:v).toLocaleString();
-const FILTERS={ last12:['Expired in the last 12 months',c=>c.status==='expired'&&c.bucket==='last12'], older:['Expired over 12 months ago',c=>c.status==='expired'&&c.bucket==='older'],
-  due30:['Failing ≤ 30 days',c=>c.status!=='expired'&&c.days_left<=30], due90:['Failing ≤ 90 days',c=>c.status!=='expired'&&c.days_left<=90],
-  failing:['Failing in 12 months',c=>c.status!=='expired'], crown:['On crown jewels',c=>c.crown], weak:['Weak crypto',c=>c.weak], self:['Self-signed',c=>c.self_signed] };
+const FILTERS={ last12:['Expired in the last 12 months'], older:['Expired over 12 months ago'], due30:['Failing ≤ 30 days'], due90:['Failing ≤ 90 days'],
+  failing:['Failing in 12 months'], crown:['On crown jewels'], weak:['Weak crypto'], self:['Self-signed'] };
 
 async function run(){
   const b=document.getElementById('run'); b.disabled=true;
@@ -95,14 +99,16 @@ async function run(){
   let o; try{ o=await API.post('run'); }catch(e){ o={ok:false,error:e.message}; }
   b.disabled=false;
   if(!o||!o.ok){ flash('flash','✗ '+esc((o&&(o.error||o.message))||'failed — is the server running?'),'crit'); return false; }
-  M=o.result||{}; APPLIED=new Set((o.tags_present||[]).filter(t=>(t.base||t.tag_key)==='Cert failure'||t.tag_key==null).map(t=>t.tag_value));
-  CERTS=(M.expired||[]).concat(M.twelve_month||[]).sort((a,b)=>Math.abs(a.days_left)-Math.abs(b.days_left));
-  FILTER=null; STF=''; SCOPE=null; _sel.clear(); _isel.clear();
-  ['certTbl','issTbl','crownTbl','iotTbl'].forEach(hPageReset);
+  M=o.result||{}; RUN=(o.drill||{}).run||M.run||null; FIRST=o;
+  APPLIED=new Set((o.tags_present||[]).filter(t=>(t.base||t.tag_key)==='Cert failure'||t.tag_key==null).map(t=>t.tag_value));
+  FILTER=null; STF=''; SCOPE=null; _sel.clear(); _isel.clear(); _selN=null; TC=TCR=TIOT=null;
+  document.querySelectorAll('#stF button').forEach(x=>x.classList.toggle('on',x.dataset.b===''));
+  ['issTbl'].forEach(hPageReset);
   flashClear('flash'); render();
   if(!M.cert_rows) flash('flash','No rows in the navi.db certs table. Populate it with a navi update (certs), then run again.','warn');
   return true;
 }
+const inScope=()=>{ const m=(M&&M.metrics)||{}; return (m.expired||0)+(m.failing||0); };
 
 function renderTimeline(){
   const tl=M.timeline||[]; document.getElementById('tlWrap').style.display=tl.length?'':'none'; if(!tl.length) return;
@@ -111,10 +117,10 @@ function renderTimeline(){
     return `<div class="b${old?' older':''}${t.current?' now':''}${tot?'':' zero'}${SCOPE===t.key?' on':''}" data-k="${esc(t.key)}" title="${esc(old?'Expired before '+M.lookback_start:t.label)} — ${N(t.expired)} expired · ${N(t.failing)} failing · ${N(t.assets)} asset(s)">`+
       `<span class="e" style="height:${(85*t.expired/max).toFixed(1)}%"></span><span class="f" style="height:${(85*t.failing/max).toFixed(1)}%"></span><span class="n">${tot?N(tot):''}</span></div>`; }).join('');
   document.getElementById('tlx').innerHTML=tl.map(t=>{ if(t.key==='older') return '<span class="older"><b>Older</b></span>';
-    const [y,m]=t.key.split('-'); const mon=t.label.slice(0,3);
-    return `<span>${t.current?'<b>'+mon+'</b>':mon}${(m==='01'||t===tl[1])?'<br>'+y:''}</span>`; }).join('');
+    const [y,m]=t.key.split('-'); const mon=esc(t.label.slice(0,3));
+    return `<span>${t.current?'<b>'+mon+'</b>':mon}${(m==='01'||t===tl[1])?'<br>'+esc(y):''}</span>`; }).join('');
   document.getElementById('tlNote').textContent=`· ${tl[1].label} → ${tl[tl.length-1].label} · tallest bar ${N(max)} certificate(s)`;
-  document.querySelectorAll('#tl .b:not(.zero)').forEach(el=>el.onclick=()=>{ SCOPE=SCOPE===el.dataset.k?null:el.dataset.k; hPageReset('certTbl'); renderTimeline(); renderCerts();
+  document.querySelectorAll('#tl .b:not(.zero)').forEach(el=>el.onclick=()=>{ SCOPE=SCOPE===el.dataset.k?null:el.dataset.k; renderTimeline(); renderCerts();
     if(SCOPE) document.getElementById('secCerts').scrollIntoView({behavior:'smooth',block:'start'}); });
 }
 
@@ -141,39 +147,52 @@ function renderMetrics(){
             {v:N(m.self_signed_inscope), l:'expired/failing certs that are self-signed', u:`${N(m.self_signed)} across all certs`, sev:'low', filter:'self'},
             {v:N(m.issue_plugins), l:'cert-issue plugins firing', u:`${N(m.issue_assets)} plugin hits on assets`, href:'#secIssues'},
             m.has_acr?{v:N(m.cert_rows), l:'certificates in navi.db', u:`on ${as(m.cert_assets)} · ${N(m.common_names)} common names`+(m.unparsed?` · ${N(m.unparsed)} unreadable date${m.unparsed===1?'':'s'}`:''), href:'#secCerts'}:null]}
-  ], {active:FILTER, onFilter:(f,_el,on)=>{ FILTER=on?f:null; hPageReset('certTbl'); renderMetrics(); renderCerts();
+  ], {active:FILTER, onFilter:(f,_el,on)=>{ FILTER=on?f:null; renderMetrics(); renderCerts();
     if(FILTER) document.getElementById('secCerts').scrollIntoView({behavior:'smooth',block:'start'}); }});
 }
 
-function certsShown(){
-  let r=CERTS;
-  if(STF==='failing') r=r.filter(c=>c.status!=='expired'); else if(STF) r=r.filter(c=>c.status==='expired'&&c.bucket===STF);
-  if(FILTER) r=r.filter(FILTERS[FILTER][1]);
-  if(SCOPE) r=SCOPE==='older'?r.filter(c=>c.status==='expired'&&c.bucket==='older'):r.filter(c=>(c.expiry_iso||'').slice(0,7)===SCOPE);
-  return r;
-}
+/* the view's filter tokens (server-side flags) — status buttons × glance filter × timeline bar */
+function certFlags(){ const f=[];
+  if(STF) f.push(STF); if(FILTER) f.push(FILTER);
+  if(SCOPE) f.push(SCOPE==='older'?'m:older':'m:'+SCOPE);
+  return [...new Set(f)]; }
 const stPill=c=>c.status==='expired'
   ? `<span class="stb" style="color:${c.bucket==='older'?'var(--st-old)':'var(--st-exp)'};border-color:currentColor"><i style="background:currentColor"></i>expired ${N(-c.days_left)} d ago</span>`
   : `<span class="stb" style="color:${c.days_left<=30?'var(--st-exp)':c.days_left<=90?'var(--st-fail)':'var(--st-later)'};border-color:currentColor"><i style="background:currentColor"></i>${N(c.days_left)} d left</span>`;
+function certRow(c){ const host=c.asset_uuid?`<a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(c.asset_uuid)}">${esc(c.hostname)}</a>`:esc(c.hostname);
+  const on=APPLIED.has(c.tag_value);
+  return `<tr><td><input type="checkbox" class="csel" data-v="${esc(c.tag_value)}"${_sel.has(c.tag_value)?' checked':''}></td><td class="mono">${esc(c.expiry_iso)}</td><td>${stPill(c)}</td>`+
+    `<td>${host}</td><td class="mono">${esc(c.ip_address||'')}</td><td class="mono">${esc(c.common_name||'')}</td>`+
+    `<td>${c.crown?`<span class="flag crown" title="ACR ${esc(String(c.acr))}">crown</span>`:''}${c.weak?`<span class="flag weak" title="${esc(c.signature_algorithm||'')} · ${esc(c.key_length||'')}">weak</span>`:''}${c.self_signed?'<span class="flag self">self-signed</span>':''}</td>`+
+    `<td><span class="tagval">Cert failure : ${esc(c.tag_value)}</span>${on?' <span class="badge b-applied" title="already in navi.db">on assets</span>':''}</td></tr>`; }
 function renderCerts(){
-  const rows=certsShown(), chips=[];
+  const chips=[];
   if(FILTER) chips.push(`<span class="fchip">${esc(FILTERS[FILTER][0])}<button data-x="f" title="Clear">✕</button></span>`);
   if(SCOPE){ const t=(M.timeline||[]).find(x=>x.key===SCOPE); chips.push(`<span class="fchip">${esc(SCOPE==='older'?'Expired over 12 months ago':(t?t.label:SCOPE))}<button data-x="s" title="Clear">✕</button></span>`); }
   const fe=document.getElementById('filt'); fe.innerHTML=chips.join(' ');
-  fe.querySelectorAll('button[data-x]').forEach(b=>b.onclick=()=>{ if(b.dataset.x==='f') FILTER=null; else SCOPE=null; hPageReset('certTbl'); renderMetrics(); renderTimeline(); renderCerts(); });
-  document.getElementById('certCount').textContent=rows.length===CERTS.length?`(${N(rows.length)})`:`(${N(rows.length)} of ${N(CERTS.length)})`;
-  setNavCount('secCerts', N(CERTS.length));
-  hPaginate('certTbl', rows, c=>{ const host=c.asset_uuid?`<a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(c.asset_uuid)}">${esc(c.hostname)}</a>`:esc(c.hostname);
-      const on=APPLIED.has(c.tag_value);
-      return `<tr><td><input type="checkbox" class="csel" data-v="${esc(c.tag_value)}"${_sel.has(c.tag_value)?' checked':''}></td><td class="mono">${esc(c.expiry_iso)}</td><td>${stPill(c)}</td>`+
-        `<td>${host}</td><td class="mono">${esc(c.ip_address||'')}</td><td class="mono">${esc(c.common_name||'')}</td>`+
-        `<td>${c.crown?`<span class="flag crown" title="ACR ${esc(String(c.acr))}">crown</span>`:''}${c.weak?`<span class="flag weak" title="${esc(c.signature_algorithm||'')} · ${esc(c.key_length||'')}">weak</span>`:''}${c.self_signed?'<span class="flag self">self-signed</span>':''}</td>`+
-        `<td><span class="tagval">Cert failure : ${esc(c.tag_value)}</span>${on?' <span class="badge b-applied" title="already in navi.db">on assets</span>':''}</td></tr>`; },
-    {cols:8, empty:'<tr><td colspan="8" class="sub">'+(CERTS.length?'Nothing in this view.':'No certificates are expired or failing within 12 months.')+'</td></tr>',
-     wire:tb=>tb.querySelectorAll('input.csel').forEach(x=>x.onchange=()=>{ if(x.checked)_sel.add(x.dataset.v); else _sel.delete(x.dataset.v); renderCerts(); })});
-  const sel=CERTS.filter(c=>_sel.has(c.tag_value));
-  document.getElementById('cSel').textContent=_sel.size?`${N(_sel.size)} date(s) · ${N(sel.length)} cert(s) · ~${N(new Set(sel.map(c=>c.asset_uuid)).size)} asset(s)`:'0 selected';
+  fe.querySelectorAll('button[data-x]').forEach(b=>b.onclick=()=>{ if(b.dataset.x==='f') FILTER=null; else SCOPE=null; renderMetrics(); renderTimeline(); renderCerts(); });
+  setNavCount('secCerts', N(inScope()));
+  const flags=certFlags(), q=(document.getElementById('certQ').value||'').trim();
+  const opts={api:API, table:'certTbl', run:RUN, section:'certs', sort:'near', cols:8, row:certRow, search:'certQ',
+    empty:'<tr><td colspan="8" class="sub">'+(inScope()?'Nothing in this view.':'No certificates are expired or failing within 12 months.')+'</td></tr>',
+    wire:tb=>tb.querySelectorAll('input.csel').forEach(x=>x.onchange=()=>{ if(x.checked)_sel.add(x.dataset.v); else _sel.delete(x.dataset.v);
+      tb.querySelectorAll('input.csel').forEach(y=>{ y.checked=_sel.has(y.dataset.v); }); selSync(); }),
+    onRender:T=>{ const t=T.total, all=inScope(); const n=t?t.value:0;
+      document.getElementById('certCount').textContent=(!flags.length&&!q)?`(${N(all)})`:`(${N(n)}${t&&t.exact===false?'+':''} of ${N(all)})`; }};
+  if(!TC){ TC=hDrill(Object.assign(opts,{filter:flags, first:(!flags.length&&!q)?FIRST:null})); }
+  else TC.set({filter:flags});
+  selSync();
+}
+let _selT=null;
+function selSync(){
   document.getElementById('tagDates').disabled=!_sel.size;
+  if(!_sel.size){ _selN=null; document.getElementById('cSel').textContent='0 selected'; return; }
+  document.getElementById('cSel').textContent=`${N(_sel.size)} date(s) · counting…`;
+  clearTimeout(_selT); _selT=setTimeout(async()=>{ const vals=[..._sel];
+    let o; try{ o=await API.post('dates',{run:RUN, values:vals}); }catch(e){ o=null; }
+    if(vals.length!==_sel.size) return;
+    _selN=o&&o.ok?o:null;
+    document.getElementById('cSel').textContent=_selN?`${N(_sel.size)} date(s) · ${N(_selN.certs)} cert(s) · ~${N(_selN.assets)} asset(s)`:`${N(_sel.size)} date(s)`; }, 250);
 }
 
 function renderIssues(){
@@ -189,20 +208,24 @@ function renderIssues(){
 function iSync(){ document.getElementById('iSel').textContent=_isel.size+' selected'; document.getElementById('tagIssues').disabled=!_isel.size; }
 
 function renderCrown(){
-  const cr=M.crown||[]; document.getElementById('crownCount').textContent=`(${N(cr.length)})`; setNavCount('secCrown', N(cr.length));
-  hPaginate('crownTbl', cr, a=>`<tr><td><a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(a.asset_uuid)}">${esc(a.host)}</a></td><td class="mono">${esc(a.ip||'')}</td>`+
+  const n=M.crown_total!=null?M.crown_total:(M.crown||[]).length;
+  document.getElementById('crownCount').textContent=`(${N(n)})`; setNavCount('secCrown', N(n));
+  const row=a=>`<tr><td><a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(a.asset_uuid)}">${esc(a.host)}</a></td><td class="mono">${esc(a.ip||'')}</td>`+
     `<td><b style="color:var(--crit)">${esc(String(a.acr))}</b></td><td>${a.expired?`<b style="color:var(--st-exp)">${N(a.expired)}</b>`:'0'}</td><td>${N(a.failing)}</td>`+
-    `<td>${a.soonest==null?'—':N(a.soonest)+' d'}</td><td>${(a.cns||[]).map(c=>`<span class="tagval">${esc(c)}</span>`).join(' ')}</td></tr>`,
-    {cols:7, empty:'<tr><td colspan="7" class="sub">'+((M.metrics||{}).has_acr?'No crown-jewel (ACR &gt; 7) assets have an expired or failing certificate.':'navi.db has no ACR column on assets — run a navi update with ACR.')+'</td></tr>'});
+    `<td>${a.soonest==null?'—':N(a.soonest)+' d'}</td><td>${(a.cns||[]).map(c=>`<span class="tagval">${esc(c)}</span>`).join(' ')}</td></tr>`;
+  const empty='<tr><td colspan="7" class="sub">'+((M.metrics||{}).has_acr?'No crown-jewel (ACR &gt; 7) assets have an expired or failing certificate.':'navi.db has no ACR column on assets — run a navi update with ACR.')+'</td></tr>';
+  TCR=hDrill({api:API, table:'crownTbl', run:RUN, section:'crown', cols:7, row, empty});
 }
 
 function renderIot(){
-  const all=M.iot_app_cache||[], rows=all.filter(c=>iotF==='all'||c.device_type===iotF);
-  document.getElementById('iotCount').textContent=`(${N(all.length)})`; setNavCount('secIot', N(all.length));
-  hPaginate('iotTbl', rows, c=>{const host=c.asset_uuid?`<a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(c.asset_uuid)}">${esc(c.hostname)}</a>`:esc(c.hostname);
-    return `<tr><td><span class="dtype ${c.device_type==='IoT'?'t-iot':'t-app'}">${esc(c.device_type)}</span></td><td>${esc(c.vendor)}</td><td>${esc(c.product)}</td><td class="mono">${esc(c.ip||'')}</td><td>${host}</td><td class="mono">${esc(c.cert_cn||'')}</td></tr>`;}, {cols:6});
-  const iotN=all.filter(c=>c.device_type==='IoT').length, appN=all.filter(c=>c.device_type==='Application').length;
-  document.getElementById('iotkpi').innerHTML=`<div class="k"><div class="v">${iotN}</div><div class="l">IoT devices</div></div><div class="k"><div class="v">${appN}</div><div class="l">App endpoints</div></div><div class="k"><div class="v">${all.length}</div><div class="l">cache entries</div></div>`;
+  const k=M.iot||{}, all=k.total||0;
+  document.getElementById('iotCount').textContent=`(${N(all)})`; setNavCount('secIot', N(all));
+  const row=c=>{const host=c.asset_uuid?`<a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(c.asset_uuid)}">${esc(c.hostname)}</a>`:esc(c.hostname);
+    return `<tr><td><span class="dtype ${c.device_type==='IoT'?'t-iot':'t-app'}">${esc(c.device_type)}</span></td><td>${esc(c.vendor)}</td><td>${esc(c.product)}</td><td class="mono">${esc(c.ip||'')}</td><td>${host}</td><td class="mono">${esc(c.cert_cn||'')}</td></tr>`;};
+  const flt=iotF==='all'?[]:['t:'+iotF];
+  if(!TIOT) TIOT=hDrill({api:API, table:'iotTbl', run:RUN, section:'iot', sort:'type', cols:6, row, filter:flt});
+  else TIOT.set({filter:flt});
+  document.getElementById('iotkpi').innerHTML=`<div class="k"><div class="v">${N(k.IoT||0)}</div><div class="l">IoT devices</div></div><div class="k"><div class="v">${N(k.Application||0)}</div><div class="l">App endpoints</div></div><div class="k"><div class="v">${N(all)}</div><div class="l">cache entries</div></div>`;
 }
 
 function render(){ if(!M) return; renderTimeline(); renderMetrics(); renderCerts(); renderIssues(); renderCrown(); renderIot(); }
@@ -223,11 +246,11 @@ async function gated(btn, label, call, okMsg, ask){   /* ask: plain-text questio
   return o;
 }
 document.getElementById('tagDates').onclick=async()=>{
-  const vals=[..._sel], nA=new Set(CERTS.filter(c=>_sel.has(c.tag_value)).map(c=>c.asset_uuid).filter(Boolean)).size;
+  const vals=[..._sel], nA=_selN?_selN.assets:'?';
   const o=await gated(document.getElementById('tagDates'),'queuing Cert failure tags',()=>API.post('tags_apply',{values:vals,confirm:true}),
     o=>`queued ${N(o.queued)} Cert failure tag${o.queued===1?'':'s'}`+(o.missing&&o.missing.length?` (${N(o.missing.length)} date(s) no longer match)`:''),
     ()=>`Tag ${tagCat('Cert failure')} : <date> for ${vals.length} expiry date${vals.length===1?'':'s'} on ~${nA} asset${nA===1?'':'s'}?\n\n`+vals.slice(0,12).map(v=>`• ${tagCat('Cert failure')} : ${v}`).join('\n')+(vals.length>12?`\n• … +${vals.length-12} more`:''));
-  if(o&&o.ok){ _sel.clear(); renderCerts(); }
+  if(o&&o.ok){ _sel.clear(); if(TC) TC.reload(); selSync(); }
 };
 document.getElementById('tagIssues').onclick=async()=>{
   const picks=(M.cert_issue_matrix||[]).filter(r=>_isel.has(String(r.plugin_id))).map(r=>({plugin_id:r.plugin_id,plugin_name:r.plugin_name}));
@@ -239,12 +262,17 @@ document.getElementById('tagIssues').onclick=async()=>{
 };
 
 /* ---- wiring ---- */
-document.querySelectorAll('#stF button').forEach(b=>b.onclick=()=>{ document.querySelectorAll('#stF button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); STF=b.dataset.b; hPageReset('certTbl'); renderCerts(); });
-document.getElementById('cAll').onclick=()=>{ certsShown().forEach(c=>_sel.add(c.tag_value)); renderCerts(); };
-document.getElementById('cNone').onclick=()=>{ _sel.clear(); renderCerts(); };
+document.querySelectorAll('#stF button').forEach(b=>b.onclick=()=>{ document.querySelectorAll('#stF button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); STF=b.dataset.b; if(M) renderCerts(); });
+/* "Select shown" = every expiry date in this view (all pages) — the server lists the dates */
+document.getElementById('cAll').onclick=async()=>{ if(!RUN) return;
+  let o; try{ o=await API.post('dates',{run:RUN, filter:certFlags(), q:(document.getElementById('certQ').value||'').trim()}); }catch(e){ o=null; }
+  if(!o||!o.ok){ flash('flash','✗ '+esc((o&&o.error)||'could not list the dates in this view'),'crit'); return; }
+  (o.values||[]).forEach(v=>_sel.add(v)); if(o.truncated) flash('flash','Selected the first 5,000 dates in this view.','warn');
+  if(TC) TC.reload(); selSync(); };
+document.getElementById('cNone').onclick=()=>{ _sel.clear(); if(TC) TC.reload(); selSync(); };
 document.getElementById('iAll').onclick=()=>{ (M&&M.cert_issue_matrix||[]).forEach(r=>_isel.add(String(r.plugin_id))); renderIssues(); };
 document.getElementById('iNone').onclick=()=>{ _isel.clear(); renderIssues(); };
-document.querySelectorAll('#iotFilter button').forEach(b=>b.onclick=()=>{ document.querySelectorAll('#iotFilter button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); iotF=b.dataset.f; hPageReset('iotTbl'); renderIot(); });
+document.querySelectorAll('#iotFilter button').forEach(b=>b.onclick=()=>{ document.querySelectorAll('#iotFilter button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); iotF=b.dataset.f; if(M) renderIot(); });
 document.getElementById('run').onclick=run;
 mountAgentHeader({id:'certificate',icon:'🔐',name:'Certificate Agent',sub:'Certania · expired by month · failing in 12 months · tags assets'});
 mountSectionNav();
@@ -252,7 +280,8 @@ try{ hMailAuto(); }catch(e){}
 jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});
 (async()=>{                       // no auto-run — except a handoff deep link
   const h=handoffParams();
-  if(h.focus){ if(await run() && !focusRow('#certTbl',h.focus)) flash('flash','Handoff: “'+esc(h.focus)+'” has no certificate expired or failing in this view.','warn'); }
+  if(h.focus){ if(await run()){ const q=document.getElementById('certQ'); q.value=h.focus; if(TC) await TC.set({q:h.focus});
+    if(!focusRow('#certTbl',h.focus)) flash('flash','Handoff: “'+esc(h.focus)+'” has no certificate expired or failing in this view.','warn'); } }
 })();
 </script>
 </body></html>

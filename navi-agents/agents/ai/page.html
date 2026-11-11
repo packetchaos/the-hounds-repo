@@ -128,14 +128,19 @@ function allowSave(l){ try{localStorage.setItem('aiEgressAllow',JSON.stringify(l
 const plink=(u,txt)=>u?`<a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(u)}">${esc(txt)}</a>`:esc(txt);
 const platLink=(url,txt)=>safeUrl(url,'')?`<a href="${esc(safeUrl(url))}" target="_blank" rel="noopener noreferrer" class="chip" style="text-decoration:none">${esc(txt||'Tenable ↗')}</a>`:'';
 
+/* build 455 — payload contract: ▶ Run ships the decision data (metrics + every breakdown the page
+   used to compute over the full asset list, as counts) and page 1 of the assets; the asset list and
+   the ATLAS drill-down page on the server (hDrill). Tag buttons send a KEY — the server rebuilds the set. */
+let RUN=null, FIRST=null, TA=null, TAT=null, _cnt=null;
+const V=()=>(DATA&&DATA.view)||{};
 async function run(){
   const b=document.getElementById('run'); b.disabled=true;
   flash('flash','<span class="spin"></span> discovering AI/ML across the AI plugin family, software, CPEs, plugin output and endpoints…','run');
   let o; try{ o=await API.post('run',{fp:fpLoad(),allow:allowLoad()||undefined}); }catch(e){ o={ok:false,error:e.message}; }
   b.disabled=false;
   if(!o||!o.ok||!o.result){ flash('flash','✗ '+esc((o&&(o.error||o.message))||'failed'),'crit'); return; }
-  DATA=o.result; FILTER=null; ROLEF='all'; _acrSel.clear(); ATSEL=null;
-  ['aiTbl','softTbl','atlTbl'].forEach(hPageReset);
+  DATA=o.result; RUN=(o.drill||{}).run||null; FIRST=o; TA=null; TAT=null; _cnt=null; FILTER=null; ROLEF='all'; _acrSel.clear(); ATSEL=null;
+  ['softTbl'].forEach(hPageReset);
   if(DATA.metrics_error) flash('flash','⚠ '+esc(DATA.metrics_error),'warn');
   else if(!DATA.asset_count) flash('flash','No AI/ML found. Checked the AI plugin family, software, CPEs, plugin output and endpoints.','warn');
   else flashClear('flash');
@@ -160,26 +165,27 @@ async function gated(btn,label,call,okMsg,el,ask){
   flash(el,'✓ '+okMsg(o)+' — sent to the <a href="/web/tags-log.html">Tagging log</a>.'+(o.writes_enabled===false?' Writes are gated, so nothing reaches Tenable until NAVI_ALLOW_WRITES=1.':' Tags take ~30 min to land in Tenable.'),'ok'); scroll();
   return o;
 }
-function aiTag(category,value,uuids,btn){
-  const uu=[...new Set((uuids||[]).filter(Boolean))]; if(!uu.length){ flash('flash','Nothing to tag.','warn'); return; }
-  return gated(btn,`queuing ${esc(category)} : ${esc(value)}`,()=>API.post('tag',{category,value,uuids:uu,confirm:true}),
+/* key = what the server rebuilds the set from: {all} · {filter,q} · {asset} · {fw} · {egress} · {shadow} */
+function aiTag(category,value,key,n,btn){
+  if(!RUN||!n){ flash('flash','Nothing to tag.','warn'); return; }
+  return gated(btn,`queuing ${esc(category)} : ${esc(value)}`,()=>API.post('tag',{category,value,run:RUN,key,confirm:true}),
     o=>`queued <span class="tagval">${esc(category)} : ${esc(value)}</span> on ${N(o.count)} asset(s)`,'flash',
-    ()=>`Tag ${tagCat(category)} : ${value} on ${uu.length} asset${uu.length===1?'':'s'}?`);
+    ()=>`Tag ${tagCat(category)} : ${value} on ${n} asset${n===1?'':'s'}?`);
 }
 
 function renderMetrics(){
-  const m=DATA.metrics||{}, br=DATA.byRole||{}, a=DATA.assets||[];
+  const m=DATA.metrics||{}, br=DATA.byRole||{}, v=V(), n=DATA.asset_count||0;
   const roles=Object.keys(br).sort((x,y)=>(ROLE_PRI[y]||0)-(ROLE_PRI[x]||0));
   const ra=DATA.role_acr||{};
-  // the three old "At a glance" charts, folded into their groups as mini-bars
-  const srcN={}; a.forEach(x=>(x.sources||[]).forEach(s=>srcN[s]=(srcN[s]||0)+1));
-  const ex=a.filter(x=>(x.exposed||[]).length).length, un=a.filter(x=>x.unauth).length, sh=a.filter(x=>x.shadow&&!(x.exposed||[]).length).length;
+  // the three old "At a glance" charts, folded into their groups as mini-bars (counts from the server)
+  const srcN=v.src||{};
+  const ex=v.exposed||0, un=v.unauth||0, sh=v.shadow_only||0;
   const active=[]; if(FILTER) active.push('f:'+FILTER); if(ROLEF!=='all') active.push('r:'+ROLEF);
   document.getElementById('metrics').innerHTML='<p class="sub" style="margin:2px 0 0">Click a number to filter the asset list.</p><div id="glxAi"></div>';
   renderGlance('glxAi', [
     {title:'Footprint', t:'Evidence bar: assets per detection source; an asset can appear in several.',
      hero:{v:N(DATA.asset_count), l:'assets running AI/ML', u:(m.ai_pct!=null?m.ai_pct+'%':'')+(m.estate?(m.ai_pct!=null?' ':'')+`of ${N(m.estate)} assets in navi.db`:''), href:'#secAssets'},
-     bar:a.length?Object.keys(SRC).filter(s=>srcN[s]).map(s=>({label:SRC[s][0], value:srcN[s]})):null,
+     bar:n?Object.keys(SRC).filter(s=>srcN[s]).map(s=>({label:SRC[s][0], value:srcN[s]})):null,
      chips:[{v:N(m.content_only), l:'found beyond the Tenable AI plugins', u:`${N(m.plugin_found)} flagged by the AI plugin family · the rest detected only through software, CPE, plugin-output or endpoint evidence`, sev:'ok', filter:'f:content'},
             {v:N(m.frameworks), l:'AI products and frameworks', u:`across ${N(m.roles)} role${m.roles===1?'':'s'}`, href:'#secSoft'},
             {v:N(m.tagged), l:'already tagged by the pack', u:m.roles_tagged&&m.roles_tagged.length?'AI Role tags: '+m.roles_tagged.join(', '):'no AI tags in navi.db yet', sev:'info', filter:'f:tagged'}]},
@@ -188,7 +194,7 @@ function renderMetrics(){
      chips:roles.map(r=>({v:N(br[r]), l:r, u:`suggested ACR ${ra[r]||7}`, filter:'r:'+r}))},
     {title:'Exposure', t:'How reachable each AI asset is.',
      hero:{v:N(DATA.exposedCount), l:'exposed AI endpoints', u:'inference / notebook / MLOps ports seen on the network', sev:'crit', filter:'f:exposed'},
-     bar:a.length?[{label:'Unauthenticated endpoint',value:un,color:'crit'},{label:'Exposed (auth)',value:ex-un,color:'high'},{label:'Shadow egress only',value:sh,color:'med'},{label:'Internal only',value:a.length-ex-sh,color:'var(--mut)'}]:null,
+     bar:n?[{label:'Unauthenticated endpoint',value:un,color:'crit'},{label:'Exposed (auth)',value:ex-un,color:'high'},{label:'Shadow egress only',value:sh,color:'med'},{label:'Internal only',value:n-ex-sh,color:'var(--mut)'}]:null,
      chips:[{v:N(m.unauth), l:'unauthenticated endpoints', u:'anyone on the network can use the model', sev:'crit', filter:'f:unauth'},
             {v:N(DATA.shadowCount), l:'assets with shadow egress', u:`can send data to ${N(m.shadow_dests)} unsanctioned destination${m.shadow_dests===1?'':'s'}`, sev:'high', filter:'f:shadow'},
             {v:N(m.destinations), l:'egress destinations', u:`${N(DATA.egressCount)} AI assets can reach out`, href:'#secEgress'}]},
@@ -201,47 +207,18 @@ function renderMetrics(){
      hero:{v:N(m.underrated), l:'below the suggested ACR', u:`of ${N(m.acr_rated)} rated · fix in ACR alignment`, sev:'high', filter:'f:under'},
      chips:[{v:N(m.crown), l:'AI crown jewels', u:'ACR ≥ 7', sev:'crit', filter:'f:crown'},
             {v:m.acr_median!=null?String(m.acr_median):'—', l:'median ACR of AI assets', zero:false},
-            {v:N(DATA.asset_count-m.tagged), l:'not tagged yet', u:'tag by role or all at once', filter:'f:untagged'}]}
+            {v:N((DATA.asset_count||0)-(m.tagged||0)), l:'not tagged yet', u:'tag by role or all at once', filter:'f:untagged'}]}
   ], {active, onFilter:(f,_el,on)=>{
     const kind=f.slice(0,2), key=f.slice(2);
     if(kind==='r:') ROLEF=on?key:'all'; else FILTER=on?key:null;
-    hPageReset('aiTbl'); renderMetrics(); renderTable();
+    renderMetrics(); renderTable();
     if(FILTER||ROLEF!=='all') document.getElementById('secAssets').scrollIntoView({behavior:'smooth',block:'start'}); }});
 }
 
-function shownAssets(){ let r=DATA.assets||[]; if(ROLEF!=='all') r=r.filter(x=>x.role===ROLEF); if(FILTER) r=r.filter(FILTERS[FILTER][1]); return r; }
-function renderTable(){
-  const a=DATA.assets||[], br=DATA.byRole||{}, rows=shownAssets();
-  const roles=Object.keys(br).sort((x,y)=>(ROLE_PRI[y]||0)-(ROLE_PRI[x]||0));
-  const seg=document.getElementById('aiRoleSeg');
-  seg.innerHTML='<button class="seg" data-rf="all">All <b>'+a.length+'</b></button>'+roles.map(r=>'<button class="seg" data-rf="'+esc(r)+'">'+esc(r)+' <b>'+br[r]+'</b></button>').join('');
-  seg.querySelectorAll('.seg').forEach(s=>{ s.classList.toggle('on',s.dataset.rf===ROLEF); s.onclick=()=>{ ROLEF=s.dataset.rf; hPageReset('aiTbl'); renderMetrics(); renderTable(); }; });
-  const fe=document.getElementById('filt');
-  fe.innerHTML=FILTER?`<span class="fchip">${esc(FILTERS[FILTER][0])}<button id="clrF" title="Clear">✕</button></span>`:'';
-  const c=document.getElementById('clrF'); if(c) c.onclick=()=>{ FILTER=null; hPageReset('aiTbl'); renderMetrics(); renderTable(); };
-  document.getElementById('aiCount').textContent=rows.length===a.length?`(${N(a.length)})`:`(${N(rows.length)} of ${N(a.length)})`;
-  setNavCount('secAssets', N(a.length));
-  document.getElementById('tagAll').disabled=!a.length;
-  const scope=(ROLEF!=='all'||FILTER)?' shown':'';
-  const exA=rows.filter(x=>(x.exposed||[]).length), kevA=rows.filter(x=>x.risk&&x.risk.kev);
-  const rt=document.getElementById('roleTags');
-  rt.innerHTML=(fpCount(fpLoad())?'<button class="btn ghost sm" id="fpReset">✖ '+fpCount(fpLoad())+' suppressed · reset</button>':'')
-    +(rows.length?`<button class="btn sm" id="tagRole">🏷️ Tag ${N(rows.length)}${scope} → AI Role : &lt;role&gt;</button>`:'')
-    +(exA.length?`<button class="btn sm" id="tagExp">🏷️ Tag ${N(exA.length)} exposed → AI Exposed : Endpoint</button>`:'')
-    +(kevA.length?`<button class="btn sm" id="tagKev">🏷️ Tag ${N(kevA.length)} AI × KEV → AI Priority : KEV-exposed</button>`:'');
-  const fpr=document.getElementById('fpReset'); if(fpr) fpr.onclick=()=>{ fpSave({}); run(); };
-  const tr=document.getElementById('tagRole'); if(tr) tr.onclick=async function(){ const by={}; rows.forEach(x=>(by[x.role]=by[x.role]||[]).push(x.asset_uuid));
-    const rs=Object.keys(by); if(this.disabled) return; await testRunStatus();
-    if(!confirm('Tag '+tagCat('AI Role')+' : <role> on '+rows.length+' asset'+(rows.length===1?'':'s')+' ('+rs.length+' role value'+(rs.length===1?'':'s')+')?\n\n'
-      +rs.map(r=>'• '+tagCat('AI Role')+' : '+r+' ('+by[r].length+' asset'+(by[r].length===1?'':'s')+')').join('\n')+(WRITES?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.'))) return;
-    if(this.disabled) return;
-    let n=0, f=0; this.disabled=true; for(const r of rs){ try{ const o=await API.post('tag',{category:'AI Role',value:r,uuids:by[r],confirm:true}); if(o&&o.ok) n++; else f++; }catch(e){ f++; } } this.disabled=false;
-    flash('flash',(n?'✓ queued '+N(n)+' AI Role tag(s) across '+N(rows.length)+' asset(s)':'✗ nothing queued')+(f?' · '+f+' failed':'')+' — sent to the <a href="/web/tags-log.html">Tagging log</a>.'+(n&&!WRITES?' Writes are gated, so nothing reaches Tenable until NAVI_ALLOW_WRITES=1.':''),n?'ok':'crit'); };
-  const eb=document.getElementById('tagExp'); if(eb) eb.onclick=()=>aiTag('AI Exposed','Endpoint',exA.map(x=>x.asset_uuid),eb);
-  const kb=document.getElementById('tagKev'); if(kb) kb.onclick=()=>aiTag('AI Priority','KEV-exposed',kevA.map(x=>x.asset_uuid),kb);
-  hPaginate('aiTbl', rows, x=>{
+function viewFlags(){ const f=[]; if(ROLEF!=='all') f.push('role:'+ROLEF); if(FILTER) f.push(FILTER); return f; }
+function aiRow(x){
     const rk=x.risk||{};
-    const acr=x.acr==null?'<span class="sub">—</span>':(x.underrated?`<span title="below the ${esc(x.role)} suggestion"><b style="color:#e0913a">${x.acr}</b> → ${x.acr_suggest}</span>`:`<b>${x.acr}</b>`);
+    const acr=x.acr==null?'<span class="sub">—</span>':(x.underrated?`<span title="below the ${esc(x.role)} suggestion"><b style="color:#e0913a">${esc(x.acr)}</b> → ${esc(x.acr_suggest)}</span>`:`<b>${esc(x.acr)}</b>`);
     return '<tr><td title="'+esc(x.host||'')+'"><b>'+plink(x.asset_uuid,x.host)+'</b></td><td class="mono">'+esc(x.ip||'')+'</td>'+
     '<td><span class="tagval" style="color:'+(ROLE_COLOR[x.role]||'var(--accent)')+'">'+esc(x.role)+'</span><div class="pillwrap" style="margin-top:3px">'+
       (rk.kev?'<span class="badge" style="color:#f43f5e;border-color:rgba(244,63,94,.5)" title="also carries a CISA-KEV finding">🔥 KEV</span>':'')+
@@ -251,38 +228,75 @@ function renderTable(){
       (x.content_only?'<span class="badge" style="color:#30a46c;border-color:rgba(48,164,108,.5)" title="not flagged by the Tenable AI plugin family">beyond plugins</span>':'')+
       ((x.ai_tags||[]).length?'<span class="badge" title="'+esc(x.ai_tags.join(' · '))+'">🏷️ tagged</span>':'')+'</div></td>'+
     '<td><div class="pillwrap">'+((x.exposed||[]).map(e=>'<span class="badge" style="color:#f43f5e;border-color:rgba(244,63,94,.5)" title="network-detected AI endpoint">⚠ '+esc(e.name)+':'+esc(e.port)+(e.auth==='unauth'?' unauth':'')+'</span>').join(''))+
-      ((x.frameworks||[]).slice(0,6).map(fw=>'<span class="chip">'+esc(fw)+'</span>').join('')+((x.frameworks||[]).length>6?'<span class="chip sub" title="'+esc(x.frameworks.slice(6).join(', '))+'">+'+(x.frameworks.length-6)+' more</span>':''))+'</div></td>'+
+      ((x.frameworks||[]).slice(0,6).map(fw=>'<span class="chip">'+esc(fw)+'</span>').join('')+((x.frameworks||[]).length>6?'<span class="chip sub" title="'+esc(x.frameworks.slice(6).join(', '))+'">+'+((x.frameworks.length-6))+' more</span>':''))+'</div></td>'+
     '<td>'+acr+'</td><td>'+(platLink(x.url,'Open ↗')||'<span class="sub">—</span>')+'</td>'+
-    '<td style="white-space:nowrap"><button class="btn ghost sm" data-why="'+esc(String(x.asset_uuid))+'" title="show the evidence behind this detection">🔍 Why</button> <button class="btn ghost sm" data-tag="'+esc(String(x.asset_uuid))+'" title="Tag AI Role : '+esc(x.role)+'">🏷️ Tag</button></td></tr>'; },
-    {cols:7, empty:'<tr><td colspan="7" class="sub">'+(a.length?'Nothing matches this filter.':'No AI/ML found (checked the AI plugin family + software + cpes + plugin output + endpoints).')+'</td></tr>',
-     wire:tb=>{ tb.querySelectorAll('button[data-why]').forEach(b=>b.onclick=()=>{const x=a.find(o=>String(o.asset_uuid)===b.dataset.why); if(x)why(x);});
-       tb.querySelectorAll('button[data-tag]').forEach(b=>b.onclick=()=>{const x=a.find(o=>String(o.asset_uuid)===b.dataset.tag); if(x)aiTag('AI Role',x.role,[x.asset_uuid],b);}); }});
+    '<td style="white-space:nowrap"><button class="btn ghost sm" data-why="'+esc(String(x.asset_uuid))+'" title="show the evidence behind this detection">🔍 Why</button> <button class="btn ghost sm" data-tag="'+esc(String(x.asset_uuid))+'" title="Tag AI Role : '+esc(x.role)+'">🏷️ Tag</button></td></tr>'; }
+async function renderTable(){
+  const br=DATA.byRole||{}, n=DATA.asset_count||0, flags=viewFlags();
+  const roles=Object.keys(br).sort((x,y)=>(ROLE_PRI[y]||0)-(ROLE_PRI[x]||0));
+  const seg=document.getElementById('aiRoleSeg');
+  seg.innerHTML='<button class="seg" data-rf="all">All <b>'+N(n)+'</b></button>'+roles.map(r=>'<button class="seg" data-rf="'+esc(r)+'">'+esc(r)+' <b>'+N(br[r])+'</b></button>').join('');
+  seg.querySelectorAll('.seg').forEach(s=>{ s.classList.toggle('on',s.dataset.rf===ROLEF); s.onclick=()=>{ ROLEF=s.dataset.rf; renderMetrics(); renderTable(); }; });
+  const fe=document.getElementById('filt');
+  fe.innerHTML=FILTER?`<span class="fchip">${esc(FILTERS[FILTER][0])}<button id="clrF" title="Clear">✕</button></span>`:'';
+  const c=document.getElementById('clrF'); if(c) c.onclick=()=>{ FILTER=null; renderMetrics(); renderTable(); };
+  setNavCount('secAssets', N(n));
+  document.getElementById('tagAll').disabled=!n;
+  const opts={api:API, table:'aiTbl', run:RUN, section:'assets', cols:7, row:aiRow, filter:flags,
+    empty:'<tr><td colspan="7" class="sub">'+(n?'Nothing matches this filter.':'No AI/ML found (checked the AI plugin family + software + cpes + plugin output + endpoints).')+'</td></tr>',
+    wire:(tb,rows)=>{ tb.querySelectorAll('button[data-why]').forEach(b=>b.onclick=()=>{const x=rows.find(o=>String(o.asset_uuid)===b.dataset.why); if(x)why(x);});
+      tb.querySelectorAll('button[data-tag]').forEach(b=>b.onclick=()=>{const x=rows.find(o=>String(o.asset_uuid)===b.dataset.tag); if(x)aiTag('AI Role',x.role,{asset:x.asset_uuid},1,b);}); },
+    onRender:T=>{ const t=T.total, k=t?t.value:0; document.getElementById('aiCount').textContent=(k===n&&!flags.length)?`(${N(n)})`:`(${N(k)} of ${N(n)})`; }};
+  if(!TA) TA=hDrill(Object.assign(opts,{first:flags.length?null:FIRST})); else TA.set({filter:flags});
+  // the tag buttons' numbers for this view, counted on the server
+  const rt=document.getElementById('roleTags');
+  const fpBtn=fpCount(fpLoad())?'<button class="btn ghost sm" id="fpReset">✖ '+fpCount(fpLoad())+' suppressed · reset</button>':'';
+  rt.innerHTML=fpBtn;
+  const fpr0=document.getElementById('fpReset'); if(fpr0) fpr0.onclick=()=>{ fpSave({}); run(); };
+  if(!RUN||!n) return;
+  let k; try{ k=await API.post('counts',{run:RUN,filter:flags}); }catch(e){ k=null; }
+  if(!k||!k.ok||viewFlags().join('|')!==flags.join('|')) return;
+  _cnt=k; const scope=(ROLEF!=='all'||FILTER)?' shown':'';
+  rt.innerHTML=fpBtn
+    +(k.total?`<button class="btn sm" id="tagRole">🏷️ Tag ${N(k.total)}${scope} → AI Role : &lt;role&gt;</button>`:'')
+    +(k.exposed?`<button class="btn sm" id="tagExp">🏷️ Tag ${N(k.exposed)} exposed → AI Exposed : Endpoint</button>`:'')
+    +(k.kev?`<button class="btn sm" id="tagKev">🏷️ Tag ${N(k.kev)} AI × KEV → AI Priority : KEV-exposed</button>`:'');
+  const fpr=document.getElementById('fpReset'); if(fpr) fpr.onclick=()=>{ fpSave({}); run(); };
+  const tr=document.getElementById('tagRole'); if(tr) tr.onclick=async function(){ const by=k.by_role||{};
+    const rs=Object.keys(by); if(this.disabled) return; await testRunStatus();
+    if(!confirm('Tag '+tagCat('AI Role')+' : <role> on '+k.total+' asset'+(k.total===1?'':'s')+' ('+rs.length+' role value'+(rs.length===1?'':'s')+')?\n\n'
+      +rs.map(r=>'• '+tagCat('AI Role')+' : '+r+' ('+by[r]+' asset'+(by[r]===1?'':'s')+')').join('\n')+(WRITES?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.'))) return;
+    if(this.disabled) return;
+    let ok=0, f=0; this.disabled=true; for(const r of rs){ try{ const o=await API.post('tag',{category:'AI Role',value:r,run:RUN,key:{filter:flags.filter(x=>!x.startsWith('role:')).concat(['role:'+r])},confirm:true}); if(o&&o.ok) ok++; else f++; }catch(e){ f++; } } this.disabled=false;
+    flash('flash',(ok?'✓ queued '+N(ok)+' AI Role tag(s) across '+N(k.total)+' asset(s)':'✗ nothing queued')+(f?' · '+f+' failed':'')+' — sent to the <a href="/web/tags-log.html">Tagging log</a>.'+(ok&&!WRITES?' Writes are gated, so nothing reaches Tenable until NAVI_ALLOW_WRITES=1.':''),ok?'ok':'crit'); };
+  const eb=document.getElementById('tagExp'); if(eb) eb.onclick=()=>aiTag('AI Exposed','Endpoint',{filter:flags.concat(['exposed'])},k.exposed,eb);
+  const kb=document.getElementById('tagKev'); if(kb) kb.onclick=()=>aiTag('AI Priority','KEV-exposed',{filter:flags.concat(['kev'])},k.kev,kb);
 }
 
 function renderSoft(){
-  const fw=DATA.frameworks||[];
-  document.getElementById('softCount').textContent=`(${N(fw.length)})`; setNavCount('secSoft', N(fw.length));
+  const v=V(), fw=v.frameworks||[], tot=v.frameworks_total!=null?v.frameworks_total:fw.length;
+  document.getElementById('softCount').textContent=`(${N(tot)})`; setNavCount('secSoft', N(tot));
   hPaginate('softTbl', fw, f=>`<tr><td><b>${esc(f.name)}</b></td><td><span class="tagval" style="color:${ROLE_COLOR[f.role]||'var(--accent)'}">${esc(f.role||'')}</span></td><td><b>${N(f.assets)}</b></td>`+
       `<td>${(f.sources||[]).map(s=>`<span class="pill" style="color:${(SRC[s]||[])[1]||'var(--mut)'}">${esc((SRC[s]||[s])[0])}</span>`).join(' ')}</td>`+
       `<td><button class="btn ghost sm" data-fw="${esc(f.name)}">🏷️ Tag</button></td></tr>`,
     {cols:5, empty:'<tr><td colspan="5" class="sub">No AI software detected outside the Tenable AI plugin family.</td></tr>',
-     wire:tb=>tb.querySelectorAll('button[data-fw]').forEach(b=>b.onclick=()=>{ const f=fw.find(x=>x.name===b.dataset.fw); if(f) aiTag('AI Software',f.name,f.uuids,b); })});
+     wire:tb=>tb.querySelectorAll('button[data-fw]').forEach(b=>b.onclick=()=>{ const f=fw.find(x=>x.name===b.dataset.fw); if(f) aiTag('AI Software',f.name,{fw:f.name},f.assets,b); })});
 }
 
 function renderAcr(){
-  const a=DATA.assets||[], ra=DATA.role_acr||{}, m=DATA.metrics||{}, tagged=new Set(m.roles_tagged||[]);
+  const ra=DATA.role_acr||{}, m=DATA.metrics||{}, tagged=new Set(m.roles_tagged||[]);
+  const rr={}; (V().roles||[]).forEach(r=>rr[r.role]=r);
   const roles=Object.keys(DATA.byRole||{}).sort((x,y)=>(ra[y]||0)-(ra[x]||0)||(ROLE_PRI[y]||0)-(ROLE_PRI[x]||0));
   document.getElementById('acrCount').textContent=`(${N(m.underrated)} under-rated)`; setNavCount('secAcr', N(m.underrated));
-  const med=v=>{ v=v.filter(x=>x!=null).sort((p,q)=>p-q); return v.length?v[Math.floor(v.length/2)]:null; };
-  document.querySelector('#acrTbl tbody').innerHTML=roles.map(r=>{ const rs=a.filter(x=>x.role===r), under=rs.filter(x=>x.underrated).length, md=med(rs.map(x=>x.acr)), has=tagged.has(r);
+  document.querySelector('#acrTbl tbody').innerHTML=roles.map(r=>{ const x=rr[r]||{}, under=x.under||0, md=x.median, has=tagged.has(r);
     return `<tr><td><input type="checkbox" class="asel" data-r="${esc(r)}"${has?'':' disabled title="tag AI ACR Raise : '+esc(r)+' first"'}${_acrSel.has(r)?' checked':''}></td>`+
-      `<td><span class="tagval" style="color:${ROLE_COLOR[r]||'var(--accent)'}">${esc(r)}</span></td><td><b>${ra[r]||7}</b></td><td>${N(rs.length)}</td>`+
-      `<td>${under?`<b style="color:#e0913a">${N(under)}</b>`:'0'}</td><td>${md==null?'—':md}</td>`+
+      `<td><span class="tagval" style="color:${ROLE_COLOR[r]||'var(--accent)'}">${esc(r)}</span></td><td><b>${esc(ra[r]||7)}</b></td><td>${N(x.assets||0)}</td>`+
+      `<td>${under?`<b style="color:#e0913a">${N(under)}</b>`:'0'}</td><td>${md==null?'—':esc(md)}</td>`+
       `<td>${has?'<span class="badge b-applied">present</span>':'<span class="sub">not yet</span>'}</td>`+
-      `<td>${under?`<button class="btn ghost sm" data-ar="${esc(r)}" title="tag the ${N(under)} under-rated asset(s) → AI ACR Raise : ${esc(r)}">🏷️ Tag ${N(under)} under-rated</button>`:'<span class="sub">none under-rated</span>'}</td></tr>`; }).join('')||'<tr><td colspan="8" class="sub">No AI assets.</td></tr>';
+      `<td>${under?`<button class="btn ghost sm" data-ar="${esc(r)}" data-n="${esc(under)}" title="tag the ${N(under)} under-rated asset(s) → AI ACR Raise : ${esc(r)}">🏷️ Tag ${N(under)} under-rated</button>`:'<span class="sub">none under-rated</span>'}</td></tr>`; }).join('')||'<tr><td colspan="8" class="sub">No AI assets.</td></tr>';
   document.querySelectorAll('#acrTbl input.asel').forEach(c=>c.onchange=()=>{ if(c.checked)_acrSel.add(c.dataset.r); else _acrSel.delete(c.dataset.r); acrSync(); });
-  document.querySelectorAll('#acrTbl button[data-ar]').forEach(b=>b.onclick=function(){ const r=b.dataset.ar, uu=a.filter(x=>x.role===r&&x.underrated).map(x=>x.asset_uuid); gated(b,'tagging under-rated '+esc(r)+' assets',()=>API.post('tag_underrated',{role:r,uuids:uu,confirm:true}),o=>`tagged ${N(o.count)} → AI ACR Raise : ${esc(r)}`,'flash',
-    ()=>`Tag ${tagCat('AI ACR Raise')} : ${r} on ${uu.length} under-rated asset${uu.length===1?'':'s'}?`); });
+  document.querySelectorAll('#acrTbl button[data-ar]').forEach(b=>b.onclick=function(){ const r=b.dataset.ar, nU=+b.dataset.n||0; gated(b,'tagging under-rated '+esc(r)+' assets',()=>API.post('tag_underrated',{role:r,run:RUN,confirm:true}),o=>`tagged ${N(o.count)} → AI ACR Raise : ${esc(r)}`,'flash',
+    ()=>`Tag ${tagCat('AI ACR Raise')} : ${r} on ${nU} under-rated asset${nU===1?'':'s'}?`); });
   acrSync();
 }
 function acrSync(){ const ra=(DATA&&DATA.role_acr)||{};
@@ -296,14 +310,14 @@ document.getElementById('acrSet').onclick=function(){
 
 function why(x){
   if(!x)return;
-  const rows=x.evidence.map((e,idx)=>{const s=SRC[e.src]||[e.src,'var(--mut)']; return '<div style="border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:8px">'
+  const rows=(x.evidence||[]).map((e,idx)=>{const s=SRC[e.src]||[e.src,'var(--mut)']; return '<div style="border:1px solid var(--line);border-radius:8px;padding:8px 10px;margin-bottom:8px">'
     +'<div class="toolbar" style="margin:0 0 4px;gap:6px;flex-wrap:wrap"><span class="chip" style="color:'+s[1]+';border-color:'+s[1]+'">'+esc(s[0])+'</span><b>'+esc(e.term)+'</b>'+(e.sig?'<span class="sub">via '+esc(e.sig)+'</span>':'')+(e.auth==='unauth'?'<span class="chip" style="color:var(--crit)">unauth</span>':'')+'<span style="flex:1"></span>'
     +'<button class="btn ghost sm" data-fp="'+idx+'">✕ false positive</button>'+(e.src!=='ai-plugin'?'<button class="btn ghost sm" data-gfp="'+esc(e.term)+'">suppress '+esc(e.term)+' everywhere</button>':'')+'</div>'
     +(e.pname?'<div class="sub" style="margin:2px 0">'+esc(e.pname)+(e.pid?' <span class="mono">#'+esc(String(e.pid))+'</span>':'')+'</div>':'')
     +(e.snip?'<pre class="snip">'+esc(e.snip)+'</pre>':'<div class="sub">(matched by the Tenable AI plugin family)</div>')+'</div>';}).join('');
   const ov=document.createElement('div'); ov.id='aiwhyov';
   ov.innerHTML='<div style="background:var(--panel);border:1px solid var(--line);border-radius:12px;max-width:780px;width:100%;padding:16px 18px">'
-    +'<div class="toolbar" style="margin:0 0 10px;flex-wrap:wrap"><b>🔍 Why '+esc(x.host)+' was flagged as AI</b><span class="chip" style="color:'+(ROLE_COLOR[x.role]||'var(--accent)')+'">'+esc(x.role)+'</span><span class="chip">'+x.evidence.length+' signal(s)</span><span style="flex:1"></span><button class="btn ghost sm" data-close="1">✕ close</button></div>'
+    +'<div class="toolbar" style="margin:0 0 10px;flex-wrap:wrap"><b>🔍 Why '+esc(x.host)+' was flagged as AI</b><span class="chip" style="color:'+(ROLE_COLOR[x.role]||'var(--accent)')+'">'+esc(x.role)+'</span><span class="chip">'+esc((x.evidence||[]).length)+' signal(s)</span><span style="flex:1"></span><button class="btn ghost sm" data-close="1">✕ close</button></div>'
     +'<p class="sub" style="margin:0 0 10px">Each row is the actual navi.db evidence. Mark a wrong signal a false positive — it is suppressed (remembered in this browser) and the agent re-runs.</p>'+rows
     +'<div class="toolbar" style="margin:10px 0 0"><button class="btn ghost sm" data-dismiss="1" style="border-color:var(--crit)">✕ Dismiss this asset entirely (not AI)</button></div></div>';
   document.body.appendChild(ov);
@@ -315,119 +329,109 @@ function why(x){
   ov.querySelector('[data-dismiss]').onclick=()=>{const fp=fpLoad(); fp.assets=fp.assets||{}; fp.assets[x.asset_uuid]=1; fpSave(fp); close(); run();};
 }
 
-function sanctioned(dest,allow){ dest=String(dest||'').toLowerCase(); return (allow||[]).some(p=>{p=String(p||'').toLowerCase().replace(/^\*/,''); return p&&dest.indexOf(p)>=0;}); }
 function renderEgress(){
   const out=document.getElementById('egressOut'); if(!out||!DATA)return;
-  const allow=allowLoad()||DATA.allow||[];
-  const assets=DATA.assets.filter(x=>x.egress&&x.egress.length);
+  const allow=allowLoad()||DATA.allow||[], v=V();
+  const nEg=DATA.egressCount||0;
   const head=(extra)=>'<div class="toolbar" style="margin:0 0 6px;flex-wrap:wrap"><h2 style="margin:0">🛰️ AI data-egress governance</h2>'+(extra||'')+'</div>';
-  if(!assets.length){ out.innerHTML=head()+'<p class="sub" style="margin:4px 0 0">No outbound AI clients or destination hosts found for the detected AI assets.</p>'; setNavCount('secEgress','0'); return; }
-  const byDest={};
-  assets.forEach(x=>x.egress.forEach(e=>{const k=e.cat+'|'+e.dest; const d=byDest[k]||(byDest[k]={cat:e.cat,dest:e.dest,via:{},assets:new Set(),snip:e.snip}); d.assets.add(x.asset_uuid); d.via[e.via]=1; d.sanctioned=sanctioned(e.dest,allow); if(e.snip&&!d.snip)d.snip=e.snip;}));
-  const dests=Object.keys(byDest).map(k=>byDest[k]).sort((a,b)=>(a.sanctioned-b.sanctioned)||(b.assets.size-a.assets.size));
-  const shadowUuids=new Set(); assets.forEach(x=>{if(x.egress.some(e=>!sanctioned(e.dest,allow)))shadowUuids.add(x.asset_uuid);});
+  if(!nEg){ out.innerHTML=head()+'<p class="sub" style="margin:4px 0 0">No outbound AI clients or destination hosts found for the detected AI assets.</p>'; setNavCount('secEgress','0'); return; }
+  const dests=v.dests||[], nD=v.dests_total!=null?v.dests_total:dests.length;
   const byCat={}; dests.forEach(d=>(byCat[d.cat]=byCat[d.cat]||[]).push(d));
-  const nShadow=dests.filter(d=>!d.sanctioned).length;
-  setNavCount('secEgress', nShadow?nShadow+' shadow':N(dests.length));
+  const nShadow=dests.filter(d=>!d.sanctioned).length, nShadowA=DATA.shadowCount||0;
+  setNavCount('secEgress', nShadow?nShadow+' shadow':N(nD));
   const allowChips=allow.map((v,i)=>'<span class="chip" style="gap:4px">'+esc(v)+' <span data-alrm="'+i+'" style="cursor:pointer;color:var(--crit)">✕</span></span>').join(' ');
-  out.innerHTML=head('<span class="chip">'+assets.length+' can egress</span><span class="chip">'+dests.length+' destination(s)</span>'
-      +(nShadow?'<span class="chip" style="color:var(--crit);border-color:var(--crit)">'+nShadow+' shadow</span>':'<span class="chip" style="color:var(--ok)">all sanctioned</span>')
-      +'<span style="flex:1"></span>'+(shadowUuids.size?'<button class="btn sm" id="egShadow">🏷️ Tag '+shadowUuids.size+' shadow → AI Egress : Shadow</button>':''))
+  out.innerHTML=head('<span class="chip">'+N(nEg)+' can egress</span><span class="chip">'+N(nD)+' destination(s)</span>'
+      +(nShadow?'<span class="chip" style="color:var(--crit);border-color:var(--crit)">'+N(nShadow)+' shadow</span>':'<span class="chip" style="color:var(--ok)">all sanctioned</span>')
+      +'<span style="flex:1"></span>'+(nShadowA?'<button class="btn sm" id="egShadow">🏷️ Tag '+N(nShadowA)+' shadow → AI Egress : Shadow</button>':''))
     +'<p class="sub" style="margin:0 0 8px">Where AI data can leave the box: installed clients (<i>capability</i>) and destination hosts seen in plugin output (<i>observed</i>). This shows capability and configured destinations, not proven exfiltration.</p>'
     +'<div class="toolbar" style="margin:0 0 10px;flex-wrap:wrap;gap:6px"><span class="sub">Sanctioned:</span>'+allowChips+'<input id="egAllowIn" placeholder="add e.g. api.openai.com" style="padding:6px;border-radius:7px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink);min-width:180px"><button class="btn sm" id="egAllowAdd">+ add</button></div>'
     +Object.keys(byCat).map(cat=>'<div class="egbox"><div class="toolbar" style="margin:0 0 6px"><b>'+esc(cat)+'</b></div>'
-      +byCat[cat].map(d=>'<div class="toolbar" style="margin:0 0 4px;flex-wrap:wrap;gap:6px"><span class="tagval mono">'+esc(d.dest)+'</span>'+(d.sanctioned?'<span class="chip" style="color:var(--ok)">sanctioned</span>':'<span class="chip" style="color:var(--crit);border-color:var(--crit)">shadow</span>')+'<span class="chip">'+d.assets.size+' asset(s)</span>'+(d.via.observed?'<span class="chip" title="seen in plugin output">observed</span>':'<span class="chip" title="inferred from client">capability</span>')+'<span style="flex:1"></span><button class="btn ghost sm" data-egtag="'+esc(d.cat+'|'+d.dest)+'">🏷️ Tag</button>'+(!d.sanctioned?'<button class="btn ghost sm" data-egallow="'+esc(d.dest)+'">✓ sanction</button>':'')+'</div>').join('')
-      +'</div>').join('');
+      +byCat[cat].map(d=>'<div class="toolbar" style="margin:0 0 4px;flex-wrap:wrap;gap:6px"><span class="tagval mono">'+esc(d.dest)+'</span>'+(d.sanctioned?'<span class="chip" style="color:var(--ok)">sanctioned</span>':'<span class="chip" style="color:var(--crit);border-color:var(--crit)">shadow</span>')+'<span class="chip">'+N(d.assets)+' asset(s)</span>'+((d.via||{}).observed?'<span class="chip" title="seen in plugin output">observed</span>':'<span class="chip" title="inferred from client">capability</span>')+'<span style="flex:1"></span><button class="btn ghost sm" data-egtag="'+esc(d.key)+'">🏷️ Tag</button>'+(!d.sanctioned?'<button class="btn ghost sm" data-egallow="'+esc(d.dest)+'">✓ sanction</button>':'')+'</div>').join('')
+      +'</div>').join('')
+    +(nD>dests.length?'<p class="sub">Showing the top '+N(dests.length)+' of '+N(nD)+' destinations (shadow first).</p>':'');
   const add=v=>{v=String(v||'').trim(); if(!v)return; const l=allowLoad()||(DATA.allow||[]).slice(); if(l.indexOf(v)<0){l.push(v);allowSave(l);} run();};
   const ab=document.getElementById('egAllowAdd'); if(ab)ab.onclick=()=>add(document.getElementById('egAllowIn').value);
   out.querySelectorAll('[data-alrm]').forEach(s=>s.onclick=()=>{const l=(allowLoad()||(DATA.allow||[]).slice()); l.splice(+s.dataset.alrm,1); allowSave(l); run();});
   out.querySelectorAll('[data-egallow]').forEach(b=>b.onclick=()=>add(b.dataset.egallow));
-  out.querySelectorAll('[data-egtag]').forEach(b=>b.onclick=()=>{const d=byDest[b.dataset.egtag]; if(!d)return; aiTag('AI Egress',d.sanctioned?d.dest:('Shadow : '+d.dest),Array.from(d.assets),b);});
-  const st=document.getElementById('egShadow'); if(st)st.onclick=()=>aiTag('AI Egress','Shadow',Array.from(shadowUuids),st);
+  out.querySelectorAll('[data-egtag]').forEach(b=>b.onclick=()=>{const d=dests.find(x=>x.key===b.dataset.egtag); if(!d)return; aiTag('AI Egress',d.sanctioned?d.dest:('Shadow : '+d.dest),{egress:d.key},d.assets,b);});
+  const st=document.getElementById('egShadow'); if(st)st.onclick=()=>aiTag('AI Egress','Shadow',{shadow:true},nShadowA,st);
 }
 
 const ATLAS_URL=id=>'https://atlas.mitre.org/techniques/'+encodeURIComponent(String(id||''));
 /* ATLAS matrix + drill-down — the MITRE ATT&CK agent's interaction: click a technique (or a
-   tactic heading) to select it, the assets behind it list underneath with the evidence that
-   mapped them, ✕ clears, and the tag button tags exactly that set (the server rebuilds it). */
-function atlasIndex(){
-  const byTech={};
-  (DATA.assets||[]).forEach(x=>(x.atlas||[]).forEach(t=>{
-    const d=byTech[t.id]||(byTech[t.id]={id:t.id,name:t.name,tactic:t.tactic||'Other',assets:new Set(),whys:{}});
-    d.assets.add(x.asset_uuid); (t.whys||[t.why]).forEach(w=>{ if(w) d.whys[w]=(d.whys[w]||0)+1; }); }));
-  return byTech;
-}
-function atlasSelAssets(byTech){
-  if(!ATSEL) return [];
-  const a=DATA.assets||[];
-  if(ATSEL.kind==='tech'){ const d=byTech[ATSEL.id]; return d?a.filter(x=>d.assets.has(x.asset_uuid)):[]; }
-  return a.filter(x=>(x.atlas||[]).some(t=>(t.tactic||'Other')===ATSEL.id));
-}
+   tactic heading) to select it, the assets behind it list underneath (paged on the server) with
+   the evidence that mapped them, ✕ clears, and the tag button tags exactly that set (the server
+   rebuilds it from the stored run). */
+function atlasIndex(){ const byTech={}; (V().atlas||[]).forEach(d=>byTech[d.id]=d); return byTech; }
 function renderAtlas(){
   if(!DATA) return;
-  const byTech=atlasIndex(), ids=Object.keys(byTech);
+  const byTech=atlasIndex(), ids=Object.keys(byTech), tA=V().tactic_assets||{};
   const showEmpty=document.getElementById('atlEmpty').checked;
   const order=DATA.atlas_tactic_order||ATLAS_ORDER;
   const byTac={}; ids.forEach(id=>(byTac[byTech[id].tactic]=byTac[byTech[id].tactic]||[]).push(byTech[id]));
   const tacs=order.concat(Object.keys(byTac).filter(t=>order.indexOf(t)<0));
-  const tacAssets=t=>new Set((DATA.assets||[]).filter(x=>(x.atlas||[]).some(z=>(z.tactic||'Other')===t)).map(x=>x.asset_uuid)).size;
-  const max=Math.max(1,...ids.map(i=>byTech[i].assets.size));
+  const max=Math.max(1,...ids.map(i=>byTech[i].assets));
   if(ATSEL && (ATSEL.kind==='tech'?!byTech[ATSEL.id]:!byTac[ATSEL.id])) ATSEL=null;   // a re-run can drop the selection
   const hit=tacs.filter(t=>byTac[t]).length;
   document.getElementById('atlCount').textContent=ids.length?`(${N(ids.length)} technique${ids.length===1?'':'s'} · ${hit} tactic${hit===1?'':'s'})`:'';
-  document.getElementById('atlSrc').textContent=ids.length?`shaded by assets · ${N((DATA.assets||[]).length)} AI asset(s)`:'';
+  document.getElementById('atlSrc').textContent=ids.length?`shaded by assets · ${N(DATA.asset_count||0)} AI asset(s)`:'';
   setNavCount('secAtlas', N(ids.length));
-  const cell=d=>{ const tip=`${d.id} ${d.name}\n${N(d.assets.size)} asset(s)\n`+Object.keys(d.whys).join(' · ')+'\nClick to list these assets';
-    return `<button class="mx-cell${ATSEL&&ATSEL.kind==='tech'&&ATSEL.id===d.id?' on':''}" data-atl="${esc(d.id)}" style="--heat:${Math.sqrt(d.assets.size/max).toFixed(3)}" title="${esc(tip)}">`+
-      `<div class="id"><span>${esc(d.id)} <a href="${esc(ATLAS_URL(d.id))}" target="_blank" rel="noopener" title="Open on atlas.mitre.org">↗</a></span><span class="c">${N(d.assets.size)}</span></div>`+
+  const cell=d=>{ const tip=`${d.id} ${d.name}\n${N(d.assets)} asset(s)\n`+Object.keys(d.whys||{}).join(' · ')+'\nClick to list these assets';
+    return `<button class="mx-cell${ATSEL&&ATSEL.kind==='tech'&&ATSEL.id===d.id?' on':''}" data-atl="${esc(d.id)}" style="--heat:${Math.sqrt(d.assets/max).toFixed(3)}" title="${esc(tip)}">`+
+      `<div class="id"><span>${esc(d.id)} <a href="${esc(ATLAS_URL(d.id))}" target="_blank" rel="noopener" title="Open on atlas.mitre.org">↗</a></span><span class="c">${N(d.assets)}</span></div>`+
       `<div class="nm">${esc(d.name||'(unknown technique)')}</div></button>`; };
-  const html=tacs.filter(t=>showEmpty||byTac[t]).map(t=>{ const ts=(byTac[t]||[]).sort((p,q)=>q.assets.size-p.assets.size||p.id.localeCompare(q.id));
+  const html=tacs.filter(t=>showEmpty||byTac[t]).map(t=>{ const ts=(byTac[t]||[]).sort((p,q)=>q.assets-p.assets||String(p.id).localeCompare(String(q.id)));
     const on=ATSEL&&ATSEL.kind==='tactic'&&ATSEL.id===t;
-    return `<div class="mx-col${ts.length?'':' empty'}"><button class="mx-h${on?' on':''}"${ts.length?` data-tac="${esc(t)}" title="${esc(t+' — '+N(tacAssets(t))+' asset(s) across '+ts.length+' technique(s)\nClick to list these assets')}"`:' disabled'}>${esc(t)}<span class="n">${ts.length||''}</span></button>${ts.map(cell).join('')}</div>`; }).join('');
+    return `<div class="mx-col${ts.length?'':' empty'}"><button class="mx-h${on?' on':''}"${ts.length?` data-tac="${esc(t)}" title="${esc(t+' — '+N(tA[t]||0)+' asset(s) across '+ts.length+' technique(s)\nClick to list these assets')}"`:' disabled'}>${esc(t)}<span class="n">${ts.length||''}</span></button>${ts.map(cell).join('')}</div>`; }).join('');
   document.getElementById('atlMx').innerHTML=html||'<div class="sub">No AI assets to map.</div>';
-  const pick=(kind,id)=>{ ATSEL=(ATSEL&&ATSEL.kind===kind&&ATSEL.id===id)?null:{kind,id}; flashClear('atlFlash'); hPageReset('atlTbl'); renderAtlas();
+  const pick=(kind,id)=>{ ATSEL=(ATSEL&&ATSEL.kind===kind&&ATSEL.id===id)?null:{kind,id}; flashClear('atlFlash'); renderAtlas();
     if(ATSEL) document.getElementById('atlDrill').scrollIntoView({behavior:'smooth',block:'nearest'}); };
   document.querySelectorAll('#atlMx .mx-cell').forEach(b=>b.onclick=e=>{ if(e.target.closest('a')) return; pick('tech',b.dataset.atl); });
   document.querySelectorAll('#atlMx .mx-h[data-tac]').forEach(b=>b.onclick=()=>pick('tactic',b.dataset.tac));
   renderAtlasDrill(byTech);
 }
 function renderAtlasDrill(byTech){
-  const rows=atlasSelAssets(byTech), all=DATA.assets||[];
+  const all=DATA.asset_count||0, tA=V().tactic_assets||{};
   const d=ATSEL&&ATSEL.kind==='tech'?byTech[ATSEL.id]:null;
   const label=!ATSEL?'':(d?`${d.id} ${d.name}`:`${ATSEL.id} (tactic)`);
   const value=!ATSEL?'':(d?d.id:'Tactic : '+ATSEL.id);
-  document.getElementById('atlFilt').innerHTML=ATSEL?`<span class="fchip">Filtered: ${esc(label)}<button id="atlClr" title="Clear">✕</button></span> <span class="sub">${N(rows.length)} of ${N(all.length)} AI asset(s)</span>`
+  const nSel=!ATSEL?0:(d?d.assets:(tA[ATSEL.id]||0));
+  document.getElementById('atlFilt').innerHTML=ATSEL?`<span class="fchip">Filtered: ${esc(label)}<button id="atlClr" title="Clear">✕</button></span> <span class="sub">${N(nSel)} of ${N(all)} AI asset(s)</span>`
     :'<span class="sub">Click a technique or a tactic heading above to list the assets behind it.</span>';
-  const clr=document.getElementById('atlClr'); if(clr) clr.onclick=()=>{ ATSEL=null; flashClear('atlFlash'); hPageReset('atlTbl'); renderAtlas(); };
+  const clr=document.getElementById('atlClr'); if(clr) clr.onclick=()=>{ ATSEL=null; flashClear('atlFlash'); renderAtlas(); };
   const tb=document.getElementById('atlTag');
-  tb.style.display=ATSEL&&rows.length?'':'none';
-  if(ATSEL&&rows.length){ const lbl=`🏷️ Tag these ${N(rows.length)} asset${rows.length===1?'':'s'} → AI ATLAS : ${value}`; tb.dataset.label=lbl; if(!tb.disabled) tb.textContent=lbl;
+  tb.style.display=ATSEL&&nSel?'':'none';
+  if(ATSEL&&nSel){ const lbl=`🏷️ Tag these ${N(nSel)} asset${nSel===1?'':'s'} → AI ATLAS : ${value}`; tb.dataset.label=lbl; if(!tb.disabled) tb.textContent=lbl;
     tb.title='Tags exactly the assets behind this '+(d?'technique':'tactic')+' — the server rebuilds the set; never removes tags';
-    const nR=rows.length;
+    const sel=ATSEL;
     tb.onclick=()=>gated(tb,`queuing AI ATLAS : ${esc(value)}`,
-      ()=>API.post('tag_atlas',{key:(d?'tech:':'tactic:')+ATSEL.id,fp:fpLoad(),allow:allowLoad()||undefined,confirm:true}),
+      ()=>API.post('tag_atlas',{key:(d?'tech:':'tactic:')+sel.id,run:RUN,fp:fpLoad(),allow:allowLoad()||undefined,confirm:true}),
       o=>`queued <span class="tagval">${esc(o.category)} : ${esc(o.value)}</span> on ${N(o.count)} asset(s)`,'atlFlash',
-      ()=>`Tag ${tagCat('AI ATLAS')} : ${value} on ${nR} asset${nR===1?'':'s'}? The server rebuilds the set from navi.db.`); }
+      ()=>`Tag ${tagCat('AI ATLAS')} : ${value} on ${nSel} asset${nSel===1?'':'s'}? The server rebuilds the set from the run.`); }
+  if(!ATSEL){ TAT=null; document.querySelector('#atlTbl tbody').innerHTML='<tr><td colspan="7" class="sub">'+(all?'Click a technique or a tactic heading above to list the assets behind it.':'No AI assets to map.')+'</td></tr>';
+    const pg=document.getElementById('atlTblDPager'); if(pg){ pg.style.display='none'; pg.innerHTML=''; } return; }
   // per-asset evidence: the reasons + navi.db evidence behind the selected technique (or each technique in the tactic)
-  const evFor=x=>{ const ts=(x.atlas||[]).filter(t=>d?t.id===d.id:(t.tactic||'Other')===ATSEL.id);
+  const sel=ATSEL;
+  const evFor=x=>{ const ts=(x.atlas||[]).filter(t=>d?t.id===d.id:(t.tactic||'Other')===sel.id);
     return ts.map(t=>`<div class="atl-why">${d?'':`<b class="mono">${esc(t.id)}</b> `}${(t.whys||[t.why]).map(esc).join(' · ')}`+
       ((t.ev||[]).length?`<div class="pillwrap" style="margin-top:2px">${t.ev.slice(0,6).map(e=>`<span class="chip">${esc(e)}</span>`).join('')}</div>`:'')+'</div>').join(''); };
-  hPaginate('atlTbl', rows, x=>{
-    const acr=x.acr==null?'<span class="sub">—</span>':(x.underrated?`<span title="below the ${esc(x.role)} suggestion"><b style="color:#e0913a">${x.acr}</b> → ${x.acr_suggest}</span>`:`<b>${x.acr}</b>`);
+  const row=x=>{
+    const acr=x.acr==null?'<span class="sub">—</span>':(x.underrated?`<span title="below the ${esc(x.role)} suggestion"><b style="color:#e0913a">${esc(x.acr)}</b> → ${esc(x.acr_suggest)}</span>`:`<b>${esc(x.acr)}</b>`);
     return `<tr><td title="${esc(x.host||'')}"><b>${plink(x.asset_uuid,x.host)}</b></td><td class="mono">${esc(x.ip||'')}</td>`+
-      `<td><span class="tagval" style="color:${ROLE_COLOR[x.role]||'var(--accent)'}">${esc(x.role)}</span><div class="tnames">${esc((x.frameworks||[]).slice(0,3).join(', '))}${(x.frameworks||[]).length>3?' +'+(x.frameworks.length-3):''}</div></td>`+
+      `<td><span class="tagval" style="color:${ROLE_COLOR[x.role]||'var(--accent)'}">${esc(x.role)}</span><div class="tnames">${esc((x.frameworks||[]).slice(0,3).join(', '))}${(x.frameworks||[]).length>3?' +'+esc(x.frameworks.length-3):''}</div></td>`+
       `<td>${evFor(x)}</td><td>${acr}</td><td>${platLink(x.url,'Open ↗')||'<span class="sub">—</span>'}</td>`+
-      `<td><button class="btn ghost sm" data-awhy="${esc(String(x.asset_uuid))}" title="show the evidence behind this AI detection">🔍 Why</button></td></tr>`; },
-    {per:20, sizes:HPG_SIZES, cols:7,
-     empty:'<tr><td colspan="7" class="sub">'+(ATSEL?'No AI assets map to this selection.':(all.length?'Click a technique or a tactic heading above to list the assets behind it.':'No AI assets to map.'))+'</td></tr>',
-     wire:tbd=>tbd.querySelectorAll('button[data-awhy]').forEach(b=>b.onclick=()=>{ const x=all.find(o=>String(o.asset_uuid)===b.dataset.awhy); if(x) why(x); })});
+      `<td><button class="btn ghost sm" data-awhy="${esc(String(x.asset_uuid))}" title="show the evidence behind this AI detection">🔍 Why</button></td></tr>`; };
+  const flt=[(d?'tech:':'tactic:')+sel.id];
+  TAT=hDrill({api:API, table:'atlTbl', run:RUN, section:'assets', cols:7, row, filter:flt,
+     empty:'<tr><td colspan="7" class="sub">No AI assets map to this selection.</td></tr>',
+     wire:(tbd,rows)=>tbd.querySelectorAll('button[data-awhy]').forEach(b=>b.onclick=()=>{ const x=rows.find(o=>String(o.asset_uuid)===b.dataset.awhy); if(x) why(x); })});
 }
 document.getElementById('atlEmpty').onchange=()=>{ if(DATA) renderAtlas(); };
 
 function render(){ if(!DATA) return; renderMetrics(); renderTable(); renderSoft(); renderAcr(); renderEgress(); renderAtlas(); }
 
 document.getElementById('run').onclick=run;
-document.getElementById('tagAll').onclick=function(){ if(DATA&&DATA.assets.length) aiTag('AI','Present',DATA.assets.map(x=>x.asset_uuid),this); };
+document.getElementById('tagAll').onclick=function(){ if(DATA&&DATA.asset_count) aiTag('AI','Present',{all:true},DATA.asset_count,this); };
 mountAgentHeader({id:'ai',icon:'🧠',name:'AI Inventory',sub:'Pythia · content-first AI/ML discovery'});
 mountSectionNav();
 try{ hMailAuto(); }catch(e){}

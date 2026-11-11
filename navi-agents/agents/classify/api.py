@@ -156,17 +156,11 @@ def tag(p):
         return {"ok": False, "error": "no assets for that cohort"}, 400
     tag_value = f"{facet}: {value}"
 
-    def _q(chunk):
-        return ("SELECT DISTINCT asset_uuid FROM vulns WHERE asset_uuid IN ("
-                + ",".join("'" + str(u).replace("'", "''") + "'" for u in chunk) + ")")
-
-    # navi's tag endpoint caps at ~1999 UUIDs per call and a single huge IN(...) query
-    # can overflow the arg-length limit (the query gets truncated → unclosed bracket →
-    # the write fails). So chunk the UUIDs into cap-sized batches, one navi job each.
-    cap = navi_cli.UUID_CAP
-    chunks = [uuids[i:i + cap] for i in range(0, len(uuids), cap)]
-    jobs = [navi_cli.tag("Asset Inventory", tag_value, query=_q(c), remove=False, agent="classify")
-            for c in chunks]
+    # The classification is computed in Python (core.classify); the cohort is paged by
+    # core.navi_cli.tag_set: ≤1,999 UUIDs per navi job (a tag series above), add-only.
+    jobs = navi_cli.tag_set("Asset Inventory", tag_value, uuids=uuids, col="asset_uuid", table="vulns",
+                            agent="classify")
+    chunks = jobs
     job_ids = [j.get("job_id") for j in jobs if j.get("job_id") is not None]
     first = jobs[0] if jobs else {}
     ok = all(j.get("ok") or j.get("queued") for j in jobs) if jobs else False

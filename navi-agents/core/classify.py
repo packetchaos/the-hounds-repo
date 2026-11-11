@@ -16,7 +16,7 @@ Two distinct layers — the same split the IoT squad uses (detect → HITL tag �
 """
 import re
 
-from core import db, software as _sw, tagname
+from core import db, hx_summary, software as _sw, tagname
 from core.iot_common import SOFTWARE_ENUM_PLUGINS
 
 # --- signal keyword sets (for os_signals detection) ------------------------------
@@ -139,6 +139,26 @@ def _uuids(sql, db_path=None):
         return {r["asset_uuid"] for r in db.query(sql, path=db_path) if r.get("asset_uuid")}
     except Exception:
         return set()
+
+
+def _hx(db_path=None):
+    """True when the ⚡ Optimize summary tables (hx_plugin / hx_asset) match this navi.db —
+    plugin-level filters then resolve against hx_plugin instead of scanning 5.5 KB vulns rows."""
+    try:
+        return hx_summary.usable(db_path)
+    except Exception:
+        return False
+
+
+def _lname_any(terms):
+    """hx_plugin twin of like_name(): the same lower(plugin_name) LIKE '%t%' test on lname."""
+    return "(" + " OR ".join("lname LIKE '%" + t.replace("'", "''") + "%'" for t in terms) + ")"
+
+
+def _hx_uuids(cond, open_only=False, db_path=None):
+    """Assets carrying a finding of any plugin matching cond (over hx_plugin's columns) —
+    one covering range per plugin over hx_v_plugin, no vulns table rows."""
+    return _uuids(hx_summary.assets_with(cond, open_only=open_only, path=db_path), db_path)
 
 
 def _asset_cols(db_path=None):
@@ -273,6 +293,21 @@ def _eol_os_assets(db_path=None):
     try:
         from core import eol as _eol
         pats = sorted({p for _, ps in _eol.DEFAULT_GROUPS for p in ps})
+        if _hx(db_path):
+            # the same name clause + OS split, evaluated once per PLUGIN over hx_plugin
+            # (name aliased as plugin_name so eol._clause applies verbatim)
+            pl = db.query("SELECT plugin_id, plugin_name FROM (SELECT plugin_id, name AS plugin_name "
+                          "FROM hx_plugin) WHERE (" + _eol._clause(pats) + ")", path=db_path)
+            ids = sorted({str(r["plugin_id"]) for r in pl
+                          if _eol.kind_of(r.get("plugin_name") or "") == "Operating system"})
+            if not ids:
+                return set()
+            out = set()
+            for i in range(0, len(ids), 500):
+                part = ids[i:i + 500]
+                out |= _hx_uuids("plugin_id IN (" + ",".join("'" + x.replace("'", "''") + "'" for x in part) + ")",
+                                 open_only=True, db_path=db_path)
+            return out
         rows = db.query("SELECT DISTINCT asset_uuid, plugin_name FROM vulns WHERE ("
                         + _eol._clause(pats) + ")" + _open_clause(db_path), path=db_path)
     except Exception:
@@ -296,8 +331,16 @@ def classify(db_path=None, glance=False):
     tags = _read_tags(db_path)
     owned = _uuids("SELECT DISTINCT asset_uuid FROM tags WHERE " + tagname.sql_lit("tag_key", "Owner"), db_path)
     op = _open_clause(db_path)
-    kev = _uuids("SELECT DISTINCT asset_uuid FROM vulns WHERE xrefs LIKE '%CISA-KNOWN-EXPLOITED%'" + op, db_path)
-    crit = _uuids("SELECT DISTINCT asset_uuid FROM vulns WHERE lower(severity)='critical'" + op, db_path)
+    if _hx(db_path):
+        # KEV is a plugin attribute (xrefs) → hx_asset.kev (open findings of KEV plugins);
+        # critical stays a PER-FINDING test (severity is in the covering index), limited to the
+        # plugins whose severity is critical — no vulns table rows either way.
+        kev = _uuids("SELECT asset_uuid FROM hx_asset WHERE kev", db_path)
+        crit = _uuids(hx_summary.assets_with("sevn = 4", open_only=True, path=db_path)
+                      + " AND lower(severity)='critical'", db_path)
+    else:
+        kev = _uuids("SELECT DISTINCT asset_uuid FROM vulns WHERE xrefs LIKE '%CISA-KNOWN-EXPLOITED%'" + op, db_path)
+        crit = _uuids("SELECT DISTINCT asset_uuid FROM vulns WHERE lower(severity)='critical'" + op, db_path)
     eol_os = _eol_os_assets(db_path) if glance else set()
 
     def _cloud_of(a):
@@ -419,15 +462,23 @@ def _gather_signals(db_path, keep):
     S["sw_win"] = _uuids("SELECT DISTINCT asset_uuid FROM vulns WHERE plugin_id='20811'", db_path)
     S["sw_nix"] = _uuids("SELECT DISTINCT asset_uuid FROM vulns WHERE plugin_id IN ("
                          + ",".join("'" + p + "'" for p in SOFTWARE_ENUM_PLUGINS if p != "20811") + ")", db_path)
-    S["ot"] = _uuids(f"SELECT DISTINCT v.asset_uuid FROM vulns v WHERE {like_name(_OT_NAME)}", db_path)
-    S["net"] = _uuids(f"SELECT DISTINCT v.asset_uuid FROM vulns v WHERE {like_name(_NET)}", db_path)
-    S["hyper"] = _uuids(f"SELECT DISTINCT v.asset_uuid FROM vulns v WHERE {like_name(_HYPER)}", db_path)
+    if _hx(db_path):
+        # plugin-NAME signals are plugin attributes: resolve the LIKEs once per plugin on
+        # hx_plugin.lname, then collect assets through the covering hx_v_plugin index
+        def by_name(terms):
+            return _hx_uuids(_lname_any(terms), db_path=db_path)
+    else:
+        def by_name(terms):
+            return _uuids(f"SELECT DISTINCT v.asset_uuid FROM vulns v WHERE {like_name(terms)}", db_path)
+    S["ot"] = by_name(_OT_NAME)
+    S["net"] = by_name(_NET)
+    S["hyper"] = by_name(_HYPER)
     S["embed"] = _uuids("SELECT DISTINCT asset_uuid FROM vulns WHERE plugin_id IN ('19689','66717','10863','24260')", db_path)
     S["credfail"] = _uuids("SELECT DISTINCT asset_uuid FROM vulns WHERE plugin_id IN ("
                            + ",".join("'" + p + "'" for p in _CREDFAIL) + ")", db_path)
     S["iot_type"] = {}
     for label, terms in _IOT_TYPES:
-        S["iot_type"][label] = _uuids(f"SELECT DISTINCT v.asset_uuid FROM vulns v WHERE {like_name(terms)}", db_path)
+        S["iot_type"][label] = by_name(terms)
     return S
 
 

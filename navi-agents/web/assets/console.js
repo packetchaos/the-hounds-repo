@@ -20,6 +20,131 @@
    anything sent with confirm:true, and live status endpoints always go to the
    server — and while a page is being restored, any write it fires is swallowed.
    Tunables (localStorage): houndsCacheTTLh (hours, default 24), houndsCacheOff=1. */
+/* ===== Request budgets — the UI side of core/launcher.request_scope (build 455) =============
+   Every same-origin POST /api/<agent>/<action> carries
+     X-Hounds-Tab: <random id for this tab's page>  — a newer identical request from this tab
+                   supersedes (cancels) the older one on the server;
+     X-Hounds-Budget: open | run  — "open" until the user first clicks a ▶ Run button
+                   ([data-run] or a ▶ label) or presses Enter in its query box on this page,
+                   "run" after (a ?run=1 hand-off, a page-cache replay and the banner's own
+                   buttons count as runs). A caller that sets the header itself wins.
+   A response that says {budget:true} (stopped by its budget / cancel / row cap) or
+   {budget_partial:true} (answered, but some part hit the budget) raises ONE standard banner
+   with the server's message|budget_message, a "Run in background" button (re-sends that read
+   with background:true — the job budget applies — then re-runs the page's last ▶ to show the
+   result the job left in the server cache) and, when the payload says optimize, a link to
+   Settings → ⚡ Optimize. budget_partial answers are never stored in the page cache (HC). */
+const H_WRITE_RE = /^(apply|bulk_apply|assign|tag|tag_.+|.+_tag|tags_.+|send|send_.+|delete|remove|rotate|encrypt|decrypt|refresh|save|set|set_.+|.+_set|toggle|add_.+|arm|disarm|run_now|command|upload|push_file|campaign|abort|verify|run_checks|cred_test|path_check|deploy|rollback|promote|ignore_.+|detections_.+|evaluate|test|trust|run_all|reset_usage|navi_.+|build_from_.+)$/;
+const H_READ_OK = new Set(['tag_plan','os_plan','detections_export']);   // read actions whose names look like writes
+const HB = (function(){
+  const TAB = Date.now().toString(36)+Math.random().toString(36).slice(2,10);
+  const S = { ran: /(?:^|[?&])run=1(?:&|$)/.test(location.search), lastBtn:null, last:null, seq:0 };
+  const API_RE = /^\/api\/([a-z0-9_]+)\/([a-z0-9_]+)$/;
+  function markRun(btn){ S.ran=true; if(btn && btn.id) S.lastBtn=btn.id; }
+  const isRunBtn = b => !!b && (b.hasAttribute('data-run') || /^\s*▶/.test(b.textContent||''));
+  document.addEventListener('click', ev=>{
+    if(!ev.isTrusted) return;
+    const b=ev.target && ev.target.closest && ev.target.closest('button,a[data-run]');
+    if(b && !b.disabled && isRunBtn(b) && !b.closest('#hbBanner')) markRun(b);
+  }, true);
+  document.addEventListener('keydown', ev=>{
+    if(!ev.isTrusted || ev.key!=='Enter' || ev.isComposing) return;
+    const t=ev.target; if(!t || !/^(INPUT|TEXTAREA)$/.test(t.tagName)) return;
+    if(t.tagName==='TEXTAREA' && !(ev.ctrlKey||ev.metaKey)) return;
+    let n=t.parentElement, b=null;
+    while(n && n!==document.body && !b){ b=[...n.querySelectorAll('button')].find(isRunBtn)||null; if(n.tagName==='SECTION') break; n=n.parentElement; }
+    if(b) markRun(b);
+  }, true);
+
+  function apiPath(url){ try{ const p=new URL(url, location.href); if(p.origin!==location.origin) return null;
+    const m=p.pathname.match(API_RE); return m ? {agent:m[1], action:m[2], path:p.pathname} : null; }catch(e){ return null; } }
+  const _fetch = window.fetch ? window.fetch.bind(window) : null;
+  if(_fetch) window.fetch = async function(input, init){
+    const url = typeof input==='string' ? input : (input && input.url) || '';
+    const method = String((init && init.method) || (input && input.method) || 'GET').toUpperCase();
+    const ap = method==='POST' ? apiPath(url) : null;
+    if(!ap || (input && typeof input!=='string' && !init)) return _fetch(input, init);
+    const h = new Headers((init && init.headers) || {});
+    if(!h.has('X-Hounds-Tab')) h.set('X-Hounds-Tab', TAB);
+    if(!h.has('X-Hounds-Budget')) h.set('X-Hounds-Budget', S.ran ? 'run' : 'open');
+    init = Object.assign({}, init, {headers:h});
+    const r = await _fetch(input, init);
+    if(r.status===200 && ap.agent!=='hub' && ap.agent!=='jobs'){
+      const len=+(r.headers.get('Content-Length')||0);
+      if(!(len > 16e6)) r.clone().text().then(t=>{
+        if(t.indexOf('"budget')<0) return;
+        let j; try{ j=JSON.parse(t); }catch(e){ return; }
+        if(j && typeof j==='object' && (j.budget===true || j.budget_partial===true))
+          show(j, ap, typeof init.body==='string' ? init.body : null);
+      }).catch(()=>{});
+    }
+    return r;
+  };
+
+  /* ---- the standard banner ---- */
+  function style(){ if(document.getElementById('hbStyle')) return;
+    const st=document.createElement('style'); st.id='hbStyle';
+    st.textContent='.hb-banner{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px;padding:8px 12px;border:1px solid var(--line);border-left:3px solid var(--warn,#d9a400);border-radius:var(--radius-sm,8px);background:var(--panel-2);font-size:13px;color:var(--ink-2,var(--ink));overflow-wrap:anywhere}.hb-banner b{color:var(--ink)}.hb-banner .hb-msg{flex:1 1 260px;min-width:0}.hb-banner .hb-acts{display:flex;gap:6px;flex-wrap:wrap;align-items:center}';
+    (document.head||document.documentElement).appendChild(st); }
+  function hide(){ const b=document.getElementById('hbBanner'); if(b) b.remove(); }
+  function canBackground(ap, body){
+    if(!body) return false;
+    let b; try{ b=JSON.parse(body); }catch(e){ return false; }
+    if(!b || typeof b!=='object' || Array.isArray(b) || 'confirm' in b || b.background) return false;
+    if(H_WRITE_RE.test(ap.action) && !H_READ_OK.has(ap.action)) return false;
+    return ['hub','settings','jobs','profile'].indexOf(ap.agent)<0;
+  }
+  function show(j, ap, body){
+    if(!document.body) return;
+    style(); hide();
+    const partial = !j.budget && j.budget_partial;
+    const msg = String((partial ? (j.budget_message||j.message) : (j.message||j.budget_message||j.error)) || 'This request hit its time budget.');
+    const bg = canBackground(ap, body);
+    const d=document.createElement('div'); d.id='hbBanner'; d.className='hb-banner'; d.setAttribute('role','status');
+    d.innerHTML='<span class="hb-msg">⏱ <b>'+(partial?'Partial result':(j.cancelled?'Stopped':'Stopped at its time budget'))+'</b> · '+esc(msg)+'</span>'+
+      '<span class="hb-acts">'+
+      (bg?'<button class="btn sm" type="button" id="hbBg" title="Re-send this read as a background job (the 45-min job budget applies); track it in the Runs log">⏳ Run in background</button>':'')+
+      (j.optimize?'<a class="btn ghost sm" id="hbOpt" href="/web/settings.html#secHx" title="Build the Hounds\' indexes on navi.db">⚡ Optimize (Settings)</a>':'')+
+      '<button class="btn ghost sm" type="button" id="hbX" aria-label="Dismiss">✕</button></span>';
+    const wrap=document.querySelector('.wrap')||document.body;
+    const first=[...wrap.children].find(e=>e.id!=='actv' && e.id!=='hcBanner' && e.classList && e.classList.contains('card'));
+    if(first) wrap.insertBefore(d, first); else wrap.prepend(d);
+    d.querySelector('#hbX').onclick=hide;
+    if(bg) d.querySelector('#hbBg').onclick=()=>background(d, ap, body);
+  }
+  async function background(d, ap, body){
+    const my=++S.seq; markRun(null);
+    const b=JSON.parse(body); delete b._run; delete b._nocache; b.background=true;
+    const acts=d.querySelector('.hb-acts'), m=d.querySelector('.hb-msg');
+    acts.innerHTML='<span class="spin"></span>';
+    let st; try{ st=await (await window.fetch(ap.path, {method:'POST', headers:{'Content-Type':'application/json','X-Hounds-Budget':'run'}, body:JSON.stringify(b)})).json(); }catch(e){ st={ok:false, error:e.message}; }
+    if(!st || !st.job_id){
+      if(st && st.ok!==false){ m.innerHTML='✓ <b>Already computed</b> · the server had this result cached.'; acts.innerHTML=again(); wire(d); }
+      else { m.innerHTML='✗ '+esc((st&&(st.error||st.message))||'could not start a background run'); acts.innerHTML='<button class="btn ghost sm" type="button" id="hbX">✕</button>'; d.querySelector('#hbX').onclick=hide; }
+      return; }
+    try{ hJobBadge(); }catch(e){}
+    m.innerHTML='⏳ <b>Running in the background</b> · job #'+esc(st.job_id)+' — you can leave this page; it is in the <a href="/web/agent-runs.html">Runs log</a>.';
+    acts.innerHTML='<span class="spin"></span>';
+    for(;;){
+      await new Promise(r=>setTimeout(r, 2000)); if(my!==S.seq || !d.isConnected) return;
+      let j; try{ j=((await (await fetch('/api/jobs/'+encodeURIComponent(st.job_id))).json())||{}).job; }catch(e){ continue; }
+      if(!j) return;
+      if(j.status==='done' || j.status==='error'){
+        try{ hJobBadge(); }catch(e){}
+        const res=j.result||{}, bad=j.status==='error' || res.ok===false;
+        if(bad){ m.innerHTML='✗ <b>Background run stopped</b> · '+esc(res.message||res.error||j.message||'failed'); acts.innerHTML='<a class="btn ghost sm" href="/web/agent-runs.html">Runs log</a><button class="btn ghost sm" type="button" id="hbX">✕</button>'; d.querySelector('#hbX').onclick=hide; return; }
+        m.innerHTML='✓ <b>Finished in the background</b>'+(st.cached_result===false?' · see the result in the <a href="/web/agent-runs.html">Runs log</a>.':' · the server kept the result for a few minutes.');
+        acts.innerHTML = st.cached_result===false ? '<button class="btn ghost sm" type="button" id="hbX">✕</button>' : again();
+        wire(d); return; }
+    }
+  }
+  function again(){ const b=S.lastBtn && document.getElementById(S.lastBtn);
+    return (b?'<button class="btn run sm" type="button" id="hbShow">▶ Show results</button>':'')+'<button class="btn ghost sm" type="button" id="hbX">✕</button>'; }
+  function wire(d){ const x=d.querySelector('#hbX'); if(x) x.onclick=hide;
+    const s=d.querySelector('#hbShow'); if(s) s.onclick=()=>{ const b=document.getElementById(S.lastBtn); hide(); if(b) b.click(); }; }
+  return { tab:TAB, markRun, hasRun:()=>S.ran, show, hide };
+})();
+
 const HC = (function(){
   const ENABLED = location.pathname.startsWith('/agents/') &&
                   !(document.body && document.body.dataset.pageCache==='off') &&   // live-list pages opt out
@@ -28,10 +153,10 @@ const HC = (function(){
   const TTL_MS = (function(){ let h=24; try{ const v=parseFloat(localStorage.getItem('houndsCacheTTLh')); if(v>0) h=v; }catch(e){} return h*3600e3; })();
   const MAX_PAGES = 80;
   // never cached: writes + live state. Mirrors core/launcher._MUTATING and widens it.
-  const WRITE_RE = /^(apply|bulk_apply|assign|tag|tag_.+|.+_tag|tags_.+|send|send_.+|delete|remove|rotate|encrypt|decrypt|refresh|save|set|set_.+|.+_set|toggle|add_.+|arm|disarm|run_now|command|upload|push_file|campaign|abort|verify|run_checks|cred_test|path_check|deploy|rollback|promote|ignore_.+|detections_.+|evaluate|test|trust|run_all|reset_usage|navi_.+|build_from_.+)$/;
+  const WRITE_RE = H_WRITE_RE;   // shared with HB (request budgets)
   const LIVE_RE  = /^(status|log|loop_log|history|scheduler|list|get|applied|metrics|verify_tags|tags_compare|which_agent|activity)$/;
   const SKIP_AGENTS = new Set(['jobs','profile','settings','hub']);
-  const READ_OK = new Set(['tag_plan','os_plan','detections_export']);   // read actions whose names look like writes
+  const READ_OK = H_READ_OK;
   const S = { on:ENABLED, key:KEY, mode:'live', entry:null, inflight:0, last:0, steps:[], dirty:false, ready:null, runCtx:false,
               src:'server', onServer:false, respDirty:false };
   // body keys a page leaves out of its cache key (<body data-cache-ignore="fp,allow">): values
@@ -135,7 +260,8 @@ const HC = (function(){
       try{
         const r = await _fetch(input, init);
         try{ if(r.status<400){ const j=await r.clone().json();
-          if(!(j && typeof j==='object' && j.ok===false)) record(info.key, r.status, j); } }catch(e){}
+          // a budget-limited answer (ok:false budget / ok:true budget_partial) is never stored
+          if(!(j && typeof j==='object' && (j.ok===false || j.budget || j.budget_partial))) record(info.key, r.status, j); } }catch(e){}
         return r;
       } finally { S.inflight--; S.last=Date.now(); }
     };
@@ -253,6 +379,7 @@ const HC = (function(){
   /* ---- replay driver ---- */
   async function drive(fresh){
     const e=S.entry; let misses=0;
+    try{ HB.markRun(null); }catch(err){}   // a replay re-runs the page's ▶ steps: run budget
     const before=Object.keys(e.resp).length;
     for(const st of e.steps){
       await restore(st.inputs);
@@ -2105,3 +2232,80 @@ async function downloadsAutoApproved(id){
     return (o && o.ok && o.auto_approve) ? (o.source || {id:id, name:id, urls:[]}) : null; }
   catch(e){ return null; }
 }
+
+/* ===== hDrill — server-side paged table (the payload contract, core/payload.py, build 455) =====
+   A hound's ▶ Run ships only the decision data (summary + top rows + totals) plus a `drill`
+   handle {run, section}; the rest of a list is paged, searched and sorted ON THE SERVER through
+   the hound's `drill` action with an opaque, signed keyset token (never OFFSET). Usage:
+     const T = hDrill({api:API, table:'certTbl', run:o.drill.run, section:'certs', sort:'near',
+                       cols:8, row:(r,i)=>'<tr>…'+esc(r.x)+'…</tr>', wire:(tbody,rows)=>{…},
+                       empty:'<tr><td colspan="8" class="sub">Nothing.</td></tr>',
+                       search:'certQ',            // optional <input id> → server-side search (debounced)
+                       first:o});                 // optional: render ▶ Run's own top/page/total first
+     T.set({filter:['expired'], q:''});            // new query → back to row 1
+   The pager reads "‹ Prev  1–200 of 35,214  Next ›" (a capped total shows "10,000+"), keeps a
+   Rows selector (remembered per table, as hPaginate), and every value is escaped with esc().
+   Requests go through api.post, so the page cache records and replays them like any read. */
+function hDrill(o){
+  o = Object.assign({action:'drill', cols:6, filter:[], q:'', sort:''}, o||{});
+  const st = {run:o.run, section:o.section, sort:o.sort||'', filter:(o.filter||[]).slice(), q:o.q||'',
+              limit:Math.min(200, hPageSize(o.table)), toks:[null], idx:0, rows:[], total:null, start:0, next:null, seq:0, err:null};
+  const tbl = () => document.getElementById(o.table);
+  { const t=tbl(); if(t) t.dataset.paged='1'; }   // the auto-pager leaves this table alone
+  function totalTxt(t){ if(!t) return '?'; const v=Number(t.value||0).toLocaleString(); return t.exact===false ? v+'+' : v; }
+  function pagerEl(){ const id=o.table+'DPager'; let p=document.getElementById(id); const t=tbl();
+    if(!p && t){ p=document.createElement('div'); p.id=id; p.className='toolbar hdrill-pager';
+      const an=(t.parentElement && t.parentElement.children.length===1 && /auto|scroll/.test(t.parentElement.style.overflowX+t.parentElement.style.overflow)) ? t.parentElement : t;
+      an.parentNode.insertBefore(p, an.nextSibling); }
+    return p; }
+  function render(){
+    const t=tbl(); if(!t) return; const tb=t.tBodies[0]||t.appendChild(document.createElement('tbody'));
+    if(st.err){ tb.innerHTML='<tr><td colspan="'+(+o.cols||1)+'" class="sub">'+esc(st.err)+'</td></tr>'; }
+    else tb.innerHTML = st.rows.length ? st.rows.map((r,i)=>o.row(r, st.start+i)).join('')
+      : (o.empty || '<tr><td colspan="'+(+o.cols||1)+'" class="sub">No rows.</td></tr>');
+    if(o.wire && !st.err){ try{ o.wire(tb, st.rows); }catch(e){} }
+    const p=pagerEl(); if(!p) return;
+    const n=st.rows.length, a=n?st.start+1:0, b=st.start+n;
+    if(!st.err && st.idx===0 && !st.next && (st.total?st.total.value:n)<=Math.min.apply(null,HPG_SIZES)){ p.style.display='none'; p.innerHTML=''; }
+    else {
+      p.style.display='';
+      p.innerHTML='<button class="btn ghost sm" data-hdp '+(st.idx<=0?'disabled':'')+'>‹ Prev</button>'
+        +'<span class="sub hdrill-count" style="margin:0 10px">'+esc(a.toLocaleString())+'–'+esc(b.toLocaleString())+' of '+esc(totalTxt(st.total))+'</span>'
+        +'<button class="btn ghost sm" data-hdn '+(st.next?'':'disabled')+'>Next ›</button>';
+      p.querySelector('[data-hdp]').onclick=()=>{ if(st.idx>0){ st.idx--; load(); } };
+      p.querySelector('[data-hdn]').onclick=()=>{ if(st.next){ st.toks[st.idx+1]=st.next; st.idx++; load(); } };
+      hSizeControl(p, o.table, v=>{ st.limit=Math.min(200,v); reset(); load(); });
+    }
+    if(o.onRender){ try{ o.onRender(api); }catch(e){} }
+  }
+  function apply(resp){
+    if(!resp || resp.ok===false){ st.rows=[]; st.next=null;
+      st.err = resp && resp.expired ? 'This run’s rows are no longer on the server — press ▶ Run again.' : '✗ '+((resp&&(resp.error||resp.message))||'could not load this page');
+      return; }
+    st.err=null; st.rows=resp.top||[]; st.total=resp.total||null;
+    const pg=resp.page||{}; st.next=pg.next||null; st.start=+pg.start||0; }
+  async function load(){
+    const my=++st.seq;
+    const body={run:st.run, section:st.section, limit:st.limit};
+    if(st.sort) body.sort=st.sort; if(st.filter.length) body.filter=st.filter; if(st.q) body.q=st.q;
+    if(st.toks[st.idx]) body.next=st.toks[st.idx];
+    Object.assign(body, o.extra||{});
+    let resp; try{ resp=await o.api.post(o.action, body); }catch(e){ resp={ok:false, error:e.message}; }
+    if(my!==st.seq) return;                     // a newer query won
+    apply(resp); render(); return resp; }
+  function reset(){ st.toks=[null]; st.idx=0; }
+  const api = {
+    set(p){ p=p||{}; if('run' in p) st.run=p.run; if('section' in p) st.section=p.section; if('sort' in p) st.sort=p.sort||'';
+      if('filter' in p) st.filter=(p.filter||[]).filter(Boolean); if('q' in p) st.q=String(p.q||'').trim();
+      reset(); return load(); },
+    reload(){ return load(); },
+    get rows(){ return st.rows; }, get total(){ return st.total; }, get state(){ return st; },
+  };
+  if(o.search){ const inp=document.getElementById(o.search); if(inp && !inp.__hd){ inp.__hd=1; let tm=null;
+    inp.addEventListener('input', ()=>{ clearTimeout(tm); tm=setTimeout(()=>api.set({q:inp.value}), 300); });
+    st.q = st.q || String(inp.value||'').trim(); } }
+  if(o.first && o.first.ok!==false && st.limit===((o.first.page||{}).limit||st.limit) && !st.q){ apply(o.first); render(); }
+  else load();
+  return api;
+}
+/* ===== end hDrill ===== */

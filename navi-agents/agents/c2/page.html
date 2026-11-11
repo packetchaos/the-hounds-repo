@@ -84,7 +84,7 @@
     <p class="sub" style="margin:4px 0 0">Pick Linux hosts from navi.db and/or type <b>any</b> IP, hostname or small CIDR (≤ 256 hosts). Everything is validated like navi does it (plain IP / hostname only — nothing that starts with <span class="mono">-</span>, no spaces, quotes or shell characters). Public addresses and hosts navi.db has never seen are flagged in every confirm. The sections below run on these targets.</p>
     <div class="row">
       <div><label class="lbl">From navi.db — Linux hosts <span id="hostCount" class="mut"></span></label>
-        <input id="hostFilter" class="fld" placeholder="filter by IP, hostname or OS…" autocomplete="off" spellcheck="false">
+        <input id="hostFilter" class="fld" placeholder="search by IP, hostname, OS or UUID…" autocomplete="off" spellcheck="false">
         <div class="hostpick" id="hostPick"><p class="sub" style="padding:6px 9px">loading…</p></div>
         <div style="display:flex;gap:6px;margin-top:6px;flex-wrap:wrap"><button class="btn ghost sm" id="pickAll">☑ Select shown</button><button class="btn ghost sm" id="pickNone">☐ Clear</button></div></div>
       <div><label class="lbl">Any IP · hostname · CIDR</label>
@@ -273,21 +273,40 @@ async function loadGlance(){
 
 /* ---------------- targets ---------------- */
 function hostRow(h){ return '<label><input type="checkbox" class="hp" data-ip="'+esc(h.ip)+'"'+(PICKED.has(h.ip)?' checked':'')+'> <span class="mono">'+esc(h.ip)+'</span> '+esc(h.hostname||'')+' <span class="mut" style="font-size:11.5px">'+esc(h.os||'')+'</span>'+(h.crown?' <span class="badge crown">★ ACR '+esc(h.acr)+'</span>':'')+'</label>'; }
+/* the host list is a server-side search (hosts: q + keyset `after`, ≤ 50 per page) — navi.db can
+   hold hundreds of thousands of Linux hosts, so the page never receives them all */
+let HQ='', HNEXT=null, HTOTAL=0, HSEQ=0;
 function renderPick(){
-  const q=$('hostFilter').value.trim().toLowerCase();
-  const shown=HOSTS.filter(h=>!q||(h.ip+' '+h.hostname+' '+h.os).toLowerCase().includes(q)).slice(0,400);
-  $('hostPick').innerHTML=shown.length?shown.map(hostRow).join('')+(HOSTS.length>shown.length&&!q?'<p class="sub" style="padding:4px 9px">showing 400 of '+N(HOSTS.length)+' — filter to narrow</p>':''):'<p class="sub" style="padding:6px 9px">'+(HOSTS.length?'No host matches the filter.':'No scanned Linux hosts in navi.db — type any reachable IP / hostname on the right.')+'</p>';
+  const more=HNEXT!=null?'<p class="sub" style="padding:4px 9px">showing '+N(HOSTS.length)+(HQ?' matches':' of '+N(HTOTAL))+' — <button class="btn ghost sm" id="hostMore">more…</button>'+(HQ?'':' or search to narrow')+'</p>':'';
+  $('hostPick').innerHTML=HOSTS.length?HOSTS.map(hostRow).join('')+more:'<p class="sub" style="padding:6px 9px">'+(HTOTAL?'No host matches the filter.':'No scanned Linux hosts in navi.db — type any reachable IP / hostname on the right.')+'</p>';
+}
+function fillLists(list){ const opts=list.map(h=>'<option value="'+esc(h.ip)+'">'+esc(h.ip)+(h.hostname?(' — '+esc(h.hostname)):'')+'</option>').join(''); $('cmdHostList').innerHTML=opts; $('fileHostList').innerHTML=opts; }
+async function fetchHosts(q, after){
+  const seq=++HSEQ; let o; try{ o=await API.post('hosts',{q:q,limit:50,after:after||0}); }catch(e){ o={ok:false}; }
+  return seq===HSEQ?o:null;
 }
 async function loadHosts(){
-  let o; try{ o=await API.post('hosts',{}); }catch(e){ o={ok:false}; }
-  if(!o||!o.ok){ $('hostPick').innerHTML='<p class="sub" style="padding:6px 9px">navi.db not readable.</p>'; return; }
-  setGate(o); HOSTS=o.linux||[];
-  $('hostCount').textContent='('+N(HOSTS.length)+(o.excluded_count?(' · '+N(o.excluded_count)+' non-Linux excluded'):'')+')';
-  const opts=HOSTS.slice(0,2000).map(h=>'<option value="'+esc(h.ip)+'">'+esc(h.ip)+(h.hostname?(' — '+esc(h.hostname)):'')+'</option>').join('');
-  $('cmdHostList').innerHTML=opts; $('fileHostList').innerHTML=opts;
+  HQ=$('hostFilter').value.trim();
+  const o=await fetchHosts(HQ,0); if(o===null) return;
+  if(!o||!o.ok){ $('hostPick').innerHTML='<p class="sub" style="padding:6px 9px">'+(o&&o.budget?esc(o.message||'navi.db is busy — try again'):'navi.db not readable.')+'</p>'; return; }
+  setGate(o); HOSTS=o.linux||[]; HNEXT=o.next; HTOTAL=o.linux_count||0;
+  $('hostCount').textContent='('+N(HTOTAL)+(o.excluded_count?(' · '+N(o.excluded_count)+' non-Linux excluded'):'')+')';
+  fillLists(HOSTS);
   renderPick();
 }
-$('hostFilter').addEventListener('input',renderPick);
+async function moreHosts(){
+  if(HNEXT==null) return; const o=await fetchHosts(HQ,HNEXT); if(!o||!o.ok) return;
+  HOSTS=HOSTS.concat(o.linux||[]); HNEXT=o.next; renderPick();
+}
+let hft=null;
+$('hostFilter').addEventListener('input',()=>{ clearTimeout(hft); hft=setTimeout(loadHosts,250); });
+$('hostPick').addEventListener('click',e=>{ if(e.target&&e.target.id==='hostMore'){ e.preventDefault(); moreHosts(); } });
+/* typeahead for the single-host fields: the same server-side search */
+let sht=null;
+function suggestHosts(el){ clearTimeout(sht); sht=setTimeout(async()=>{ const q=el.value.trim(); if(!q) return; let o; try{ o=await API.post('hosts',{q:q,limit:20}); }catch(e){ return; } if(o&&o.ok) fillLists(o.linux||[]); },250); }
+$('cmdHost').addEventListener('input',()=>suggestHosts($('cmdHost')));
+$('fileHost').addEventListener('input',()=>suggestHosts($('fileHost')));
+
 $('hostPick').addEventListener('change',e=>{ const c=e.target.closest('.hp'); if(!c) return; if(c.checked) PICKED.add(c.dataset.ip); else PICKED.delete(c.dataset.ip); schedValidate(); });
 $('pickAll').onclick=()=>{ document.querySelectorAll('#hostPick .hp').forEach(c=>{ c.checked=true; PICKED.add(c.dataset.ip); }); schedValidate(); };
 $('pickNone').onclick=()=>{ PICKED.clear(); renderPick(); schedValidate(); };
@@ -458,7 +477,7 @@ $('remFind').onclick=async()=>{ const selector=$('remSel').value.trim(); if(!sel
   $('remHosts').innerHTML='<div class="infobox"><span class="spin"></span> searching navi.db…</div>';
   let o; try{ o=await API.post('plan',{selector}); }catch(e){ o={ok:false,error:e.message}; }
   if(!o.ok){ $('remHosts').innerHTML='<div class="critbox">✗ '+esc(o.error||'failed')+'</div>'; return; }
-  renderRemHosts(o.linux_hosts||[], 'Matched <b>'+N(o.matched_assets)+'</b> asset(s) · <b>'+N((o.linux_hosts||[]).length)+'</b> Linux host(s) with an IP'+(o.excluded_count?(' · '+N(o.excluded_count)+' non-Linux excluded'):'')+(o.plugin_names&&o.plugin_names.length?' · '+o.plugin_names.slice(0,3).map(esc).join(' · '):''));
+  renderRemHosts(o.linux_hosts||[], 'Matched <b>'+N(o.matched_assets)+'</b> asset(s) · <b>'+N(o.linux_count!=null?o.linux_count:(o.linux_hosts||[]).length)+'</b> Linux host(s) with an IP'+(o.truncated?' (first '+N((o.linux_hosts||[]).length)+' listed)':'')+(o.excluded_count?(' · '+N(o.excluded_count)+' non-Linux excluded'):'')+(o.plugin_names&&o.plugin_names.length?' · '+o.plugin_names.slice(0,3).map(esc).join(' · '):''));
 };
 function stepHtml(s, rej){ const r=(rej||[]).filter(x=>x.n===s.n&&(x.where==='step'||x.where==='verify'));
   return '<div class="stepbox'+(r.length?' rej':'')+'" data-n="'+s.n+'"><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center"><b>Step '+s.n+'</b> <span class="badge">risk '+esc(s.risk)+'</span>'+(s.requires_reboot?' <span class="badge" style="color:var(--warn)">needs reboot</span>':'')+' <span class="sub">'+esc(s.purpose)+'</span> <button class="btn ghost sm" data-rmstep="'+s.n+'" style="margin-left:auto">✕ remove</button></div>'

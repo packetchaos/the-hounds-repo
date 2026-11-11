@@ -28,7 +28,7 @@ NAVI_DEFAULT_NOTE = "navi Generated"          # navi's --note default (it adds "
 # navi's own Change Reason labels, in navi's order
 REASON_LABELS = (("business", "Business Critical"), ("compliance", "In Scope For Compliance"),
                  ("mitigation", "Existing Mitigation Control"), ("development", "Dev Only"))
-CHUNK = 1500                                  # UUIDs per --query (stays under the OS arg limit)
+CHUNK = 1999      # UUIDs per --query = core.navi_cli.BATCH_UUIDS (byte-guarded by navi_cli.uuid_batches)
 
 
 def _cols(table):
@@ -223,13 +223,20 @@ def summary(pv, sample=0) -> dict:
 
 
 def _query_for(uuids):
-    return "SELECT uuid AS asset_uuid FROM assets WHERE uuid IN (%s)" % ",".join(
-        "'" + str(u).replace("'", "''") + "'" for u in uuids)
+    from . import navi_cli
+    return navi_cli.uuids_query(uuids)
+
+
+def batches(uuids):
+    """The protection set (Python-derived: what an ACR batch APPLIED to, from the ACR log) in
+    navi-legal batches — ≤ CHUNK UUIDs and < navi_cli.MAX_ARG_BYTES per --query."""
+    from . import navi_cli
+    return navi_cli.uuid_batches(uuids, size=CHUNK)
 
 
 def protect(groups, agent="acr", sync=False, batch="") -> dict:
     """Queue the NO : UPDATE tag. `groups` = {business_case: [uuid, …]} (or a plain list of
-    uuids). One gated navi tag job per business case per 1500-UUID chunk, so each Tagging-log
+    uuids). One gated navi tag job per business case per ≤1,999-UUID batch (batches()), so each Tagging-log
     entry carries the business case of the ACR change that prompted it. Already-protected
     assets (in navi.db) and ones whose protection is still pending are left out. Returns {queued_jobs, assets, jobs:[…]}."""
     from . import acrlog, navi_cli
@@ -242,10 +249,10 @@ def protect(groups, agent="acr", sync=False, batch="") -> dict:
         uu = sorted({str(u) for u in (uuids or []) if u and str(u) not in prot and str(u) not in pend
                      and str(u) not in seen})
         seen.update(uu)
-        for i in range(0, len(uu), CHUNK):
-            part = uu[i:i + CHUNK]
-            r = navi_cli.tag(PROTECT_CATEGORY, PROTECT_VALUE, query=_query_for(part), agent=agent,
-                             sync=sync, business_case=bc or "")
+        parts = batches(uu)
+        stubs = navi_cli.tag_pages(PROTECT_CATEGORY, PROTECT_VALUE, parts, agent=agent, sync=sync,
+                                   business_case=bc or "")          # one job, or a paged series
+        for part, r in zip(parts, stubs):
             jid = r.get("job_id")
             acrlog.record_protect(part, agent, bc or "", jid, batch)
             jobs.append({"job_id": jid, "assets": len(part), "business_case": bc or "",

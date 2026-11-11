@@ -17,6 +17,7 @@ navi.db has never seen are WARNED about (shown in the confirm), not refused — 
 outside inventory is a feature the owner asked for.
 """
 import ipaddress
+import json
 import re
 
 CIDR_CAP = 256
@@ -104,11 +105,27 @@ def classify(host) -> dict:
     return {"target": str(ip), "kind": kind, "refused": refuse}
 
 
-def _inventory(db_path=None):
-    """{ip_or_hostname_lower: asset} from navi.db (read-only; empty when unavailable)."""
+def _inventory(db_path=None, keys=None):
+    """{ip_or_hostname_lower: asset} from navi.db (read-only; empty when unavailable). With
+    `keys` (the lower-cased targets being expanded, ≤ the CIDR cap) only those assets are read
+    — one narrow pass over assets in SQL instead of every asset into Python."""
     try:
         from agents.c2 import api as c2api
-        hosts = c2api._hosts_raw(db_path)
+        if keys is None:
+            hosts = c2api._hosts_raw(db_path)
+        else:
+            ks = sorted({str(k or "").strip().lower() for k in keys} - {""})
+            if not ks:
+                return {}
+            _sel, ip, _os, ok = c2api._asset_sql(db_path)
+            if not ok:
+                return {}
+            hn = "hostname" if "hostname" in c2api._cols("assets", db_path) else "''"
+            j = json.dumps(ks)
+            hosts = c2api._hosts_where(
+                f"lower(TRIM(COALESCE({ip},''),{c2api._WS})) IN (SELECT value FROM json_each(?)) OR "
+                f"lower(TRIM(COALESCE({hn},''),{c2api._WS})) IN (SELECT value FROM json_each(?))",
+                (j, j), db_path=db_path, budget="run")
     except Exception:
         return {}
     idx = {}
@@ -209,7 +226,7 @@ def expand(items, cap=CIDR_CAP, db_path=None) -> dict:
                 continue
             seen.add(c["target"])
             out.append(c)
-    inv = _inventory(db_path) if out else {}
+    inv = _inventory(db_path, keys=[t["target"] for t in out]) if out else {}
     warnings = []
     n_public = n_off = 0
     for t in out:

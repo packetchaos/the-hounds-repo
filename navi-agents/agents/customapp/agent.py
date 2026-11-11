@@ -184,31 +184,29 @@ def _enrich(cands, tok_assets, db_path=None) -> dict:
     for r in _safe_rows("SELECT app_name, plugin_list FROM vuln_route WHERE app_name IS NOT NULL;", db_path):
         ids = set(re.findall(r"\d+", str(r.get("plugin_list") or "")))
         route_pl.setdefault(r["app_name"].strip().lower(), set()).update(ids)
-    want = {p for c in cands if c["source"] == "route" for p in route_pl.get(c["name"].lower(), ())}
-    plug_assets = {}
-    if want:
-        for r in _safe_rows("SELECT DISTINCT plugin_id, asset_uuid FROM vulns;", db_path):
-            pid = str(r.get("plugin_id"))
-            if pid in want and r.get("asset_uuid"):
-                plug_assets.setdefault(pid, set()).add(r["asset_uuid"])
-    acr = {}
-    for r in _safe_rows("SELECT uuid, acr FROM assets;", db_path):
-        try:
-            acr[r["uuid"]] = float(r["acr"]) if r.get("acr") not in (None, "") else None
-        except (TypeError, ValueError):
-            acr[r["uuid"]] = None
-    has_acr = any(v is not None for v in acr.values())
-    owned_assets = {r["asset_uuid"] for r in _safe_rows(
-        "SELECT DISTINCT asset_uuid FROM tags WHERE " + tagname.sql_lit("tag_key", "Owner") + ";", db_path) if r.get("asset_uuid")}
+    # route membership: only the candidate routes' plugins, read through hx_v_plugin
+    # (plugin_id, asset_uuid, …) — an index SEARCH per plugin, never every (plugin, asset) pair
+    route_assets = {}
+    for c in cands:
+        if c["source"] != "route":
+            continue
+        pids = sorted(route_pl.get(c["name"].lower(), ()))
+        if pids and c["name"].lower() not in route_assets:
+            route_assets[c["name"].lower()] = _plugin_assets(pids, db_path)
+    asets = []
+    for c in cands:
+        if c["source"] == "route":
+            aset = route_assets.get(c["name"].lower(), set()) if route_pl.get(c["name"].lower()) else set()
+        else:
+            aset = {a for a in tok_assets.get(c["keyword"], set()) if a}
+        asets.append(aset)
+    need = set().union(*asets) if asets else set()
+    acr, owned_assets = _acr_owner(need, db_path)
+    has_acr = _has_acr(acr, db_path)
     named = {_nk(r.get("tag_value")) for r in _safe_rows(
         "SELECT DISTINCT tag_value FROM tags WHERE " + tagname.sql_lit("tag_key", "Custom App") + ";", db_path)}
     all_assets, crown_assets, unowned_assets = set(), set(), set()
-    for c in cands:
-        if c["source"] == "route":
-            aset = set().union(*[plug_assets.get(p, set()) for p in route_pl.get(c["name"].lower(), ())]) \
-                if route_pl.get(c["name"].lower()) else set()
-        else:
-            aset = {a for a in tok_assets.get(c["keyword"], set()) if a}
+    for c, aset in zip(cands, asets):
         cr = {a for a in aset if (acr.get(a) or 0) >= CROWN_ACR}
         uo = aset - owned_assets
         c["assets"] = len(aset)
@@ -229,6 +227,77 @@ def _enrich(cands, tok_assets, db_path=None) -> dict:
             "named_pct": round(100.0 * sum(1 for c in cands if c["named"]) / n, 1) if n else None,
             "top_assets": max((c["assets"] for c in cands), default=0),
             "custom_app_tags": len(named)}
+
+
+_BULK = 50000      # past this many candidate assets, read assets/Owner tags whole (narrow scans)
+
+
+def _plugin_assets(pids, db_path=None) -> set:
+    """DISTINCT asset_uuid carrying any of these plugins (all states, like before)."""
+    try:
+        ib = db.indexed_by("hx_v_plugin", db_path)
+        out = set()
+        for r in db.iter(f"SELECT DISTINCT asset_uuid FROM vulns{ib} WHERE plugin_id IN "
+                         "(SELECT value FROM json_each(?))", (json.dumps([str(p) for p in pids]),),
+                         path=db_path, budget="run" if ib else "job", tuples=True):
+            if r[0]:
+                out.add(r[0])
+        return out
+    except db.QueryTimeout:
+        raise
+    except Exception:
+        return set()
+
+
+def _acr_of(v):
+    try:
+        return float(v) if v not in (None, "") else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _acr_owner(need, db_path=None):
+    """({uuid: acr}, {owned uuids}) for the candidate assets only (whole tables past _BULK)."""
+    own = "SELECT DISTINCT asset_uuid FROM tags WHERE " + tagname.sql_lit("tag_key", "Owner")
+    if len(need) > _BULK:
+        acr = {r["uuid"]: _acr_of(r.get("acr")) for r in _safe_rows("SELECT uuid, acr FROM assets;", db_path)}
+        return acr, {r["asset_uuid"] for r in _safe_rows(own + ";", db_path) if r.get("asset_uuid")}
+    if not need:
+        return {}, set()
+    j = json.dumps(sorted(need))
+    acr = {}
+    try:
+        for r in db.query("SELECT uuid, acr FROM assets WHERE uuid IN (SELECT value FROM json_each(?)) "
+                          "ORDER BY rowid", (j,), path=db_path, budget="run"):
+            acr[r["uuid"]] = _acr_of(r.get("acr"))
+    except db.QueryTimeout:
+        raise
+    except Exception:
+        acr = {}
+    try:
+        owned = {r["asset_uuid"] for r in db.query(own + " AND asset_uuid IN (SELECT value FROM json_each(?))",
+                                                     (j,), path=db_path, budget="run") if r.get("asset_uuid")}
+    except db.QueryTimeout:
+        raise
+    except Exception:
+        owned = set()
+    return acr, owned
+
+
+def _has_acr(acr, db_path=None) -> bool:
+    """Any asset in navi.db with a numeric ACR (stops at the first one)."""
+    if any(v is not None for v in acr.values()):
+        return True
+    import contextlib
+    try:
+        with contextlib.closing(db.iter("SELECT acr FROM assets WHERE acr IS NOT NULL AND acr<>''",
+                                        path=db_path, budget="run", tuples=True)) as it:
+            for r in it:
+                if _acr_of(r[0]) is not None:
+                    return True
+    except Exception:
+        return False
+    return False
 
 
 # ---- helpers used by the service layer for the NL tag flow ----
@@ -252,7 +321,7 @@ def _safe_rows(sql, db_path=None):
 
 def _table_has_rows(table, db_path=None):
     try:
-        return (db.scalar(f"SELECT COUNT(*) FROM {table}", path=db_path) or 0) > 0
+        return db.scalar(f"SELECT 1 FROM {table} LIMIT 1", path=db_path) is not None
     except Exception:
         return False
 

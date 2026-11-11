@@ -1,5 +1,14 @@
-"""Asset Ownership (Terminus) — self-contained HTTP actions."""
-from core import asset_ownership as engine, navi_cli, tagname
+"""Asset Ownership (Terminus) — self-contained HTTP actions.
+
+Payload contract (build 455): `overview` streams the per-asset rollup into the result store
+(core.asset_ownership.overview_store) and returns the decision data — every KPI, the top crown
+jewels (unclaimed first), the blind spots shown (≤ 200), the top 100 owners and page 1 of the
+per-asset table — plus a drill handle. The table, crown list and blind spots page / filter /
+search on the server (`drill`); no asset list or uuid array reaches the page. `apply` takes the
+plan's FILTER or a KEY ({run, key:"blind"}) and the server rebuilds the set; `plan` no longer
+returns the matched uuid list.
+"""
+from core import asset_ownership as engine, navi_cli, payload, tagname
 from .agent import AssetOwnershipAgent
 from core.gates import confirmed
 
@@ -7,12 +16,45 @@ AGENT = AssetOwnershipAgent()
 
 
 def load(p):
-    return {"ok": True, "agent": AGENT.meta(), "result": AGENT.run()}, 200
+    """Back-compat names (load / run) for ▶ Run — the contract response, never the full asset list."""
+    body, code = overview(p)
+    if isinstance(body, dict):
+        body["agent"] = AGENT.meta()
+    return body, code
+
+
+SECTIONS = {
+    "assets": {"sorts": {"acr": ("s1", "s2", "s3"), "claimed": ("s2", "s1", "s3")}, "flags": set(engine.SCOPE_FLAGS)},
+    "crown": {"sorts": {"rank": ("s1", "s2", "s3")}, "flags": set()},
+    "blind": {"sorts": {"rank": ("s1", "s2")}, "flags": set()},
+}
+BLIND_SHOWN = 200          # the blind-spot list shows (and "Tag owner on all shown" tags) the top 200
 
 
 def overview(p):
-    """The Asset Ownership dashboard — per-asset rollup, KPIs, crown jewels, blind spots."""
-    return {"ok": True, "result": engine.overview()}, 200
+    """The Asset Ownership dashboard — KPIs, crown jewels, blind spots, owners + page 1 of the
+    per-asset table (contract response; the rows stay server-side for `drill`)."""
+    st = engine.overview_store()
+    if not st.get("ok"):
+        return {"ok": False, "result": st, "error": st.get("error")}, 200
+    run = st["run"]
+    first, _c = payload.drill("asset_ownership", {"run": run, "section": "assets", "sort": "acr", "limit": 50}, SECTIONS)
+    crown, _c = payload.drill("asset_ownership", {"run": run, "section": "crown", "sort": "rank", "limit": 50}, SECTIONS)
+    blind, _c = payload.drill("asset_ownership", {"run": run, "section": "blind", "sort": "rank",
+                                                  "limit": BLIND_SHOWN}, SECTIONS)
+    k = st["kpi"]
+    result = {"ok": True, "kpi": k, "crown_jewels": crown.get("top") or [], "crown_total": k.get("crown", 0),
+              "crown_next": (crown.get("page") or {}).get("next"),
+              "blind_spots": blind.get("top") or [], "blind_total": k.get("blind", 0),
+              "owners": st["owners"], "owners_total": st["owners_total"], "signal_keys": st["signal_keys"],
+              "run": run}
+    return payload.response(summary=k, top=first.get("top") or [], total_=first.get("total"), page=first.get("page"),
+                            drill={"action": "drill", "run": run, "section": "assets", "sort": "acr"},
+                            tag={"key": "filter", "count": k.get("assets", 0)}, result=result), 200
+
+
+def drill(p):
+    return payload.drill("asset_ownership", p, SECTIONS)
 
 
 def refresh(p):
@@ -28,7 +70,12 @@ def plan(p):
     prompt = _s(p.get("prompt"))
     if not prompt:
         return {"ok": False, "error": "describe who owns which assets"}, 400
-    return engine.plan(prompt), 200
+    out = engine.plan(prompt)
+    # the page previews 12 rows and applies by FILTER — never ship the matched uuid list
+    out.pop("uuids", None)
+    if isinstance(out.get("matched"), list):
+        out["matched"] = out["matched"][:50]
+    return out, 200
 
 
 def _s(v):
@@ -79,7 +126,20 @@ def apply(p):
     if not confirmed(p):
         return {"ok": False, "error": "confirm=true required to write tags"}, 400
     owner = _s(p.get("owner"))
-    uuids = _uuids(p.get("uuids"))
+    # the plan's FILTER (preferred): the server rebuilds the matched set itself; a bare uuid
+    # list is still accepted for the "claim unclaimed assets" button (capped below for the
+    # asset layer; the business layer tags it in ≤1,999-UUID batches)
+    if isinstance(p.get("filter"), dict):
+        uuids = engine.match_filter(p["filter"])
+    elif p.get("key") == "blind":
+        # "Tag owner on all shown": the blind spots the page shows (top BLIND_SHOWN of the run)
+        run = p.get("run")
+        if not payload.STORE.run_info(run, "asset_ownership"):
+            return {"ok": False, "error": "this run is no longer on the server — press ▶ Run again"}, 200
+        rows, _l, _n, _e = payload.STORE.page(run, "blind", sort=("s1", "s2"), limit=BLIND_SHOWN, count=False)
+        uuids = [r["uuid"] for r in rows if r.get("uuid")]
+    else:
+        uuids = _uuids(p.get("uuids"))
     layer = "asset" if _s(p.get("layer")).lower() == "asset" else "business"
     mode = _mode(p.get("mode"))
     if not owner or not uuids:
@@ -117,5 +177,5 @@ def assign(p):
     return {"ok": r.get("ok", False), **r}, 200
 
 
-ACTIONS = {"load": load, "run": load, "overview": overview, "plan": plan,
+ACTIONS = {"load": load, "run": load, "overview": overview, "drill": drill, "plan": plan,
            "apply": apply, "assign": assign, "refresh": refresh}

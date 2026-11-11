@@ -106,6 +106,18 @@ def sources(selector, targets=None, max_hosts=5):
             pids.append(x)
         elif re.fullmatch(r"(?i)CVE-\d{4}-\d{3,7}", x) and "cves" in vcols and "plugin_id" in vcols:
             try:
+                # plugin-first: the CVE is looked up on the plugin dimension (navi's plugins table +
+                # one row per plugin via hx_v_plugin, cached) — not a LIKE scan of every finding
+                from agents.c2 import api as _c2api
+                dim = _c2api._plugin_dim()
+            except Exception:
+                dim = None
+            if dim is not None:
+                rx = _c2api._like(x.upper())
+                pids += [pid for pid, attrs in dim[0].items() if pid in dim[1]       # present in vulns
+                         and any(c is not None and rx.search(_c2api._alower(c)) for _n, _f, c in attrs)][:20]
+                continue
+            try:
                 for r in db.query("SELECT DISTINCT plugin_id FROM vulns WHERE cves LIKE ? LIMIT 20", (f"%{x.upper()}%",)):
                     if r.get("plugin_id") not in (None, ""):
                         pids.append(str(r["plugin_id"]))
@@ -117,7 +129,7 @@ def sources(selector, targets=None, max_hosts=5):
     if pids and "plugin_id" in pcols:
         want = [c for c in ("plugin_name", "solution", "synopsis", "description", "cves", "see_also") if c in pcols]
         try:
-            rows = db.query(f"SELECT plugin_id{''.join(', ' + c for c in want)} FROM plugins WHERE CAST(plugin_id AS TEXT) IN "
+            rows = db.query(f"SELECT plugin_id{''.join(', ' + c for c in want)} FROM plugins WHERE plugin_id IN "
                             f"({','.join('?' * len(pids))})", tuple(pids))
         except Exception:
             rows = []
@@ -128,7 +140,7 @@ def sources(selector, targets=None, max_hosts=5):
                                    "see_also": (r.get("see_also") or "")[:600]})
     if pids and not out["plugins"] and "plugin_name" in vcols:
         try:
-            for r in db.query(f"SELECT DISTINCT plugin_id, plugin_name FROM vulns WHERE CAST(plugin_id AS TEXT) IN "
+            for r in db.query(f"SELECT DISTINCT plugin_id, plugin_name FROM vulns WHERE plugin_id IN "
                               f"({','.join('?' * len(pids))}) LIMIT 10", tuple(pids)):
                 out["plugins"].append({"plugin_id": str(r.get("plugin_id")), "plugin_name": r.get("plugin_name") or "",
                                        "solution": "", "synopsis": "", "description": "", "cves": "", "see_also": ""})
@@ -143,7 +155,7 @@ def sources(selector, targets=None, max_hosts=5):
              "family": fam, "outputs": {}}
         if a.get("uuid") and pids and "output" in vcols:
             try:
-                for r in db.query(f"SELECT plugin_id, output FROM vulns WHERE asset_uuid=? AND CAST(plugin_id AS TEXT) IN "
+                for r in db.query(f"SELECT plugin_id, output FROM vulns WHERE asset_uuid=? AND plugin_id IN "
                                   f"({','.join('?' * len(pids))}) LIMIT 5", (a["uuid"],) + tuple(pids)):
                     h["outputs"][str(r.get("plugin_id"))] = (r.get("output") or "")[:1500]
             except Exception:

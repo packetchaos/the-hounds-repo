@@ -17,7 +17,13 @@ Reads only — Release never tags, applies or sends anything. External catalog d
 downloads, or the box in the Release dialog); otherwise those hounds are skipped.
 
 One release at a time, on its own thread (it waits on snapshot builds that run on the
-job queue, so it must not occupy a queue worker). Cancel stops before the next request.
+job queue, so it must not occupy a queue worker). Cancel stops before the next request and
+trips the running statement's cancel token (db.cancel_scope), so a 2-minute scan stops too.
+Budgets: each hound runs under db.budget_scope("job", heavy=True) — the background budget
+(NAVI_JOB_BUDGET_S, 45 min per hound) for every statement that passes none, and the
+one-heavy-scan-at-a-time semaphore, so a release never overlaps two big scans (snapshot
+builds on the job queue take the same semaphore). Budget / cancel / row-cap hits are
+recorded per hound (item["budget"] = {hits, kinds, first}) and totalled in state["budget_hits"].
 """
 import json
 import os
@@ -32,6 +38,7 @@ RECIPES_PATH = os.path.join(HERE, "release_recipes.json")
 _LOCK = threading.Lock()
 _STATE = {"id": None, "status": "idle"}
 _THREAD = None
+_TOKEN = None               # db.Cancel of the running release (cancel() trips it)
 MIN_HIST_S = 0.5            # runs faster than this (or cached) don't replace the estimate basis
 
 
@@ -175,13 +182,17 @@ def cancel():
     with _LOCK:
         if _STATE.get("status") == "running":
             _STATE["cancel"] = True
-            return True
-    return False
+            tok = _TOKEN
+        else:
+            return False
+    if tok is not None:
+        tok.cancel()            # stop the statement running now, not just the next request
+    return True
 
 
 def start(approve_downloads=None):
     """Start a release (or return the one already running)."""
-    global _THREAD
+    global _THREAD, _TOKEN
     pl = plan(approve_downloads)
     with _LOCK:
         if _STATE.get("status") == "running":
@@ -193,6 +204,7 @@ def start(approve_downloads=None):
                        "cancel": False, "approve_downloads": pl["approve_downloads"],
                        "est_total_s": pl["total_s"], "vuln_rows": pl["vuln_rows"],
                        "items": [dict(i, status=("pending" if i.get("run") else "skipped")) for i in pl["items"]]})
+        _TOKEN = db.Cancel()
     _THREAD = threading.Thread(target=_run, args=(rid,), name="release-the-hounds", daemon=True)
     _THREAD.start()
     return {"ok": True, "state": state()}
@@ -256,7 +268,9 @@ def _run_page(rid, r, approve, started_ms=0):
         if _cancelled(rid):
             return "cancelled", None
         body, status = _dispatch(q["agent"], q["action"], q.get("body") or {})
-        if status < 400 and not (isinstance(body, dict) and body.get("ok") is False):
+        # a budget-limited answer (ok:false budget / ok:true budget_partial) is never stored —
+        # the page would replay a partial result as the whole one (console.js HC does the same)
+        if status < 400 and not (isinstance(body, dict) and (body.get("ok") is False or body.get("budget_partial"))):
             entry["resp"][req_key(q["agent"], q["action"], q.get("body") or {}, ign)] = {"status": status, "body": body}
         else:
             errs.append((isinstance(body, dict) and (body.get("error") or body.get("message"))) or ("HTTP %s" % status))
@@ -335,6 +349,12 @@ def _run_snapshot(rid, r):
         j = jobq.get(jid)
         if not j:
             return "done", None
+        res = j.get("result") if isinstance(j.get("result"), dict) else {}
+        if res.get("budget") or res.get("budget_hits") or res.get("budget_partial"):
+            sc = db.current_scope()           # the build ran on the job queue: record its hits here
+            if sc is not None:
+                sc.note(db.BudgetExceeded("(snapshot build) " + str(res.get("message") or res.get("budget_message") or ""),
+                                          db.scope_budgets().get("job"), "job"))
         if j.get("status") == "done":
             _set_item(rid, r["agent"], snap=_snap_ref(r["agent"], None))
             return "done", None
@@ -343,7 +363,19 @@ def _run_snapshot(rid, r):
         time.sleep(0.5)
 
 
+def _budget_info(sc, st):
+    """{hits, kinds, first} for one hound's scope, or None when nothing was stopped. A snapshot
+    build's hits happen on the job queue — _run_snapshot copies them onto the scope."""
+    if sc is None or not sc.tripped:
+        return None
+    s = sc.summary()
+    return {"hits": s["hits"], "kinds": s["kinds"], "first": s["first"],
+            "label": s["label"], "seconds": s["seconds"]}
+
+
 def _run(rid):
+    tok = _TOKEN or db.Cancel()
+    total_hits = 0
     rc = {r["agent"]: r for r in recipes()["pages"]}
     rows = _vuln_rows()
     hist = _history()
@@ -359,14 +391,26 @@ def _run(rid):
         r = rc[it["agent"]]
         _set_item(rid, it["agent"], status="running", started=time.time())
         t0 = time.time()
+        sc = None
         try:
-            if r["kind"] == "snapshot":
-                st, note = _run_snapshot(rid, r)
-            else:
-                st, note = _run_page(rid, r, approve, started_ms)
+            # background budget + heavy (one big scan at a time), cancellable by cancel()
+            with db.budget_scope("job", heavy=True) as sc, db.cancel_scope(tok):
+                if r["kind"] == "snapshot":
+                    st, note = _run_snapshot(rid, r)
+                else:
+                    st, note = _run_page(rid, r, approve, started_ms)
+        except (db.QueryTimeout, db.TooManyRows) as e:  # (hounds normally answer budget:true)
+            st, note = ("cancelled" if _cancelled(rid) else "error"), db.budget_payload(e)["message"]
         except Exception as e:                          # one hound failing never stops the pack
             st, note = "error", "%s: %s" % (type(e).__name__, e)
         sec = round(time.time() - t0, 2)
+        bud = _budget_info(sc, st)
+        if bud:
+            total_hits += bud["hits"]
+            _set_item(rid, it["agent"], budget=bud)
+            with _LOCK:
+                if _STATE.get("id") == rid:
+                    _STATE["budget_hits"] = total_hits
         _set_item(rid, it["agent"], status=st, sec=sec, note=note)
         # a cached snapshot or a near-instant run says nothing about the real cost — keep
         # the previous measurement (or the first-run rate) for the next estimate
