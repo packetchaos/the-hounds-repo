@@ -50,6 +50,9 @@ def predicates(vcols):
         p = ai_assets.signal_predicate(vcols)
         if p:
             out["ai"] = p
+        p = ai_assets.egress_predicate(vcols)           # build 463: AI egress hosts
+        if p:
+            out["ai_egress"] = p
     except Exception:
         pass
     try:
