@@ -10,7 +10,7 @@
   <section class="card">
     <div class="toolbar"><div><h2 style="margin:0">🛰️ Agent Group Tagging</h2>
       <p class="sub" style="margin:2px 0 0">Sirius tags every asset in a Tenable <b>agent group</b> with <span class="tagval">Agent Group : &lt;name&gt;</span> — runs <span class="mono">navi enrich tag --c "Agent Group" --v "&lt;name&gt;" --group "&lt;name&gt;"</span> per group, on the background queue (see the <a href="/web/tags-log.html">Tagging log</a>). Three ways below. Writes are gated.</p></div>
-      <button id="load" style="margin-left:auto" class="btn ghost sm" title="Re-fetch the list (it loads automatically when the page opens)">↻ Reload</button></div>
+      <button id="load" style="margin-left:auto" class="btn run sm" data-run title="Pull the agent-group list (navi explore info agent-groups) — nothing loads on its own">▶ Load</button></div>
     <div id="flash" class="flash"></div>
     <div class="kpi" id="kpi"></div>
   </section>
@@ -123,6 +123,7 @@ document.getElementById('tagAll').onclick=tagAll;
 mountAgentHeader({icon:'🛰️',name:'Agent Group Tagging',sub:'Sirius · tag assets by Tenable agent group'});
 try{ hMailAuto(); }catch(e){}
 jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});
-load();   // the agent-group list loads on open (live, navi explore info agent-groups)
+// explicit-run: the list is a live Tenable call — ▶ Load fetches it (the page cache restores the last one)
+flash('flash','Nothing loads automatically — click <b>▶ Load</b> (it reads live, so the list is always current).','idle');
 </script>
 </body></html>

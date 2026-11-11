@@ -80,6 +80,12 @@ def jobs_clear():
     return jsonify(launcher.jobs_clear())
 
 
+@app.post("/api/jobs/cancel")
+def jobs_cancel():
+    body = request.get_json(silent=True) or {}
+    return jsonify(launcher.jobs_cancel(body.get("job_id") if isinstance(body, dict) else None))
+
+
 @app.get("/api/profile")
 def profile():
     return jsonify(launcher.profile())

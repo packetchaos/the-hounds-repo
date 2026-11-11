@@ -330,8 +330,17 @@ def atlas_sets(assets):
 
 def scan(db_path=None, fp=None, allow=None):
     """Discover + classify AI/ML assets. fp = suppression map {assets,fw,gfw};
-    allow = egress allowlist (defaults to ALLOW_DEFAULT)."""
+    allow = egress allowlist (defaults to ALLOW_DEFAULT).
+    A step stopped by its time budget no longer vanishes silently: the result says which
+    steps are partial (`partial`), and a user's cancel stops the whole scan."""
     allow = allow or ALLOW_DEFAULT
+    partial = []
+
+    def _soft(e, step):
+        if isinstance(e, db.QueryCancelled):
+            raise e
+        if isinstance(e, (db.QueryTimeout, db.TooManyRows)):
+            partial.append(step)
     vcols = _cols("vulns")
     acols = _cols("assets")
     amap = {}
@@ -374,8 +383,8 @@ def scan(db_path=None, fp=None, allow=None):
                     a["plugins"].append({"plugin_id": r.get("plugin_id"), "plugin_name": r.get("plugin_name")})
                     if r.get("url") and not a["url"]:
                         a["url"] = r.get("url")
-        except Exception:
-            pass
+        except Exception as _e:
+            _soft(_e, 'plugin family')
 
     # 2) software table
     if "software_string" in _cols("software"):
@@ -388,8 +397,8 @@ def scan(db_path=None, fp=None, allow=None):
                 for u in _uuids(r.get("asset_uuid")):
                     add_ev(u, {"src": "software", "term": hit["name"], "role": hit["role"], "pid": "",
                                "pname": "software inventory", "snip": _snip(r.get("software_string"), hit["kw"])})
-        except Exception:
-            pass
+        except Exception as _e:
+            _soft(_e, 'software inventory')
 
     # 3) plugin name / output (distinct AI terms; generic terms blocked)
     # 4) exposed AI endpoints — port match requires port CONTEXT, not a bare substring
@@ -452,14 +461,13 @@ def scan(db_path=None, fp=None, allow=None):
         held = []
         try:
             for r in db.iter(f"SELECT asset_uuid, plugin_id, plugin_name, output, {pcol}, ({where3}) AS m3, "
-                             f"({where4}) AS m4 FROM vulns WHERE ({where3}) OR ({where4})", path=db_path,
-                             budget="job"):
+                             f"({where4}) AS m4 FROM vulns WHERE ({where3}) OR ({where4})", path=db_path):
                 if r.get("m3"):
                     step3(r)
                 if r.get("m4"):
                     step4(r, held)
-        except Exception:
-            pass
+        except Exception as _e:
+            _soft(_e, 'plugin output / endpoints')
         for u, ev in held:
             add_ev(u, ev)
 
@@ -480,8 +488,8 @@ def scan(db_path=None, fp=None, allow=None):
                             seen.add(key)
                             add_ev(u, {"src": "cpe", "term": name, "role": role, "pid": "",
                                        "pname": "CPE inventory", "snip": _snip(r.get("cpe_string"), ":" + kw)})
-        except Exception:
-            pass
+        except Exception as _e:
+            _soft(_e, 'CPE inventory')
 
     # ---- assemble assets ----
     assets = []
@@ -540,8 +548,8 @@ def scan(db_path=None, fp=None, allow=None):
             for r in db.query(rq, path=db_path):
                 rk[r["asset_uuid"]] = {"kev": int(r.get("kev") or 0), "crit": int(r.get("crit") or 0),
                                        "eol": int(r.get("eol") or 0), "vpr": float(r.get("vpr") or 0)}
-        except Exception:
-            pass
+        except Exception as _e:
+            _soft(_e, 'risk rollup')
         # MITRE ATT&CK techniques (Orthrus) + Lifecycle/EOL tags (Charon) the pack has applied
         mit, eol_tag = {}, set()
         try:
@@ -551,8 +559,8 @@ def scan(db_path=None, fp=None, allow=None):
                     mit.setdefault(r["asset_uuid"], []).append((r.get("tag_value") or "").strip())
                 else:
                     eol_tag.add(r.get("asset_uuid"))
-        except Exception:
-            pass
+        except Exception as _e:
+            _soft(_e, 'tags (MITRE / EOL)')
         for x in assets:
             base = rk.get(x["asset_uuid"], {"kev": 0, "crit": 0, "eol": 0, "vpr": 0})
             techs = sorted({t for t in mit.get(x["asset_uuid"], []) if t})
@@ -607,7 +615,12 @@ def scan(db_path=None, fp=None, allow=None):
             "egressCount": sum(1 for x in assets if x["egress"]),
             "shadowCount": sum(1 for x in assets if any(not e["sanctioned"] for e in x["egress"])),
             "role_acr": ROLE_ACR, "allow": list(allow),
-            "atlas_tactic_order": ATLAS_TACTIC_ORDER}
+            "atlas_tactic_order": ATLAS_TACTIC_ORDER,
+            "partial": partial,
+            **({"budget_partial": True,
+                "budget_message": "stopped at its time budget: " + ", ".join(partial)
+                                  + " — the inventory may be missing assets those steps would add"}
+               if partial else {})}
 
 
 # ---- gated tag helper (used by api.py) --------------------------------------

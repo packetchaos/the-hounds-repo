@@ -40,7 +40,12 @@ const HB = (function(){
   const TAB = Date.now().toString(36)+Math.random().toString(36).slice(2,10);
   const S = { ran: /(?:^|[?&])run=1(?:&|$)/.test(location.search), lastBtn:null, last:null, seq:0 };
   const API_RE = /^\/api\/([a-z0-9_]+)\/([a-z0-9_]+)$/;
-  function markRun(btn){ S.ran=true; if(btn && btn.id) S.lastBtn=btn.id; }
+  function markRun(btn){ S.ran=true; if(btn){ S.clickAt=Date.now(); if(btn.id) S.lastBtn=btn.id; } }
+  // run-bg (may detach) only for the requests a ▶ click itself sets off — the page cache tags
+  // them _run; pages without the page cache: fired within 2 s of the click. Drill-downs, paging
+  // and status polls afterwards stay "run" (inline, never queued behind long runs).
+  function isRunReq(body){ if(S.clickAt && Date.now()-S.clickAt<2000) return true;
+    try{ const b=typeof body==='string'?JSON.parse(body):null; return !!(b && b._run); }catch(e){ return false; } }
   const isRunBtn = b => !!b && (b.hasAttribute('data-run') || /^\s*▶/.test(b.textContent||''));
   document.addEventListener('click', ev=>{
     if(!ev.isTrusted) return;
@@ -66,9 +71,15 @@ const HB = (function(){
     if(!ap || (input && typeof input!=='string' && !init)) return _fetch(input, init);
     const h = new Headers((init && init.headers) || {});
     if(!h.has('X-Hounds-Tab')) h.set('X-Hounds-Tab', TAB);
-    if(!h.has('X-Hounds-Budget')) h.set('X-Hounds-Budget', S.ran ? 'run' : 'open');
+    // after a ▶ Run on this page: "run-bg" — the server may DETACH a long run (core/launcher
+    // _detached): it answers 202 {pending, job_id} and keeps going; RUNS below waits for it
+    if(!h.has('X-Hounds-Budget')) h.set('X-Hounds-Budget', S.ran ? (isRunReq(init && init.body) ? 'run-bg' : 'run') : 'open');
     init = Object.assign({}, init, {headers:h});
-    const r = await _fetch(input, init);
+    let r = await _fetch(input, init);
+    if(r.status===202){
+      let j=null; try{ j=await r.clone().json(); }catch(e){}
+      if(j && j.pending && j.job_id!=null) r = await RUNS.wait(j, ap);
+    }
     if(r.status===200 && ap.agent!=='hub' && ap.agent!=='jobs'){
       const len=+(r.headers.get('Content-Length')||0);
       if(!(len > 16e6)) r.clone().text().then(t=>{
@@ -103,7 +114,7 @@ const HB = (function(){
     const d=document.createElement('div'); d.id='hbBanner'; d.className='hb-banner'; d.setAttribute('role','status');
     d.innerHTML='<span class="hb-msg">⏱ <b>'+(partial?'Partial result':(j.cancelled?'Stopped':'Stopped at its time budget'))+'</b> · '+esc(msg)+'</span>'+
       '<span class="hb-acts">'+
-      (bg?'<button class="btn sm" type="button" id="hbBg" title="Re-send this read as a background job (the 45-min job budget applies); track it in the Runs log">⏳ Run in background</button>':'')+
+      (bg?'<button class="btn sm" type="button" id="hbBg" title="Re-send this read as a background job (the 2-hour job budget applies); track it in the Runs log">⏳ Run in background</button>':'')+
       (j.optimize?'<a class="btn ghost sm" id="hbOpt" href="/web/settings.html#secHx" title="Build the Hounds\' indexes on navi.db">⚡ Optimize (Settings)</a>':'')+
       '<button class="btn ghost sm" type="button" id="hbX" aria-label="Dismiss">✕</button></span>';
     const wrap=document.querySelector('.wrap')||document.body;
@@ -142,7 +153,119 @@ const HB = (function(){
     return (b?'<button class="btn run sm" type="button" id="hbShow">▶ Show results</button>':'')+'<button class="btn ghost sm" type="button" id="hbX">✕</button>'; }
   function wire(d){ const x=d.querySelector('#hbX'); if(x) x.onclick=hide;
     const s=d.querySelector('#hbShow'); if(s) s.onclick=()=>{ const b=document.getElementById(S.lastBtn); hide(); if(b) b.click(); }; }
-  return { tab:TAB, markRun, hasRun:()=>S.ran, show, hide };
+  /* ---- detached runs: "still running · 12m 04s" until the server's job finishes ----
+     A long ▶ Run keeps running on the server (2-hour budget) even if this page closes. While this
+     page waits, the run's row shows its elapsed time (server clock) and a Cancel button; the
+     original request then resolves with the job's result, so the page renders it as usual.
+     The job ids are remembered per page (localStorage), so coming back to the page shows a run
+     still in progress — and when it is done, "▶ Show results" re-runs the page's ▶ (served from
+     the server's cache). Runs of this agent started from another tab show up too. */
+  const RUNS = (function(){
+    const SKEY='houndsRuns:'+location.pathname;
+    const pageAgent=(location.pathname.match(/^\/agents\/([a-z0-9_]+)\//)||[])[1]||null;
+    const rows={};
+    function load(){ try{ const v=JSON.parse(localStorage.getItem(SKEY)||'[]'); return Array.isArray(v)?v:[]; }catch(e){ return []; } }
+    function save(v){ try{ if(v.length) localStorage.setItem(SKEY, JSON.stringify(v.slice(-10))); else localStorage.removeItem(SKEY); }catch(e){} }
+    // a job id is only meaningful with the server boot it came from (ids restart at 1) and its agent
+    function remember(id, label, btn, boot, agent){ const v=load().filter(x=>x.id!==id); v.push({id, label, btn:btn||null, boot:boot||null, agent:agent||null, at:Date.now()}); save(v); }
+    const same=(e,o)=>!!(o && o.job && (!e.boot || o.boot===e.boot) && (!e.agent || o.job.agent===e.agent));
+    function forget(id){ save(load().filter(x=>x.id!==id)); }
+    function fmt(sec){ sec=Math.max(0, Math.floor(sec||0)); const h=Math.floor(sec/3600), m=Math.floor(sec%3600/60), s2=sec%60;
+      return h ? h+'h '+String(m).padStart(2,'0')+'m '+String(s2).padStart(2,'0')+'s' : (m ? m+'m '+String(s2).padStart(2,'0')+'s' : s2+'s'); }
+    function box(){ let d=document.getElementById('hbRuns'); if(d||!document.body) return d;
+      style(); d=document.createElement('div'); d.id='hbRuns'; d.setAttribute('role','status'); d.setAttribute('aria-live','polite');
+      const wrap=document.querySelector('.wrap')||document.body;
+      const first=[...wrap.children].find(e=>e.id!=='actv' && e.id!=='hcBanner' && e.id!=='hbBanner' && e.classList && e.classList.contains('card'));
+      if(first) wrap.insertBefore(d, first); else wrap.prepend(d);
+      return d; }
+    function row(id){ if(rows[id] && rows[id].isConnected) return rows[id];
+      const b=box(); if(!b) return null;
+      const d=document.createElement('div'); d.className='hb-banner'; d.dataset.job=String(id);
+      d.innerHTML='<span class="hb-msg"></span><span class="hb-acts"></span>'; b.appendChild(d); rows[id]=d; return d; }
+    function drop(id){ const d=rows[id]; if(d) d.remove(); delete rows[id]; }
+    function paint(id, j, now, label){
+      const d=row(id); if(!d) return;
+      const t0=j.started||j.created, sec=(now||0)-(t0||0);
+      const q=j.status==='queued' && sec>=3;    // just submitted = "starting", not "queued"
+      d.querySelector('.hb-msg').innerHTML='<span class="spin"></span> <b>'+(q?'Queued':'Still running')+'</b> · '+
+        esc(label||j.label||j.action||'run')+' · <b class="mono">'+esc(fmt(sec))+'</b>'+
+        (q?' — waiting for a free worker (another run is using it)':' — keeps running on the server if you leave this page')+
+        ' · <a href="/web/agent-runs.html">Runs log</a>';
+      const a=d.querySelector('.hb-acts');
+      if(!a.firstChild){ a.innerHTML='<button class="btn ghost sm" type="button">✕ Cancel run</button>';
+        a.firstChild.onclick=async()=>{ if(!confirm('Stop this run? Its partial work is discarded.')) return;
+          a.innerHTML='<span class="spin"></span>';
+          try{ await _fetch('/api/jobs/cancel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({job_id:id})}); }catch(e){} }; }
+    }
+    async function poll(id){ try{ const o=await (await _fetch('/api/jobs/'+encodeURIComponent(id))).json(); return o||{}; }catch(e){ return null; } }
+    const sleep=ms=>new Promise(r=>setTimeout(r, ms));
+    function asResponse(body){ return new Response(JSON.stringify(body), {status:200, headers:{'Content-Type':'application/json'}}); }
+    async function wait(start, ap){
+      const id=start.job_id, label=start.label||(ap&&ap.action);
+      remember(id, label, S.lastBtn, start.boot, start.agent);
+      const me={boot:start.boot, agent:start.agent};
+      try{ hJobBadge(); }catch(e){}
+      let skew=(start.now||0)-Date.now()/1000, j={status:start.status, started:start.started, created:start.created, label};
+      let lastPoll=0, misses=0;
+      const tick=setInterval(()=>paint(id, j, Date.now()/1000+skew, label), 1000);
+      paint(id, j, start.now, label);
+      try{
+        for(;;){
+          await sleep(Math.min(5000, 1500+Math.floor(lastPoll/10)));
+          lastPoll++;
+          const o=await poll(id);
+          if(!o){ if(++misses>30) return asResponse({ok:false, error:'lost contact with the server while waiting for the run'}); continue; }
+          misses=0;
+          if(!o.ok || !o.job || !same(me,o)){ forget(id); return asResponse({ok:false, error:'the run is gone (the server restarted?) — run it again'}); }
+          j=o.job; if(o.now) skew=o.now-Date.now()/1000;
+          if(j.status==='done' || j.status==='error'){
+            forget(id); try{ hJobBadge(); }catch(e){}
+            const res=(j.result && typeof j.result==='object') ? j.result : {ok:j.status==='done', error:j.message||'failed', message:j.message};
+            return asResponse(res);
+          }
+        }
+      } finally { clearInterval(tick); drop(id); }
+    }
+    // page open: runs this page started earlier (or this agent's runs from another tab)
+    async function resume(){
+      const mine=load(), seen=new Set();
+      for(const e of mine){ seen.add(e.id); watch(e.id, e.label, e.btn, e); }
+      if(!pageAgent) return;
+      try{ const o=await (await _fetch('/api/jobs')).json();
+        ((o&&o.jobs)||[]).forEach(x=>{ if(x.agent===pageAgent && x.pool==='run' && (x.status==='running'||x.status==='queued') && !seen.has(x.id))
+          watch(x.id, x.label||x.action, null, {boot:o.boot, agent:pageAgent}); });
+      }catch(e){}
+    }
+    async function watch(id, label, btn, e){
+      let o=await poll(id); if(!o || !o.ok || !o.job || !same(e||{},o)){ forget(id); return; }
+      let j=o.job, skew=(o.now||Date.now()/1000)-Date.now()/1000;
+      if(j.status==='done' || j.status==='error'){ forget(id); return finished(id, j, label, btn); }
+      const tick=setInterval(()=>paint(id, j, Date.now()/1000+skew, label), 1000);
+      paint(id, j, o.now, label);
+      for(;;){
+        await sleep(3000);
+        o=await poll(id); if(!o) continue;
+        if(!o.ok || !o.job || !same(e||{},o)){ clearInterval(tick); drop(id); forget(id); return; }
+        j=o.job; if(o.now) skew=o.now-Date.now()/1000;
+        if(j.status==='done' || j.status==='error'){ clearInterval(tick); drop(id); forget(id); return finished(id, j, label, btn); }
+      }
+    }
+    function finished(id, j, label, btn){
+      const d=row(id); if(!d) return;
+      const ok=j.status==='done' && !(j.result && j.result.ok===false);
+      const sec=(j.finished||0)-(j.started||j.created||0);
+      d.querySelector('.hb-msg').innerHTML=(ok?'✓ <b>Finished</b>':'✗ <b>Stopped</b>')+' · '+esc(label||j.label||'run')+
+        (sec>0?' · took <b class="mono">'+esc(fmt(sec))+'</b>':'')+(ok?'':' · '+esc(j.message||''));
+      const b=btn && document.getElementById(btn);
+      const a=d.querySelector('.hb-acts');
+      a.innerHTML=(ok && b?'<button class="btn run sm" type="button" data-show="1">▶ Show results</button>':'')+'<button class="btn ghost sm" type="button" data-x="1" aria-label="Dismiss">✕</button>';
+      a.querySelector('[data-x]').onclick=()=>drop(id);
+      const sh=a.querySelector('[data-show]'); if(sh) sh.onclick=()=>{ drop(id); const bb=document.getElementById(btn); if(bb) bb.click(); };
+    }
+    if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', ()=>setTimeout(resume, 300)); else setTimeout(resume, 300);
+    return { wait, fmt };
+  })();
+  return { tab:TAB, markRun, hasRun:()=>S.ran, show, hide, runs:RUNS };
 })();
 
 const HC = (function(){
@@ -254,6 +377,9 @@ const HC = (function(){
       }
       const extra = {};
       if(S.mode==='fresh' && method==='POST') extra._nocache = true;
+      // replaying a ▶ step whose answer this cache doesn't hold: never start the hound on page
+      // open — the server serves its cached answer or says it isn't cached (launcher._cache_only)
+      if(S.mode==='replay' && method==='POST') extra._cacheonly = true;
       if(S.runCtx && S.mode==='live' && method==='POST') extra._run = S.runCtx;   // durable run history (core/activity.py)
       if(Object.keys(extra).length) init = Object.assign({}, init, {body: JSON.stringify(Object.assign({}, info.body, extra))});
       S.inflight++;
@@ -1803,7 +1929,8 @@ function flash(el, html, kind){
   const map = {ok:['var(--okbg,rgba(52,211,153,.14))','var(--ok)'],
                run:['rgba(62,166,255,.12)','var(--accent)'],
                warn:['rgba(251,191,36,.12)','var(--warn)'],
-               crit:['rgba(251,113,133,.12)','var(--crit)']};
+               crit:['rgba(251,113,133,.12)','var(--crit)'],
+               idle:['var(--panel-2)','var(--ink-2,var(--mut))']};   // "nothing loaded yet — click ▶ Load"
   const [bg,co] = map[kind]||map.run;
   n.className='flash show'; n.style.background=bg; n.style.color=co; n.innerHTML=html;
 }

@@ -24,7 +24,7 @@ Scale (148–600 GB navi.db) — how statements run:
 * **Streaming:** ``iter()`` yields rows in chunks (fetchmany); ``query(max_rows=N)`` raises
   ``TooManyRows`` instead of materialising millions of dicts.
 * **Budgets + cancel:** ``budget=`` takes seconds or a preset — ``"open"`` 5 s, ``"run"``
-  60 s, ``"job"`` 45 min, ``None``/``0`` unlimited, ``-1`` (default) = NAVI_QUERY_BUDGET_MS
+  2 h, ``"job"`` 2 h, ``None``/``0`` unlimited, ``-1`` (default) = NAVI_QUERY_BUDGET_MS
   (off unless set). A progress handler checks the deadline and the statement's ``Cancel``
   token, so another thread can stop a running statement (``token.cancel()``,
   ``cancel(stmt_id)`` or ``cancel_scope(token)`` around a whole request). Raises
@@ -73,8 +73,8 @@ def _envf(name, default):
 # Budget presets (seconds). None = unlimited.
 BUDGETS = {
     "open": _envf("NAVI_BUDGET_OPEN_S", 5),        # page opens, peeks, explore, Argos
-    "run": _envf("NAVI_BUDGET_RUN_S", 60),         # ▶ Run of a hound (index seeks / summaries)
-    "job": _envf("NAVI_BUDGET_JOB_S", 45 * 60),    # background builds (jobq, Release)
+    "run": _envf("NAVI_BUDGET_RUN_S", 2 * 3600),   # ▶ Run of a hound — never under 2 h (owner's rule)
+    "job": _envf("NAVI_BUDGET_JOB_S", 2 * 3600),   # background runs (jobq, Release) — 2 h
     "none": None,
 }
 _CACHE_KB = int(_envf("NAVI_DB_CACHE_MB", 256) * 1024)
@@ -204,8 +204,8 @@ def cancel_scope(token=None):
 def scope_budgets() -> dict:
     """Seconds per scope preset — read from the env at scope creation (tests can set it)."""
     return {"open": _envf("NAVI_OPEN_BUDGET_S", _envf("NAVI_BUDGET_OPEN_S", 5)),
-            "run": _envf("NAVI_RUN_BUDGET_S", 300),
-            "job": _envf("NAVI_JOB_BUDGET_S", _envf("NAVI_BUDGET_JOB_S", 45 * 60))}
+            "run": _envf("NAVI_RUN_BUDGET_S", 2 * 3600),
+            "job": _envf("NAVI_JOB_BUDGET_S", _envf("NAVI_BUDGET_JOB_S", 2 * 3600))}
 
 
 class Scope:
@@ -258,7 +258,7 @@ def budget_scope(budget, *, heavy=None, per_request=True):
     """Set the DEFAULT budget for every db statement this thread runs inside the block.
 
     budget       "open" | "run" | "job" (scope_budgets(): NAVI_OPEN_BUDGET_S 5, NAVI_RUN_BUDGET_S
-                 300, NAVI_JOB_BUDGET_S 45 min), "none"/None/0 = unlimited (also clears an outer
+                 2 h, NAVI_JOB_BUDGET_S 2 h), "none"/None/0 = unlimited (also clears an outer
                  scope), or seconds.
     heavy        default for statements without their own heavy= (None → True for "job").
     per_request  one deadline for the whole block (default) instead of per statement.

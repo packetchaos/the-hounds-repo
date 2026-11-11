@@ -53,8 +53,8 @@
   <section class="card">
     <div class="toolbar" style="margin:0"><div><h2 style="margin:0">💡 Suggested patterns</h2>
       <p class="sub" style="margin:2px 0 0">Ready-to-add alerts, ranked by what's actually in your navi.db. Click <b>+ Add</b> to create one (then tune it below).</p></div>
-      <button class="btn ghost sm" id="refreshSug" style="margin-left:auto">↻ Refresh</button></div>
-    <div id="suggest" style="margin-top:8px"><p class="sub">Loading…</p></div>
+      <button class="btn run sm" id="refreshSug" data-run style="margin-left:auto" title="Rank the templates against navi.db (live counts) — nothing runs on its own">▶ Suggest</button></div>
+    <div id="suggest" style="margin-top:8px"><p class="sub">Click <b>▶ Suggest</b> to rank the alert templates against your navi.db (it counts live, so it doesn't run on its own).</p></div>
   </section>
 
 
@@ -83,7 +83,6 @@ async function load(){
 try{ hMailAuto(); }catch(e){}
   const m=await API.post('metrics').catch(()=>null); renderMetrics(m||{});
   const l=await API.post('list').catch(()=>({alerts:[]})); renderAlerts((l&&l.alerts)||[]);
-  const s=await API.post('suggest').catch(()=>({suggestions:[]})); renderSuggest((s&&s.suggestions)||[]);
   const h=await API.post('history',{limit:12}).catch(()=>({history:[]})); renderHistory((h&&h.history)||[]);
 }
 function renderHistory(list){
@@ -126,7 +125,8 @@ function renderSuggest(list){
       +'<p class="sub" style="margin:6px 0 0">'+esc(s.desc)+'</p></div>';
   }).join('');
   box.querySelectorAll('[data-add]').forEach(b=>b.onclick=async()=>{ b.disabled=true; b.textContent='adding…';
-    const r=await API.post('add_template',{template:b.dataset.add}); if(r&&r.ok){ flash('flash','✓ added <b>'+esc((r.alert&&r.alert.name)||'alert')+'</b> — tune or test it below.','ok'); load(); } else { b.disabled=false; b.textContent='+ Add'; flash('flash','✗ '+esc((r&&r.error)||'failed'),'crit'); } });
+    const r=await API.post('add_template',{template:b.dataset.add}); if(r&&r.ok){ const sp=document.createElement('span'); sp.className='switch off'; sp.textContent='added'; b.replaceWith(sp);
+      flash('flash','✓ added <b>'+esc((r.alert&&r.alert.name)||'alert')+'</b> — tune or test it below.','ok'); load(); } else { b.disabled=false; b.textContent='+ Add'; flash('flash','✗ '+esc((r&&r.error)||'failed'),'crit'); } });
 }
 
 function renderAlerts(list){
