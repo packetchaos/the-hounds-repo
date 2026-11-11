@@ -341,6 +341,16 @@ def _output_wheres():
     return where3, " OR ".join(clauses)
 
 
+def egress_predicate(vcols):
+    """The egress-hostname predicate (build 463): step "egress" reads the output of every finding on
+    every AI asset looking for these hosts — 88% of the hound's run time at scale. ⚡ Optimize
+    evaluates it once per sync (core/hx_signals, hound "ai_egress") in the same pass that already
+    reads each finding's output for AI + Identity, so the run reads only the flagged findings."""
+    if "output" not in set(vcols or ()):
+        return None
+    return _like_where("output", EGRESS_TERMS)
+
+
 def signal_predicate(vcols):
     """The output predicate core/hx_signals pre-evaluates for this hound (None: not applicable)."""
     if not {"plugin_name", "output"} <= set(vcols or ()):
@@ -608,8 +618,23 @@ def scan(db_path=None, fp=None, allow=None):
         inl = ",".join("'" + _lit(x["asset_uuid"]) + "'" for x in assets)
         idx = {x["asset_uuid"]: x for x in assets}
         try:
-            where = _like_where("output", EGRESS_TERMS)
-            for r in db.query(f"SELECT asset_uuid, output FROM vulns WHERE asset_uuid IN ({inl}) AND ({where})", path=db_path):
+            where = egress_predicate(vcols) or _like_where("output", EGRESS_TERMS)
+            # Build 463: ⚡ Optimize flagged the findings whose output names an egress host (same
+            # predicate) — read only those by rowid; the AI-asset filter is the idx lookup below.
+            # Within an asset rows still come in rowid order, as the asset_uuid index gave them,
+            # so the same snippet wins. Fallback: every finding of every AI asset, as before.
+            fast = False
+            try:
+                from core import hx_signals
+                fast = hx_signals.usable_for("ai_egress", where, db_path)
+            except Exception:
+                fast = False
+            if fast:
+                sql = (f"SELECT asset_uuid, output FROM vulns WHERE {hx_signals.rows_sql('ai_egress')} "
+                       f"AND ({where})")
+            else:
+                sql = f"SELECT asset_uuid, output FROM vulns WHERE asset_uuid IN ({inl}) AND ({where})"
+            for r in db.iter(sql, path=db_path):
                 x = idx.get(r.get("asset_uuid"))
                 if not x:
                     continue
