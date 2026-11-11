@@ -63,8 +63,8 @@
   <section class="card" id="secDue" data-nav="Due dates" data-nav-icon="⏰">
     <h2>Remediation due dates <span class="sub" id="dueCount"></span></h2>
     <p class="sub">CISA sets a remediation <b>due date</b> for every KEV. Bars show how many of your assets have a KEV due that month: <b>overdue</b> (past due, still open) vs <b>due later</b>. Click a bar to select that month's due dates. Tag the assets behind each due date as <span class="tagval">CISA KEV Due : &lt;YYYY-MM-DD&gt;</span>. The date sorts and filters in Tenable, so “due before today” is a simple filter.</p>
-    <div class="legend"><span><i style="background:var(--st-over)"></i>Overdue</span><span><i style="background:var(--st-soon)"></i>Due later</span><span class="sub" id="tlNote"></span></div>
-    <div class="tl" id="tl"></div><div class="tlx" id="tlx"></div>
+    <div id="dueVis"><div class="legend"><span><i style="background:var(--st-over)"></i>Overdue</span><span><i style="background:var(--st-soon)"></i>Due later</span><span class="sub" id="tlNote"></span></div>
+    <div class="tl" id="tl"></div><div class="tlx" id="tlx"></div></div>
     <div class="toolbar" style="margin-top:12px"><span class="filterbtns" id="dueF"><button data-b="" class="on">All</button><button data-b="overdue">Overdue</button><button data-b="soon">Due ≤ 30 days</button><button data-b="later">Later</button></span>
       <span style="margin-left:auto;display:flex;gap:6px"><button class="btn ghost sm" id="dueAll">Select shown</button><button class="btn ghost sm" id="dueNone">None</button></span></div>
     <div class="toolbar" style="margin:4px 0"><button class="btn sm" id="tagDue" disabled>🏷️ Tag assets by selected due dates</button><span class="chip" id="dueSel">0 selected</span></div>
@@ -296,6 +296,12 @@ async function kevNl(){
 document.getElementById('kevNl').onclick=kevNl;
 mountAgentHeader({icon:'🛡️',name:'CISA KEV Tagging',sub:'Laelaps · KEV exposure by CISA due date · tags assets'});
 mountSectionNav();
+// ⛶ full screen + 📧 picture & list (Gabriel) on the remediation due dates
+hWidget('secDue',{title:'CISA KEV — remediation due dates', visual:()=>document.getElementById('dueVis'),
+  columns:['due date','status','days left','KEV CVEs','assets','crown jewels','ransomware','tag value'],
+  note:()=>K?'Overdue = past CISA\'s due date and still open':'',
+  rows:()=>((K&&K.due_groups)||[]).map(g=>({'due date':g.due_date, status:g.bucket, 'days left':g.days_left, 'KEV CVEs':(g.cves||[]).length,
+    assets:g.assets, 'crown jewels':g.crown_assets||0, ransomware:g.ransomware||0, 'tag value':'CISA KEV Due : '+g.due_date}))});
 try{ hMailAuto(); }catch(e){}
 jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});
 requestApprove(true);   // human approves the CISA catalog download before anything is fetched (or Settings auto-approves it)

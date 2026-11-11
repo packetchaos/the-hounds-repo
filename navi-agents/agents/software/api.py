@@ -19,7 +19,10 @@ Payload contract (build 455): the page no longer pulls raw tables through run_sq
   run_sql    the ✨ Ask box only: capped at 200 rows per page, 10,000 rows in all, paged
              with a signed token; never used for bulk data.
 """
+import json
+import os
 import re
+import time
 
 from core import activity, db, downloads, llm, navi_cli, payload, software
 from .agent import SoftwareAgent
@@ -359,3 +362,127 @@ def nl_query(p):
 ACTIONS = {"run": run, "inventory": inventory, "drill": drill, "product": product, "eol_plan": eol_plan,
            "lifecycle": lifecycle, "crown": crown, "risk": risk, "tag": tag, "nl_query": nl_query,
            "nl_translate": nl_translate, "run_sql": run_sql}
+
+
+# ---- Release the Hounds: all four widgets (build 461) ----------------------------------------
+# The page's ▶ Run all is inventory → lifecycle (endoflife.date) → crown jewels → risk. Release
+# runs the same four server-side and stores each response under the request the page will send,
+# so opening Software after a release shows all four widgets. The lifecycle verdicts mirror the
+# page's eolCycleFor / eolIsDead exactly (same results array → same cache key).
+_EOL_TTL_S = 7 * 86400
+
+
+def _eol_cache_dir():
+    from core import snapcache
+    d = os.path.join(snapcache.CACHE_DIR, "endoflife")
+    os.makedirs(d, mode=0o700, exist_ok=True)
+    return d
+
+
+def _eol_cycles(slug):
+    """endoflife.date cycles for a slug (cached 7 days on disk), or None — like the page's eolCycles."""
+    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,80}", slug or ""):
+        return None
+    p = os.path.join(_eol_cache_dir(), slug + ".json")
+    try:
+        if time.time() - os.path.getmtime(p) < _EOL_TTL_S:
+            with open(p, encoding="utf-8") as f:
+                return json.load(f)
+    except (OSError, ValueError):
+        pass
+    try:
+        import urllib.request
+        req = urllib.request.Request("https://endoflife.date/api/%s.json" % slug,
+                                     headers={"User-Agent": "the-hounds/1 (+lifecycle check)"})
+        with urllib.request.urlopen(req, timeout=8) as r:
+            if r.status != 200:
+                return None
+            d = json.loads(r.read().decode("utf-8"))
+    except Exception:
+        return None
+    try:
+        from core.security import private_open
+        with private_open(p, "w") as f:
+            json.dump(d, f)
+    except Exception:
+        pass
+    return d
+
+
+def _cycle_for(version, cycles):
+    if not cycles:
+        return None
+    v = str(version or "").strip()
+    if not v:
+        return None
+    for c in cycles:
+        cy = str(c.get("cycle"))
+        nxt = v[len(cy):len(cy) + 1]
+        if v == cy or v.startswith(cy + ".") or (v.startswith(cy) and not nxt.isdigit()):
+            return c
+    return None
+
+
+def _is_dead(c):
+    if not c:
+        return None
+    e = c.get("eol")
+    if e is True:
+        return True
+    if e is False:
+        return False
+    if isinstance(e, str):
+        import datetime as _dt
+        try:
+            d = _dt.datetime.strptime(e[:10], "%Y-%m-%d").replace(tzinfo=_dt.timezone.utc)
+        except ValueError:
+            return None
+        return d < _dt.datetime.now(_dt.timezone.utc)
+    return None
+
+
+def lifecycle_results(plan):
+    out, by_slug = [], {}
+    for x in plan:
+        slug = x.get("slug")
+        if slug not in by_slug:
+            by_slug[slug] = _eol_cycles(slug)
+        cy = by_slug[slug]
+        if not cy:
+            out.append({"name": x.get("name"), "slug": slug, "noData": True})
+            continue
+        latest = (cy[0].get("latest") if cy and isinstance(cy[0], dict) else "") or ""
+        vers = x.get("versions") or []
+        out.append({"name": x.get("name"), "slug": slug, "latest": latest,
+                    "eolVers": [v for v in vers if _is_dead(_cycle_for(v, cy)) is True]})
+    return out
+
+
+def release_requests(dispatch):
+    """[(action, body, (response, status))…] for the four widgets, in the page's order and with
+    the bodies the page will send (its run id comes from the inventory answer)."""
+    out = []
+    body, st = dispatch("software", "inventory", {})
+    out.append(("inventory", {}, (body, st)))
+    run = ((body or {}).get("drill") or {}).get("run") if isinstance(body, dict) else None
+    if not run or st >= 400 or (isinstance(body, dict) and body.get("ok") is False):
+        return out
+    plan, start, guard = [], 0, 0
+    while start is not None and guard < 40:
+        b = {"run": run, "start": start}
+        r, s = dispatch("software", "eol_plan", b)
+        out.append(("eol_plan", b, (r, s)))
+        if s >= 400 or not isinstance(r, dict) or not r.get("ok"):
+            break
+        for x in r.get("plan") or []:
+            x = dict(x)
+            x["versions"] = str(x.get("vers")).split("\n") if x.get("vers") else (x.get("versions") or [])
+            plan.append(x)
+        start, guard = r.get("next_start"), guard + 1
+    else:
+        b = {"run": run, "results": lifecycle_results(plan)}
+        out.append(("lifecycle", b, dispatch("software", "lifecycle", b)))
+    for act in ("crown", "risk"):
+        b = {"run": run}
+        out.append((act, b, dispatch("software", act, b)))
+    return out

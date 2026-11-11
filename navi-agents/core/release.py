@@ -253,6 +253,10 @@ def _newer_user_run(key, started_ms):
     return bool(m and not m.get("released") and (m.get("at") or 0) >= started_ms)
 
 
+class _Cancelled(Exception):
+    pass
+
+
 def _run_page(rid, r, approve, started_ms=0):
     key = "/agents/%s/page.html" % r["agent"]
     entry = {"key": key, "at": pagecache.now_ms(), "title": r["label"],
@@ -264,10 +268,29 @@ def _run_page(rid, r, approve, started_ms=0):
         entry["steps"].append({"id": "approveBtn", "inputs": {}, "optional": True})
     ign = r.get("key_ignore") or ()
     errs = []
-    for q in r["requests"]:
+    if r.get("requests_fn"):
+        # a hound whose later requests depend on earlier answers (Software: its run id, the
+        # lifecycle verdicts) builds them itself — "module:function"(dispatch) → [(action, body,
+        # (response, status))…]
+        import importlib
+        mod, fn = r["requests_fn"].split(":", 1)
+        done = []
+
+        def _d(agent, action, body):
+            if _cancelled(rid):
+                raise _Cancelled()
+            return _dispatch(agent, action, body)
+        try:
+            done = getattr(importlib.import_module(mod), fn)(_d)
+        except _Cancelled:
+            return "cancelled", None
+        reqs = [{"agent": r["agent"], "action": a, "body": b, "_out": o} for a, b, o in done]
+    else:
+        reqs = r["requests"]
+    for q in reqs:
         if _cancelled(rid):
             return "cancelled", None
-        body, status = _dispatch(q["agent"], q["action"], q.get("body") or {})
+        body, status = q["_out"] if "_out" in q else _dispatch(q["agent"], q["action"], q.get("body") or {})
         # a budget-limited answer (ok:false budget / ok:true budget_partial) is never stored —
         # the page would replay a partial result as the whole one (console.js HC does the same)
         if status < 400 and not (isinstance(body, dict) and (body.get("ok") is False or body.get("budget_partial"))):
@@ -284,7 +307,7 @@ def _run_page(rid, r, approve, started_ms=0):
     ok, err = pagecache.put(entry["key"], entry)
     if not ok:
         return "error", err
-    return "done", ("%d of %d reads" % (len(entry["resp"]), len(r["requests"])) if errs else None)
+    return "done", ("%d of %d reads" % (len(entry["resp"]), len(reqs)) if errs else None)
 
 
 # snapshot hounds → the file prefix their snapcache uses in CACHE_DIR (On the Scent reads them)

@@ -1172,12 +1172,12 @@ function _hmailStyle(){ if(document.getElementById('hmailStyle'))return;
   document.head.appendChild(st); }
 function _hmailTo(v){ try{ if(v!==undefined)localStorage.setItem('naviMailTo',v); return localStorage.getItem('naviMailTo')||''; }catch(e){ return ''; } }
 function hMail(container, getPayload, opts){
-  opts=opts||{}; const mode=opts.mode==='dashboard'?'dashboard':'data';
+  opts=opts||{}; const mode=opts.mode==='dashboard'?'dashboard':opts.mode==='widget'?'widget':'data';
   if(!container)return null; _hmailStyle();
   const EM=agentApi('email');
   const btn=document.createElement('button'); btn.className='btn ghost sm hmbtn';
   btn.textContent=opts.label||(mode==='dashboard'?'\ud83d\udce7 Email dashboard':'\ud83d\udce7');
-  btn.title=mode==='dashboard'?'Email the whole dashboard via Gabriel (gated)':"Email this widget's data via Gabriel (gated)";
+  btn.title=mode==='dashboard'?'Email the whole dashboard via Gabriel (gated)':mode==='widget'?"Email this widget via Gabriel — the picture (attached) and the list (gated)":"Email this widget's data via Gabriel (gated)";
   const row=document.createElement('div'); row.className='hmrow';
   row.innerHTML='<input type="email" placeholder="recipient@company.com"><button class="btn run sm">\u25b6 Send</button><button class="btn ghost sm">\u2715</button><span class="res sub"></span>';
   container.appendChild(btn); container.appendChild(row);
@@ -1186,16 +1186,21 @@ function hMail(container, getPayload, opts){
   cancel.onclick=()=>{ row.style.display='none'; res.innerHTML=''; };
   const go=async()=>{
     const to=(inp.value||'').trim(); if(!to){ res.innerHTML='<span style="color:var(--crit)">enter a recipient</span>'; return; }
-    let payload=null; try{ payload=getPayload(); }catch(e){ payload=null; }
-    const empty=!payload||(mode==='data'?!(payload.rows&&payload.rows.length):!(payload.components&&payload.components.length));
+    if(mode==='widget') res.innerHTML='<span class="spin"></span> rendering the widget\u2026';
+    let payload=null; try{ payload=await getPayload(); }catch(e){ payload=null; }
+    if(mode==='widget') res.innerHTML='';
+    const empty=!payload||(mode==='dashboard'?!(payload.components&&payload.components.length)
+      :mode==='widget'?!((payload.rows&&payload.rows.length)||payload.png||payload.html):!(payload.rows&&payload.rows.length));
     if(empty){ res.innerHTML='<span style="color:var(--crit)">no data on this '+(mode==='dashboard'?'dashboard':'widget')+' yet \u2014 run the agent first</span>'; return; }
-    if(!confirm('Email '+(mode==='dashboard'?'this dashboard ('+payload.components.length+' component(s))':'this widget ('+payload.rows.length+' row(s))')+' to '+to+'? This is a real send.')) return;
-    if(mode==='data'&&!payload.columns&&payload.rows[0]&&typeof payload.rows[0]==='object') payload.columns=Object.keys(payload.rows[0]);
+    if(!confirm('Email '+(mode==='dashboard'?'this dashboard ('+payload.components.length+' component(s))'
+        :mode==='widget'?'this widget \u2014 the picture ('+(payload.png?'PNG':'HTML')+' attached) and the list ('+(payload.rows||[]).length+' row(s))'
+        :'this widget ('+payload.rows.length+' row(s))')+' to '+to+'? This is a real send.')) return;
+    if(mode!=='dashboard'&&!payload.columns&&payload.rows&&payload.rows[0]&&typeof payload.rows[0]==='object') payload.columns=Object.keys(payload.rows[0]);
     _hmailTo(to);
     send.disabled=true; res.innerHTML='<span class="spin"></span> sending\u2026';
     let o; try{ o=await EM.post(mode, Object.assign({}, payload, {to:to, confirm:true})); }catch(e){ o={ok:false,error:e.message}; }
     send.disabled=false;
-    if(o&&o.ok){ res.innerHTML='<span style="color:var(--ok)">\u2713 sent to '+esc(to)+(mode==='data'?(' \u2014 '+(o.mode==='attachment'?('CSV attached ('+esc(o.attached||'data.csv')+')'):((o.rows||payload.rows.length)+' row(s) inline'))):(' \u2014 '+(o.components||payload.components.length)+' component(s)'))+'</span>'; }
+    if(o&&o.ok){ res.innerHTML='<span style="color:var(--ok)">\u2713 sent to '+esc(to)+(mode==='widget'?(' \u2014 '+esc(o.attached||'picture')+' attached \u00b7 '+(o.rows_inline||0)+' row(s) inline'):mode==='data'?(' \u2014 '+(o.mode==='attachment'?('CSV attached ('+esc(o.attached||'data.csv')+')'):((o.rows||payload.rows.length)+' row(s) inline'))):(' \u2014 '+(o.components||payload.components.length)+' component(s)'))+'</span>'; }
     else if(o&&o.blocked){ res.innerHTML='<span style="color:var(--cx-e7c66b,#e7c66b)">email disabled \u2014 '+esc(o.reason||'set NAVI_ALLOW_WRITES=1 and NAVI_EMAIL=1')+'</span>'; }
     else { res.innerHTML='<span style="color:var(--crit)">\u2717 '+esc((o&&(o.error||o.message))||'failed')+'</span>'; }
   };
@@ -1272,6 +1277,98 @@ function _hmTableComponents(sel,skip){
   });
   return comps;
 }
+/* ===== Widget tools (build 462): ⛶ full screen + 📧 email (picture + list) for a chart widget =====
+   hWidget(section, {title, visual:()=>Element, rows:()=>[{…}], columns:[…], note, grow:'#sel', onResize})
+   adds two small buttons to the widget's top-right corner:
+     ⛶  full screen (Fullscreen API; an in-page overlay where the browser has none, e.g. iPhone).
+        `grow` names an element whose height should fill the screen (the attack map's svg); the
+        page's onResize() is called after entering / leaving so a chart can re-fit.
+     📧  Gabriel: the widget's picture as an attachment (PNG, rendered in the browser; a
+        self-contained HTML snapshot where the browser can't rasterise it) + its list inline in
+        the email body (a CSV rides along when it is long). Gated like every send.
+   hSnapshot(el) → Promise<{png|null, html}> renders an element (HTML or SVG) with its computed
+   styles inlined, so the picture matches the page in the current theme. */
+const _SVG_PROPS=['fill','fill-opacity','stroke','stroke-width','stroke-opacity','stroke-dasharray','stroke-linecap','opacity','font-family','font-size','font-weight','font-style','text-anchor','dominant-baseline','letter-spacing','visibility','display','color','marker-end','marker-start'];
+function _inlineStyles(src, dst){
+  const cs=getComputedStyle(src);
+  if(src instanceof SVGElement){ _SVG_PROPS.forEach(k=>{ const v=cs.getPropertyValue(k); if(v) dst.style.setProperty(k, v); }); }
+  else { for(let i=0;i<cs.length;i++){ const k=cs[i]; if(k.startsWith('transition')||k.startsWith('animation')) continue; dst.style.setProperty(k, cs.getPropertyValue(k)); } }
+  const a=src.children, b=dst.children;
+  for(let i=0;i<a.length && i<b.length;i++) _inlineStyles(a[i], b[i]);
+}
+function hSnapshot(el, opts){
+  opts=opts||{};
+  return new Promise(resolve=>{
+    try{
+      if(!el){ resolve({png:null, html:''}); return; }
+      const w=Math.ceil(Math.max(el.scrollWidth, el.getBoundingClientRect().width)), h=Math.ceil(Math.max(el.scrollHeight, el.getBoundingClientRect().height));
+      const clone=el.cloneNode(true); _inlineStyles(el, clone);
+      clone.style.width=w+'px'; clone.style.height=h+'px'; clone.style.maxWidth='none'; clone.style.maxHeight='none'; clone.style.overflow='visible'; clone.style.margin='0';
+      clone.querySelectorAll('[id]').forEach(n=>n.removeAttribute('id')); clone.removeAttribute('id');
+      const bg=getComputedStyle(document.body).backgroundColor||'#ffffff';
+      const xml=new XMLSerializer().serializeToString(clone);
+      const html='<!DOCTYPE html><html><head><meta charset="utf-8"><title>'+esc(opts.title||'widget')+'</title></head>'
+        +'<body style="margin:0;padding:20px;background:'+bg+';font-family:system-ui,Segoe UI,Arial,sans-serif">'
+        +(opts.title?'<div style="font-weight:800;font-size:18px;margin:0 0 4px;color:'+getComputedStyle(document.body).color+'">'+esc(opts.title)+'</div>':'')
+        +'<div style="font-size:12px;opacity:.7;margin:0 0 14px;color:'+getComputedStyle(document.body).color+'">The Hounds · '+esc(document.title||'')+' · '+esc(new Date().toLocaleString())+'</div>'
+        +'<div style="overflow:auto">'+xml+'</div></body></html>';
+      const svg='<svg xmlns="http://www.w3.org/2000/svg" width="'+w+'" height="'+h+'"><foreignObject x="0" y="0" width="100%" height="100%">'
+        +'<div xmlns="http://www.w3.org/1999/xhtml">'+xml+'</div></foreignObject></svg>';
+      const img=new Image();
+      img.onload=()=>{ try{
+          const sc=Math.min(2, 4000/Math.max(w,1), 6000/Math.max(h,1)), c=document.createElement('canvas');
+          c.width=Math.max(1,Math.round(w*sc)); c.height=Math.max(1,Math.round(h*sc));
+          const ctx=c.getContext('2d'); ctx.fillStyle=bg; ctx.fillRect(0,0,c.width,c.height); ctx.setTransform(sc,0,0,sc,0,0); ctx.drawImage(img,0,0);
+          resolve({png:c.toDataURL('image/png'), html}); }        // Safari taints foreignObject canvases → HTML only
+        catch(e){ resolve({png:null, html}); } };
+      img.onerror=()=>resolve({png:null, html});
+      img.src='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg);
+    }catch(e){ resolve({png:null, html:''}); }
+  });
+}
+function _hwStyle(){ if(document.getElementById('hwStyle')) return;
+  const st=document.createElement('style'); st.id='hwStyle';
+  st.textContent='.hw-acts{float:right;display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap;justify-content:flex-end;margin:0 0 6px 10px;max-width:100%;position:relative;z-index:2}'
+   +'.hw-acts .hmrow{flex-basis:100%;justify-content:flex-end}'
+   +'section.hw-full:fullscreen,section.hw-fs{background:var(--bg,#0b0f17);overflow:auto;padding:24px;margin:0;border-radius:0;max-width:none;width:100%;box-sizing:border-box}'
+   +'section.hw-fs{position:fixed;inset:0;z-index:9000}'
+   +'section.hw-full:fullscreen::backdrop{background:var(--bg,#0b0f17)}'
+   +'@media (max-width:560px){.hw-acts{float:none;justify-content:flex-start;margin:0 0 6px}}';
+  document.head.appendChild(st); }
+function hFull(section, opts){
+  opts=opts||{}; _hwStyle();
+  const b=document.createElement('button'); b.type='button'; b.className='btn ghost sm hwfs'; b.textContent='⛶'; b.title='Full screen (Esc to leave)'; b.setAttribute('aria-label','Full screen');
+  let saved=null;
+  const grow=on=>{ const g=opts.grow&&section.querySelector(opts.grow); if(!g) return;
+    if(on){ saved=g.style.height; g.style.height='calc(100vh - '+(opts.growOffset||200)+'px)'; } else { g.style.height=saved||''; } };
+  const after=on=>{ section.classList.toggle('hw-on',on); b.textContent=on?'✕':'⛶'; b.title=on?'Leave full screen':'Full screen (Esc to leave)'; grow(on);
+    setTimeout(()=>{ try{ window.dispatchEvent(new Event('resize')); }catch(e){} if(opts.onResize) try{ opts.onResize(on); }catch(e){} }, 60); };
+  section.classList.add('hw-full');
+  document.addEventListener('fullscreenchange', ()=>after(document.fullscreenElement===section));
+  document.addEventListener('keydown', e=>{ if(e.key==='Escape' && section.classList.contains('hw-fs')){ section.classList.remove('hw-fs'); after(false); } });
+  b.onclick=()=>{
+    if(document.fullscreenElement===section){ document.exitFullscreen(); return; }
+    if(section.classList.contains('hw-fs')){ section.classList.remove('hw-fs'); after(false); return; }
+    if(section.requestFullscreen && document.fullscreenEnabled!==false){ section.requestFullscreen().catch(()=>{ section.classList.add('hw-fs'); after(true); }); }
+    else { section.classList.add('hw-fs'); after(true); }
+  };
+  return b;
+}
+function hWidget(section, opts){
+  if(typeof section==='string') section=document.getElementById(section);
+  if(!section || section.querySelector(':scope > .hw-acts')) return;
+  opts=opts||{}; _hwStyle(); _hmailStyle();
+  const box=document.createElement('div'); box.className='hw-acts';
+  box.appendChild(hFull(section, opts));
+  section.insertBefore(box, section.firstChild);
+  hMail(box, async()=>{
+    const rows=(opts.rows?opts.rows():[])||[];
+    const el=opts.visual?opts.visual():null;
+    const snap=el?await hSnapshot(el,{title:opts.title}):{png:null,html:''};
+    return {title:opts.title||document.title, note:(typeof opts.note==='function'?opts.note():opts.note)||'',
+            columns:opts.columns||null, rows, png:snap.png, html:snap.png?'':snap.html};
+  }, {mode:'widget', label:'📧'});
+}
 function hMailAuto(opts){
   opts=opts||{}; _hmailStyle();
   const base=_hmAutoTitle(opts.title);
@@ -1289,6 +1386,7 @@ function hMailAuto(opts){
   const attach=()=>{
     document.querySelectorAll(opts.tableSel||'table').forEach(t=>{
       if(t.id&&(opts.skip||[]).indexOf(t.id)>=0)return;
+      if(t.closest('section.hw-full'))return;          // a hWidget section emails picture + list itself
       if(!t.querySelector('thead th'))return;
       let head=null, n=t;
       for(let up=0; up<6 && n; up++){ n=n.parentElement; if(!n)break;

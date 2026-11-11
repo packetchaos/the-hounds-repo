@@ -115,6 +115,15 @@
   .bt a:hover{border-color:var(--accent)} .bt .v{font-family:var(--display);font-weight:700;font-size:20px} .bt .l{font-size:11.5px;color:var(--ink)} .bt .o{font-size:10px;color:var(--ink-3);font-family:var(--mono)}
   .bt a.na .v{color:var(--ink-3);font-size:15px}
   /* next moves */
+  /* 📉 projected reduction (Nemesis's recommended play) */
+  .rhead{display:flex;align-items:center;gap:18px;flex-wrap:wrap;text-decoration:none;color:inherit;margin:2px 0 10px}
+  .rhead .rk2{font-size:11.5px;color:var(--ink-3)} .rhead .rv{font-family:var(--mono);font-size:24px;font-weight:800;color:var(--ink)} .rhead .rv small{font-size:13px;font-weight:600;color:var(--ink-3)}
+  .rhead .ra{font-size:20px;color:var(--ink-3)} .rhead:hover .rv{text-decoration:underline}
+  .rbar,.jrow{display:grid;grid-template-columns:minmax(120px,32%) minmax(0,1fr) 64px;gap:10px;align-items:center;margin:6px 0;text-decoration:none;color:inherit}
+  .rbar .rl{font-size:12.5px;color:var(--ink-2,var(--ink))} .jrow .jl{font-size:12px;min-width:0;overflow:hidden;text-overflow:ellipsis}
+  .rt{height:12px;border-radius:99px;background:var(--panel-2);overflow:hidden;display:block} .rt i{display:block;height:100%;border-radius:99px;background:var(--accent)}
+  .rn{font-family:var(--mono);font-size:12px;text-align:right;color:var(--ink)} .jrow:hover .jl b{text-decoration:underline}
+  @media (max-width:560px){ .rbar,.jrow{grid-template-columns:minmax(0,1fr) 54px} .rbar .rt,.jrow .rt{grid-column:1 / -1;order:3} }
   .nx{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(270px,100%),1fr));gap:10px}
   .nx a{display:grid;grid-template-columns:28px minmax(0,1fr);gap:4px 10px;border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--panel-2);text-decoration:none;color:inherit}
   .nx a:hover{border-color:var(--accent)}
@@ -246,13 +255,17 @@ const SECT={  // per-section rows: the "table view" (⬇ CSV) and 📧 Email (Ga
       .concat((E.factors||[]).filter(f=>f.total>0).map(f=>({chart:'What the risk is made of',item:f.label,value:f.pct+'%',detail:f.hound+' · '+f.total+' pts'})));}},
   secWhere:{title:'Where it concentrates',rows:()=>(D.footprint||[]).map(f=>({chart:'Footprint by hound',item:f.label,value:f.n,detail:f.codename+(f.crown!=null?' · '+f.crown+' crown jewels ('+f.crown_rule+')':'')}))
       .concat((D.worst||[]).map(a=>({chart:'Worst assets',item:a.host,value:a.score,detail:Object.entries(a.factors).map(([k,v])=>k+':'+v).join(' ')})))
-      .concat(D.clock&&D.clock.certs.have?[{chart:'Cert expiry',item:'Expired',value:D.clock.certs.expired,detail:'certificates'}].concat(D.clock.certs.months.map(m=>({chart:'Cert expiry',item:m.label,value:m.count,detail:'certificates'}))):[])},
+},
+  secClock:{title:'On the clock',rows:()=>(D.clock&&D.clock.certs.have?[{chart:'Cert expiry',item:'Expired',value:D.clock.certs.expired,detail:'certificates'}].concat(D.clock.certs.months.map(m=>({chart:'Cert expiry',item:m.label,value:m.count,detail:'certificates'}))):[])},
+  secRed:{title:'Projected reduction',rows:()=>{const R=D.play||{}; if(!R.available) return [];
+    return [{chart:'Recommended play',item:'exposure now',value:R.before,detail:R.shown+' act-now asset(s) · threshold '+R.threshold},
+            {chart:'Recommended play',item:'after the play',value:R.after,detail:'−'+(R.before-R.after)+' ('+R.pct+'%) · '+R.leave_critical+' leave critical'}]
+      .concat((R.justify||[]).map(j=>({chart:'Justified by',item:j.label,value:-j.pts,detail:j.hound+' · cleared on '+j.n})));}},
   secConverge:{title:'Converging',rows:()=>(D.stack||[]).map(s=>({chart:'Signal stack',item:s.label+' hounds firing',value:s.assets,detail:'assets'}))
       .concat((D.convergence||[]).map(c=>({chart:'Cross-hound surprises',item:c.text,value:c.n,detail:(c.rule||'')+' · '+c.pair})))},
   secBlind:{title:'Blind spots',rows:()=>(D.blind.funnel||[]).map(f=>({chart:'Coverage steps',item:f.label,value:f.n==null?'—':f.n,detail:f.gap==null?f.gap_label:(f.gap+' '+f.gap_label+' · '+f.codename)}))
       .concat((D.blind.tiles||[]).map(t=>({chart:'More dark matter',item:t.label,value:t.n==null?'—':t.n,detail:t.codename+(t.note?' · '+t.note:'')})))},
-  secNext:{title:'Next moves',rows:()=>(D.next||[]).map((x,i)=>({chart:'Next moves',item:(i+1)+'. '+x.verb,value:x.n+' '+x.unit,detail:x.detail+' · '+x.codename}))
-      .concat(D.reduction&&D.reduction.cves!=null?['cves','findings','plugins','routes','paths'].map(k=>({chart:'Reduction ladder',item:k,value:D.reduction[k],detail:'Atlas'})):[])},
+  secNext:{title:'Next moves',rows:()=>(D.next||[]).map((x,i)=>({chart:'Next moves',item:(i+1)+'. '+x.verb,value:x.n+' '+x.unit,detail:x.detail+' · '+x.codename}))},
   secPack:{title:'Pack coverage',rows:()=>(D.coverage||[]).map(c=>({chart:'Pack coverage',item:c.label,value:SL[c.status]||c.status,detail:(c.kb?c.kb+' KB':'')+(c.note?' · '+c.note:'')}))},
 };
 const COLS=['chart','item','value','detail'];
@@ -262,17 +275,24 @@ function sec(id,nav,icon,title,sub,body){
 }
 function boardHtml(){
   const E=D.exposure||{}, T=E.assets||0;
+  // order (build 461): what you need first — the glance, the next moves, what's on the clock and
+  // the reduction the recommended play buys — then the analysis
   return sec('secGlance','At a glance','📊','At a glance','Every number comes from the hound that owns it, as of the last release — click to open that hound.','<div id="glance"></div>')+
+  sec('secNext','Next moves','➡️','What to do next','Ranked hand-offs — each opens the hound that does the work (writes stay gated on that hound\'s page).',
+    `<div class="nx" id="nx"></div>
+     <div style="margin-top:12px"><a class="btn ghost sm" href="/agents/email/page.html" title="Hand this board to Gabriel to email">📧 Email this board</a></div>`)+
+  sec('secClock','On the clock','⏳','On the clock','Certania\'s expiry wall (click a month → Certificate Dashboard for that month) and the other deadlines the pack tracks.',
+    `<div class="certtl" id="certtl"></div><div class="clk" id="clk"></div>`)+
+  sec('secRed','Projected reduction','📉','The reduction — what the recommended play buys','Nemesis\'s recommended play on the act-now assets: exposure now → after every fix is applied, justified by the signals each fix clears · click → Exposure Score to toggle the plays.',
+    `<div id="red"></div>`)+
   sec('secExposure','How exposed','🎯','How exposed are we?','Nemesis fuses every hound\'s signal into one 0–100 score per asset. Left: where the estate sits. Right: which hound\'s signal the risk is made of.',
     E.available?`<div class="g2 w"><div class="panel"><h3 class="ct">Estate score &amp; every asset by band</h3><p class="ctsub">one square = one asset · click → Nemesis leaderboard</p>
       <div class="gwrap"><a class="gauge" id="gauge" href="${P('fused_score','sec-lb')}"></a><div class="waffle" id="waffle"></div></div><div class="leg" id="bandleg"></div></div>
       <div class="panel"><h3 class="ct">What the risk is made of</h3><p class="ctsub">area = share of total fused exposure points, attributed to the hound that detects it · click → that hound</p><div class="tmap" id="tmap"></div></div></div>`
       :ph('The Exposure Score (Nemesis) snapshot isn\'t in this release, so there is no fused score to show','fused_score'))+
-  sec('secWhere','Where it concentrates','🧭','Where is it concentrated?','Across hounds (how much of the estate each one lights up), on assets (the worst hosts and which hounds fire on them), and in time (what\'s about to expire).',
+  sec('secWhere','Where it concentrates','🧭','Where is it concentrated?','Across hounds (how much of the estate each one lights up) and on assets (the worst hosts and which hounds fire on them).',
     `<div class="g2"><div class="panel"><h3 class="ct">Footprint by hound</h3><p class="ctsub">bar = assets the hound flags, of ${fmt(T)} · solid = crown jewels among them (each by its hound's own ACR rule)</p><div class="fp" id="fp"></div></div>
-     <div class="panel"><h3 class="ct">The worst assets — who's barking</h3><p class="ctsub">fused score, and each hound's points on that host · 👑 = crown jewel (ACR ≥ 9) · click a host → Argos</p><div class="scroll" id="mx"></div></div></div>
-     <div class="panel" style="margin-top:16px"><h3 class="ct">On the clock</h3><p class="ctsub">Certania's expiry wall (click a month → Certificate Dashboard for that month) and the other deadlines the pack tracks</p>
-      <div class="certtl" id="certtl"></div><div class="clk" id="clk"></div></div>`)+
+     <div class="panel"><h3 class="ct">The worst assets — who's barking</h3><p class="ctsub">fused score, and each hound's points on that host · 👑 = crown jewel (ACR ≥ 9) · click a host → Argos</p><div class="scroll" id="mx"></div></div></div>`)+
   sec('secConverge','Converging','🔗','What\'s converging across hounds?','One hound is a finding. Several on the same asset is a story. These are the overlaps no single hound can see.',
     `<div class="g2"><div class="panel"><h3 class="ct">Signal stack</h3><p class="ctsub">assets by how many hounds fire on them · click → Nemesis</p><div id="hist"></div></div>
      <div class="panel"><h3 class="ct">Overlap map</h3><p class="ctsub" id="cobasis"></p><div class="scroll" id="cowrap"></div></div></div>
@@ -280,9 +300,6 @@ function boardHtml(){
   sec('secBlind','Blind spots','🕳','Blind spots — what can\'t the pack see?','Risk by absence. Each bar is what a hound can vouch for; the hatched part is the dark matter.',
     `<div class="g2 w"><div class="panel"><h3 class="ct">Coverage steps</h3><p class="ctsub">of ${fmt(T)} assets · click → the hound that owns the gap</p><div class="steps" id="steps"></div></div>
      <div class="panel"><h3 class="ct">More dark matter</h3><p class="ctsub">from the hounds that own each gap</p><div class="bt" id="bt"></div></div></div>`)+
-  sec('secNext','Next moves','➡️','What to do next','Ranked hand-offs — each opens the hound that does the work (writes stay gated on that hound\'s page).',
-    `<div class="nx" id="nx"></div><div class="panel" style="margin-top:16px"><h3 class="ct">The reduction — own fewer, bigger things</h3><p class="ctsub">Atlas's ladder: CVEs collapse into plugins (one fix each), plugins into routes (one owner each) · bar length is log-scaled</p><div class="ladder" id="ladder"></div></div>
-     <div style="margin-top:12px"><a class="btn ghost sm" href="/agents/email/page.html" title="Hand this board to Gabriel to email">📧 Email this board</a></div>`)+
   sec('secPack','Pack coverage','🐾','Pack coverage — what this page was built from','One tile per hound in the release, its status spelled out: released for this navi.db · your newer run · stale (navi.db changed) · not run · error · skipped.','<div class="pack" id="pack"></div>');
 }
 function renderNone(){
@@ -300,7 +317,7 @@ function render(){
   if(!D.glance){ renderNone(); if(D.state==='building') $('story').textContent='The pack is being released — this page fills in when it\'s back.'; return; }
   renderStory();
   $('board').innerHTML=boardHtml();
-  renderScentGlance(); renderExposure(); renderWhere(); renderConverge(); renderBlind(); renderNext(); renderPack();
+  renderScentGlance(); renderNext(); renderClock(); renderRed(); renderExposure(); renderWhere(); renderConverge(); renderBlind(); renderPack();
   mountSectionNav();
   setNavCount('secConverge',(D.convergence||[]).length); setNavCount('secNext',(D.next||[]).length);
   const C=(D.coverage||[]).filter(c=>c.kind!=='live'); setNavCount('secPack',C.filter(c=>c.status==='fresh').length+'/'+C.length);
@@ -363,6 +380,8 @@ function renderWhere(){
     $('mx').innerHTML=`<table class="mx norsz"><thead><tr><th></th><th></th>${F.map(f=>`<th title="${esc(f.label)} — ${esc(f.hound)}">${esc(f.label.replace(/ \(.*/,''))}</th>`).join('')}</tr></thead><tbody>`+
       W.map(a=>`<tr><td class="h"><a href="/agents/argos/page.html?target=${encodeURIComponent(a.uuid||a.host)}" title="Open ${esc(a.host)} in Argos">${a.crown?'👑 ':''}${esc(a.host)}</a></td><td class="s" title="fused score">${esc(a.score)}</td>`+
         F.map(f=>{const v=a.factors[f.id]||0;return `<td class="c" style="--a:${v?(0.25+0.75*v/max[f.id]).toFixed(2):0}" title="${esc(a.host)} · ${esc(f.label)}: ${v} pts"></td>`;}).join('')+'</tr>').join('')+'</tbody></table>'; }
+}
+function renderClock(){
   const K=D.clock, C=K.certs;
   if(!C.have) $('certtl').innerHTML=ph('Certificates (Certania) isn\'t in this release','certificate');
   else { const mx=Math.max(1,C.expired,...C.months.map(m=>m.count)), H=96;
@@ -414,12 +433,22 @@ function renderNext(){
   const X=D.next||[];
   $('nx').innerHTML=X.length?X.map((x,i)=>`<a class="${esc(x.sev)}" href="${esc(x.href)}" title="${esc(x.verb)} — ${esc(SEVW[x.sev]||'')}"><span class="rk">${i+1}</span><span class="vb">${esc(x.verb)}</span><span class="nn">${fmt(x.n)}<small>${esc(x.unit)}</small></span><span class="dt">${esc(x.detail)}</span><span class="hh">${esc(SEVW[x.sev]||'')} · ${esc(x.icon)} ${esc(x.codename)} →</span></a>`).join('')
     :ph('Nothing to hand off from this release');
-  const R=D.reduction||{};
-  if(R.cves==null){ $('ladder').innerHTML=ph('Exposure Routes (Atlas) isn\'t in this release','exproute'); return; }
-  const st=[['CVE line-items',R.cves,'/agents/ex_vulns/page.html'],['Findings',R.findings,'/agents/ex_vulns/page.html'],['Plugins — one fix each',R.plugins,'/agents/ex_plugins/page.html'],['Routes — one owner each',R.routes,P('exproute','secMap')],['Paths',R.paths,'/agents/ex_paths/page.html']];
-  const mx=Math.log10(Math.max(1,...st.map(s=>s[1]||0))+1)||1;
-  $('ladder').innerHTML=st.map(s=>`<a href="${s[2]}" title="${esc(s[0])}: ${fmt(s[1])}"><span>${esc(s[0])}</span><i style="width:${Math.max(2,Math.log10((s[1]||0)+1)/mx*100).toFixed(1)}%"></i><span class="n">${fmt(s[1])}</span></a>`).join('')+
-   (R.champion&&R.champion.plugin_id?`<p class="sub champ" style="margin:6px 0 0;font-size:12px">🏆 One fix, ${fmt(R.champion.cve_count)} CVEs — <a href="/web/vuln.html?plugin=${encodeURIComponent(R.champion.plugin_id)}">${esc(R.champion.name)}</a></p>`:'');
+}
+function renderRed(){
+  const R=D.play||{};
+  if(!R.available){ $('red').innerHTML=ph('The Exposure Score (Nemesis) snapshot isn\'t in this release, so there is no play to project','fused_score'); return; }
+  const mx=Math.max(1,R.before||0), jm=Math.max(1,...(R.justify||[]).map(j=>j.pts));
+  const bar=(v,col,l)=>`<div class="rbar"><span class="rl">${esc(l)}</span><span class="rt"><i style="width:${Math.max(1,v/mx*100).toFixed(1)}%;background:${col}"></i></span><span class="rn">${fmt(v)}</span></div>`;
+  $('red').innerHTML=`<a class="rhead" href="${P('fused_score','sec-play')}" title="Open Exposure Score → Recommended play">`+
+    `<div><div class="rk2">exposure now</div><div class="rv" style="color:var(--crit)">${fmt(R.before)}</div></div><div class="ra">→</div>`+
+    `<div><div class="rk2">after the play</div><div class="rv" style="color:var(--ok)">${fmt(R.after)}</div></div>`+
+    `<div><div class="rk2">reduction</div><div class="rv">−${fmt(R.before-R.after)} <small>(${fmt(R.pct)}%)</small></div></div>`+
+    `<div><div class="rk2">leave critical</div><div class="rv" style="color:var(--accent)">${fmt(R.leave_critical)}</div></div></a>`+
+    bar(R.before,'var(--crit)','Exposure now')+bar(R.after,'var(--ok)','After the play')+
+    `<h3 class="ct" style="margin-top:14px">Justified by — the signals each fix neutralises</h3>`+
+    ((R.justify||[]).length?(R.justify||[]).map(j=>`<a class="jrow" href="${P(j.agent,'')}" title="${esc(j.label)} — cleared on ${fmt(j.n)} asset(s) · open ${esc(j.hound)}"><span class="jl"><b>${esc(j.label)}</b> <span class="sub">· ${esc(j.hound)} — cleared on ${fmt(j.n)}</span></span><span class="rt"><i style="width:${(j.pts/jm*100).toFixed(1)}%"></i></span><span class="rn">−${fmt(j.pts)}</span></a>`).join('')
+      :ph('No fix in the recommended play applies to the act-now assets'))+
+    `<p class="ctsub" style="margin:10px 0 0">Plays: ${(R.plays||[]).map(x=>esc(x.label)).join(' · ')} · threshold ≥ ${fmt(R.threshold)} · ${R.act_n>R.shown?`projection covers the worst <b>${fmt(R.shown)}</b> loaded of the <b>${fmt(R.act_n)}</b> act-now assets (the true reduction is larger)`:`${fmt(R.shown)} act-now asset(s)`} · exposure = the sum of their scores.</p>`;
 }
 function renderPack(){
   $('pack').innerHTML=(D.coverage||[]).map(c=>`<a href="${esc(c.href)}" title="${esc(c.label)} — ${esc(SL[c.status]||c.status)}${c.note?' · '+esc(c.note):''}"><span class="d st-${esc(c.status)}"></span><span class="nm">${esc(c.icon)} ${esc(c.label)}</span>`+
