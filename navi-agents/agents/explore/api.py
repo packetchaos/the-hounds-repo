@@ -380,7 +380,7 @@ def tag_workers(p):
 def tag_jobs(p):
     """The background tag queue — every tag write the server has seen this run."""
     from core import tagq
-    return {"ok": True, "jobs": tagq.list_jobs(), "counts": tagq.counts()}, 200
+    return {"ok": True, "jobs": tagq.list_jobs(brief=True), "counts": tagq.counts()}, 200
 
 
 def tag_job_output(p):

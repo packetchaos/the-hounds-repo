@@ -8,7 +8,7 @@ Scheme: ``1.<number of agents>.<build>``
 Bump ``BUILD`` each time we cut a change/release.
 """
 MAJOR = 1
-BUILD = 456
+BUILD = 457
 
 # Fallback used only if discovery can't run (keeps the string well-formed).
 _AGENTS_FALLBACK = 40

@@ -4,6 +4,8 @@ Both app_fastapi.py and app_flask.py import this so behavior is identical.
 Drop a new agent folder into agents/ and restart: it is discovered, its
 api.ACTIONS are mounted under /api/<id>/<action>, and the hub lists it.
 """
+import contextvars
+import hashlib
 import json
 import os
 import sqlite3
@@ -26,7 +28,8 @@ _CACHE_TTL = float(os.environ.get("NAVI_AGENT_CACHE_TTL_S", "300"))
 _CACHE_MAX = int(os.environ.get("NAVI_AGENT_CACHE_MAX", "300"))
 # actions that change state or are inherently dynamic — never cache, and they
 # invalidate the agent's cached reads.
-_MUTATING = {"apply", "assign", "tag", "tag_candidate", "send", "delete", "remove", "rotate",
+_MUTATING = {"hx_cancel", "tag_cancel", "release_cancel",   # stop work: never cached/backgrounded
+             "apply", "assign", "tag", "tag_candidate", "send", "delete", "remove", "rotate",
              "encrypt", "decrypt", "refresh", "detections_decide", "ignore_add",
              "ignore_remove", "ignore_import", "promote", "acr", "set_acr",
              # contract state changes — must drop the cached `get` so the UI sees them
@@ -283,8 +286,17 @@ def request_scope(agent_id, action, payload, hint=None):
     return "run"
 
 
-# supersede: a newer request for the same (tab, agent, action) cancels the older one
+# supersede: a newer request for the same (tab, agent, action, payload) cancels the older one
 _INFLIGHT: dict = {}
+_SUP_IGNORE = ("_run", "_nocache", "refresh", "_label")
+
+
+def _supersede_sig(payload) -> str:
+    try:
+        p = {k: v for k, v in (payload or {}).items() if k not in _SUP_IGNORE}
+        return hashlib.sha1(json.dumps(p, sort_keys=True, default=str).encode()).hexdigest()[:16]
+    except Exception:
+        return ""
 _INFLIGHT_LOCK = threading.Lock()
 
 
@@ -303,10 +315,19 @@ def dispatch(agent_id: str, action: str, payload: dict, peer=None, http=False, *
     tok = gates.set_client(peer, http=http)
     try:
         scope = request_scope(agent_id, action, payload, budget_hint)
-        if scope is None:                         # a write: no default budget, never cancelled
+        if is_mutating(action, payload if isinstance(payload, dict) else {}):
+            # a write is never cancelled midway (disconnect / supersede): a confirmed Contract
+            # run_now would otherwise stop half-applied. Its long run keeps the "job" budget.
+            if scope == "job":
+                with db.budget_scope("job"):
+                    return _dispatch_run(agent_id, action, payload)
+            return _dispatch_run(agent_id, action, payload)
+        if scope is None:
             return _dispatch_run(agent_id, action, payload)
         token = cancel or db.Cancel()
-        key = (tab, agent_id, action) if tab else None
+        # supersede only the SAME request (payload minus run flags) from the same tab — two
+        # different reads of one action (two sections, two lookups) must not cancel each other
+        key = ((tab, agent_id, action, _supersede_sig(payload)) if tab else None)
         if key:
             with _INFLIGHT_LOCK:
                 old = _INFLIGHT.get(key)
@@ -411,7 +432,10 @@ def _dispatch(agent_id: str, action: str, payload: dict):
                 return out[0]
             return out
 
-        job = jobq.submit(_work, {"agent": agent_id, "action": action,
+        # carry the request's context (core.gates' client peer) onto the worker thread, so a
+        # gate checked inside the action (loopback-only…) sees the real caller, not "in-process"
+        _ctx = contextvars.copy_context()
+        job = jobq.submit(lambda: _ctx.run(_work), {"agent": agent_id, "action": action,
                                   "label": payload.get("_label") or action})
         # cached_result: whether the finished job's answer is kept in the read cache, so a
         # normal re-run of the same read is served instantly (console.js HB "Show results")

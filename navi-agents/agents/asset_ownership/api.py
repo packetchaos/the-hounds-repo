@@ -38,6 +38,7 @@ def overview(p):
     if not st.get("ok"):
         return {"ok": False, "result": st, "error": st.get("error")}, 200
     run = st["run"]
+    AGENT.result = {"kpi": st.get("kpi") or {}}     # the hub card's summary (meta()) after a run
     first, _c = payload.drill("asset_ownership", {"run": run, "section": "assets", "sort": "acr", "limit": 50}, SECTIONS)
     crown, _c = payload.drill("asset_ownership", {"run": run, "section": "crown", "sort": "rank", "limit": 50}, SECTIONS)
     blind, _c = payload.drill("asset_ownership", {"run": run, "section": "blind", "sort": "rank",

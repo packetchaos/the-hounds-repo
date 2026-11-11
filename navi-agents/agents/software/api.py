@@ -129,8 +129,21 @@ def eol_plan(p):
     run = _run_ok(p)
     if not run:
         return _GONE
-    pl = software.eol_plan(run)
-    return payload.response(summary={"products": len(pl)}, top=[], total_=payload.total(len(pl)), plan=pl[:3000]), 200
+    pl = software.eol_plan(run)[:3000]
+    # paged: the payload cap (≤200 rows per list) would otherwise drop products past 200 and
+    # versions past 200 silently. A product's versions travel as ONE newline-joined string.
+    try:
+        start = max(0, int(p.get("start") or 0))
+    except (TypeError, ValueError):
+        start = 0
+    chunk = [dict({k: v for k, v in x.items() if k != "versions"}, vers="\n".join(x.get("versions") or []))
+             for x in pl[start:start + EOL_PLAN_PAGE]]
+    nxt = start + EOL_PLAN_PAGE if start + EOL_PLAN_PAGE < len(pl) else None
+    return payload.response(summary={"products": len(pl)}, top=[], total_=payload.total(len(pl)),
+                            plan=chunk, start=start, next_start=nxt), 200
+
+
+EOL_PLAN_PAGE = 150
 
 
 def lifecycle(p):
@@ -161,7 +174,12 @@ def risk(p):
     run = _run_ok(p)
     if not run:
         return _GONE
-    r = software.risk(run)
+    try:
+        r = software.risk(run)
+    except db.QueryTimeout:
+        raise
+    except Exception as e:                          # an older / partial navi.db: say why, don't 500
+        return {"ok": False, "error": "risk leaderboard unavailable: %s" % e}, 200
     return payload.response(summary={"total": r["total"], "named": r["named"]}, top=r["rows"],
                             total_=payload.total(r["total"])), 200
 

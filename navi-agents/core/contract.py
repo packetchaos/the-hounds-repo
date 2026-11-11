@@ -1303,9 +1303,12 @@ def _navi_update_bg(kinds=("assets", "vulns")):
     kinds = [k for k in kinds if k in cli_jobs.COMMANDS]
 
     def _chain():
-        for k in kinds:
+        for i, k in enumerate(kinds):
             try:
-                r = cli_jobs.start_update(k)
+                t_w = time.time()                         # ⚡ Optimize holds navi.db's write lock:
+                while cli_jobs.hx_busy() and time.time() - t_w < 3 * 3600:   # wait, don't skip
+                    time.sleep(5)
+                r = cli_jobs.start_update(k, refresh_summaries=(i == len(kinds) - 1))
                 jid = (r.get("job") or {}).get("id")
                 if not r.get("ok") or jid is None:
                     continue
