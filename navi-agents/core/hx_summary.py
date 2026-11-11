@@ -36,7 +36,7 @@ import threading
 import time
 
 VERSION = 1
-TABLES = ("hx_plugin", "hx_asset", "hx_meta")
+TABLES = ("hx_plugin", "hx_asset", "hx_meta")     # + hx_hits / hx_route_plugin (core/hx_signals)
 
 KEV_LIKE = "CISA-KNOWN-EXPLOITED"
 # The broad EOL name match the hounds share (eol.py / software.py / fused_score / ai_assets use
@@ -110,7 +110,11 @@ def inspect(c):
               "navi.db changed since they were built (a sync ran) — run ⚡ Optimize to refresh")
     out = {"present": present, "fresh": fresh, "reason": reason,
            "built_at": m.get("built_at"), "build_s": m.get("build_s"),
-           "plugins": m.get("plugins"), "assets": m.get("assets")}
+           "plugins": m.get("plugins"), "assets": m.get("assets"),
+           # Phase 1b (core/hx_signals): hound → hash of the output predicate its hx_hits rows hold
+           "signals": {k[4:]: v for k, v in m.items() if k.startswith("sig:")},
+           "hits": {k[5:]: v for k, v in m.items() if k.startswith("hits:")},
+           "route_plugin": m.get("route_plugin")}
     return out
 
 
@@ -201,7 +205,7 @@ def can_build(c):
     return True, ""
 
 
-def build(c, emit=None, live=None, cancel=None):
+def build(c, emit=None, live=None, cancel=None, signals=None):
     """(Re)build all three tables in ONE write transaction on connection c (isolation_level=None).
     WAL readers keep seeing the previous tables until COMMIT; a cancel rolls back to them."""
     emit = emit or (lambda s: None)
@@ -276,10 +280,27 @@ def build(c, emit=None, live=None, cancel=None):
         na = c.execute("SELECT COUNT(*) FROM hx_asset").fetchone()[0]
         emit("✓ hx_asset: %s assets in %.1fs" % (format(na, ","), time.time() - t1))
 
+        # Phase 1b: the output-signal hits (scanned before this transaction) + route membership
+        from core import hx_signals
+        try:
+            extra = hx_signals.write(c, signals, emit)
+        except sqlite3.OperationalError as e:
+            if cancel.is_set() or any(w in str(e).lower() for w in ("interrupt", "locked", "busy")):
+                raise
+            extra = None
+            err = e
+        except Exception as e:                       # never lose the summaries over the extras
+            extra, err = None, e
+        if extra is None:
+            emit("· signal hits / route table not built — %s: %s" % (type(err).__name__, err))
+            for t in hx_signals.DDL:
+                c.execute('DROP TABLE IF EXISTS "%s"' % t)
+            extra = {}
         total = round(time.time() - t0, 2)
         meta = {"version": str(VERSION), "fingerprint": fingerprint(c),
                 "built_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 "build_s": str(total), "plugins": str(np_), "assets": str(na)}
+        meta.update(extra)
         c.executemany("INSERT INTO hx_meta(k, v) VALUES (?, ?)", list(meta.items()))
         c.execute("COMMIT")
     except sqlite3.OperationalError as e:

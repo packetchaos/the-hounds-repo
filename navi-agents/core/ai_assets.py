@@ -328,6 +328,27 @@ def atlas_sets(assets):
     return {"tech": tech, "tactic": tac}
 
 
+def _output_wheres():
+    """(where3, where4): the plugin name / output arms of steps 3 and 4 — one definition shared by
+    scan() and signal_predicate() (⚡ Optimize evaluates the same text)."""
+    where3 = " OR ".join(f"(plugin_name LIKE '%{_lit(e[0])}%' OR output LIKE '%{_lit(e[0])}%')" for e in OUT_CATALOG)
+    clauses = []
+    for ep in ENDPOINTS:
+        for k in ep["kw"]:
+            clauses += [f"plugin_name LIKE '%{_lit(k)}%'", f"output LIKE '%{_lit(k)}%'"]
+        if ep["distinct"]:
+            clauses.append(f"output LIKE '%{ep['port']}%'")
+    return where3, " OR ".join(clauses)
+
+
+def signal_predicate(vcols):
+    """The output predicate core/hx_signals pre-evaluates for this hound (None: not applicable)."""
+    if not {"plugin_name", "output"} <= set(vcols or ()):
+        return None
+    w3, w4 = _output_wheres()
+    return "(%s) OR (%s)" % (w3, w4)
+
+
 def scan(db_path=None, fp=None, allow=None):
     """Discover + classify AI/ML assets. fp = suppression map {assets,fw,gfw};
     allow = egress allowlist (defaults to ALLOW_DEFAULT).
@@ -449,19 +470,21 @@ def scan(db_path=None, fp=None, allow=None):
                                 "sig": "service name" if kw_hit else "port " + ep["port"]}))
 
     if vcols:
-        where3 = " OR ".join(f"(plugin_name LIKE '%{_lit(e[0])}%' OR output LIKE '%{_lit(e[0])}%')" for e in OUT_CATALOG)
-        clauses = []
-        for ep in ENDPOINTS:
-            for k in ep["kw"]:
-                clauses += [f"plugin_name LIKE '%{_lit(k)}%'", f"output LIKE '%{_lit(k)}%'"]
-            if ep["distinct"]:
-                clauses.append(f"output LIKE '%{ep['port']}%'")
-        where4 = " OR ".join(clauses)
+        where3, where4 = _output_wheres()
         pcol = "port" if "port" in vcols else "NULL AS port"
         held = []
+        # Phase 1b: ⚡ Optimize evaluated this exact predicate once (core/hx_signals) — read only
+        # the matching findings by rowid instead of every finding's output (same rows, same order)
+        hits = ""
+        try:
+            from core import hx_signals
+            if hx_signals.usable_for("ai", signal_predicate(vcols), db_path):
+                hits = hx_signals.rows_sql("ai") + " AND "
+        except Exception:
+            hits = ""
         try:
             for r in db.iter(f"SELECT asset_uuid, plugin_id, plugin_name, output, {pcol}, ({where3}) AS m3, "
-                             f"({where4}) AS m4 FROM vulns WHERE ({where3}) OR ({where4})", path=db_path):
+                             f"({where4}) AS m4 FROM vulns WHERE {hits}(({where3}) OR ({where4}))", path=db_path):
                 if r.get("m3"):
                     step3(r)
                 if r.get("m4"):

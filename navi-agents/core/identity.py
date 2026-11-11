@@ -225,18 +225,40 @@ _AD_OUT = ("krbtgt",)
 _SA_OUT = ("service account",)
 
 
-def _output_pass(db_path):
-    """ONE pass over vulns for every unrestricted OUTPUT arm of the scan (Phase 1 keeps the
-    output parsing; this only folds three full-table sweeps into one). Returns
-    (sa_rows [(rowid, asset_uuid, plugin_id, output)], dc_hosts, ad_hosts)."""
+def _arms():
     lo = "lower(output)"
 
     def arm(terms):
         return "(" + " OR ".join("%s LIKE '%%%s%%'" % (lo, t) for t in terms) + ")"
-    sa, dc, ad = arm(_SA_OUT), arm(_DC_OUT), arm(_AD_OUT)
+    return arm(_SA_OUT), arm(_DC_OUT), arm(_AD_OUT)
+
+
+def signal_predicate(vcols):
+    """The output predicate core/hx_signals pre-evaluates for this hound (None: not applicable)."""
+    if "output" not in set(vcols or ()):
+        return None
+    sa, dc, ad = _arms()
+    return "%s OR %s OR %s" % (sa, dc, ad)
+
+
+def _output_pass(db_path):
+    """ONE pass over vulns for every unrestricted OUTPUT arm of the scan (Phase 1 keeps the
+    output parsing; this only folds three full-table sweeps into one). Returns
+    (sa_rows [(rowid, asset_uuid, plugin_id, output)], dc_hosts, ad_hosts).
+    Phase 1b: when ⚡ Optimize pre-evaluated this predicate (core/hx_signals), only the matching
+    findings are read, by rowid — same rows, same order."""
+    sa, dc, ad = _arms()
+    hits = ""
+    try:
+        from core import hx_signals
+        pred = "%s OR %s OR %s" % (sa, dc, ad)
+        if hx_signals.usable_for("identity", pred, db_path):
+            hits = hx_signals.rows_sql("identity") + " AND "
+    except Exception:
+        hits = ""
     sql = ("SELECT rowid AS rid, asset_uuid, plugin_id, %s AS sa, %s AS dc, %s AS ad, "
            "CASE WHEN %s AND output<>'' AND plugin_id<>'95928' AND plugin_id<>'92364' THEN output END AS output "
-           "FROM vulns WHERE %s OR %s OR %s" % (sa, dc, ad, sa, sa, dc, ad))
+           "FROM vulns WHERE %s(%s OR %s OR %s)" % (sa, dc, ad, sa, hits, sa, dc, ad))
     sa_rows, dch, adh = [], set(), set()
     try:
         rows = db.query(sql, path=db_path)

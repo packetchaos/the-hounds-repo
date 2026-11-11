@@ -440,8 +440,22 @@ def optimize(path=None, emit=None, live=None, cancel=None):
              if n else "✓ 'unordered' already in place")
         # 4. the Phase 1 summary tables (hx_plugin / hx_asset) — after the indexes they read
         summ = None
+        sig = None
+        if not cancelled and hx_summary.can_build(c)[0]:
+            # 4a. Phase 1b: each output-searching hound's predicate, evaluated ONCE (parallel,
+            # read-only — no write lock held while it reads the plugin output)
+            try:
+                from core import hx_signals
+                sig = hx_signals.scan(path, emit, live, cancel)
+                if sig.get("cancelled"):
+                    cancelled = True
+                elif sig.get("skipped"):
+                    emit("· signal hits skipped — %s" % sig["skipped"])
+            except Exception as e:                    # never lose the summaries over it
+                emit("· signal hits not built — %s: %s" % (type(e).__name__, e))
+                sig = None
         if not cancelled:
-            summ = hx_summary.build(c, emit, live, cancel)
+            summ = hx_summary.build(c, emit, live, cancel, signals=sig)
             if summ.get("cancelled"):
                 cancelled = True
             elif summ.get("busy"):
