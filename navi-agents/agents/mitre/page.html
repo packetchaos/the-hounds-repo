@@ -112,26 +112,24 @@ function renderMetrics(){
   const m=PLAN.metrics||{}, byAssets=scope==='navidb' && (m.assets_affected||0)>0;
   const src={live:'● live download',bundled:'◆ baked snapshot',upload:'⬆ your upload',unavailable:'✗ no source'}[PLAN.mapping_source]||PLAN.mapping_source||'';
   document.getElementById('counts').textContent=`${N(PLAN.csv_rows)} CSV rows · ${N(PLAN.navi_cves)} CVEs in navi.db · ${src}`;
-  // 📊 At a glance (shared renderGlance template): the tag plan, then one filter chip per tag type
+  // 📊 At a glance (shared renderGlance template): the ATT&CK exposure — assets, techniques,
+  // tactics, CVEs — then one filter chip per mapping type (Primary / Secondary Impact, Exploit)
   const roles=m.roles||[];
   document.getElementById('metrics').innerHTML='<div id="glxMitre"></div>'
     +(roles.length?'':'<div class="sub" style="margin-top:8px">No ATT&amp;CK-mapped CVEs found — try Full mapping, or sync navi.db.</div>');
   renderGlance('glxMitre', [
-    {title:'Tag plan',
-     hero:{v:N(m.assets_affected), l:'assets to tag', u:'distinct assets in navi.db whose findings cite a mapped CVE — the tags land on these', href:'#secPlan'},
-     chips:[{v:N(m.cves_mapped), l:'CVEs used as selectors', u:scope==='navidb'?'present in navi.db':'full mapping'},
-            {v:N(m.tag_pairs), l:'tags planned', u:(m.unique_tag_values!==m.tag_pairs?`${N(m.unique_tag_values)} unique tag values · `:'')+'one row per CVE × tag value', href:'#secPlan'},
-            {v:N(m.unique_techniques), l:'ATT&CK techniques', u:'distinct techniques across every tag type (multi-technique values split; retired ids followed to their replacement)', href:'#secMatrix'},
-            {v:`${N(m.tactics_hit)} / ${N(m.tactics_total)}`, l:'tactics hit', zero:!m.tactics_hit, href:'#secMatrix'}]},
-    roles.length?{title:'By tag type', t:'Click a tag type to filter the planned tags.',
-     bar:roles.map(r=>({label:(ROLE_LABEL[r.role]||r.role)+' tags', value:r.tags, color:ROLE_COLOR[r.role]})), legend:false,
+    {title:'ATT&CK exposure',
+     hero:{v:N(m.assets_affected), l:'assets with ATT&CK techniques or impacts', u:'distinct assets in navi.db whose findings cite a CVE that maps to an ATT&CK technique or impact', href:'#secMatrix'},
+     chips:[{v:N(m.unique_techniques), l:'ATT&CK techniques', u:'distinct techniques across every mapping type (multi-technique values split; retired ids followed to their replacement)', href:'#secMatrix'},
+            {v:`${N(m.tactics_hit)} / ${N(m.tactics_total)}`, l:'tactics reached', zero:!m.tactics_hit, href:'#secMatrix'},
+            {v:N(m.cves_mapped), l:'CVEs mapped to ATT&CK', u:scope==='navidb'?'present in navi.db':'full mapping'},
+            {v:N(m.tag_pairs), l:'tags in the plan', u:(m.unique_tag_values!==m.tag_pairs?`${N(m.unique_tag_values)} unique tag values · `:'')+'one row per CVE × technique / impact', href:'#secPlan'}]},
+    roles.length?{title:'By mapping type', t:'Click a mapping type to filter the plan below.',
+     bar:roles.map(r=>({label:(ROLE_LABEL[r.role]||r.role), value:r.assets, color:ROLE_COLOR[r.role]})), legend:false,
      chips:roles.map(r=>{
-       const uniq=[];
-       if(r.unique_techniques!==r.tags) uniq.push(`${N(r.unique_techniques)} unique technique${r.unique_techniques===1?'':'s'}`);
-       if(r.unique_values!==r.tags && r.unique_values!==r.unique_techniques) uniq.push(`${N(r.unique_values)} unique values`);
-       uniq.push(`${N(r.assets)} asset${r.assets===1?'':'s'}`);
-       const l=(ROLE_LABEL[r.role]||r.role)+' tags';
-       return {v:N(r.tags), l, u:uniq.join(' · '), t:`${N(r.tags)} ${l} — ${uniq.join(' · ')} · ${N(r.tags)} tags across ${N(r.cves)} CVEs`,
+       const det=[`${N(r.unique_techniques)} technique${r.unique_techniques===1?'':'s'}`, `${N(r.cves)} CVE${r.cves===1?'':'s'}`];
+       const l=(ROLE_LABEL[r.role]||r.role);
+       return {v:N(r.assets), l:'assets · '+l, u:det.join(' · '), t:`${N(r.assets)} assets with a ${l} mapping — ${det.join(' · ')} · ${N(r.tags)} tags in the plan`,
          sev:{'Primary Impact':'crit','Secondary Impact':'high','Exploit Technique':'info'}[r.role]||'none', filter:r.role}; })}:null
   ], {active:FILTER.role, onFilter:(f,_el,on)=>{ FILTER.role=on?f:null; hPageReset('tbl'); render();
     if(FILTER.role) document.getElementById('secPlan').scrollIntoView({behavior:'smooth',block:'start'}); }});
@@ -255,6 +253,12 @@ document.getElementById('apply').onclick=async()=>{
 };
 mountAgentHeader({icon:'🎯',name:'MITRE ATT&CK Tagging',sub:'tags assets by the ATT&CK impact of their CVEs'});
 mountSectionNav();
+// ⛶ full screen + 📧 picture & list (Gabriel) on the ATT&CK map
+hWidget('secMatrix',{title:'MITRE ATT&CK matrix', visual:()=>document.getElementById('mx'),
+  columns:['technique','name','tactics','assets','cves','mapping types'],
+  note:()=>PLAN?('Techniques behind the planned tags · '+(scope==='navidb'?'CVEs in navi.db':'full mapping')):'',
+  rows:()=>((PLAN&&PLAN.techniques)||[]).map(t=>({technique:t.id, name:t.name||t.parent_name||'', tactics:(t.tactics||[]).join(', '),
+    assets:t.assets, cves:t.cves, 'mapping types':Object.keys(t.roles||{}).join(', ')}))});
 try{ hMailAuto(); }catch(e){}
 requestApprove(true);   // human approves the external download before anything is fetched (or Settings auto-approves it)
 </script>

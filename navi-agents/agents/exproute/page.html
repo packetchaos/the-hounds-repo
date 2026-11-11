@@ -390,7 +390,7 @@ document.getElementById('coverRefresh').onclick=async()=>{ const b=document.getE
 document.getElementById('interpret').onclick=interpret;
 document.getElementById('applyAll').onclick=applyAll;
 /* ===== Ownership Sankey — routes/paths → owners (from the exproute `map` action) ===== */
-let SNK=null, SNK_GF='both';
+let SNK=null, SNK_GF='both', SNK_LAST=null;   // SNK_LAST: the items + links last drawn (the 📧 list)
 const SNK_SC={owned:'var(--ok)',partial:'#e7c66b',unowned:'#f43f5e',mitigated:'var(--ok)',accepted:'#6ea8ff',ignored:'#8a99ad'};
 const SNK_DNODE={mitigated:'✅ Mitigated',accepted:'✔ Accepted',ignored:'🚫 Ignored'};
 const SNK_RC={un:'#f43f5e',owned:'var(--ok)',mitigated:'var(--ok)',accepted:'#6ea8ff',ignored:'#8a99ad'};
@@ -454,6 +454,7 @@ function snkRender(){ const wrap=document.getElementById('snkGraph'); if(!SNK){ 
     const owned=Math.max(0,it.owned_assets||0), un=Math.max(0,(it.assets||0)-owned), ow=(it.owners&&it.owners.length)?it.owners:[];
     if(ow.length&&owned>0){ const per=owned/ow.length; ow.forEach(o=>{ links.push({fi,to:o,v:per,kind:'owned'}); ownerTot[o]=(ownerTot[o]||0)+per; }); }
     if(un>0){ links.push({fi,to:UN,v:un,kind:'un'}); ownerTot[UN]=(ownerTot[UN]||0)+un; } });
+  SNK_LAST={items, links};
   const owners=Object.keys(ownerTot).sort((a,b)=>{ const sa=_snkSpecial(a),sb=_snkSpecial(b); if(sa!==sb)return sa?1:-1; if(a===UN)return 1; if(b===UN)return -1; return ownerTot[b]-ownerTot[a]; });
   const sumL=items.reduce((s,it)=>s+it.assets,0), sumR=owners.reduce((s,o)=>s+ownerTot[o],0);
   const gap=8, maxNodes=Math.max(items.length,owners.length), bandH=Math.max(340,maxNodes*26);
@@ -530,6 +531,12 @@ document.getElementById('qaSkip').onclick=()=>{ document.getElementById('quickCa
 document.getElementById('qaBack').onclick=e=>{ e.preventDefault(); const m=document.getElementById('secMap'); if(m) m.scrollIntoView({behavior:'smooth',block:'start'}); };
 
 mountAgentHeader({id:'exproute',icon:'🧭',name:'Exposure Routes',sub:'Atlas · owner mapping · Sankey · Ownership Map'});
+// ⛶ full screen + 📧 picture & list (Gabriel) on the ownership Sankey
+hWidget('snkCard',{title:'Ownership Sankey — routes / paths → owners', visual:()=>document.querySelector('#snkGraph svg')||document.getElementById('snkGraph'),
+  columns:['route / path','type','owner','assets','status'],
+  note:()=>'Band thickness = assets · ⛔ Unassigned = Ownerless Risk',
+  rows:()=>(SNK_LAST?SNK_LAST.links.map(l=>({'route / path':SNK_LAST.items[l.fi].name, type:SNK_LAST.items[l.fi].type, owner:l.to,
+    assets:Math.round(l.v*10)/10, status:SNK_LAST.items[l.fi].status||''})):[])});
 try{ hMailAuto(); }catch(e){}
 /* explicit-run: nothing scans navi.db until ▶ Run — UNLESS we arrived from the standalone map
    with gap(s) to assign, in which case run, then open the quick-assign for them. */

@@ -65,6 +65,19 @@
     <div id="metrics"><div class="setupcard"><div class="big">Press ▶ Run</div><p class="sub">Find every AI/ML workload in navi.db — including the ones Tenable's AI plugins don't flag — and see which are exposed, sending data out, carrying exploited vulns, or rated too low.</p></div></div>
   </section>
 
+  <section class="card" id="secAtlas" data-nav="MITRE ATLAS" data-nav-icon="🗺️">
+    <h2>🗺️ MITRE ATLAS threat mapping <span class="sub" id="atlCount"></span></h2>
+    <p class="sub">AI-specific adversary techniques (<a href="https://atlas.mitre.org" target="_blank" rel="noopener" class="plink">MITRE ATLAS</a>) implied by each asset's role, exposure and egress — capability-based, not observed. Columns follow the ATLAS kill chain; shade = how many <b>AI assets</b> map to the technique, and the number on each technique is that count. Click a technique — or a tactic heading — to list the assets behind it and tag them <span class="tagval">AI ATLAS : &lt;technique id&gt;</span>.</p>
+    <div class="mxbar"><label class="sub"><input type="checkbox" id="atlEmpty"> show tactics with no hits</label><span class="sub" id="atlSrc"></span></div>
+    <div class="mx" id="atlMx"><div class="sub">Run to load…</div></div>
+    <div id="atlDrill" style="margin-top:12px">
+      <div class="toolbar" style="flex-wrap:wrap;gap:6px"><span id="atlFilt"></span><button class="btn run sm" id="atlTag" style="margin-left:auto;display:none">🏷️ Tag</button></div>
+      <div id="atlFlash" class="flash"></div>
+      <table id="atlTbl" class="norsz"><colgroup><col style="width:156px"><col style="width:134px"><col style="width:150px"><col><col style="width:66px"><col style="width:84px"><col style="width:84px"></colgroup>
+        <thead><tr><th>Host</th><th>IP</th><th>Role</th><th>Why it maps here (evidence)</th><th>ACR</th><th>Platform</th><th></th></tr></thead>
+        <tbody><tr><td colspan="7" class="sub">Run, then click a technique to list its assets…</td></tr></tbody></table>
+    </div>
+  </section>
   <section class="card" id="secAssets" data-nav="AI assets" data-nav-icon="📋">
     <div class="toolbar" style="margin:0"><h2 style="margin:0">AI assets <span class="sub" id="aiCount"></span></h2>
       <button class="btn sm" id="tagAll" style="margin-left:auto" disabled>🏷️ Tag all → AI : Present</button></div>
@@ -88,19 +101,7 @@
   </section>
 
   <section class="card" id="secEgress" data-nav="Data egress" data-nav-icon="🛰️"><div id="egressOut"></div></section>
-  <section class="card" id="secAtlas" data-nav="MITRE ATLAS" data-nav-icon="🗺️">
-    <h2>🗺️ MITRE ATLAS threat mapping <span class="sub" id="atlCount"></span></h2>
-    <p class="sub">AI-specific adversary techniques (<a href="https://atlas.mitre.org" target="_blank" rel="noopener" class="plink">MITRE ATLAS</a>) implied by each asset's role, exposure and egress — capability-based, not observed. Columns follow the ATLAS kill chain; shade = how many <b>AI assets</b> map to the technique, and the number on each technique is that count. Click a technique — or a tactic heading — to list the assets behind it and tag them <span class="tagval">AI ATLAS : &lt;technique id&gt;</span>.</p>
-    <div class="mxbar"><label class="sub"><input type="checkbox" id="atlEmpty"> show tactics with no hits</label><span class="sub" id="atlSrc"></span></div>
-    <div class="mx" id="atlMx"><div class="sub">Run to load…</div></div>
-    <div id="atlDrill" style="margin-top:12px">
-      <div class="toolbar" style="flex-wrap:wrap;gap:6px"><span id="atlFilt"></span><button class="btn run sm" id="atlTag" style="margin-left:auto;display:none">🏷️ Tag</button></div>
-      <div id="atlFlash" class="flash"></div>
-      <table id="atlTbl" class="norsz"><colgroup><col style="width:156px"><col style="width:134px"><col style="width:150px"><col><col style="width:66px"><col style="width:84px"><col style="width:84px"></colgroup>
-        <thead><tr><th>Host</th><th>IP</th><th>Role</th><th>Why it maps here (evidence)</th><th>ACR</th><th>Platform</th><th></th></tr></thead>
-        <tbody><tr><td colspan="7" class="sub">Run, then click a technique to list its assets…</td></tr></tbody></table>
-    </div>
-  </section>
+
 
   <footer>Pythia · AI inventory · reads navi.db read-only · gated navi enrich tag / acr · tracked in the Tagging log</footer>
 </div>
@@ -434,6 +435,12 @@ document.getElementById('run').onclick=run;
 document.getElementById('tagAll').onclick=function(){ if(DATA&&DATA.asset_count) aiTag('AI','Present',{all:true},DATA.asset_count,this); };
 mountAgentHeader({id:'ai',icon:'🧠',name:'AI Inventory',sub:'Pythia · content-first AI/ML discovery'});
 mountSectionNav();
+// ⛶ full screen + 📧 picture & list (Gabriel) on the ATLAS map
+hWidget('secAtlas',{title:'MITRE ATLAS — AI threat map', visual:()=>document.getElementById('atlMx'),
+  columns:['technique','name','tactic','ai assets','why'],
+  note:()=>DATA?(N(DATA.asset_count||0)+' AI asset(s) · capability-based, not observed'):'',
+  rows:()=>DATA?Object.values(atlasIndex()).sort((a,b)=>b.assets-a.assets||String(a.id).localeCompare(String(b.id)))
+    .map(d=>({technique:d.id, name:d.name||'', tactic:d.tactic||'', 'ai assets':d.assets, why:Object.keys(d.whys||{}).join(' · ')})):[]});
 try{ hMailAuto(); }catch(e){}
 jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});
 /* no auto-run — user clicks ▶ Run (protects a busy navi.db) */

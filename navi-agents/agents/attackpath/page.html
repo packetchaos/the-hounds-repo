@@ -359,14 +359,24 @@ function renderTargets(){
 }
 
 /* ------------------------------------------------------------------ other sections */
+/* a Patch fix (fix key "plugin:<id>") hands the plugin + the hosts that carry it to Amarok
+   (Command & Control) — pre-filled there, nothing runs without the operator's click + confirm */
+function patchLink(x){
+  const pid=String(x.fix||'').startsWith('plugin:')?String(x.fix).slice(7):'';
+  if(!pid||!/^\d{1,7}$/.test(pid)) return '';
+  const byId={}; ((R.graph&&R.graph.nodes)||[]).forEach(n=>{ if(n.kind==='asset'&&n.ip) byId[n.id]=n; });
+  const targets=(x.uuids||[]).map(u=>byId[u]).filter(Boolean).slice(0,256).map(n=>({ip:n.ip,uuid:n.id,hostname:n.label||''}));
+  return c2Link('remediate',{plugin_id:pid,targets,source:'Attack Paths'},'🛠 Patch'+(targets.length?' '+N(targets.length)+' host'+(targets.length===1?'':'s'):'')+' via C2');
+}
+function typeCell(x){ const l=patchLink(x); return l?l:esc(x.type); }
 function renderFix(){
   const b=R.bundle||[], f=R.fixes||[], m=R.metrics||{};
   document.getElementById('fixCount').textContent=`(${N(f.length)} choke points)`; setNavCount('secFix', b.length?m.bundle_exposure_cut_pct+'%':N(f.length));
   document.getElementById('bundle').innerHTML=b.length?('<div class="wf" style="font-weight:700;color:var(--mut);font-size:11px"><span>#</span><span>Fix</span><span>Exposure left after it</span><span>Still reachable</span></div>'+
-    b.map((x,i)=>`<div class="wf"><span><b>${i+1}</b></span><span><b>${esc(x.label)}</b> <span class="pill" style="color:var(--ink-2,var(--mut))">${esc(x.type)}</span>${x.kev?'<span class="pill" style="color:var(--crown)">KEV</span>':''}<div class="sub">${esc(x.detail||'')} · ${N(x.assets)} asset(s)</div></span>`+
+    b.map((x,i)=>`<div class="wf"><span><b>${i+1}</b></span><span><b>${esc(x.label)}</b> <span class="pill" style="color:var(--ink-2,var(--mut))">${typeCell(x)}</span>${x.kev?'<span class="pill" style="color:var(--crown)">KEV</span>':''}<div class="sub">${esc(x.detail||'')} · ${N(x.assets)} asset(s)</div></span>`+
       `<span><span class="bar" style="display:inline-block;width:110px;vertical-align:middle"><i style="width:${x.exposure_left_pct}%"></i></span> ${x.exposure_left_pct}%</span><span>${N(x.still_reachable)} of ${N(m.crown_reachable)}</span></div>`).join('')+
     `<p class="sub" style="margin:6px 0 0">These ${b.length} fixes cut crown-jewel exposure by <b>${m.bundle_exposure_cut_pct}%</b>.${m.bundle_still_reachable?` ${N(m.bundle_still_reachable)} crown jewel(s) stay reachable through other, less likely routes.`:''}</p>`):'<div class="sub">No routes to fix.</div>';
-  hPaginate('fixTbl', f, x=>`<tr><td><b>${esc(x.label)}</b>${x.kev?' <span class="pill" style="color:var(--crown)">KEV</span>':''}<div class="sub">${esc(x.detail||'')}</div></td><td>${esc(x.type)}</td><td>${N(x.assets)}</td><td><span class="lbar"><i style="width:${Math.min(100,x.exposure_cut_pct)}%"></i></span><b>${x.exposure_cut_pct}%</b></td><td>${N(x.paths)}</td><td>${x.cuts?`<b style="color:var(--ok)">${N(x.cuts)}</b>`:'0'}</td>`+
+  hPaginate('fixTbl', f, x=>`<tr><td><b>${esc(x.label)}</b>${x.kev?' <span class="pill" style="color:var(--crown)">KEV</span>':''}<div class="sub">${esc(x.detail||'')}</div></td><td>${typeCell(x)}</td><td>${N(x.assets)}</td><td><span class="lbar"><i style="width:${Math.min(100,x.exposure_cut_pct)}%"></i></span><b>${x.exposure_cut_pct}%</b></td><td>${N(x.paths)}</td><td>${x.cuts?`<b style="color:var(--ok)">${N(x.cuts)}</b>`:'0'}</td>`+
       `<td><button class="btn ghost sm" data-fx="${esc(x.fix)}" ${(x.uuids||[]).length?'':'disabled'} title="Tag the ${N(x.assets)} asset(s) carrying this">🏷️ Tag</button></td></tr>`,
     {cols:7, empty:'<tr><td colspan="7" class="sub">No choke points.</td></tr>',
      wire:tb=>tb.querySelectorAll('button[data-fx]').forEach(bt=>bt.onclick=()=>{ const x=f.find(o=>o.fix===bt.dataset.fx); if(x) tagKey('Choke Point','fix:'+x.fix,(x.uuids||[]).length,bt); })});
@@ -447,6 +457,14 @@ document.getElementById('mapBest').onchange=()=>{ HL=null; SEL=null; renderMap()
 document.getElementById('run').onclick=run;
 mountAgentHeader({id:'attackpath',icon:'🕸️',name:'Attack Path Analysis',sub:'Fenrir · exploit chains · credentials · relay · compliance enablers'});
 mountSectionNav();
+// ⛶ full screen (the map grows to the screen and re-fits) + 📧 picture & list (Gabriel)
+hWidget('secMap',{title:'Attack map — attacker → crown jewels', visual:()=>document.getElementById('mapWrap'), grow:'#map', growOffset:230,
+  onResize:()=>{ const f=document.getElementById('zfit'); if(f) f.click(); },
+  columns:['crown jewel','ip','acr','likelihood','hops','way in','route'],
+  note:()=>R?'Best route per crown jewel first · likelihood = chance the chain works end to end':'',
+  rows:()=>((R&&R.paths)||[]).slice().sort((a,b)=>(b.primary?1:0)-(a.primary?1:0)||b.likelihood-a.likelihood).map(p=>({
+    'crown jewel':(p.target||{}).host||'', ip:(p.target||{}).ip||'', acr:(p.target||{}).acr, likelihood:Math.round((p.likelihood||0)*100)+'%', hops:p.hops,
+    'way in':(p.entry||{}).host||'', route:(p.steps||[]).map(s=>s.label||s.kind||'').join(' → ')}))});
 try{ hMailAuto(); }catch(e){}
 jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});
 /* no auto-run — user clicks ▶ Run */

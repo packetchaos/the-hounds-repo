@@ -1285,6 +1285,103 @@ def dashboard(p):
             "components": len(comps), "cmd": r.get("cmd"), **_gate()}, 200
 
 
+def widget(p):
+    """DOUBLE-gated send of ONE chart widget — its PICTURE and its LIST (build 462).
+
+    The picture is rendered in the browser (console.js hSnapshot): a PNG data-URI, or — where the
+    browser can't rasterise HTML (Safari) — a self-contained HTML snapshot. Mail clients strip
+    inline images and <svg>, so the picture rides as the ATTACHMENT (navi mail takes one file).
+    The list goes INLINE in the HTML body (up to WIDGET_INLINE rows); a longer list is cut there
+    and the attachment becomes a .zip holding the picture + the full list as CSV."""
+    from core import navi_cli
+    import tempfile, os, csv, base64, zipfile, io, re as _re
+    if not confirmed(p):
+        return {"ok": False, "error": "confirm=true required to send email"}, 400
+    if not navi_cli.email_enabled():
+        return {"ok": False, "blocked": True, "reason": navi_cli.email_gate_reason(), **_gate()}, 200
+    to = (p.get("to") or "").strip()
+    if not to:
+        return {"ok": False, "error": "recipient (to) required"}, 400
+    rows = [r for r in (p.get("rows") or []) if isinstance(r, dict)]
+    cols = [str(c) for c in (p.get("columns") or [])] or (list(rows[0].keys()) if rows else [])
+    title = str(p.get("title") or "Widget")[:160]
+    note = str(p.get("note") or "")[:600]
+    subject = str(p.get("subject") or f"[Tenable] {title}")[:200]
+    safe = _re.sub(r"[^A-Za-z0-9]+", "-", title).strip("-")[:60] or "widget"
+    pic, pic_name = None, ""
+    png = (p.get("png") or "").strip()
+    if png:
+        m = _re.match(r"^data:image/png;base64,(.+)$", png, _re.S)
+        if not m:
+            return {"ok": False, "error": "picture must be a base64 PNG data-URI"}, 400
+        try:
+            pic, pic_name = base64.b64decode(m.group(1), validate=False), safe + ".png"
+        except Exception:
+            return {"ok": False, "error": "could not decode the picture"}, 400
+    elif (p.get("html") or "").strip():
+        pic, pic_name = str(p["html"]).encode("utf-8"), safe + ".html"
+    if not rows and pic is None:
+        return {"ok": False, "error": "nothing to send — run the widget first"}, 400
+    n = len(rows)
+    inline = rows[:WIDGET_INLINE]
+    long_list = n > WIDGET_INLINE
+    att_name = (safe + ".zip") if (long_list and pic is not None) else (safe + ".csv") if long_list else pic_name
+    pic_line = ""
+    if pic is not None:
+        pic_line = (f"<p style='margin:0 0 10px;color:#475569'>The widget as it looks on the page is attached as "
+                    f"<b>{_esc(pic_name)}</b>{' inside <b>' + _esc(att_name) + '</b>' if long_list else ''} "
+                    f"(mail clients strip embedded images, so it rides as an attachment"
+                    f"{' — open the HTML file in a browser' if pic_name.endswith('.html') else ''}).</p>")
+    list_line = (f"<p style='margin:0 0 8px;color:#475569'>{n} row(s)"
+                 + (f" — the first {WIDGET_INLINE} below; the full list is attached as CSV" if long_list else "")
+                 + ".</p>") if n else ""
+    inner = (f"<p style='margin:0 0 6px'><b>{_esc(title)}</b></p>"
+             + (f"<p style='margin:0 0 10px;color:#475569'>{_esc(note)}</p>" if note else "")
+             + pic_line + list_line + (_dash_table(cols, inline, cap=WIDGET_INLINE) if n else "") + _sign_html())
+    tmpdir = tempfile.mkdtemp(prefix="hounds_widget_")
+    bpath = os.path.join(tmpdir, "body.html")
+    apath = os.path.join(tmpdir, att_name) if att_name else ""
+    try:
+        with open(bpath, "w", encoding="utf-8") as fh:
+            fh.write(_html_wrap(subject, inner))
+        if long_list:
+            buf = io.StringIO()
+            w = csv.writer(buf)
+            w.writerow(cols)
+            for r in rows:
+                w.writerow([r.get(c, "") for c in cols])
+            data_csv = buf.getvalue().encode("utf-8-sig")
+            if pic is not None:
+                with zipfile.ZipFile(apath, "w", zipfile.ZIP_DEFLATED) as z:
+                    z.writestr(pic_name, pic)
+                    z.writestr(safe + ".csv", data_csv)
+            else:
+                with open(apath, "wb") as fh:
+                    fh.write(data_csv)
+        elif pic is not None:
+            with open(apath, "wb") as fh:
+                fh.write(pic)
+        r = navi_cli.mail(to=to, subject=subject,
+                          message=f"{title} — {n} row(s); the picture is attached ({att_name or 'none'}).",
+                          html=bpath, file=apath, agent="email")
+    finally:
+        for pth in (bpath, apath):
+            if pth:
+                try:
+                    os.unlink(pth)
+                except Exception:
+                    pass
+        try:
+            os.rmdir(tmpdir)
+        except Exception:
+            pass
+    return {"ok": bool(r.get("ok")), "message": r.get("message"), "to": to, "cmd": r.get("cmd"),
+            "attached": att_name, "rows": n, "rows_inline": len(inline), **_gate()}, 200
+
+
+WIDGET_INLINE = 200
+
+
 def data(p):
     """DOUBLE-gated send of ONE widget's query result. Threshold rule (per the operator):
     a small result — UNDER 100 rows — is rendered inline in the HTML email body as a table;
@@ -1374,4 +1471,5 @@ def run(p):
 
 
 ACTIONS = {"run": run, "status": status, "recipients": recipients,
-           "preview": preview, "send": send, "graph": graph, "dashboard": dashboard, "data": data}
+           "preview": preview, "send": send, "graph": graph, "dashboard": dashboard, "data": data,
+           "widget": widget}

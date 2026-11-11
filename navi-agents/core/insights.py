@@ -1092,6 +1092,7 @@ def scent_digest(db_path=None):
                   {"t": " aren't credential-scanned OK, so the real picture is likely worse." if gap else
                    " are credential-scanned OK."}]
 
+    play = recommended_play(fused)
     tot, pres, _st = _counts(cov)
     digest = {
         "ok": True, "fp": fp,
@@ -1101,10 +1102,77 @@ def scent_digest(db_path=None):
         "story": story, "glance": glance, "exposure": exposure, "footprint": footprint, "footprint_quiet": quiet,
         "worst": worst,
         "stack": stack, "cooccur": cooccur, "convergence": convergence, "clock": clock, "blind": blind,
-        "next": nxt, "reduction": reduction, "coverage": cov,
+        "next": nxt, "reduction": reduction, "play": play, "coverage": cov,
         "_inputs": {"snaps": snap_pin, "release": (rec or {}).get("id")},
     }
     return digest
+
+
+# ---- Nemesis's "Recommended play" (Exposure Score): the projected reduction, every play applied
+# Mirrors agents/fused_score/page.html drawRed() with its default selection (all five plays) and
+# its threshold rule (80 when any asset is ≥ 80, else 60, else 40; the worst 10 when none is over).
+PLAYS = [("patch", "Patch KEV / critical", ("expl", "sev", "mit")), ("eol", "Replace EOL software", ("eol",)),
+         ("crypto", "Renew certs / PQ-migrate", ("cry",)), ("segment", "Segment / close exposure", ("exp", "ai")),
+         ("own", "Assign owners", ("own",))]
+
+
+def _jsround(x):
+    """JavaScript's Math.round (halves round up) — the page's numbers, to the point."""
+    import math
+    return int(math.floor(x + 0.5))
+
+
+def _disp_mul(a):
+    d = a.get("disp")
+    return 0.3 if d == "Mitigated" else 0.55 if d == "Accepted" else 1
+
+
+def recommended_play(fused):
+    rows = [a for a in (fused or {}).get("assets") or [] if isinstance(a, dict)]
+    kpi = (fused or {}).get("kpi") or {}
+    if not rows:
+        return {"available": False}
+    act = kpi.get("act") or {}
+    thr = 80 if (act.get("80") or {}).get("n") else 60 if (act.get("60") or {}).get("n") else 40
+    st = act.get(str(thr)) or {}
+    sel = [a for a in rows if (a.get("score") or 0) >= thr]
+    if not sel and not st.get("n"):
+        sel = rows[:min(10, len(rows))]
+    n_act = st.get("n") or len(sel)
+
+    def cleared(a):
+        out = set()
+        ap = a.get("applies") or {}
+        for pid, _l, clears in PLAYS:
+            if ap.get(pid):
+                out.update(clears)
+        return out
+
+    def proj(a):
+        cl = cleared(a)
+        pts = sum(v for k, v in (a.get("factors") or {}).items() if k not in cl)
+        return min(100, _jsround(pts * _disp_mul(a)))
+    before = sum(a.get("score") or 0 for a in sel)
+    after = sum(proj(a) for a in sel)
+    leave = sum(1 for a in sel if (a.get("score") or 0) >= 80 and proj(a) < 80)
+    meta = {f.get("id"): f for f in (fused or {}).get("factors") or []}
+    jf = {}
+    for a in sel:
+        cl = cleared(a)
+        for fid in meta:
+            if fid in cl:
+                p = _jsround((a.get("factors") or {}).get(fid, 0) * _disp_mul(a))
+                if p:
+                    j = jf.setdefault(fid, {"id": fid, "label": meta[fid].get("label"),
+                                            "hound": str(meta[fid].get("hound") or "").split(" · ")[0],
+                                            "agent": FACTOR_AGENT.get(fid, "fused_score"), "pts": 0, "n": 0})
+                    j["pts"] += p
+                    j["n"] += 1
+    return {"available": True, "threshold": thr, "act_n": n_act, "shown": len(sel),
+            "before": before, "after": after, "leave_critical": leave,
+            "pct": _jsround(100.0 * (before - after) / before) if before else 0,
+            "plays": [{"id": pid, "label": l} for pid, l, _c in PLAYS],
+            "justify": sorted(jf.values(), key=lambda x: -x["pts"])}
 
 
 # ------------------------------------------------------------------ the API

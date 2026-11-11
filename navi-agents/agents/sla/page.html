@@ -24,6 +24,15 @@
 .chart svg{width:100%;height:auto;display:block;overflow:visible}
 .chart .ax{font:10.5px var(--mono);fill:var(--ink-3)}
 .chart .gr{stroke:var(--line);stroke-width:1}
+/* trend charts as their own half-page widgets (build 462) */
+.halfgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:0 0 14px}
+.halfgrid>.card{margin:0}
+@media (max-width:900px){.halfgrid{grid-template-columns:1fr}}
+.chcard .cs{font-size:11.5px;color:var(--mut);margin:0 0 6px}
+.chcard svg{width:100%;height:auto;display:block;overflow:visible}
+.chcard .ax{font:10.5px var(--mono);fill:var(--ink-3)}
+.chcard .gr{stroke:var(--line);stroke-width:1}
+.chcard.hw-on .chvis svg{width:100%;height:auto}
 .basis{display:inline-block;font-size:10.5px;font-weight:600;padding:1px 7px;border-radius:999px;border:1px solid var(--line);color:var(--ink-2);margin-left:6px;vertical-align:1px}
 .sevchips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 8px}
 .sevchips button{border:1px solid var(--line);background:var(--panel-2);color:var(--ink);border-radius:999px;padding:3px 10px;font-size:12px;cursor:pointer}
@@ -199,7 +208,7 @@ const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','De
 const mlabel=s=>/^\d{4}-\d{2}$/.test(s)?MON[+s.slice(5)-1]+' '+s.slice(2,4):/^\d{4}-\d{2}-\d{2}$/.test(s)?MON[+s.slice(5,7)-1]+' '+(+s.slice(8)):s;
 /* series: [{name, vals, color, kind:'line'|'bar', dash}]  opts: {pct, h, unit} */
 function svgChart(labels,series,opts){ opts=opts||{};
-  const W=440,H=opts.h||170,L=38,R=8,T=10,B=22, iw=W-L-R, ih=H-T-B, n=labels.length||1, bw=iw/n;
+  const W=opts.w||440,H=opts.h||170,L=38,R=8,T=10,B=22, iw=W-L-R, ih=H-T-B, n=labels.length||1, bw=iw/n;
   /* x position of point i: the centre of its band, or — for dated series (opts.time) —
      proportional to the date, so gaps between stored snapshots read as gaps */
   let xs=null; if(opts.time&&n>1){ const ts=labels.map(l=>Date.parse(l)), a=Math.min(...ts), b=Math.max(...ts)||a+1; xs=ts.map(t=>L+12+(iw-24)*(t-a)/((b-a)||1)); }
@@ -223,31 +232,54 @@ function svgChart(labels,series,opts){ opts=opts||{};
 }
 function chartBox(title,sub,svg){ return `<div class="chart"><h4>${title}</h4>${sub?`<p class="cs">${sub}</p>`:''}${svg}</div>`; }
 
-function renderTrend(){
-  const tr=DASH.trend||{}, el=document.getElementById('trendBody'); if(!el) return;
-  let h='';
+/* each trend chart is its own half-page widget (build 462): ⛶ full screen + 📧 picture & list.
+   CH = [{id, nav, title, sub, labels, series, opts, basis}] — the rows of the 📧 list come from the
+   same series the chart draws, so the picture and the list always agree. */
+function trendCharts(){
+  const out=[], tr=DASH.trend||{};
   if(tr.available&&(tr.rows||[]).length>1){
-    const R=tr.rows, L=R.map(r=>r.month), col=k=>R.map(r=>r[k]);
-    const src=tr.fixed_source==='fixed'?'fix date = fixed.last_fixed':'fix date = vulns.last_found on fixed rows (proxy)';
-    h+=`<p class="seclbl" style="margin-top:4px">Monthly · <span class="basis">reconstructed from finding dates</span></p>
-      <p class="sub" style="margin:0 0 6px;font-size:12px">Rebuilt from <b>first found</b> and the <b>fix date</b> (${esc(src)}) of the findings navi.db holds now — findings that left navi’s export window aren’t in it, so early months can read low. The last month (*) is month-to-date.</p><div class="charts">`+
-      chartBox('Open backlog at month end','open findings, and how many of them were past SLA',svgChart(L,[{name:'open backlog',vals:col('backlog'),color:'var(--accent)'},{name:'past SLA',vals:col('breached_backlog'),color:'var(--crit)'}],{partial:true}))+
-      chartBox('New vs fixed per month','first found vs fixed in the month',svgChart(L,[{name:'new',vals:col('new'),color:'var(--high)',kind:'bar'},{name:'fixed',vals:col('fixed'),color:'var(--ok)',kind:'bar'}],{partial:true}))+
-      chartBox('Breaches opened per month','findings whose SLA clock ran out that month (open or fixed late)',svgChart(L,[{name:'breaches opened',vals:col('breaches_opened'),color:'var(--crit)',kind:'bar'}],{partial:true}))+
-      chartBox('Days to fix — fixes closed that month','median and mean of fix date − first found',svgChart(L,[{name:'median',vals:col('mttr_median'),color:'var(--accent)'},{name:'mean',vals:col('mttr_mean'),color:'var(--ink-3)',dash:true}],{partial:true,unit:' d'}))+
-      chartBox('Fixed within SLA — fixes closed that month','% of that month’s fixes with days to fix ≤ SLA days',svgChart(L,[{name:'fixed within SLA',vals:col('fixed_in_sla_pct'),color:'var(--ok)'}],{partial:true,pct:true,unit:'%'}))+
-      '</div>';
-  } else h+='<p class="sub">Not enough dated findings to reconstruct a monthly trend (needs first found / fix dates across at least two months).</p>';
+    const R=tr.rows, L=R.map(r=>r.month), col=k=>R.map(r=>r[k]), b='Monthly · reconstructed from finding dates';
+    out.push({id:'chBacklog',nav:'Backlog',title:'Open backlog at month end',sub:'open findings, and how many of them were past SLA',labels:L,basis:b,series:[{name:'open backlog',vals:col('backlog'),color:'var(--accent)'},{name:'past SLA',vals:col('breached_backlog'),color:'var(--crit)'}],opts:{partial:true}});
+    out.push({id:'chNewFixed',nav:'New vs fixed',title:'New vs fixed per month',sub:'first found vs fixed in the month',labels:L,basis:b,series:[{name:'new',vals:col('new'),color:'var(--high)',kind:'bar'},{name:'fixed',vals:col('fixed'),color:'var(--ok)',kind:'bar'}],opts:{partial:true}});
+    out.push({id:'chBreaches',nav:'Breaches / mo',title:'Breaches opened per month',sub:'findings whose SLA clock ran out that month (open or fixed late)',labels:L,basis:b,series:[{name:'breaches opened',vals:col('breaches_opened'),color:'var(--crit)',kind:'bar'}],opts:{partial:true}});
+    out.push({id:'chDays',nav:'Days to fix',title:'Days to fix — fixes closed that month',sub:'median and mean of fix date − first found',labels:L,basis:b,series:[{name:'median',vals:col('mttr_median'),color:'var(--accent)'},{name:'mean',vals:col('mttr_mean'),color:'var(--ink-3)',dash:true}],opts:{partial:true,unit:' d'}});
+    out.push({id:'chInSla',nav:'Fixed in SLA',title:'Fixed within SLA — fixes closed that month',sub:'% of that month’s fixes with days to fix ≤ SLA days',labels:L,basis:b,series:[{name:'fixed within SLA',vals:col('fixed_in_sla_pct'),color:'var(--ok)'}],opts:{partial:true,pct:true,unit:'%'}});
+  }
   const H=(HIST||[]).filter(p=>p.metrics&&p.metrics.open_total!=null);
-  h+=`<p class="seclbl" style="margin-top:16px">Daily · <span class="basis">stored snapshots</span></p>`;
   if(H.length>=2){
-    const L=H.map(p=>p.date), g=k=>H.map(p=>p.metrics[k]!=null?p.metrics[k]:null);
-    h+=`<p class="sub" style="margin:0 0 6px;font-size:12px">Recorded once a day by each whole-estate build (<span class="mono">data/history_sla.jsonl</span>) — what Sköll actually measured on that day, ${DASH.scoped?'<b>for the whole estate, not just this filter</b>':'whole estate'}. ${N(H.length)} day(s) on record.</p><div class="charts">`+
-      chartBox('Open findings and breaches','as measured on each day',svgChart(L,[{name:'open',vals:g('open_total'),color:'var(--accent)'},{name:'past SLA',vals:g('open_breached'),color:'var(--crit)'}],{time:true}))+
-      chartBox('Adherence %','open within SLA · navi verdict · fixed in SLA (navi Pass/Fail)',svgChart(L,[{name:'open within SLA',vals:g('open_within_pct'),color:'var(--ok)'},{name:'navi verdict',vals:g('verdict_adherence_pct'),color:'var(--accent)'},{name:'fixed in SLA',vals:g('remediation_met_pct'),color:'var(--high)',dash:true}],{pct:true,unit:'%',time:true}))+
-      '</div>';
-  } else h+=`<p class="sub">${H.length?'Only one':'No'} stored daily snapshot${H.length?'':'s'} with numbers yet — each day’s first whole-estate build adds one.</p>`;
-  el.innerHTML=h;
+    const L=H.map(p=>p.date), g=k=>H.map(p=>p.metrics[k]!=null?p.metrics[k]:null), b='Daily · stored snapshots'+(DASH.scoped?' (whole estate)':'');
+    out.push({id:'chDailyOpen',nav:'Daily open',title:'Open findings and breaches',sub:'as measured on each day',labels:L,basis:b,series:[{name:'open',vals:g('open_total'),color:'var(--accent)'},{name:'past SLA',vals:g('open_breached'),color:'var(--crit)'}],opts:{time:true}});
+    out.push({id:'chDailyPct',nav:'Adherence %',title:'Adherence %',sub:'open within SLA · navi verdict · fixed in SLA (navi Pass/Fail)',labels:L,basis:b,series:[{name:'open within SLA',vals:g('open_within_pct'),color:'var(--ok)'},{name:'navi verdict',vals:g('verdict_adherence_pct'),color:'var(--accent)'},{name:'fixed in SLA',vals:g('remediation_met_pct'),color:'var(--high)',dash:true}],opts:{pct:true,unit:'%',time:true}});
+  }
+  return out;
+}
+function trendNotes(){
+  const tr=DASH.trend||{}, H=(HIST||[]).filter(p=>p.metrics&&p.metrics.open_total!=null); let h='';
+  if(tr.available&&(tr.rows||[]).length>1){
+    const src=tr.fixed_source==='fixed'?'fix date = fixed.last_fixed':'fix date = vulns.last_found on fixed rows (proxy)';
+    h+=`<p class="sub" style="margin:0 0 6px;font-size:12px"><b>Monthly</b> charts are rebuilt from <b>first found</b> and the <b>fix date</b> (${esc(src)}) of the findings navi.db holds now — findings that left navi’s export window aren’t in it, so early months can read low. The last month (*) is month-to-date.</p>`;
+  } else h+='<p class="sub" style="margin:0 0 6px">Not enough dated findings to reconstruct a monthly trend (needs first found / fix dates across at least two months).</p>';
+  if(H.length>=2) h+=`<p class="sub" style="margin:0;font-size:12px"><b>Daily</b> charts are recorded once a day by each whole-estate build (<span class="mono">data/history_sla.jsonl</span>) — what Sköll actually measured on that day, ${DASH.scoped?'<b>for the whole estate, not just this filter</b>':'whole estate'}. ${N(H.length)} day(s) on record.</p>`;
+  else h+=`<p class="sub" style="margin:0">${H.length?'Only one':'No'} stored daily snapshot${H.length?'':'s'} with numbers yet — each day’s first whole-estate build adds one.</p>`;
+  return h;
+}
+function renderTrend(){
+  const el=document.getElementById('trendBody'); if(el) el.innerHTML=trendNotes();
+  const grid=document.getElementById('trendGrid'); if(!grid) return;
+  const CH=trendCharts();
+  grid.innerHTML=CH.map(c=>`<section class="card chcard" id="${c.id}" data-nav="${esc(c.nav)}" data-nav-icon="📈"><h3 style="margin:0 0 2px;font-size:15px">${esc(c.title)}</h3><p class="cs">${esc(c.sub)} · <span class="basis">${esc(c.basis)}</span></p><div class="chvis" id="${c.id}Vis">${svgChart(c.labels,c.series,c.opts)}</div></section>`).join('');
+  /* full screen: redraw at the screen's own size (same font size, more room) instead of scaling
+     the 440-wide drawing up; leaving full screen redraws the half-page version */
+  const draw=(c,on)=>{ const v=document.getElementById(c.id+'Vis'); if(!v) return;
+    if(!on){ v.innerHTML=svgChart(c.labels,c.series,c.opts); return; }
+    const w=Math.max(440,Math.round(v.clientWidth)), h=Math.max(220,Math.round(window.innerHeight-200));
+    v.innerHTML=svgChart(c.labels,c.series,Object.assign({},c.opts,{w,h})); };
+  CH.forEach(c=>hWidget(c.id,{title:'SLA — '+c.title, visual:()=>document.getElementById(c.id+'Vis'),
+    onResize:on=>draw(c,on),
+    note:c.sub+' · '+c.basis+(c.opts.partial?' · the last month is month-to-date':''),
+    columns:[c.opts.time?'date':'month'].concat(c.series.map(x=>x.name+(c.opts.unit&&c.opts.unit.trim()?' ('+c.opts.unit.trim()+')':''))),
+    rows:()=>c.labels.map((l,i)=>{ const o={}; o[c.opts.time?'date':'month']=l+(c.opts.partial&&i===c.labels.length-1?' (to date)':'');
+      c.series.forEach(x=>{ o[x.name+(c.opts.unit&&c.opts.unit.trim()?' ('+c.opts.unit.trim()+')':'')]=x.vals[i]==null?'':x.vals[i]; }); return o; })}));
 }
 
 /* ============================== sections ============================== */
@@ -343,6 +375,7 @@ function render(){
 
   // ---- over time
   h+=sec('secTrend','📈','Over time','Over time','<div id="trendBody"></div>');
+  h+='<div class="halfgrid" id="trendGrid"></div>';   // one half-page widget per chart (renderTrend)
   B.innerHTML=h;
   renderTrend(); renderPlugins();
   mountSectionNav();

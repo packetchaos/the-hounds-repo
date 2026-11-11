@@ -243,7 +243,7 @@ async function runSwRisk(){
   if(btn)btn.disabled=false;
   if(!o||!o.ok){ if(ff){ff.className='flash show';ff.style.background='var(--critbg)';ff.style.color='var(--crit)';ff.textContent='✗ '+((o&&(o.error||o.message))||'failed');} return; }
   if(ff){ff.className='flash';}
-  var top=o.top||[], sm=o.summary||{};
+  var top=o.top||[], sm=o.summary||{}; SW.risk=o;   // kept for the widget's 📧 list
   setNavCount('secRisk', fmtN(sm.total)); document.getElementById('riskCount').textContent='('+fmtN(sm.total)+' product(s) with findings · '+fmtN(sm.named)+' with findings that name the package)';
   out.innerHTML='<div>'
     +'<p class="sub" style="margin:0 0 8px">Ranked by risk that <b>combines the package with its vulnerabilities</b>: findings whose plugin <b>names the product</b> (package-level) weigh heaviest, then KEV / critical exposure on the hosts that run it, then EOL. A product with its own CVEs outranks one that merely shares a host. <b>Gated.</b></p>'
@@ -283,6 +283,13 @@ document.getElementById('swNL').addEventListener('keydown',e=>{if(e.key==='Enter
 document.querySelectorAll('#swFb button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#swFb button').forEach(x=>x.classList.remove('on'));b.classList.add('on');swFilter=b.dataset.f;document.getElementById('swDrill').innerHTML='';renderSoftware();});
 mountAgentHeader({id:'software',icon:'📦',name:'Software Analyzer',sub:'Mimir · sprawl · lifecycle · crown jewels · risk'});
 mountSectionNav();
+// ⛶ full screen + 📧 picture & list (Gabriel) on the risk leaderboard
+hWidget('secRisk',{title:'Software risk leaderboard', visual:()=>document.getElementById('swRiskOut'),
+  note:()=>(SW&&SW.risk&&SW.risk.summary)?(fmtN(SW.risk.summary.total)+' product(s) with findings · '+fmtN(SW.risk.summary.named)+' with findings that name the package'):'',
+  columns:['rank','product','risk','named KEV / crit','named finds','assets','KEV assets','critical','max VPR','EOL'],
+  rows:()=>((SW&&SW.risk&&SW.risk.top)||[]).map((r,i)=>({rank:i+1, product:r.name, risk:Math.round(r.risk||0),
+    'named KEV / crit':(r.pk||r.pc)?((r.pk||0)+' / '+(r.pc||0)):'', 'named finds':r.pf||'', assets:r.nasset, 'KEV assets':r.kev,
+    critical:r.crit, 'max VPR':r.vpr, EOL:r.eol?'yes':''}))});
 try{ hMailAuto(); }catch(e){}   /* pack-wide widget + dashboard email (Gabriel) */
 </script>
 </body></html>
