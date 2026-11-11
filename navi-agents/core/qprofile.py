@@ -149,6 +149,102 @@ def _cols_for(sql, real, schema):
     return res
 
 
+_SELECT_LIST = re.compile(r"\bSELECT\b(?:(?!\bSELECT\b).)*?\bFROM\b", re.I | re.S)
+_LIKE_COL = re.compile(rf"(?:\b(?:LOWER|UPPER)\s*\(\s*)?\b((?:{_ID}\.)?{_ID})\s*\)?\s+(?:NOT\s+)?LIKE\s+'%", re.I)
+_FUNC_ON = re.compile(rf"\b(LOWER|UPPER|SUBSTR|CAST|REPLACE|TRIM|COALESCE)\s*\(\s*((?:{_ID}\.)?{_ID})", re.I)
+_LIKE_JOIN = re.compile(rf"LIKE\s+'%(?:[^']|'')*'\s*\|\|\s*((?:{_ID}\.)?{_ID})", re.I)
+_SMALL_ROWS = 50000                        # a full scan of a table this small isn't worth a hint
+_ROWS = {"path": None, "n": {}}
+
+
+def _predicates(sql):
+    """The filtering part of a statement: the SELECT lists removed (a LIKE or a function in a
+    result column costs nothing an index could save), WHERE / ON / HAVING / CASE arms kept."""
+    s = sql
+    for _ in range(20):
+        t = _SELECT_LIST.sub("SELECT * FROM", s)
+        if t == s:
+            break
+        s = t
+    return s
+
+
+def _table_rows(tbl, db_path):
+    """Approximate row count (sqlite_stat1's first figure, else MAX(rowid)), cached per db."""
+    if _ROWS["path"] != db_path:
+        _ROWS["path"], _ROWS["n"] = db_path, {}
+    if tbl in _ROWS["n"]:
+        return _ROWS["n"][tbl]
+    n = None
+    try:
+        from . import db
+        r = db.query("SELECT stat FROM sqlite_stat1 WHERE tbl=? LIMIT 1", (tbl,), path=db_path, budget=3)
+        if r and r[0].get("stat"):
+            n = int(str(r[0]["stat"]).split()[0])
+        if n is None:
+            n = int(db.scalar('SELECT MAX(rowid) FROM "%s"' % tbl.replace('"', '""'), path=db_path, budget=3) or 0)
+    except Exception:
+        n = None
+    _ROWS["n"][tbl] = n
+    return n
+
+
+def _nonsargable(sql, scans, plan, real, schema, db_path):
+    """Hints only for patterns that COST something: a leading-wildcard LIKE or a function on a
+    column inside a filter / join (not in the SELECT list), on a table the plan full-SCANs that
+    is not small. Names the column and the table's size."""
+    pred = _predicates(sql)
+    amap = _alias_map(sql, real)
+    qtables = list(dict.fromkeys(amap.values()))
+    known_plan = bool(plan)
+    scans = {amap.get(x, x) for x in (scans or ())}          # plan lines name aliases ("SCAN a")
+
+    def owner(ref):
+        ref = ref.lower()
+        if "." in ref:
+            a, c = ref.split(".", 1)
+            t = amap.get(a)
+            return (t, c) if t and c in schema.get(t, ()) else (None, c)
+        ts = [t for t in qtables if ref in schema.get(t, ())]
+        return (ts[0], ref) if len(ts) == 1 else (None, ref)
+
+    def costly(t):
+        if not t or t.startswith("hx_"):
+            return False
+        if known_plan and t not in scans:
+            return False                         # the planner reaches it through an index
+        n = _table_rows(t, db_path)
+        return n is None or n >= _SMALL_ROWS
+
+    def fmt(t, c):
+        n = _table_rows(t, db_path)
+        return "%s.%s%s" % (t, c, (" (%s rows%s)" % (format(n, ","), ", full scan" if t in scans else ""))
+                            if n else "")
+
+    out = []
+    likes = [owner(m.group(1)) for m in _LIKE_COL.finditer(pred)]
+    # a JOIN on a LIKE built from another column (route plugin_list vs v.plugin_id): the cost
+    # is that other side's scan
+    likes += [owner(m.group(1)) for m in _LIKE_JOIN.finditer(pred)]
+    likes = list(dict.fromkeys((t, c) for t, c in likes if costly(t)))
+    if likes:
+        hint = ("leading-wildcard LIKE '%…' on " + ", ".join(fmt(t, c) for t, c in likes[:3]) +
+                " can't use an index — consider an exploded/normalized table (e.g. route_plugin) or FTS.")
+        if any(c == "output" for _t, c in likes):
+            hint += (" ⚡ Optimize's signal table (hx_hits) answers AI / Identity output searches when "
+                     "it is fresh — run Optimize after each sync.")
+        if any(c == "plugin_list" for _t, c in likes) or "plugin_list like" in pred.lower():
+            hint += " ⚡ Optimize's hx_route_plugin answers route membership when it is fresh."
+        out.append(hint)
+    funcs = [(m.group(1).upper(),) + owner(m.group(2)) for m in _FUNC_ON.finditer(pred)]
+    funcs = list(dict.fromkeys((f, t, c) for f, t, c in funcs if costly(t)))
+    if funcs:
+        out.append("function on a column in a filter/join (" +
+                   ", ".join("%s(%s)" % (f, fmt(t, c)) for f, t, c in funcs[:3]) +
+                   ") — index the raw column, or store a computed column.")
+    return out
+
+
 def _explain_scans(sql, db_path):
     """Tables the planner FULL-SCANs (no index) + the raw plan lines."""
     if "?" in sql:
@@ -208,13 +304,7 @@ def suggest(db_path=None, top=12):
             v["ms"] += g["total_ms"]; v["count"] += g["count"]
             suggs.append("CREATE INDEX IF NOT EXISTS idx_%s_%s ON %s(%s);"
                          % (t, "_".join(cs), t, ", ".join(cs)))
-        nonsarg = []
-        if _LIKE_LEAD.search(sql):
-            nonsarg.append("leading-wildcard LIKE '%…' can't use an index — consider an "
-                           "exploded/normalized column (e.g. route_plugin) or FTS.")
-        if _FUNC_COL.search(sql):
-            nonsarg.append("function on a column (LOWER/CAST/COALESCE) — index the raw "
-                           "column, or store a computed column.")
+        nonsarg = _nonsargable(sql, scans, plan, real, schema, db_path)
         out_queries.append({
             "sql": sql, "count": g["count"], "total_ms": round(g["total_ms"], 1),
             "max_ms": round(g["max_ms"], 1), "avg_ms": round(g["total_ms"] / g["count"], 1),

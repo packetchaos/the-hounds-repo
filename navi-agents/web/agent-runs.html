@@ -60,7 +60,7 @@ async function loadProfile(){
   document.getElementById('qmeta').textContent = '('+qs.length+')';
   hPaginate('qtbl', qs, q=>{
     const scan = (q.full_scan&&q.full_scan.length)?('<span style="color:var(--cx-f5a623)">SCAN '+esc(q.full_scan.join(', '))+'</span>'):'<span class="sub">indexed</span>';
-    const warn = (q.nonsargable&&q.nonsargable.length)?('<div class="warn2">⚠ '+esc(q.nonsargable[0])+'</div>'):'';
+    const warn = (q.nonsargable||[]).map(t=>'<div class="warn2">⚠ '+esc(t)+'</div>').join('');
     return `<tr><td class="mono">${q.total_ms}ms</td><td class="mono">${q.count}</td><td class="sub" style="font-size:11px">${esc((q.agents||[]).join(', ')||'—')}<br>${scan}</td>`
       +`<td class="mono" style="font-size:11.5px;white-space:pre-wrap;word-break:break-word">${esc(q.sql.slice(0,400))}${q.sql.length>400?'…':''}${warn}</td></tr>`;
   }, {cols:4, empty:'<tr><td colspan="4" class="sub">No queries profiled yet.</td></tr>'});

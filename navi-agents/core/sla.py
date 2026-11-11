@@ -93,7 +93,22 @@ def _disp_exclude(prefix="", path=None, negate=True):
             "ON vp.asset_uuid=td.asset_uuid AND vp.plugin_id=%s "
             "AND td.tag_value IN %s "
             "WHERE %s AND td.asset_uuid=%s)" % (pid, disp_vals("vp.path"), tagname.sql_lit("td.tag_key", OWNER_KEY), au))
+    rp = False
     if _table_exists("vuln_route", path):
+        try:
+            from core import hx_signals
+            rp = hx_signals.routes_usable(path)
+        except Exception:
+            rp = False
+    if rp:
+        # Phase 1b: route membership exploded by ⚡ Optimize (hx_route_plugin) — an index lookup
+        # on plugin_id instead of a LIKE over every route's plugin_list
+        frags.append(
+            "EXISTS (SELECT 1 FROM tags td JOIN hx_route_plugin vr "
+            "ON vr.plugin_id = %s "
+            "AND td.tag_value IN %s "
+            "WHERE %s AND td.asset_uuid=%s)" % (pid, disp_vals("vr.app_name"), tagname.sql_lit("td.tag_key", OWNER_KEY), au))
+    elif _table_exists("vuln_route", path):
         frags.append(
             "EXISTS (SELECT 1 FROM tags td JOIN vuln_route vr "
             "ON vr.plugin_list LIKE '%%''' || %s || '''%%' "

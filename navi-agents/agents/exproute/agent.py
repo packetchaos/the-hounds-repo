@@ -999,7 +999,16 @@ def path_detail(path):
                "url": e["url"], "plugins": len(e["plugins"]), "findings": sorted(e["findings"])}
               for e in by.values()]
     assets.sort(key=lambda x: -(float(x["acr"]) if x["acr"] else 0))
-    apps = [r["app"] for r in q("SELECT DISTINCT r.app_name app FROM vuln_route r JOIN vuln_paths vp "
+    try:
+        from core import hx_signals
+        _rp = hx_signals.routes_usable(dbp)
+    except Exception:
+        _rp = False
+    if _rp:   # Phase 1b: route membership exploded by ⚡ Optimize — no LIKE over plugin_list
+        apps = [r["app"] for r in q("SELECT DISTINCT r.app_name app FROM hx_route_plugin r JOIN vuln_paths vp "
+                "ON r.plugin_id = vp.plugin_id WHERE vp.path=?", (path,)) if r.get("app")]
+    else:
+        apps = [r["app"] for r in q("SELECT DISTINCT r.app_name app FROM vuln_route r JOIN vuln_paths vp "
             "ON r.plugin_list LIKE '%''' || vp.plugin_id || '''%' WHERE vp.path=?", (path,)) if r.get("app")]
     owners = set()
     apps_ci = {a.strip().lower() for a in apps}
