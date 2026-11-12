@@ -137,7 +137,7 @@ def note_response(agent_id, action, nbytes):
         n = int(nbytes or 0)
     except (TypeError, ValueError):
         return False
-    if n <= _BIG_LIMIT:
+    if n <= _BIG_LIMIT or action in ("export",):   # an explicit file download, not a page payload
         return False
     rec = {"agent": agent_id, "action": action, "bytes": n, "at": time.time()}
     BIG_RESPONSES.append(rec)

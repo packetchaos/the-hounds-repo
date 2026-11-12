@@ -141,6 +141,7 @@ async function run(){
   b.disabled=false;
   if(!o||!o.ok||!o.result){ flash('flash','✗ '+esc((o&&(o.error||o.message))||'failed'),'crit'); return; }
   R=o.result; FILTER=null; SCOPE='all'; HL=null; SEL=null;
+  RUN=(o.drill&&o.drill.run)||null; FIRST=o.first||null;   // build 464: the ways-in table pages on the server
   ['pathTbl','fixTbl','entTbl','ctlTbl','crownTbl'].forEach(hPageReset);
   if(R.note) flash('flash','ℹ '+esc(R.note),'warn');
   else if(!(R.paths||[]).length) flash('flash','No route reaches a crown jewel with the data in navi.db. Check that ACR is set and that credentialed scans and compliance audits are synced.','warn');
@@ -364,8 +365,7 @@ function renderTargets(){
 function patchLink(x){
   const pid=String(x.fix||'').startsWith('plugin:')?String(x.fix).slice(7):'';
   if(!pid||!/^\d{1,7}$/.test(pid)) return '';
-  const byId={}; ((R.graph&&R.graph.nodes)||[]).forEach(n=>{ if(n.kind==='asset'&&n.ip) byId[n.id]=n; });
-  const targets=(x.uuids||[]).map(u=>byId[u]).filter(Boolean).slice(0,256).map(n=>({ip:n.ip,uuid:n.id,hostname:n.label||''}));
+  const targets=(x.c2_targets||[]).slice(0,256);   // built on the server from the map's hosts (build 464)
   return c2Link('remediate',{plugin_id:pid,targets,source:'Attack Paths'},'🛠 Patch'+(targets.length?' '+N(targets.length)+' host'+(targets.length===1?'':'s'):'')+' via C2');
 }
 function typeCell(x){ const l=patchLink(x); return l?l:esc(x.type); }
@@ -377,18 +377,22 @@ function renderFix(){
       `<span><span class="bar" style="display:inline-block;width:110px;vertical-align:middle"><i style="width:${x.exposure_left_pct}%"></i></span> ${x.exposure_left_pct}%</span><span>${N(x.still_reachable)} of ${N(m.crown_reachable)}</span></div>`).join('')+
     `<p class="sub" style="margin:6px 0 0">These ${b.length} fixes cut crown-jewel exposure by <b>${m.bundle_exposure_cut_pct}%</b>.${m.bundle_still_reachable?` ${N(m.bundle_still_reachable)} crown jewel(s) stay reachable through other, less likely routes.`:''}</p>`):'<div class="sub">No routes to fix.</div>';
   hPaginate('fixTbl', f, x=>`<tr><td><b>${esc(x.label)}</b>${x.kev?' <span class="pill" style="color:var(--crown)">KEV</span>':''}<div class="sub">${esc(x.detail||'')}</div></td><td>${typeCell(x)}</td><td>${N(x.assets)}</td><td><span class="lbar"><i style="width:${Math.min(100,x.exposure_cut_pct)}%"></i></span><b>${x.exposure_cut_pct}%</b></td><td>${N(x.paths)}</td><td>${x.cuts?`<b style="color:var(--ok)">${N(x.cuts)}</b>`:'0'}</td>`+
-      `<td><button class="btn ghost sm" data-fx="${esc(x.fix)}" ${(x.uuids||[]).length?'':'disabled'} title="Tag the ${N(x.assets)} asset(s) carrying this">🏷️ Tag</button></td></tr>`,
+      `<td><button class="btn ghost sm" data-fx="${esc(x.fix)}" ${x.assets?'':'disabled'} title="Tag the ${N(x.assets)} asset(s) carrying this">🏷️ Tag</button></td></tr>`,
     {cols:7, empty:'<tr><td colspan="7" class="sub">No choke points.</td></tr>',
-     wire:tb=>tb.querySelectorAll('button[data-fx]').forEach(bt=>bt.onclick=()=>{ const x=f.find(o=>o.fix===bt.dataset.fx); if(x) tagKey('Choke Point','fix:'+x.fix,(x.uuids||[]).length,bt); })});
+     wire:tb=>tb.querySelectorAll('button[data-fx]').forEach(bt=>bt.onclick=()=>{ const x=f.find(o=>o.fix===bt.dataset.fx); if(x) tagKey('Choke Point','fix:'+x.fix,x.assets,bt); })});
 }
+let RUN=null, FIRST=null, TE=null;
 function renderEntries(){
-  const e=R.entries||[]; const reach=e.filter(x=>x.reaches_any);
-  document.getElementById('entCount').textContent=`(${N(reach.length)} of ${N(e.length)} reach a crown jewel)`; setNavCount('secEntry', N(reach.length));
-  document.getElementById('tagEntry').disabled=!reach.length;
-  hPaginate('entTbl', e, x=>`<tr><td><b>${x.uuid?`<a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(x.uuid)}">${esc(x.host)}</a>`:esc(x.host)}</b>${x.public?' <span class="pill" style="color:var(--crown)">public IP</span>':''}<div class="sub">${esc(x.ip||'')} · ACR ${x.acr||'—'}</div></td>`+
-      `<td>${(x.how||[]).map(h=>`<div style="font-size:12px">${x.kev?'':''}${esc(h)}</div>`).join('')}${x.kev?'<span class="pill" style="color:var(--crown)">KEV</span>':''}</td><td>${pct(x.p)}</td>`+
+  const n=R.entries_n||0, reach=R.entries_reach_n||0;
+  document.getElementById('entCount').textContent=`(${N(reach)} of ${N(n)} reach a crown jewel)`; setNavCount('secEntry', N(reach));
+  document.getElementById('tagEntry').disabled=!reach;
+  if(!RUN) return;
+  const opts={api:API, table:'entTbl', run:RUN, section:'entries', cols:5,
+    row:x=>`<tr><td><b>${x.uuid?`<a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(x.uuid)}">${esc(x.host)}</a>`:esc(x.host)}</b>${x.public?' <span class="pill" style="color:var(--crown)">public IP</span>':''}<div class="sub">${esc(x.ip||'')} · ACR ${x.acr||'—'}</div></td>`+
+      `<td>${(x.how||[]).map(h=>`<div style="font-size:12px">${esc(h)}</div>`).join('')}${x.kev?'<span class="pill" style="color:var(--crown)">KEV</span>':''}</td><td>${pct(x.p)}</td>`+
       `<td><b>${x.searched?N(x.crown_reached):(x.reaches_any?'≥ 1':'0')}</b></td><td class="sub" style="font-size:12px">${esc((x.crown_hosts||[]).join(', '))}${!x.searched&&x.reaches_any?' (not searched individually — large estate)':''}</td></tr>`,
-    {cols:5, empty:'<tr><td colspan="5" class="sub">No host is exploitable without credentials.</td></tr>'});
+    empty:'<tr><td colspan="5" class="sub">No host is exploitable without credentials.</td></tr>'};
+  if(!TE) TE=hDrill(Object.assign(opts,{first:FIRST})); else TE.set({run:RUN});
 }
 function renderControls(){
   const c=R.controls||[]; const on=c.filter(x=>x.paths);
@@ -398,11 +402,11 @@ function renderControls(){
     {cols:5, empty:'<tr><td colspan="5" class="sub">No failed compliance checks match an attack enabler (or no compliance data is synced — navi config update compliance).</td></tr>'});
 }
 function renderCrown(){
-  const prim=(R.paths||[]).filter(p=>p.primary), un=R.unreached||[], m=R.metrics||{};
+  const prim=(R.paths||[]).filter(p=>p.primary), un=R.unreached||[], unN=R.unreached_n!=null?R.unreached_n:un.length, m=R.metrics||{};
   document.getElementById('crownCount').textContent=`(${N(m.crown_reachable)} reachable of ${N(m.crown)})`; setNavCount('secCrown', N(m.crown_reachable)+'/'+N(m.crown));
   hPaginate('crownTbl', prim, p=>`<tr><td><b><a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(p.target.uuid)}">${esc(p.target.host)}</a></b><div class="sub">${esc(p.target.ip)}</div></td><td><b>${p.target.acr}</b></td><td><span class="lbar"><i style="width:${Math.round(p.likelihood*100)}%"></i></span>${pct(p.likelihood)}</td><td>${p.hops}</td><td>${esc(p.entry.host||'')}</td><td>${esc(p.level)}</td></tr>`,
     {cols:6, empty:'<tr><td colspan="6" class="sub">No crown jewel is reachable.</td></tr>'});
-  document.getElementById('unreached').innerHTML=un.length?`<b>Not reachable with current data (${N(un.length)}):</b> `+un.slice(0,40).map(a=>esc(a.host)).join(', ')+(un.length>40?' …':''):'';
+  document.getElementById('unreached').innerHTML=unN?`<b>Not reachable with current data (${N(unN)}):</b> `+un.slice(0,40).map(a=>esc(a.host)).join(', ')+(unN>40?' …':''):'';
 }
 function renderCaveats(){
   const m=R.metrics||{};
@@ -439,13 +443,13 @@ function tagKey(value,key,n,btn){   // the server rebuilds the set from its own 
   return gated(btn,'queuing Attack Path : '+esc(value),()=>API.post('tag',{key,confirm:true}),o=>`queued <span class="tagval">Attack Path : ${esc(value)}</span> on ${N(o.count)} asset(s)`,
     ()=>`Tag ${tagCat('Attack Path')} : ${value} on ${n} asset${n===1?'':'s'}?`);
 }
-document.getElementById('tagTargets').onclick=function(){ tagKey('Target','target',new Set(R.reachable||(R.paths||[]).map(p=>p.target.uuid)).size,this); };
+document.getElementById('tagTargets').onclick=function(){ tagKey('Target','target',R.reachable_n,this); };
 document.getElementById('tagPivots').onclick=function(){
   const piv=new Set();
   (R.paths||[]).forEach(p=>p.steps.slice(0,-1).forEach(s=>{ const u=s.to.split(':')[0];
     if(/^[0-9a-f-]{20,}$/i.test(u)&&u!==p.target.uuid&&u!==p.entry.uuid) piv.add(u); }));
   tagKey('Pivot','pivot',piv.size,this); };
-document.getElementById('tagEntry').onclick=function(){ tagKey('Entry Point','entry',new Set((R.entries||[]).filter(e=>e.reaches_any).map(e=>e.uuid)).size,this); };
+document.getElementById('tagEntry').onclick=function(){ tagKey('Entry Point','entry',R.entries_reach_n,this); };
 document.getElementById('csv').onclick=()=>{ const rows=shownPaths(); downloadCSV('attack-paths.csv',
   ['risk','likelihood','crown_jewel','acr','level','hops','entry','route','techniques','kev','credential','relay','domain','control'],
   rows.map(p=>({risk:p.risk,likelihood:p.likelihood,crown_jewel:p.target.host,acr:p.target.acr,level:p.level,hops:p.hops,entry:p.entry.host||'',

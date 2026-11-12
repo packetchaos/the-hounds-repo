@@ -667,8 +667,14 @@ _ID_SIGNALS = {"ssh password auth": "SSH Password Auth", "weak pw policy": "Weak
                "on KEV host": "KEV Host"}     # = the Identity page's SIGNALS table
 
 
+def _identity_full():
+    """The identity engine's full result — every identity with its hosts + the host sets. The
+    page's `run` ships the paged contract payload (build 464), so the adapter reads the engine."""
+    return import_module("agents.identity.api").scan_full()
+
+
 def _ad_identity(cfg):
-    res = _agent_run("identity")
+    res = _identity_full()
     accts = res.get("accounts", []) or []
     out = []
     for a in accts:
@@ -837,9 +843,22 @@ def _ad_classify(cfg):
     return out
 
 
+def _attackpath_full():
+    """The attack-graph engine's full result (every entry point, the reachable set) — the page's
+    `run` ships the paged contract payload (build 464). Like _agent_run, it leaves the result a
+    human last ran on the page in place."""
+    m = import_module("agents.attackpath.api")
+    had, saved = hasattr(m.AGENT, "result"), getattr(m.AGENT, "result", None)
+    try:
+        return m.AGENT.run(crown_acr=7.0)
+    finally:
+        if had:
+            m.AGENT.result = saved
+
+
 def _ad_attackpath(cfg):
     from agents.attackpath.agent import ENTRY_CAT
-    res = _agent_run("attackpath")
+    res = _attackpath_full()
     ent = [e.get("uuid") for e in res.get("entries", []) if e.get("reaches_any")]
     tgt = res.get("reachable") or [x["target"]["uuid"] for x in res.get("paths", []) if x.get("target")]
     out = []
@@ -917,28 +936,13 @@ def _ad_asset_ownership(cfg):
         owner, uu = p.get("owner") or "", list(p.get("uuids") or [])
         if not owner or not uu:
             continue
-        if p.get("layer") == "asset":
-            uu = uu[:2000]                       # the per-asset cascade is capped, as apply()
         if p.get("layer") != "asset":
             out += _items(f"Business Owner : {owner} ({len(uu)} assets)", len(uu),
                           _uuid_specs(eng.BUSINESS_OWNER_KEY, owner, uu))
             continue
         mode = "remainder" if str(p.get("mode") or "").lower().startswith("rem") else "complete"
-        cascade = {}
-        for u in uu:
-            routes, paths = eng._asset_routes_paths(u)
-            owned = set()
-            for r in eng._q("SELECT tag_value FROM tags WHERE asset_uuid=? AND " + tagname.sql_lit("tag_key", "Owner") + " "
-                            "AND tag_value IS NOT NULL", (u,)):
-                val = (r.get("tag_value") or "").strip()
-                if ": " in val:
-                    nm, user = val.rsplit(": ", 1)
-                    if user.strip() and not eng._disp_of(user):
-                        owned.add(eng._nk(nm))
-            for nm in routes + paths:
-                if mode == "remainder" and eng._nk(nm) in owned:
-                    continue
-                cascade.setdefault(f"{nm}: {owner}", set()).add(u)
+        # build 464: the cascade in bulk, unbounded (was capped at 2,000 assets)
+        cascade = eng.owner_cascade(uu, owner, mode)
         for val, s in sorted(cascade.items()):
             out += _items("Owner : " + val, len(s), _uuid_specs("Owner", val, s))
         out += _items(f"Asset Owner : {owner} · {mode}", len(uu),

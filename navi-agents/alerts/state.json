@@ -1,15 +1,47 @@
 {
   "snap": {
-    "al19fa4150e9b5291": 83.0,
-    "al19fa54d5c57731d": 556.0,
-    "al19fa54db22d2ca0": 278.0
+    "al19fa4150e9b5291": 1.0,
+    "al19fa54d5c57731d": 12.0,
+    "al19fa54db22d2ca0": 1.0
   },
   "fired": {
-    "al19fa4150e9b5291": true,
-    "al19fa54d5c57731d": true,
-    "al19fa54db22d2ca0": true
+    "al19fa4150e9b5291": false,
+    "al19fa54d5c57731d": false,
+    "al19fa54db22d2ca0": false
   },
   "history": [
+    {
+      "ts": "2026-11-12T17:25:22Z",
+      "source": "contract",
+      "evaluated": 3,
+      "newly": [],
+      "still": 0,
+      "sent": false
+    },
+    {
+      "ts": "2026-11-12T17:25:22Z",
+      "source": "contract",
+      "evaluated": 3,
+      "newly": [],
+      "still": 0,
+      "sent": false
+    },
+    {
+      "ts": "2026-11-12T14:31:18Z",
+      "source": "contract",
+      "evaluated": 3,
+      "newly": [],
+      "still": 0,
+      "sent": false
+    },
+    {
+      "ts": "2026-11-12T14:31:18Z",
+      "source": "contract",
+      "evaluated": 3,
+      "newly": [],
+      "still": 0,
+      "sent": false
+    },
     {
       "ts": "2026-11-08T22:27:29Z",
       "source": "contract",
@@ -134,5 +166,5 @@
       "sent": false
     }
   ],
-  "last_run": "2026-11-08T22:27:29Z"
+  "last_run": "2026-11-12T17:25:22Z"
 }

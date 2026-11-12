@@ -106,15 +106,10 @@ def _bulk_asset_apply(owner="", uuids=None, mode="complete"):
     queue's background worker (see apply()) so the HTTP request can return instantly
     and the user is free to leave the page. Each asset still cascades its routes &
     paths via engine.assign_asset_owner, which queues the individual navi tag writes."""
-    uuids = uuids or []
-    assets, cascaded = 0, 0
-    for u in uuids[:2000]:
-        r = engine.assign_asset_owner(u, owner, mode=mode)
-        cascaded += r.get("cascaded", 0)
-        assets += 1
-    return {"ok": True, "assets": assets, "cascaded": cascaded,
-            "message": f"assigned {owner} to {assets} asset(s); cascaded "
-                       f"{cascaded} route/path owner tag(s)"}
+    # build 464: unbounded — the cascade is computed in bulk and each tag value goes as ONE
+    # paged tag (≤1,999-UUID tag series), instead of one navi job per asset × route (which is
+    # why this was capped at 2,000 assets)
+    return engine.assign_assets_owner(uuids or [], owner, mode=mode)
 
 
 def apply(p):
@@ -128,8 +123,8 @@ def apply(p):
         return {"ok": False, "error": "confirm=true required to write tags"}, 400
     owner = _s(p.get("owner"))
     # the plan's FILTER (preferred): the server rebuilds the matched set itself; a bare uuid
-    # list is still accepted for the "claim unclaimed assets" button (capped below for the
-    # asset layer; the business layer tags it in ≤1,999-UUID batches)
+    # list is still accepted for the "claim unclaimed assets" button (both layers page any
+    # size in ≤1,999-UUID tag series — build 464)
     if isinstance(p.get("filter"), dict):
         uuids = engine.match_filter(p["filter"])
     elif p.get("key") == "blind":
@@ -147,7 +142,7 @@ def apply(p):
         return {"ok": False, "error": "owner and matched assets required"}, 400
     if layer == "asset":
         from core import tagq
-        batch = uuids[:2000]
+        batch = uuids                    # unbounded (build 464): the job pages it
         job = tagq.submit(
             _bulk_asset_apply, {"owner": owner, "uuids": batch, "mode": mode},
             {"agent": "asset_ownership", "category": tagname.effective(engine.ASSET_OWNER_KEY),

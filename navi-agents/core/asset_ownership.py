@@ -822,6 +822,72 @@ def _asset_routes_paths(uuid, db_path=None):
     return sorted(set(routes)), sorted(set(paths))
 
 
+def owner_cascade(uuids, owner, mode="complete", db_path=None, chunk=900) -> dict:
+    """The Owner cascade of assign_asset_owner() for a WHOLE asset set, computed in bulk
+    (build 464): {"<route or path>: <owner>": {asset uuids}} — exactly the per-asset tags
+    assign_asset_owner writes, grouped by tag value so each value is ONE paged tag (a ≤1,999
+    tag series) instead of one navi job per asset × route. vuln_route is read once; plugins,
+    paths and existing Owner tags are read ≤`chunk` assets per statement. No size cap."""
+    mode = "remainder" if str(mode).lower().startswith("rem") else "complete"
+    uu = sorted({str(u) for u in (uuids or []) if u})
+    by_plugin = {}
+    if _has_table("vuln_route", db_path):
+        for r in _q("SELECT app_name, plugin_list FROM vuln_route", path=db_path):
+            if r.get("app_name"):
+                for pid in set(re.findall(r"'([^']*)'", str(r.get("plugin_list") or ""))):
+                    by_plugin.setdefault(pid, set()).add(r["app_name"])
+    have_paths = _has_table("vuln_paths", db_path)
+    hv = db.indexed_by("hx_v_asset", db_path)
+    out = {}
+    for i in range(0, len(uu), chunk):
+        part = uu[i:i + chunk]
+        ph = ",".join("?" * len(part))
+        names = {u: set() for u in part}
+        if by_plugin:
+            for r in _q("SELECT DISTINCT asset_uuid, plugin_id FROM vulns%s WHERE asset_uuid IN (%s)" % (hv, ph),
+                        tuple(part), db_path):
+                names[r["asset_uuid"]] |= by_plugin.get(str(r.get("plugin_id")), set())
+        if have_paths:
+            for r in _q("SELECT DISTINCT asset_uuid, path FROM vuln_paths WHERE asset_uuid IN (%s) AND path IS NOT NULL" % ph,
+                        tuple(part), db_path):
+                if r.get("path"):
+                    names[r["asset_uuid"]].add(r["path"])
+        owned = {}
+        if mode == "remainder":
+            for r in _q("SELECT asset_uuid, tag_value FROM tags WHERE asset_uuid IN (%s) AND " % ph
+                        + tagname.sql_lit("tag_key", "Owner") + " AND tag_value IS NOT NULL", tuple(part), db_path):
+                val = (r.get("tag_value") or "").strip()
+                if ": " in val:
+                    nm, user = val.rsplit(": ", 1)
+                    if user.strip() and not _disp_of(user):
+                        owned.setdefault(r["asset_uuid"], set()).add(_nk(nm))
+        for u, nms in names.items():
+            for nm in nms:
+                if mode == "remainder" and _nk(nm) in owned.get(u, ()):
+                    continue
+                out.setdefault(f"{nm}: {owner}", set()).add(u)
+    return out
+
+
+def assign_assets_owner(uuids, owner, mode="complete", db_path=None, agent="asset_ownership") -> dict:
+    """assign_asset_owner() for any number of assets (build 464): the cascade in bulk, then ONE
+    paged tag per value (navi_cli.tag_set → a ≤1,999-UUID tag series), plus the Asset Owner
+    marker on the whole set. Unbounded; runs on the tag queue's background worker."""
+    mode = "remainder" if str(mode).lower().startswith("rem") else "complete"
+    uu = sorted({str(u) for u in (uuids or []) if u})
+    if not uu or not owner:
+        return {"ok": False, "message": "assets and owner required"}
+    casc = owner_cascade(uu, owner, mode, db_path)
+    jobs = []
+    for val, s in sorted(casc.items()):
+        jobs += navi_cli.tag_set("Owner", val, uuids=sorted(s), agent=agent)
+    jobs += navi_cli.tag_set(ASSET_OWNER_KEY, f"{owner} · {mode}", uuids=uu, agent=agent)
+    return {"ok": all(j.get("ok", True) is not False for j in jobs), "assets": len(uu),
+            "cascaded": sum(len(s) for s in casc.values()), "values": len(casc), "jobs": len(jobs),
+            "message": f"assigned {owner} to {len(uu):,} asset(s); {len(casc):,} route/path owner tag(s) "
+                       f"over {sum(len(s) for s in casc.values()):,} asset links; {len(jobs):,} navi job(s) queued"}
+
+
 def assign_asset_owner(uuid, owner, mode="complete", db_path=None) -> dict:
     """Give ONE asset a single complete owner. mode='complete' → the owner owns
     EVERY route & path on the asset; mode='remainder' → only the routes/paths that
