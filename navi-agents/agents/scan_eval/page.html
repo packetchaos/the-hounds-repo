@@ -39,7 +39,8 @@
     <div class="toolbar" style="margin:0"><h2 style="margin:0">Coverage by asset <span class="sub" id="aCount"></span></h2>
       <button class="btn ghost sm" id="aCsv" style="margin-left:auto">⬇ CSV</button></div>
     <p class="sub">Worst credential state first, then highest ACR. An asset takes the worst state any credential plugin reports for it. Click a metric card above or a state below to filter; the tag button tags exactly that set.</p>
-    <div class="toolbar" style="flex-wrap:wrap;gap:6px"><span class="sub">Credentials:</span><div class="segbar" id="stSeg"></div><span id="filt"></span></div>
+    <div class="toolbar" style="flex-wrap:wrap;gap:6px"><span class="sub">Credentials:</span><div class="segbar" id="stSeg"></div><span id="filt"></span>
+      <input id="aQ" class="fld" placeholder="Search host, IP, scanner, policy, scan" style="min-width:260px;margin-left:auto"></div>
     <div class="toolbar" id="aTags" style="flex-wrap:wrap;gap:6px;margin-top:6px"></div>
     <table id="aTbl" class="nocsv"><thead><tr><th>Host</th><th>ACR</th><th>Credentials</th><th>Last scan</th><th>Scanner</th><th>Policy</th><th>Duration</th></tr></thead><tbody></tbody></table>
   </section>
@@ -75,6 +76,9 @@
 <script>
 const API=agentApi('scan_eval');
 let DATA=null, WRITES=false, FILTER=null, STF='all';
+/* build 464 — payload contract: the asset rows stay on the server; the table, its state / metric
+   filters, search and CSV page or stream from the stored run (RUN). Tags were already keys. */
+let RUN=null, FIRST=null, TA=null;
 const N=v=>(v==null?0:v).toLocaleString();
 const dur=s=>{ if(s==null)return '—'; s=Math.round(s); return s<60?s+'s':(s<3600?Math.floor(s/60)+'m '+(s%60)+'s':Math.floor(s/3600)+'h '+Math.floor((s%3600)/60)+'m'); };
 const pct=v=>v==null?'<span class="sub">—</span>':`<span class="meter"><i style="width:${v}%;background:${v>=80?'#30a46c':v>=40?'#e0913a':'var(--crit)'}"></i></span>${v}%`;
@@ -107,12 +111,11 @@ async function run(){
   let o; try{ o=await API.post('run'); }catch(e){ o={ok:false,error:e.message}; }
   b.disabled=false;
   if(!o||!o.ok||!o.result){ flash('flash','✗ '+esc((o&&(o.error||o.message))||'failed'),'crit'); return; }
-  DATA=o.result; FILTER=null; STF='all';
-  ['aTbl','scnTbl','polTbl','scaTbl','slowTbl'].forEach(hPageReset);
+  DATA=o.result; FILTER=null; STF='all'; RUN=(o.drill&&o.drill.run)||null; FIRST=o;
+  ['scnTbl','polTbl','scaTbl','slowTbl'].forEach(hPageReset);
   const m=DATA.metrics||{};
   if(!m.assets) flash('flash','No assets in navi.db.','warn');
   else if(!m.scanned) flash('flash','No Nessus Scan Information (plugin 19506) in navi.db — run a navi update that includes vulns.','warn');
-  else if(DATA.assets_truncated) flash('flash',`Showing the first ${N(DATA.assets.length)} assets in the table; metrics and tags cover all ${N(m.assets)}.`,'warn');
   else flashClear('flash');
   render();
 }
@@ -187,34 +190,41 @@ function renderMetrics(){
             {v:N(m.outdated_scanners), l:'scanners on an old plugin feed', u:m.newest_feed?`> ${DATA.feed_lag_days} days behind ${m.newest_feed} · ${N(m.versions)} Nessus version(s) in use`:'no feed version in 19506 output', sev:'crit', href:'#secScanners'},
             {v:N(m.safe_off), l:'assets scanned with safe checks off', u:'can disrupt fragile services', sev:'high', href:'#secPolicies'}],
      ranked:has?{title:'Scanner load', items:top.map(x=>({label:x.key, value:x.assets, sev:'info', href:'#secScanners'})).concat(rest?[{label:'Other', value:rest, sev:'none', href:'#secScanners'}]:[])}:null}
-  ], {active:FILTER, onFilter:(f,_el,on)=>{ FILTER=on?f:null; STF='all'; hPageReset('aTbl'); renderMetrics(); renderAssets();
+  ], {active:FILTER, onFilter:(f,_el,on)=>{ FILTER=on?f:null; STF='all'; renderMetrics(); renderAssets();
     if(FILTER) document.getElementById('secAssets').scrollIntoView({behavior:'smooth',block:'start'}); }});
 }
 
-function shownAssets(){ let r=DATA.assets||[]; if(STF!=='all') r=r.filter(x=>x.status===STF); if(FILTER) r=r.filter(FILTERS[FILTER][1]); return r; }
-function renderAssets(){
-  const a=DATA.assets||[], m=DATA.metrics||{}, st=m.status||{}, rows=shownAssets();
-  const seg=document.getElementById('stSeg');
-  seg.innerHTML='<button class="seg" data-sf="all">All <b>'+N(a.length)+'</b></button>'+Object.keys(ST).filter(s=>st[s]).map(s=>`<button class="seg" data-sf="${s}">${ST[s][0]} <b>${N(st[s])}</b></button>`).join('');
-  seg.querySelectorAll('.seg').forEach(s=>{ s.classList.toggle('on',s.dataset.sf===STF); s.onclick=()=>{ STF=s.dataset.sf; FILTER=null; hPageReset('aTbl'); renderMetrics(); renderAssets(); }; });
-  const fe=document.getElementById('filt');
-  fe.innerHTML=FILTER?`<span class="fchip">${esc(FILTERS[FILTER][0])}<button id="clrF" title="Clear">✕</button></span>`:'';
-  const c=document.getElementById('clrF'); if(c) c.onclick=()=>{ FILTER=null; hPageReset('aTbl'); renderMetrics(); renderAssets(); };
-  document.getElementById('aCount').textContent=rows.length===a.length?`(${N(a.length)})`:`(${N(rows.length)} of ${N(a.length)})`;
-  setNavCount('secAssets', N(m.blind)+' blind');
-  // the tag button tags EXACTLY the shown set — only offered when a server-side key matches it
-  const keys=FILTER?FILTERS[FILTER][2]:(STF!=='all'&&STF!=='ok'&&STF!=='unknown'?['status:'+STF]:[]);
-  const at=document.getElementById('aTags');
-  at.innerHTML=keys.length&&rows.length&&!(FILTER&&STF!=='all')?`<button class="btn sm" id="tagShown">🏷️ Tag these ${N(rows.length)} → ${keys.map(k=>'Scan Health : '+esc(KEYVAL[k])).join(' + ')}</button>`:
-    '<span class="sub">Pick a credential state or a metric card to tag that set.</span>';
-  const tb=document.getElementById('tagShown'); if(tb) tb.onclick=function(){ tagKeys(keys,this,rows.length); };
-  hPaginate('aTbl', rows, x=>`<tr><td><b>${host(x.asset_uuid,x.host)}</b><div class="sub mono" style="font-size:11px">${x.ip&&x.ip!==x.host?esc(x.ip)+' ':''}${safeUrl(x.url,'')?`<a href="${esc(safeUrl(x.url))}" target="_blank" rel="noopener noreferrer" class="plink" title="Open in Tenable">↗</a>`:''}</div></td>`+
+function viewFlags(){ const f=[]; if(STF!=='all') f.push('st:'+STF); if(FILTER) f.push('f:'+FILTER); return f; }
+function aQ(){ return String((document.getElementById('aQ')||{}).value||'').trim(); }
+function assetRow(x){ return `<tr><td><b>${host(x.asset_uuid,x.host)}</b><div class="sub mono" style="font-size:11px">${x.ip&&x.ip!==x.host?esc(x.ip)+' ':''}${safeUrl(x.url,'')?`<a href="${esc(safeUrl(x.url))}" target="_blank" rel="noopener noreferrer" class="plink" title="Open in Tenable">↗</a>`:''}</div></td>`+
       `<td>${x.acr==null?'<span class="sub">—</span>':(x.crown?`<b style="color:var(--crit)">${x.acr}</b>`:x.acr)}</td>`+
-      `<td><span class="pill" style="color:${ST[x.status][1]}">${ST[x.status][0]}</span>${x.patch==='failed'?' <span class="pill" style="color:#e0913a" title="21745 OS Security Patch Assessment Failed">patch checks failed</span>':''}</td>`+
+      `<td><span class="pill" style="color:${(ST[x.status]||ST.unknown)[1]}">${esc((ST[x.status]||ST.unknown)[0])}</span>${x.patch==='failed'?' <span class="pill" style="color:#e0913a" title="21745 OS Security Patch Assessment Failed">patch checks failed</span>':''}</td>`+
       `<td>${x.last_scan?`${esc(x.last_scan)} <span class="sub" style="color:${FR[x.fresh]?FR[x.fresh][1]:'inherit'}">${N(x.age_days)}d</span>`:`<span class="sub">${x.fresh==='never'?'never':'—'}</span>`}</td>`+
       `<td><span class="mono" style="font-size:12px">${esc(x.scanner||'—')}</span>${x.type?`<div class="sub" style="font-size:11px">${esc(x.type)}</div>`:''}</td><td>${esc(x.policy||'—')}</td>`+
-      `<td class="mono">${x.dur!=null?dur(x.dur):'—'}</td></tr>`,
-    {cols:7, empty:'<tr><td colspan="7" class="sub">'+(a.length?'Nothing matches the filter.':'No assets.')+'</td></tr>'});
+      `<td class="mono">${x.dur!=null?dur(x.dur):'—'}</td></tr>`; }
+function renderAssets(){
+  const m=DATA.metrics||{}, st=m.status||{}, total=DATA.assets_total||0;
+  const seg=document.getElementById('stSeg');
+  seg.innerHTML='<button class="seg" data-sf="all">All <b>'+N(total)+'</b></button>'+Object.keys(ST).filter(s=>st[s]).map(s=>`<button class="seg" data-sf="${s}">${ST[s][0]} <b>${N(st[s])}</b></button>`).join('');
+  seg.querySelectorAll('.seg').forEach(s=>{ s.classList.toggle('on',s.dataset.sf===STF); s.onclick=()=>{ STF=s.dataset.sf; FILTER=null; renderMetrics(); renderAssets(); }; });
+  const fe=document.getElementById('filt');
+  fe.innerHTML=FILTER?`<span class="fchip">${esc(FILTERS[FILTER][0])}<button id="clrF" title="Clear">✕</button></span>`:'';
+  const c=document.getElementById('clrF'); if(c) c.onclick=()=>{ FILTER=null; renderMetrics(); renderAssets(); };
+  setNavCount('secAssets', N(m.blind)+' blind');
+  // the tag button tags EXACTLY the shown set — only offered when a server-side key matches it
+  // (a search narrows the table but not a key, so the tag button names the unsearched set)
+  const paint=k=>{ const at=document.getElementById('aTags');
+    const keys=FILTER?FILTERS[FILTER][2]:(STF!=='all'&&STF!=='ok'&&STF!=='unknown'?['status:'+STF]:[]);   // current view (the hDrill outlives a render)
+    at.innerHTML=keys.length&&k&&!(FILTER&&STF!=='all')&&!aQ()?`<button class="btn sm" id="tagShown">🏷️ Tag these ${N(k)} → ${keys.map(x=>'Scan Health : '+esc(KEYVAL[x])).join(' + ')}</button>`:
+      '<span class="sub">'+(aQ()?'Clear the search to tag a state or metric-card set.':'Pick a credential state or a metric card to tag that set.')+'</span>';
+    const tb=document.getElementById('tagShown'); if(tb) tb.onclick=function(){ tagKeys(keys,this,k); }; };
+  const flags=viewFlags();
+  if(!RUN){ document.querySelector('#aTbl tbody').innerHTML='<tr><td colspan="7" class="sub">Press ▶ Run.</td></tr>'; return; }
+  const opts={api:API, table:'aTbl', run:RUN, section:'assets', cols:7, row:assetRow, filter:flags, search:'aQ',
+    empty:'<tr><td colspan="7" class="sub">'+(total?'Nothing matches the filter or search.':'No assets.')+'</td></tr>',
+    onRender:T=>{ const total=(DATA&&DATA.assets_total)||0, t=T.total, k=t?+t.value||0:0, f=viewFlags();
+      document.getElementById('aCount').textContent=(k===total&&!f.length&&!aQ())?`(${N(total)})`:`(${N(k)} of ${N(total)})`; paint(k); }};
+  if(!TA) TA=hDrill(Object.assign(opts,{first:flags.length?null:FIRST})); else TA.set({run:RUN, filter:flags});
 }
 
 function dimTable(tbl,list,kind,cells,secId,countId){
@@ -248,8 +258,13 @@ function csvDim(list,keyName,fname){ downloadCSV(fname+'.csv',[keyName,'assets',
 document.getElementById('scnCsv').onclick=()=>DATA&&csvDim(DATA.scanners,'scanner','scan-eval-scanners');
 document.getElementById('polCsv').onclick=()=>DATA&&csvDim(DATA.policies,'policy','scan-eval-policies');
 document.getElementById('scaCsv').onclick=()=>DATA&&csvDim(DATA.scans,'scan','scan-eval-scans');
-document.getElementById('aCsv').onclick=()=>{ if(!DATA)return; downloadCSV('scan-eval-assets.csv',['host','ip','acr','credentials','patch_assessment','last_scan','age_days','type','scanner','policy','scan','duration_sec'],
-  shownAssets().map(x=>({host:x.host,ip:x.ip||'',acr:x.acr==null?'':x.acr,credentials:ST[x.status][0],patch_assessment:x.patch,last_scan:x.last_scan||'',age_days:x.age_days==null?'':x.age_days,type:x.type,scanner:x.scanner,policy:x.policy,scan:x.scan,duration_sec:x.dur==null?'':Math.round(x.dur)}))); };
+document.getElementById('aCsv').onclick=async function(){ if(!DATA||!RUN)return;
+  // every row of the current view, streamed from the stored run on the server (not just the loaded page)
+  const btn=this; btn.disabled=true; const lbl=btn.textContent; btn.textContent='⏳ CSV…';
+  let o; try{ o=await API.post('export',{run:RUN, filter:viewFlags(), q:aQ()}); }catch(e){ o={ok:false,error:e.message}; }
+  btn.disabled=false; btn.textContent=lbl;
+  if(!o||!o.ok){ flash('flash','✗ '+esc((o&&o.error)||'export failed'),'crit'); return; }
+  downloadText(_safeName('scan-eval-assets')+'.csv', o.csv); };
 document.getElementById('tagSlow').onclick=function(){ tagKeys(['slow'],this,((DATA&&DATA.metrics)||{}).slow); };
 
 function render(){ if(!DATA) return; renderMetrics(); renderAssets(); renderDims(); renderSlow(); }

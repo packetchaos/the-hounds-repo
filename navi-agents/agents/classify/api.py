@@ -1,13 +1,15 @@
 """Asset Classification — HTTP actions.
 
-run   — classify every asset; return per-class summary + the full asset list.
-assets— drill one class → its assets.
+run   — classify every asset; return the per-class summary + a drill handle (build 464:
+        the asset list stays on the server — core.payload's result store).
+drill — read; page / search one class's assets on the server (filter cls:<class>).
+assets— drill one class → its assets (capped list; kept for server-side callers).
 tag   — GATED write of Class:<type[ - subtype]> tags for a class (same navi path as
         every other agent). Closes the loop: a classified asset becomes an ownable one.
 """
 import re
 
-from core import navi_cli, classify as _classify, topology as _topology
+from core import navi_cli, payload, classify as _classify, topology as _topology
 from .agent import ClassifyAgent
 from core.gates import confirmed
 
@@ -79,6 +81,10 @@ def os_plan(p):
             "uuids": c["uuids"], "conf_min": min(c["confs"]), "conf_max": max(c["confs"])}
            for v, c in cohorts.items()]
     out.sort(key=lambda x: -x["count"])
+    if p.get("_with_uuids") is not True:
+        # build 464: counts only — a cohort is tagged by KEY {plan:{…the same inputs…, value}}
+        # and the server rebuilds its uuids (_plan_uuids); no uuid arrays reach the page
+        out = [{k: v for k, v in c.items() if k != "uuids"} for c in out]
     return {"ok": True, "prompt": prompt, "threshold": thr, "families": sorted(fams),
             "group": group, "scanned": len(rows),
             "with_confidence": sum(1 for r in rows if r["confidence"] > 0),
@@ -102,9 +108,66 @@ def members(p):
                                             subnet=p.get("subnet"))}, 200
 
 
+DRILL_MAX = 5000      # rows a class drill-down ships (≈1.5 MB); the class tag covers the whole class
+
+
+def _cls_flag_ok(f):
+    return f.split(":", 1)[0] in ("cls", "sub") and len(f) < 160
+
+
+SECTIONS = {"assets": {"sorts": {}, "flags": _cls_flag_ok}}
+
+
+def _risk_key(r):
+    return (not r.get("kev"), not r.get("critical"), str(r.get("hostname") or "~").lower(), str(r.get("uuid") or ""))
+
+
+def _publish(rows):
+    """Every classified asset → the result store (one section), riskiest first within each
+    class; flags cls:<class> / sub:<sub-type>; search over host, IP, sub-type, evidence."""
+    W = payload.STORE.begin("classify")
+    W.section("assets")
+    try:
+        for r in sorted(rows, key=_risk_key):
+            sub = r.get("sub") or r.get("reason") or "—"
+            W.add("assets", r, uid=r.get("uuid"), rk=r.get("uuid"),
+                  flags=["cls:" + str(r.get("cls")), "sub:" + str(sub)],
+                  text=" ".join(str(v or "") for v in (r.get("hostname"), r.get("ip"), r.get("sub"),
+                                                         r.get("reason"), r.get("method"), r.get("uuid"))))
+    except BaseException:
+        W.close(ok=False)
+        raise
+    W.close()
+    return W.run
+
+
 def run(p):
-    return {"ok": True, "agent": AGENT.meta(), "result": AGENT.run(),
+    """Payload contract (build 464): the run ships the classes, glance and stats plus a drill
+    handle — never the per-asset list (150k assets was a 49 MB answer). The drill-down pages
+    and searches one class on the server (`drill`); "select all" tags by key {run, cls, q}."""
+    res = AGENT.run()
+    small = {k: v for k, v in res.items() if k != "assets"}
+    small["assets_total"] = len(res.get("assets") or [])
+    try:
+        small["drill"] = {"action": "drill", "run": _publish(res.get("assets") or []), "section": "assets"}
+    except Exception as e:                 # the summary still works; the drill-down falls back to `assets`
+        small["drill_error"] = str(e)
+    return {"ok": True, "agent": AGENT.meta(), "result": small,
             "writes_enabled": navi_cli.writes_enabled()}, 200
+
+
+def drill(p):
+    return payload.drill("classify", p, SECTIONS)
+
+
+def _run_uuids(key):
+    """{run, cls, q?} → the exact asset set of that class (and search) in the stored run."""
+    if not isinstance(key, dict) or not isinstance(key.get("cls"), str) or not key.get("cls"):
+        return None
+    if not payload.STORE.run_info(key.get("run"), "classify"):
+        return None
+    q = key.get("q") if isinstance(key.get("q"), str) else ""
+    return payload.STORE.uids(key["run"], "assets", ["cls:" + key["cls"]], q.strip()[:200])
 
 
 def assets(p):
@@ -117,20 +180,79 @@ def assets(p):
         rows = [r for r in rows if r["cls"] == cls]
     if sub:
         rows = [r for r in rows if (r.get("sub") or r.get("reason") or "—") == sub]
-    return {"ok": True, "cls": cls, "sub": sub, "assets": rows, "count": len(rows)}, 200
+    count = len(rows)
+    try:
+        lim = max(1, min(int(p.get("limit") or DRILL_MAX), DRILL_MAX))
+    except (TypeError, ValueError):
+        lim = DRILL_MAX
+    if count > lim:
+        # the riskiest first (KEV, then critical), so what's shipped is what matters
+        rows = sorted(rows, key=lambda r: (not r.get("kev"), not r.get("critical")))[:lim]
+    return {"ok": True, "cls": cls, "sub": sub, "assets": rows, "count": count,
+            "shown": len(rows), "truncated": count > len(rows)}, 200
 
 
 def signals(p):
     """OS Signals — detected classification suggestions (the untagged assets), grouped
-    into taggable cohorts. Mirrors the IoT squad's detect → tag flow."""
+    into taggable cohorts. Mirrors the IoT squad's detect → tag flow. Build 464: counts and
+    samples only — a cohort is tagged by KEY {sig:{facet, value, all?}} (_sig_uuids)."""
     only = (p or {}).get("all") is not True
-    return {"ok": True, "result": _classify.os_signals(only_untagged=only)}, 200
+    res = dict(_classify.os_signals(only_untagged=only))
+    res["cohorts"] = [{k: v for k, v in c.items() if k != "uuids"} for c in (res.get("cohorts") or [])]
+    return {"ok": True, "result": res}, 200
+
+
+def _sig_uuids(key):
+    """The asset set behind an OS Signals cohort (its DETECTED facet + value), rebuilt server-side."""
+    if not isinstance(key, dict) or not isinstance(key.get("facet"), str) or not isinstance(key.get("value"), str):
+        return None
+    res = _classify.os_signals(only_untagged=key.get("all") is not True)
+    for c in res.get("cohorts") or []:
+        if c.get("facet") == key["facet"] and c.get("value") == key["value"]:
+            return list(c.get("uuids") or [])
+    return []
+
+
+def _plan_uuids(key):
+    """The asset set behind one cohort of an OS plan — os_plan re-run with the same inputs."""
+    if not isinstance(key, dict) or not isinstance(key.get("value"), str):
+        return None
+    q = {k: key.get(k) for k in ("prompt", "threshold", "families", "group") if key.get(k) is not None}
+    q["_with_uuids"] = True
+    o, _st = os_plan(q)
+    for c in o.get("cohorts") or []:
+        if c.get("value") == key["value"]:
+            return list(c.get("uuids") or [])
+    return []
 
 
 def os_breakdown(p):
     """OS families → versions for the two-pie OS explorer (untagged assets)."""
     only = (p or {}).get("all") is not True
-    return {"ok": True, "result": _classify.os_breakdown(only_untagged=only)}, 200
+    res = _classify.os_breakdown(only_untagged=only)
+    # build 464: counts only — no uuid arrays (138k uuids, twice, was 11 MB). A tag sends the
+    # KEY {os:{family, version?, all?}} and the server rebuilds the exact set (_os_uuids).
+    out = dict(res)
+    out["families"] = [{**{k: v for k, v in f.items() if k != "uuids"},
+                        "versions": [{k: v for k, v in x.items() if k != "uuids"} for x in (f.get("versions") or [])]}
+                       for f in (res.get("families") or [])]
+    return {"ok": True, "result": out}, 200
+
+
+def _os_uuids(key):
+    """The asset set behind an OS explorer node, rebuilt server-side from the same breakdown."""
+    if not isinstance(key, dict) or not isinstance(key.get("family"), str):
+        return None
+    res = _classify.os_breakdown(only_untagged=key.get("all") is not True)
+    for f in res.get("families") or []:
+        if f.get("family") != key["family"]:
+            continue
+        if key.get("version") is None:
+            return list(f.get("uuids") or [])
+        for v in f.get("versions") or []:
+            if v.get("name") == key.get("version"):
+                return list(v.get("uuids") or [])
+    return []
 
 
 def tag(p):
@@ -146,11 +268,24 @@ def tag(p):
         return {"ok": False, "error": "value required"}, 400
     if p.get("uuids") is not None and not isinstance(p.get("uuids"), list):
         return {"ok": False, "error": "uuids must be a list"}, 400
-    if p.get("uuids"):
+    if p.get("sig") is not None or p.get("plan") is not None:
+        uuids = _sig_uuids(p["sig"]) if p.get("sig") is not None else _plan_uuids(p["plan"])
+        if uuids is None:
+            return {"ok": False, "error": "malformed cohort key"}, 400
+    elif p.get("set") is not None:
+        uuids = _run_uuids(p.get("set"))
+        if uuids is None:
+            return {"ok": False, "expired": True,
+                    "error": "that run's rows are no longer on the server — press ▶ Run again"}, 400
+    elif p.get("os") is not None:
+        uuids = _os_uuids(p.get("os"))
+        if uuids is None:
+            return {"ok": False, "error": "os must be {family, version?}"}, 400
+    elif p.get("uuids"):
         uuids = [str(u) for u in p["uuids"] if u and isinstance(u, str)]
     else:
         m = _topology.members(cls=p.get("cls"), sub=p.get("sub"), software=p.get("software"),
-                              version=p.get("version"), subnet=p.get("subnet"), cap=100000)
+                              version=p.get("version"), subnet=p.get("subnet"), cap=None)   # unbounded (build 464)
         uuids = [a["uuid"] for a in m.get("assets", []) if a.get("uuid")]
     if not uuids:
         return {"ok": False, "error": "no assets for that cohort"}, 400
@@ -174,5 +309,5 @@ def tag(p):
             "write_gate_reason": navi_cli.write_gate_reason()}, 200
 
 
-ACTIONS = {"run": run, "assets": assets, "tag": tag, "tree": tree, "members": members,
+ACTIONS = {"run": run, "drill": drill, "assets": assets, "tag": tag, "tree": tree, "members": members,
            "signals": signals, "os_breakdown": os_breakdown, "os_plan": os_plan}

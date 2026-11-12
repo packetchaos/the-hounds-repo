@@ -618,6 +618,25 @@ class ResultStore:
         finally:
             con.close()
 
+    def row_members(self, run, sec, prefix, flags=(), q=""):
+        """(rk, uid) for every member of group `prefix + rk` of each (filtered) row of a section,
+        in the section's order — one SQL join in the store, e.g. an identity's hosts for every
+        identity a filter shows (build 464)."""
+        run = self._rid(run)
+        w, a = self._where(run, sec, flags, q)
+        con = self._connect()
+        try:
+            cur = con.execute("SELECT r.rk, m.uid FROM rows r JOIN members m ON m.run=r.run AND m.grp=? || r.rk "
+                              "WHERE %s AND r.rk IS NOT NULL ORDER BY r.seq, m.uid" % w, [str(prefix)] + a)
+            while True:
+                b = cur.fetchmany(5000)
+                if not b:
+                    break
+                for g in b:
+                    yield g[0], g[1]
+        finally:
+            con.close()
+
     def group_count(self, run, grp):
         run = self._rid(run)
         con = self._connect()

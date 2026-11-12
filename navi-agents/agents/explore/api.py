@@ -175,7 +175,10 @@ def applied(p):
     """Applied tags straight from navi.db's `tags` table — the source of truth for
     'applied' status (so agent pages don't rely on a local cache)."""
     try:
-        rows = db.query("SELECT tag_key, tag_value FROM tags WHERE tag_value IS NOT NULL;")
+        # DISTINCT (build 464): the page only asks "is category:value applied?" — one row per
+        # tag, not one per asset × tag (100k assets × a dozen tags was a 30 MB answer on every
+        # page open). SQLite de-duplicates in the engine; nothing per-asset leaves the server.
+        rows = db.query("SELECT DISTINCT tag_key, tag_value FROM tags WHERE tag_value IS NOT NULL;")
     except Exception:
         rows = []
     from core import tagname

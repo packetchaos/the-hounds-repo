@@ -101,7 +101,7 @@ def _yes(v):
     return None if not v else v.startswith("yes")
 
 
-def evaluate(db_path=None, keep_uuids=False):
+def evaluate(db_path=None, keep_uuids=False, all_rows=False):
     today = datetime.date.today()
     vc = _cols("vulns", db_path)
     open_only = (" AND lower(COALESCE(v.state,'open')) IN ('open','reopened')" if "state" in vc else "")
@@ -305,7 +305,8 @@ def evaluate(db_path=None, keep_uuids=False):
                        "ok_assets": max(0, total_assets - len(cred_assets)),
                        "assets": cred_assets,
                        "plugin": CRED_FAIL_PLUGIN},
-        "metrics": metrics, "assets": assets[:ROW_CAP], "assets_truncated": len(assets) > ROW_CAP,
+        "metrics": metrics, "assets": assets if all_rows else assets[:ROW_CAP],
+        "assets_truncated": (not all_rows) and len(assets) > ROW_CAP,
         "slowest": slowest, "slow_sec": SLOW_SEC, "feed_lag_days": FEED_LAG_DAYS, "today": today.isoformat(),
     }
     if keep_uuids:

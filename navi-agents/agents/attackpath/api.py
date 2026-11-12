@@ -9,7 +9,7 @@
   tag_target  — gated; tag every reachable crown jewel                    Attack Path : Target
 Writes are gated (confirm + NAVI_ALLOW_WRITES) and recorded in the Tagging log.
 """
-from core import navi_cli
+from core import navi_cli, payload
 from .agent import AttackPathAgent, ENTRY_CAT
 from core.gates import confirmed
 
@@ -24,7 +24,63 @@ def run(p):
         acr = 7.0
     acr = min(10.0, max(1.0, acr))
     res = AGENT.run(crown_acr=acr)
-    return {"ok": True, "agent": AGENT.meta(), "result": res}, 200
+    runid = _publish(res)
+    first, _c = payload.drill("attackpath", {"run": runid, "section": "entries", "limit": 50}, SECTIONS)
+    return {"ok": True, "agent": AGENT.meta(), "result": _slim(res),
+            "drill": {"action": "drill", "run": runid, "section": "entries"}, "first": first}, 200
+
+
+# ── payload contract (build 464) ──────────────────────────────────────────────────────────────
+# The full analysis stays on the server (AGENT.result — what every tag key rebuilds from); the
+# page gets the paths, map, metrics and the fix / control tables WITHOUT their asset-uuid lists,
+# and the ways-in table pages from the result store (10k+ entry points was 4.5 MB, the control
+# and fix uuid lists 5 MB more at 150k assets).
+SECTIONS = {"entries": {"sorts": {}, "flags": {"reach"}}}
+UNREACHED_SHOWN = 40
+C2_TARGETS = 256
+
+
+def _publish(res):
+    W = payload.STORE.begin("attackpath")
+    W.section("entries")
+    try:
+        for e in res.get("entries") or []:
+            W.add("entries", e, uid=e.get("uuid"), rk=e.get("uuid"), flags=["reach"] if e.get("reaches_any") else [],
+                  text=" ".join(str(e.get(k) or "") for k in ("host", "ip", "os", "subnet")) + " "
+                  + " ".join(str(h) for h in (e.get("how") or [])) + " " + " ".join(str(h) for h in (e.get("crown_hosts") or [])))
+    except BaseException:
+        W.close(ok=False)
+        raise
+    W.close()
+    return W.run
+
+
+def _slim(res):
+    """The page payload: everything but per-asset lists (counts + the C2 hand-off targets kept)."""
+    nodes = {n.get("id"): n for n in ((res.get("graph") or {}).get("nodes") or []) if n.get("kind") == "asset" and n.get("ip")}
+
+    def fix(x):
+        out = {k: v for k, v in x.items() if k != "uuids"}
+        out["c2_targets"] = [{"ip": nodes[u]["ip"], "uuid": u, "hostname": nodes[u].get("label") or ""}
+                             for u in (x.get("uuids") or []) if u in nodes][:C2_TARGETS]
+        return out
+    small = {k: v for k, v in res.items() if k not in ("entries", "reachable", "unreached", "fixes", "bundle", "controls")}
+    ent = res.get("entries") or []
+    small["entries_n"] = len(ent)
+    small["entries_reach_n"] = sum(1 for e in ent if e.get("reaches_any"))
+    reach = res.get("reachable") or [x["target"]["uuid"] for x in res.get("paths", []) if x.get("target")]
+    small["reachable_n"] = len(set(reach))
+    un = res.get("unreached") or []
+    small["unreached"] = un[:UNREACHED_SHOWN]
+    small["unreached_n"] = len(un)
+    small["fixes"] = [fix(x) for x in res.get("fixes") or []]
+    small["bundle"] = [fix(x) for x in res.get("bundle") or []]
+    small["controls"] = [{k: v for k, v in x.items() if k != "uuids"} for x in res.get("controls") or []]
+    return small
+
+
+def drill(p):
+    return payload.drill("attackpath", p, SECTIONS)
 
 
 def _tag(uuids, value, p):
@@ -92,4 +148,4 @@ def tag(p):
     return _tag(uu, value, p)
 
 
-ACTIONS = {"run": run, "tag_entry": tag_entry, "tag_target": tag_target, "tag": tag}
+ACTIONS = {"run": run, "drill": drill, "tag_entry": tag_entry, "tag_target": tag_target, "tag": tag}

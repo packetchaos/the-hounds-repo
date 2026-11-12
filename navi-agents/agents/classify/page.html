@@ -152,6 +152,7 @@
       <p class="sub" id="drillSub" style="margin:2px 0 0"></p></div>
       <span style="margin-left:auto;display:flex;gap:6px" id="drillActions"></span></div>
     <div id="tagFlash" class="flash"></div>
+    <div class="toolbar" style="margin:6px 0"><input id="dq" class="fld" placeholder="Search this class — host, IP, sub-type, evidence" style="min-width:300px"></div>
     <table id="dtbl"><colgroup><col><col style="width:120px"><col style="width:150px"><col style="width:150px"><col style="width:70px"><col style="width:90px"></colgroup>
       <thead><tr><th>Host</th><th>IP</th><th>Sub-type</th><th>Evidence</th><th>ACR</th><th>Owner</th></tr></thead>
       <tbody><tr><td colspan="6" class="sub">Pick a class above.</td></tr></tbody></table>
@@ -178,6 +179,7 @@ async function run(){
   if(!o||!o.ok||!o.result){ flash('flash','✗ '+esc((o&&(o.error||o.message))||'failed'),'crit'); return; }
   DATA=o.result; if(DATA.error){ flash('flash','✗ '+esc(DATA.error),'crit'); return; }
   flashClear('flash'); render(); explore();
+  if(CUR&&(DATA.classes||[]).some(x=>x.cls===CUR)) drill(CUR, true);   // the open class follows the new run
 }
 function render(){
   const tot=DATA.total||0;
@@ -257,40 +259,11 @@ function renderPageGlance(){
             mk(fnum(g.unowned_classified),'classified assets without an Owner',{href:'/web/ownermap.html',sev:'med',u:'🗺 Ownership Map →',t:'Classified → now assign owners in Atlas'})]}
   ]);
 }
-function drill(cls){
-  CUR=cls;
-  const c=(DATA.classes||[]).find(x=>x.cls===cls)||{};
-  const rows=(DATA.assets||[]).filter(r=>r.cls===cls);
-  showSec('drillCard', cls); setNavCount('drillCard', fnum(rows.length));
-  document.getElementById('drillTitle').innerHTML=`<span class="dot" style="background:${col(cls)}"></span> ${esc(cls)} <span class="sub">(${rows.length})</span>`;
-  document.getElementById('drillSub').textContent=(c.subs||[]).map(s=>`${s.name}: ${s.count}`).join(' · ');
-  // actions: tag (gated) + hand to Atlas — OR manual classification for the unknowns
-  const acts=document.getElementById('drillActions'); acts.innerHTML='';
-  const isU=cls==='Unclassified';
-  if(!isU){
-    acts.innerHTML=`<button class="btn sm" id="tagCls">🏷️ Tag <span class="tagval">Class : ${esc(cls)}</span></button>`
-      +`<a class="btn ghost sm" href="/web/ownermap.html" title="Assign owners to this class in Atlas">🗺 Own in Atlas →</a>`;
-    document.getElementById('tagCls').onclick=()=>tagClass(cls);
-  } else {
-    UNSEL.clear();
-    acts.innerHTML=`<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">`
-      +`<span class="sub">Classify by hand:</span>`
-      +`<select id="ucFacet" class="fld" title="Classification category">${fopt('Device Type')}<option value="__custom">＋ Custom category…</option></select>`
-      +`<input id="ucFacetCustom" class="fld" placeholder="your category — e.g. Kiosk, POS" style="display:none;min-width:150px">`
-      +`<input id="ucVal" class="fld" placeholder="value — e.g. Printer, Firewall, Payment terminal" style="min-width:210px">`
-      +`<button class="btn sm" id="ucTag">🏷️ Tag <span id="ucN">0</span> selected</button>`
-      +`<button class="btn ghost sm" id="ucAll">Select all ${rows.length}</button>`
-      +`<span id="ucRes" class="sub"></span></div>`
-      +`<div class="sub" style="margin-top:5px;font-size:11px">Your own classification becomes a top-level class — it writes <span class="mono">Asset Inventory : &lt;category&gt;: &lt;value&gt;</span> and the taxonomy accounts for it.</div>`;
-    const _fsel=document.getElementById('ucFacet'), _fcus=document.getElementById('ucFacetCustom');
-    _fsel.onchange=()=>{ const cu=_fsel.value==='__custom'; _fcus.style.display=cu?'':'none'; if(cu)_fcus.focus(); };
-    document.getElementById('ucTag').onclick=()=>tagUnclassified();
-    document.getElementById('ucAll').onclick=()=>{ const pick=UNSEL.size<rows.length; UNSEL.clear();
-      if(pick)rows.forEach(r=>r.uuid&&UNSEL.add(r.uuid)); syncUcSel();
-      document.getElementById('ucAll').textContent=pick?'Clear selection':('Select all '+rows.length); };
-    document.getElementById('drillSub').innerHTML='Tick the unknowns you recognize, set a <b>category + value</b>, and tag them (gated) — they move out of Unclassified. '+esc((c.subs||[]).map(s=>`${s.name}: ${s.count}`).join(' · '));
-  }
-  hPaginate('dtbl', rows, r=>{
+/* build 464: the run no longer ships every asset — a class's rows are paged and searched on
+   the server (hDrill over the stored run, riskiest first). "Select all" means the whole class
+   (or the whole search) and is sent as a KEY {run, cls, q}; the server rebuilds the set. */
+let DT=null, UCALL=false, UCALL_Q='';   // UCALL_Q: the search a select-all was made under
+function _drow(isU){ return r=>{
     const own=r.owned?'<span class="badge b-applied">owned</span>':'<span class="badge b-pending">—</span>';
     const badges=(r.kev?'<span class="pill p-kev">KEV</span> ':'')+(r.critical?'<span class="pill p-crit">crit</span> ':'')+(r.cloud?`<span class="pill p-cloud">${esc(r.cloud)}</span>`:'');
     const evidence=isU?esc(r.reason||''):esc(r.method||'');
@@ -298,16 +271,58 @@ function drill(cls){
     return `<tr><td>${cb}<a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(r.uuid)}" title="Open in Argos asset deep-dive">${esc(r.hostname||'(none)')}</a> ${badges}</td>`
       +`<td class="mono">${esc(r.ip||'')}</td><td>${esc(r.sub||'—')}</td>`
       +`<td class="sub" style="font-size:11.5px">${evidence}${r.confidence&&r.confidence!=='n/a'?(' · '+esc(r.confidence)):''}</td>`
-      +`<td class="mono">${r.acr!=null&&r.acr!==''?esc(String(r.acr)):'—'}</td><td>${own}</td></tr>`;
-  }, {cols:6, empty:'<tr><td colspan="6" class="sub">No assets.</td></tr>', wire:isU?wireUcSel:undefined});
-  document.getElementById('drillCard').scrollIntoView({behavior:'smooth',block:'start'});
+      +`<td class="mono">${r.acr!=null&&r.acr!==''?esc(String(r.acr)):'—'}</td><td>${own}</td></tr>`; }; }
+function _dq(){ return String((document.getElementById('dq')||{}).value||'').trim(); }
+function _dtotal(){ const t=DT&&DT.total; return t?+t.value||0:0; }
+function _ucAllLabel(){ const b=document.getElementById('ucAll'); if(!b) return;
+  b.textContent=UCALL?'Clear selection':('Select all '+fnum(_dtotal())+(_dq()?' matching':' in Unclassified')); }
+function drill(cls, quiet){
+  CUR=cls; UCALL=false; UNSEL.clear();
+  const c=(DATA.classes||[]).find(x=>x.cls===cls)||{};
+  showSec('drillCard', cls); setNavCount('drillCard', fnum(c.count));
+  document.getElementById('drillTitle').innerHTML=`<span class="dot" style="background:${col(cls)}"></span> ${esc(cls)} <span class="sub" id="drillN">(${fnum(c.count)})</span>`;
+  document.getElementById('drillSub').textContent=(c.subs||[]).map(s=>`${s.name}: ${s.count}`).join(' · ');
+  const acts=document.getElementById('drillActions'); acts.innerHTML='';
+  const isU=cls==='Unclassified';
+  if(!isU){
+    acts.innerHTML=`<button class="btn sm" id="tagCls">🏷️ Tag <span class="tagval">Class : ${esc(cls)}</span></button>`
+      +`<a class="btn ghost sm" href="/web/ownermap.html" title="Assign owners to this class in Atlas">🗺 Own in Atlas →</a>`;
+    document.getElementById('tagCls').onclick=()=>tagClass(cls);
+  } else {
+    acts.innerHTML=`<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">`
+      +`<span class="sub">Classify by hand:</span>`
+      +`<select id="ucFacet" class="fld" title="Classification category">${fopt('Device Type')}<option value="__custom">＋ Custom category…</option></select>`
+      +`<input id="ucFacetCustom" class="fld" placeholder="your category — e.g. Kiosk, POS" style="display:none;min-width:150px">`
+      +`<input id="ucVal" class="fld" placeholder="value — e.g. Printer, Firewall, Payment terminal" style="min-width:210px">`
+      +`<button class="btn sm" id="ucTag">🏷️ Tag <span id="ucN">0</span> selected</button>`
+      +`<button class="btn ghost sm" id="ucAll">Select all</button>`
+      +`<span id="ucRes" class="sub"></span></div>`
+      +`<div class="sub" style="margin-top:5px;font-size:11px">Your own classification becomes a top-level class — it writes <span class="mono">Asset Inventory : &lt;category&gt;: &lt;value&gt;</span> and the taxonomy accounts for it.</div>`;
+    const _fsel=document.getElementById('ucFacet'), _fcus=document.getElementById('ucFacetCustom');
+    _fsel.onchange=()=>{ const cu=_fsel.value==='__custom'; _fcus.style.display=cu?'':'none'; if(cu)_fcus.focus(); };
+    document.getElementById('ucTag').onclick=()=>tagUnclassified();
+    document.getElementById('ucAll').onclick=()=>{ UCALL=!UCALL; UCALL_Q=_dq(); UNSEL.clear(); syncUcSel(); _ucAllLabel(); };
+    document.getElementById('drillSub').innerHTML='Tick the unknowns you recognize — or select all — set a <b>category + value</b>, and tag them (gated) — they move out of Unclassified. '+esc((c.subs||[]).map(s=>`${s.name}: ${s.count}`).join(' · '));
+  }
+  const dr=DATA.drill, inp=document.getElementById('dq'); if(inp) inp.value='';
+  if(!dr||!dr.run){ document.querySelector('#dtbl tbody').innerHTML='<tr><td colspan="6" class="sub">✗ '+esc(DATA.drill_error||'no stored run — press ▶ Run again')+'</td></tr>'; }
+  // one hDrill for the card (its search box binds once); row / wire / counts follow CUR
+  else if(!DT) DT=hDrill({api:API, table:'dtbl', run:dr.run, section:'assets', cols:6, filter:['cls:'+cls], search:'dq',
+    row:(r,i)=>_drow(CUR==='Unclassified')(r,i),
+    empty:'<tr><td colspan="6" class="sub">Nothing here matches.</td></tr>',
+    wire:tb=>{ if(CUR==='Unclassified') wireUcSel(); },
+    onRender:()=>{ const cc=(DATA.classes||[]).find(x=>x.cls===CUR)||{}, n=_dtotal(), el=document.getElementById('drillN');
+      if(el) el.textContent='('+fnum(cc.count)+(_dq()?' · '+fnum(n)+' match':'')+')';
+      if(UCALL&&_dq()!==UCALL_Q){ UCALL=false; syncUcSel(); } _ucAllLabel(); _ucN(); }});
+  else DT.set({run:dr.run, filter:['cls:'+cls], q:''});
+  if(!quiet) document.getElementById('drillCard').scrollIntoView({behavior:'smooth',block:'start'});
 }
 /* ---- manual classification of Unclassified assets: multi-select + gated tag ---- */
 let UNSEL=new Set();
-function _ucN(){ const n=document.getElementById('ucN'); if(n)n.textContent=UNSEL.size; }
-function wireUcSel(){ document.querySelectorAll('#dtbl .ucsel').forEach(cb=>{ cb.checked=UNSEL.has(cb.dataset.u);
+function _ucN(){ const n=document.getElementById('ucN'); if(n)n.textContent=UCALL?fnum(_dtotal()):UNSEL.size; }
+function wireUcSel(){ document.querySelectorAll('#dtbl .ucsel').forEach(cb=>{ cb.checked=UCALL||UNSEL.has(cb.dataset.u); cb.disabled=UCALL;
   cb.onchange=()=>{ cb.checked?UNSEL.add(cb.dataset.u):UNSEL.delete(cb.dataset.u); _ucN(); }; }); _ucN(); }
-function syncUcSel(){ document.querySelectorAll('#dtbl .ucsel').forEach(cb=>cb.checked=UNSEL.has(cb.dataset.u)); _ucN(); }
+function syncUcSel(){ document.querySelectorAll('#dtbl .ucsel').forEach(cb=>{ cb.checked=UCALL||UNSEL.has(cb.dataset.u); cb.disabled=UCALL; }); _ucN(); }
 async function tagUnclassified(){
   let facet=(document.getElementById('ucFacet')||{}).value||'Device Type';
   if(facet==='__custom'){ facet=((document.getElementById('ucFacetCustom')||{}).value||'').trim(); }
@@ -315,6 +330,9 @@ async function tagUnclassified(){
   const res=document.getElementById('ucRes'); const uuids=[...UNSEL];
   if(!facet){ if(res)res.innerHTML='<span style="color:var(--crit)">name your category first</span>'; return; }
   if(!value){ if(res)res.innerHTML='<span style="color:var(--crit)">enter a value first</span>'; return; }
+  if(UCALL){ const n=_dtotal(); if(!n){ if(res)res.innerHTML='<span style="color:var(--crit)">nothing to tag</span>'; return; }
+    const ok=await writeTag(facet,value,{set:{run:DATA.drill.run, cls:'Unclassified', q:_dq()}},res,n);
+    if(ok) afterTag(); return; }
   if(!uuids.length){ if(res)res.innerHTML='<span style="color:var(--crit)">tick some assets first</span>'; return; }
   const ok=await writeTag(facet,value,uuids,res,uuids.length);
   if(ok) afterTag();
@@ -542,6 +560,9 @@ function renderSignals(){ loadOsBreakdown(); renderOtherSignals(); }
 
 /* ===== "Describe the OS tagging" — NL prompt → confidence-gated OS cohorts → gated tag ===== */
 let OSPLAN=null;
+/* build 464: a plan cohort is tagged by KEY — the plan's own inputs + the cohort value; the
+   server re-runs the plan and rebuilds the exact uuids (no uuid arrays in the page) */
+function _planKey(c){ const P=OSPLAN||{}; return {plan:{prompt:P.prompt||'', threshold:P.threshold, families:P.families||[], group:P.group, value:c.value}}; }
 async function osInterpret(){
   const prompt=(document.getElementById('osPrompt').value||'').trim();
   if(!prompt){ flash('osAskFlash','Type what to tag — e.g. "tag all assets by OS over 75% confidence".','warn'); return; }
@@ -572,7 +593,7 @@ function renderOsPlan(o){
 async function osApplyOne(i){
   const c=OSPLAN&&OSPLAN.cohorts[i]; if(!c)return false;
   const res=document.getElementById('osres-'+i);
-  const ok=await writeTag('OS', c.value, c.uuids, res, c.count);
+  const ok=await writeTag('OS', c.value, _planKey(c), res, c.count);
   if(ok) afterTag();
   return ok;
 }
@@ -583,17 +604,21 @@ async function osApplyAll(){
   const btn=document.getElementById('osApplyAll'); btn.disabled=true;
   // fire every tag at once — each queues immediately, so all land in the Tagging log
   // together instead of waiting for the previous one's job to finish.
-  const r=await Promise.all(OSPLAN.cohorts.map((c,i)=>postTag('OS', c.value, c.uuids, document.getElementById('osres-'+i), c.count)));
+  const r=await Promise.all(OSPLAN.cohorts.map((c,i)=>postTag('OS', c.value, _planKey(c), document.getElementById('osres-'+i), c.count)));
   btn.disabled=false; if(r.some(x=>x&&x.ok)) afterTag();
 }
 
 /* --- shared gated write: post → poll → report into resEl; resolves true on success --- */
+/* build 464: an OS explorer node is tagged by KEY ({os:{family, version}}) — the server rebuilds
+   the set; everything else still sends its uuid list */
+function _tagBody(facet,value,uuids){ if(uuids&&!Array.isArray(uuids)){ for(const k of ['os','set','sig','plan']) if(uuids[k]) return {facet,value,[k]:uuids[k],confirm:true}; }
+  return {facet,value,uuids,confirm:true}; }
 async function writeTag(facet,value,uuids,resEl,count){
   value=(value||'').trim();
   if(!value){ if(resEl)resEl.innerHTML='<span style="color:var(--crit)">✗ tag name can\'t be empty</span>'; return false; }
   if(!confirm('Write the tag "'+tagCat('Asset Inventory')+' : '+facet+': '+value+'" to '+fnum(count||uuids.length)+' asset(s) in Tenable?\n\nWrites are gated (NAVI_ALLOW_WRITES).')) return false;
   if(resEl)resEl.innerHTML='<span class="spin"></span> queueing '+(count||uuids.length)+'…';
-  let o; try{ o=await API.post('tag',{facet,value,uuids,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+  let o; try{ o=await API.post('tag',_tagBody(facet,value,uuids)); }catch(e){ o={ok:false,error:e.message}; }
   if(!(o.ok||o.queued||o.warning)){ if(resEl)resEl.innerHTML='<span style="color:var(--crit)">✗ '+esc(o.error||o.message||'rejected')+'</span>'; return false; }
   const jids=(o.job_ids&&o.job_ids.length)?o.job_ids:[o.job_id||(o.result&&o.result.job_id)];
   const jm=await pollJobs(jids);
@@ -611,7 +636,7 @@ async function postTag(facet,value,uuids,resEl,count){
   value=(value||'').trim();
   if(!value){ if(resEl)resEl.innerHTML='<span style="color:var(--crit)">✗ tag name can\'t be empty</span>'; return {ok:false,jids:[]}; }
   if(resEl)resEl.innerHTML='<span class="spin"></span> sending '+(count||uuids.length)+'…';
-  let o; try{ o=await API.post('tag',{facet,value,uuids,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+  let o; try{ o=await API.post('tag',_tagBody(facet,value,uuids)); }catch(e){ o={ok:false,error:e.message}; }
   if(!(o.ok||o.queued||o.warning)){ if(resEl)resEl.innerHTML='<span style="color:var(--crit)">✗ '+esc(o.error||o.message||'rejected')+'</span>'; return {ok:false,jids:[],o}; }
   const jids=(o.job_ids&&o.job_ids.length)?o.job_ids:[o.job_id||(o.result&&o.result.job_id)].filter(x=>x!=null);
   if(!jids.length && !o.writes_enabled){ if(resEl)resEl.innerHTML='<span style="color:var(--cx-e7c66b)"><b>Nothing written.</b> '+esc(o.write_gate_reason||'writes gated — set NAVI_ALLOW_WRITES=1')+'</span>'; return {ok:false,jids:[],o}; }
@@ -654,8 +679,8 @@ function focusFrom(level, vnode){
   const el=document.getElementById('osFocus');
   if(!level){ el.innerHTML='<div class="sub" style="padding:8px 0">Click an OS (left) to tag the whole family, or drill into a version (right) to tag that specific build. You can rename before writing.</div>'; return; }
   let facet='OS', value, count, uuids;
-  if(level==='version' && vnode){ value=vnode.name; count=vnode.count; uuids=vnode.uuids; }
-  else { value=OSSEL.family; count=OSSEL.count; uuids=OSSEL.uuids; }
+  if(level==='version' && vnode){ value=vnode.name; count=vnode.count; uuids={os:{family:OSSEL.family,version:vnode.name}}; }
+  else { value=OSSEL.family; count=OSSEL.count; uuids={os:{family:OSSEL.family}}; }
   el.innerHTML=`<div class="callbox" style="display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap;font-family:var(--body);color:var(--ink)">`
     +`<div><div class="sub">Tag category</div><select id="osFacet" class="fld">${fopt(facet)}</select></div>`
     +`<div style="flex:1;min-width:200px"><div class="sub">Tag name (editable)</div><input id="osVal" class="fld" style="width:100%" value="${esc(value)}"/></div>`
@@ -676,8 +701,8 @@ async function bulkTag(level){
   const res=document.getElementById('bulkRes');
   const btn=document.getElementById(level==='family'?'tagAllOs':'tagAllOsType'); const lbl=btn&&btn.innerHTML;
   const scroll=()=>{ if(res)res.scrollIntoView({behavior:'smooth',block:'center'}); };
-  const jobs=[]; OSFAM.forEach(f=>{ if(level==='family') jobs.push({facet:'OS',value:f.family,uuids:f.uuids,count:f.count});
-    else (f.versions||[]).forEach(v=>jobs.push({facet:'OS',value:v.name,uuids:v.uuids,count:v.count})); });
+  const jobs=[]; OSFAM.forEach(f=>{ if(level==='family') jobs.push({facet:'OS',value:f.family,uuids:{os:{family:f.family}},count:f.count});
+    else (f.versions||[]).forEach(v=>jobs.push({facet:'OS',value:v.name,uuids:{os:{family:f.family,version:v.name}},count:v.count})); });
   if(!jobs.length){ res.textContent='nothing to tag'; return; }
   const nB=jobs.reduce((t,j)=>t+(j.count||0),0);
   if(!confirm('Write '+jobs.length+' "'+tagCat('Asset Inventory')+' : OS: …" tag(s) to '+fnum(nB)+' asset(s) in Tenable?\n\nWrites go through the gated tag queue — if NAVI_ALLOW_WRITES is not set, the job queues but is blocked.')) return;
@@ -713,7 +738,7 @@ async function renderOtherSignals(){
     +'</tbody></table><div id="sigRes" class="sub" style="margin-top:8px"></div>';
   body.querySelectorAll('.sigtag').forEach(b=>b.onclick=async()=>{ const i=+b.dataset.i, c=COHORTS[i];
     const ok=await writeTag((document.getElementById('sigfacet-'+i)||{}).value||c.facet,
-             (document.getElementById('sigval-'+i)||{}).value||c.value, c.uuids,
+             (document.getElementById('sigval-'+i)||{}).value||c.value, {sig:{facet:c.facet,value:c.value}},
              document.getElementById('sigRes'), c.count);
     if(ok) afterTag(); });
 }

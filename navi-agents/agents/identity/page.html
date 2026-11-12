@@ -57,6 +57,7 @@
       <button class="btn ghost sm" data-cls="machine" data-cat="Machine ID">🏷️ Tag Machine</button>
       <button class="btn sm" id="tagShown">🏷️ Tag shown → Identity : &lt;name&gt;</button></div>
     <div class="toolbar" id="colPick" style="margin:6px 0 8px;gap:5px;flex-wrap:wrap"></div>
+    <div class="toolbar" style="margin:0 0 8px"><input id="idQ" class="fld" placeholder="Search identities — account, class, flag, host" style="min-width:320px"></div>
     <div style="overflow-x:auto"><table id="tbl" style="table-layout:fixed;width:100%"></table></div>
   </section>
 
@@ -87,6 +88,10 @@
 <script src="/static/console.js"></script>
 <script>
 const API=agentApi('identity'); let IDENT=null, WRITES=false, IDENT_FILTER='all', FILTER=null;
+/* build 464 — payload contract: ▶ Run ships the decision data + page 1; the identity list, its
+   filters and search page on the server (hDrill → `drill`); every tag button sends a KEY
+   {set:{run, kind, …}} and the server rebuilds the exact hosts. RUN = the stored run id. */
+let RUN=null, FIRST=null, TI=null, TR=null;
 const N=v=>(v==null?0:v).toLocaleString();
 const COLS=[
   {k:'identity',label:'Identity',w:150,always:true},
@@ -144,18 +149,17 @@ async function run(){
   b.disabled=false;
   if(!o||!o.ok||!o.result){ flash('flash','✗ '+esc((o&&(o.error||o.message))||'failed'),'crit'); buildHead('Run failed — see message above.'); return; }
   IDENT=o.result; window.__LLM=!!o.llm_available; FILTER=null; IDENT_FILTER='all';
-  ['tbl','reuseTbl'].forEach(hPageReset);
+  RUN=(o.drill&&o.drill.run)||null; FIRST=o; TR=null;   // TI stays: its search box is bound to it
   if(IDENT.metrics_error) flash('flash','⚠ '+esc(IDENT.metrics_error),'warn');
-  else if(!(IDENT.accounts||[]).length) flash('flash','No identities enumerated. Identities only come from credentialed scans — see the coverage gap below.','warn');
+  else if(!IDENT.accounts_total) flash('flash','No identities enumerated. Identities only come from credentialed scans — see the coverage gap below.','warn');
   else flashClear('flash');
   render();
 }
 
 function renderMetrics(){
-  const c=IDENT.counts||{}, m=IDENT.metrics||{}, a=IDENT.accounts||[], svc=(c.nhi||0)+(c.service||0), sig=m.signals||{};
-  // most common risk flags (identities carrying each flag) — the Priority ranked list
-  const fl={}; a.forEach(x=>(x.risky||[]).forEach(f=>{ const key=f.indexOf('account reuse')===0?'account reuse ≥ 5 hosts':f; fl[key]=(fl[key]||0)+1; }));
-  const top=Object.entries(fl).sort((p,q)=>q[1]-p[1]).slice(0,6);
+  const c=IDENT.counts||{}, m=IDENT.metrics||{}, svc=(c.nhi||0)+(c.service||0), sig=m.signals||{};
+  // most common risk flags (identities carrying each flag) — counted on the server over every identity
+  const top=((IDENT.view||{}).flag_top)||[];
   const active=[]; if(IDENT_FILTER!=='all') active.push('g:'+IDENT_FILTER); if(FILTER) active.push('f:'+FILTER);
   const el=document.getElementById('metrics');
   el.innerHTML='<p class="sub" style="margin:2px 0 0">Click a number to filter the identity list.</p><div id="glxIdent"></div>';
@@ -191,61 +195,64 @@ function renderMetrics(){
     document.getElementById('secIds').scrollIntoView({behavior:'smooth',block:'start'}); }});
 }
 
-function shown(){ const a=IDENT.accounts||[];
-  return a.map((x,i)=>({x,i})).filter(o=>{ const x=o.x;
-    if(IDENT_FILTER==='flagged'&&!(x.risky||[]).length) return false;
-    if(IDENT_FILTER==='reused'&&!isReused(x)) return false;
-    if(['human','service','machine'].includes(IDENT_FILTER)&&grp(x.klass)!==IDENT_FILTER) return false;
-    if(FILTER&&!FILTERS[FILTER][1](x)) return false; return true; }); }
-function renderTable(){
-  const a=IDENT.accounts||[], rows=shown();
-  document.querySelectorAll('#idFilter button').forEach(x=>x.classList.toggle('on',x.dataset.if===IDENT_FILTER));
-  const fe=document.getElementById('filt');
-  fe.innerHTML=FILTER?`<span class="fchip">${esc(FILTERS[FILTER][0])}<button id="clrF" title="Clear">✕</button></span>`:'';
-  const cf=document.getElementById('clrF'); if(cf) cf.onclick=()=>{ FILTER=null; hPageReset('tbl'); renderMetrics(); renderTable(); };
-  document.getElementById('count').textContent=rows.length===a.length?`(${N(a.length)})`:`(${N(rows.length)} of ${N(a.length)})`;
-  setNavCount('secIds', N(a.length));
-  document.getElementById('tagShown').disabled=!rows.length;
-  buildHead('');
-  const vc=visCols();
-  const rowHtml=o=>{ const x=o.x, i=o.i;
+function viewFlags(){ const f=[]; if(IDENT_FILTER==='flagged'||IDENT_FILTER==='reused') f.push(IDENT_FILTER);
+  else if(['human','service','machine'].includes(IDENT_FILTER)) f.push('g:'+IDENT_FILTER);
+  if(FILTER) f.push('f:'+FILTER); return f; }
+function idQ(){ return String((document.getElementById('idQ')||{}).value||'').trim(); }
+function rowHtml(x){
     const CELL={
       identity:'<td class="mono c-nw" title="'+esc(x.user)+'"><b>'+esc(x.user)+'</b></td>',
       'class':'<td><span class="tagval" style="color:'+(KC[x.klass]||'var(--accent)')+'"'+(x.authority?' title="'+esc(x.authority)+'"':'')+'>'+esc(x.klass)+'</span>'+
        (x.authority?'<div class="sub" style="font-size:10px;margin-top:2px" title="'+esc(x.authority)+'">📖 '+esc(x.authority.length>44?x.authority.slice(0,42)+'…':x.authority)+'</div>':'')+'</td>',
       flags:'<td class="c-wrap"><div class="flagwrap">'+((x.flags&&x.flags.length)?x.flags.map(fl=>{const benign=fl==='scan credential';const lbl=(benign&&x.scan_credential)?('scan credential ×'+x.scan_credential.hosts+((x.scan_credential.via||[]).length?' ('+x.scan_credential.via.join('/')+')':'')):fl;return '<span class="chip"'+(benign?' title="Nessus scan account (plugin 19506) — high host-count is scanning, not reuse"':'')+' style="'+(benign?'color:var(--ok);border-color:rgba(52,211,153,.4)':'color:var(--cx-ffb4c6);border-color:rgba(255,80,120,.4)')+'">'+esc(lbl)+'</span>';}).join(''):'<span class="sub">—</span>')+'</div></td>',
-      hosts:'<td class="sub c-nw" title="'+esc((x.hosts||[]).join(', '))+'">'+esc((x.hosts||[]).slice(0,4).join(', '))+((x.hosts||[]).length>4?' +'+(x.hosts.length-4):'')+'</td>',
-      assets:'<td>'+N((x.asset_uuids||[]).length)+'</td>',
+      hosts:'<td class="sub c-nw" title="'+esc((x.hosts||[]).join(', ')+((x.hosts_n||0)>(x.hosts||[]).length?' … +'+((x.hosts_n||0)-(x.hosts||[]).length)+' more':''))+'">'+esc((x.hosts||[]).slice(0,4).join(', '))+((x.hosts_n||0)>4?' +'+((x.hosts_n||0)-4):'')+'</td>',
+      assets:'<td>'+N(x.assets_n)+'</td>',
       acr:'<td>'+(x.max_acr==null||!x.max_acr?'<span class="sub">—</span>':(x.max_acr>=7?'<b style="color:var(--crit)">'+x.max_acr+'</b>':x.max_acr))+'</td>',
       plugins:'<td class="mono sub c-nw" style="font-size:11px" title="'+esc((x.plugins||[]).join(', '))+'">'+esc((x.plugins||[]).join(', '))+'</td>',
       plat:'<td>'+plat(x.url)+'</td>',
-      act:'<td><button class="btn ghost sm" data-ii="'+i+'" title="Tag '+esc(idCat(x.klass))+' : '+esc(x.user)+'">🏷️ Tag</button></td>'};
-    return '<tr>'+vc.map(c=>CELL[c.k]).join('')+'</tr>'; };
-  const emptyMsg=a.length?'<tr><td colspan="'+vc.length+'" class="sub">Nothing matches this filter.</td></tr>':'<tr><td colspan="'+vc.length+'" class="sub">No identities enumerated — are these hosts credentialed?</td></tr>';
-  hPaginate('tbl', rows, rowHtml, {cols:vc.length, empty:emptyMsg, wire:tb=>{ tb.querySelectorAll('button[data-ii]').forEach(b=>b.onclick=()=>{const x=a[+b.dataset.ii]; tagOne(idCat(x.klass),x.user,x.asset_uuids,b);}); }});
+      act:'<td><button class="btn ghost sm" data-rk="'+esc(x.rk)+'" title="Tag '+esc(idCat(x.klass))+' : '+esc(x.user)+'">🏷️ Tag</button></td>'};
+    return '<tr>'+visCols().map(c=>CELL[c.k]).join('')+'</tr>'; }
+function renderTable(){
+  const total=IDENT.accounts_total||0, flags=viewFlags();
+  document.querySelectorAll('#idFilter button').forEach(x=>x.classList.toggle('on',x.dataset.if===IDENT_FILTER));
+  const fe=document.getElementById('filt');
+  fe.innerHTML=FILTER?`<span class="fchip">${esc(FILTERS[FILTER][0])}<button id="clrF" title="Clear">✕</button></span>`:'';
+  const cf=document.getElementById('clrF'); if(cf) cf.onclick=()=>{ FILTER=null; renderMetrics(); renderTable(); };
+  setNavCount('secIds', N(total));
+  const vc=visCols(); buildHead('');
+  const opts={api:API, table:'tbl', run:RUN, section:'ids', cols:vc.length, row:x=>rowHtml(x), filter:flags, search:'idQ',
+    empty:'<tr><td colspan="9" class="sub">'+(total?'Nothing matches this filter or search.':'No identities enumerated — are these hosts credentialed?')+'</td></tr>',
+    wire:(tb,rows)=>{ tb.querySelectorAll('button[data-rk]').forEach(b=>b.onclick=()=>{ const x=rows.find(o=>o.rk===b.dataset.rk); if(x) tagKey(idCat(x.klass),x.user,{kind:'id',rk:x.rk},b); }); },
+    onRender:T=>{ const tot=(IDENT&&IDENT.accounts_total)||0, t=T.total, k=t?+t.value||0:0;
+      document.getElementById('count').textContent=(k===tot&&!viewFlags().length&&!idQ())?`(${N(tot)})`:`(${N(k)} of ${N(tot)})`;
+      document.getElementById('tagShown').disabled=!k; }};
+  if(!RUN){ document.querySelector('#tbl tbody').innerHTML='<tr><td colspan="'+vc.length+'" class="sub">Press ▶ Run.</td></tr>'; return; }
+  if(!TI) TI=hDrill(Object.assign(opts,{first:(flags.length||idQ())?null:FIRST}));
+  else TI.set({run:RUN, filter:flags});
 }
-
 function renderReuse(){
-  const r=(IDENT.accounts||[]).filter(isReused).sort((p,q)=>q.reused-p.reused);
-  document.getElementById('reuseCount').textContent=`(${N(r.length)} account${r.length===1?'':'s'} · ${N((IDENT.counts||{}).reused_hosts)} hosts)`; setNavCount('secReuse', N(r.length));
-  document.getElementById('tagReused').disabled=!r.length;
-  hPaginate('reuseTbl', r, x=>`<tr><td class="mono"><b>${esc(x.user)}</b></td><td><span class="tagval" style="color:${KC[x.klass]||'var(--accent)'}">${esc(x.klass)}</span></td>`+
-      `<td><b>${N(x.reused||(x.asset_uuids||[]).length)}</b></td>`+
+  const n=(IDENT.counts||{}).reused||0;
+  document.getElementById('reuseCount').textContent=`(${N(n)} account${n===1?'':'s'} · ${N((IDENT.counts||{}).reused_hosts)} hosts)`; setNavCount('secReuse', N(n));
+  document.getElementById('tagReused').disabled=!n;
+  if(!RUN) return;
+  TR=hDrill({api:API, table:'reuseTbl', run:RUN, section:'reuse', cols:6,
+    row:x=>`<tr><td class="mono"><b>${esc(x.user)}</b></td><td><span class="tagval" style="color:${KC[x.klass]||'var(--accent)'}">${esc(x.klass)}</span></td>`+
+      `<td><b>${N(x.reused||x.assets_n)}</b></td>`+
       `<td>${x.crown_hosts?`<b style="color:var(--crit)">${N(x.crown_hosts)}</b>`:'0'}</td>`+
       `<td><div class="flagwrap" style="display:flex;flex-wrap:wrap;gap:4px">${(x.risky||[]).filter(f=>!/^account reuse/.test(f)).map(f=>`<span class="chip" style="margin:0;color:var(--cx-ffb4c6)">${esc(f)}</span>`).join('')}</div></td>`+
-      `<td><button class="btn ghost sm" data-ru="${esc(x.user)}" title="Tag these hosts Identity Risk : Account Reuse : ${esc(x.user)}">🏷️ Tag</button></td></tr>`,
-    {cols:6, empty:'<tr><td colspan="6" class="sub">No account appears on five or more hosts (scan credentials excluded).</td></tr>',
-     wire:tb=>tb.querySelectorAll('button[data-ru]').forEach(b=>b.onclick=()=>{ const x=r.find(o=>o.user===b.dataset.ru); if(x) tagOne('Identity Risk','Account Reuse : '+x.user,x.reuse_uuids||x.asset_uuids,b); })});
+      `<td><button class="btn ghost sm" data-ru="${esc(x.rk)}" title="Tag these hosts Identity Risk : Account Reuse : ${esc(x.user)}">🏷️ Tag</button></td></tr>`,
+    empty:'<tr><td colspan="6" class="sub">No account appears on five or more hosts (scan credentials excluded).</td></tr>',
+    wire:(tb,rows)=>tb.querySelectorAll('button[data-ru]').forEach(b=>b.onclick=()=>{ const x=rows.find(o=>o.rk===b.dataset.ru); if(x) tagKey('Identity Risk','Account Reuse : '+x.user,{kind:x.reuse_n?'reuse':'id',rk:x.rk},b); })});
 }
 
 function renderAuth(){
-  const hs=IDENT.host_sets||{}, a=IDENT.accounts||[];
-  const rows=SIGNALS.map(([key,label,note,val])=>({key,label,note,val,hosts:(hs[key]||[]).length,ids:a.filter(x=>x.klass!=='machine'&&has(x,key)).length}));
+  const v=IDENT.view||{}, hs=v.host_sets||{}, ai=v.auth_ids||{};
+  const rows=SIGNALS.map(([key,label,note,val])=>({key,label,note,val,hosts:hs[key]||0,ids:ai[key]||0}));
   const live=rows.filter(r=>r.hosts);
   document.getElementById('authCount').textContent=`(${N(live.length)} signal${live.length===1?'':'s'})`; setNavCount('secAuth', N(live.length));
   document.querySelector('#authTbl tbody').innerHTML=rows.map(r=>`<tr${r.hosts?'':' style="opacity:.55"'}><td><b>${esc(r.label)}</b></td><td class="sub">${esc(r.note)}</td><td><b>${N(r.hosts)}</b></td><td>${N(r.ids)}</td>`+
     `<td>${r.hosts?`<button class="btn ghost sm" data-sig="${esc(r.key)}">🏷️ Tag</button>`:''}</td></tr>`).join('');
-  document.querySelectorAll('#authTbl button[data-sig]').forEach(b=>b.onclick=()=>{ const r=rows.find(x=>x.key===b.dataset.sig); tagOne('Identity Risk',r.val,hs[r.key]||[],b); });
+  document.querySelectorAll('#authTbl button[data-sig]').forEach(b=>b.onclick=()=>{ const r=rows.find(x=>x.key===b.dataset.sig); tagKey('Identity Risk',r.val,{kind:'hs',key:r.key},b); });
 }
 
 function renderCov(){
@@ -258,8 +265,8 @@ function renderCov(){
 }
 
 function render(){
-  if(!IDENT) return; const a=IDENT.accounts||[];
-  document.getElementById('nlCard').style.display=a.length?'block':'none';
+  if(!IDENT) return; const n=IDENT.accounts_total||0;
+  document.getElementById('nlCard').style.display=n?'block':'none';
   document.getElementById('nlHint').textContent=window.__LLM?'model ready':'no model — use the Tag buttons';
   renderMetrics(); renderTable(); renderReuse(); renderAuth(); renderCov();
 }
@@ -277,48 +284,43 @@ async function gated(btn,label,call,okMsg){
   flash('flash','✓ '+okMsg(o)+' — sent to the <a href="/web/tags-log.html">Tagging log</a>.'+(o.writes_enabled===false?' Writes are gated, so nothing reaches Tenable until NAVI_ALLOW_WRITES=1.':' Tags take ~30 min to land in Tenable.'),'ok'); scroll();
   return o;
 }
-async function tagOne(category,value,uuids,btn){
-  const uu=[...new Set((uuids||[]).filter(Boolean))]; if(!uu.length){ flash('flash','Nothing to tag.','warn'); return; }
+/* a KEY tag: the server counts it first (dry — read-only), the confirm names exactly what will be
+   written, then the same key is sent with confirm:true and the server rebuilds the hosts */
+async function tagKey(category,value,set,btn,label){
+  set=Object.assign({run:RUN},set);
   try{ await testRunStatus(); }catch(e){}
-  return gated(btn,`queue ${esc(tagCat(category))} : ${esc(value)} on ${uu.length} asset(s)`,()=>API.post('tag',{category,value,asset_uuids:uu,confirm:true}),
-    ()=>`queued <span class="tagval">${esc(category)} : ${esc(value)}</span> on ${N(uu.length)} asset(s)`);
-}
-async function tagItems(items,btn,label){
-  items=items.filter(x=>(x.asset_uuids||[]).length); if(!items.length){ flash('flash','Nothing to tag.','warn'); return; }
-  try{ await testRunStatus(); }catch(e){}
-  // name exactly what is written: the categories (test-run prefix included), how many tags, how many assets
-  const cats=[...new Set(items.map(x=>tagCat(x.category)))];
-  const nAssets=new Set(items.flatMap(x=>x.asset_uuids||[])).size;
-  const sample=items.slice(0,3).map(x=>tagCat(x.category)+' : '+x.value).join(', ')+(items.length>3?', …':'');
-  return gated(btn,`queue ${items.length} ${esc(cats.join(' / '))} tag(s) (${esc(sample)}) on ${nAssets} asset(s)`,()=>API.post('tag',{items,confirm:true}),o=>`queued ${N(o.applied)} of ${N(o.total)} ${label}`);
+  let d; try{ d=await API.post('tag',{category,value,set,dry:true}); }catch(e){ d={ok:false,error:e.message}; }
+  if(!d||!d.ok){ flash('flash','✗ '+esc((d&&d.error)||'could not count that set'),'crit'); return; }
+  if(!d.tags||!d.assets){ flash('flash','Nothing to tag.','warn'); return; }
+  const cats=(d.categories||[]).map(c=>tagCat(c)).join(' / ');
+  const what=d.tags===1?`${esc(tagCat(category))} : ${esc(value||(d.sample||[''])[0])}`:`${N(d.tags)} ${esc(cats)} tag(s) (${esc((d.sample||[]).join(', '))}${d.tags>3?', …':''})`;
+  return gated(btn,`queue ${what} on ${N(d.assets)} asset(s)`,()=>API.post('tag',{category,value,set,confirm:true}),
+    o=>d.tags===1?`queued <span class="tagval">${esc(category)} : ${esc(value||'')}</span> on ${N(o.count)} asset(s)`:`queued ${N(o.applied)} of ${N(o.total)} ${label||'tag(s)'}`);
 }
 document.querySelectorAll('#secIds button[data-cls]').forEach(b=>b.onclick=()=>{
-  if(!IDENT) return; const cls=b.dataset.cls, cat=b.dataset.cat, set=(IDENT.accounts||[]).filter(x=>x.klass===cls);
-  if(!set.length){ flash('flash','No '+esc(cls)+' identities to tag.','warn'); return; }
-  if(cls==='human') return tagItems(set.map(x=>({category:cat,value:x.user,asset_uuids:x.asset_uuids})),b,'Owner tag(s)');
-  tagOne(cat,cls==='nhi'?'Non-human identity':(cls.charAt(0).toUpperCase()+cls.slice(1)),set.flatMap(x=>x.asset_uuids||[]),b);
+  if(!IDENT||!RUN) return; const cls=b.dataset.cls, cat=b.dataset.cat;
+  if(!((IDENT.view||{}).classes||{})[cls]){ flash('flash','No '+esc(cls)+' identities to tag.','warn'); return; }
+  if(cls==='human') return tagKey(cat,'',{kind:'each',filter:['k:human'],category:cat},b,'Owner tag(s)');
+  tagKey(cat,cls==='nhi'?'Non-human identity':(cls.charAt(0).toUpperCase()+cls.slice(1)),{kind:'union',filter:['k:'+cls]},b);
 });
-document.getElementById('tagShown').onclick=function(){ const rows=shown().map(o=>o.x);
-  tagItems(rows.map(x=>({category:idCat(x.klass),value:x.user,asset_uuids:x.asset_uuids})),this,'identity tag(s)'); };
-document.getElementById('tagReused').onclick=function(){ const set=(IDENT.accounts||[]).filter(isReused);
-  tagOne('Identity Risk','Account Reuse',[...new Set(set.flatMap(x=>x.reuse_uuids||[]))],this); };
-document.getElementById('tagBlind').onclick=function(){ tagOne('Identity Coverage','No Credentials',(IDENT.host_sets||{}).uncredentialed||[],this); };
+document.getElementById('tagShown').onclick=function(){ tagKey('Identity','',{kind:'each',filter:viewFlags(),q:idQ()},this,'identity tag(s)'); };
+document.getElementById('tagReused').onclick=function(){ tagKey('Identity Risk','Account Reuse',{kind:'reuse'},this); };
+document.getElementById('tagBlind').onclick=function(){ tagKey('Identity Coverage','No Credentials',{kind:'hs',key:'uncredentialed'},this); };
 
 async function nlInterpret(){
   if(!IDENT)return; const q=document.getElementById('nl').value.trim(); const prev=document.getElementById('nlPrev');
   if(!q){ prev.innerHTML='<div class="callbox" style="color:var(--crit)">Type an instruction first.</div>'; return; }
   prev.innerHTML='<div class="callbox"><span class="spin"></span> interpreting…</div>';
-  let o; try{ o=await API.post('interpret',{prompt:q,accounts:IDENT.accounts}); }catch(e){ o={ok:false,error:e.message}; }
+  let o; try{ o=await API.post('interpret',{prompt:q,run:RUN}); }catch(e){ o={ok:false,error:e.message}; }
   if(!o||!o.ok){ prev.innerHTML='<div class="callbox" style="color:var(--crit)">✗ '+esc((o&&(o.error||o.message))||'failed')+'</div>'; return; }
   const asg=(o.assignments||[]).filter(x=>x&&(x.value||x.category));
   if(!asg.length){ prev.innerHTML='<div class="callbox">No assignments proposed — rephrase the instruction.</div>'; return; }
-  const byUser={}; (IDENT.accounts||[]).forEach(x=>byUser[x.user]=x);
-  const items=asg.map(x=>{const acc=byUser[x.user]||{}; return {category:x.category||idCat(acc.klass),value:x.value||x.user,asset_uuids:acc.asset_uuids||x.asset_uuids||[]};}).filter(x=>x.asset_uuids.length);
+  const list=asg.map(x=>({user:x.user,category:x.category||'',value:x.value||x.user}));
   prev.innerHTML='<div class="callbox"><b>Proposed tags</b>'+asg.map(x=>'<div style="margin-top:6px">'+esc(x.user||'')+' → <span class="tagval">'+esc((x.category||''))+' : '+esc((x.value||''))+'</span></div>').join('')+
-    '<div class="toolbar" style="margin-top:10px"><button class="btn sm" id="asgApply">🏷️ Tag all '+items.length+' proposed</button></div></div>';
-  const ab=document.getElementById('asgApply'); if(ab) ab.onclick=()=>tagItems(items,ab,'proposed tag(s)');
+    '<div class="toolbar" style="margin-top:10px"><button class="btn sm" id="asgApply">🏷️ Tag all '+list.length+' proposed</button></div></div>';
+  const ab=document.getElementById('asgApply'); if(ab) ab.onclick=()=>tagKey('','',{kind:'assign',list},ab,'proposed tag(s)');
 }
-document.querySelectorAll('#idFilter button[data-if]').forEach(b=>b.onclick=()=>{ IDENT_FILTER=b.dataset.if; if(IDENT){ hPageReset('tbl'); renderMetrics(); renderTable(); } });
+document.querySelectorAll('#idFilter button[data-if]').forEach(b=>b.onclick=()=>{ IDENT_FILTER=b.dataset.if; if(IDENT){ renderMetrics(); renderTable(); } });
 document.getElementById('run').onclick=run;
 document.getElementById('nlGo').onclick=nlInterpret;
 mountAgentHeader({id:'identity',icon:'🆔',name:'Identity Inventory',sub:'Janus · NHI + human + machine identities'});
