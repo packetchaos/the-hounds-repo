@@ -1,0 +1,56 @@
+{
+  "codename": "Fenrir",
+  "discipline": "Attack Path Analysis",
+  "category": "Risk",
+  "tagline": "See the chains an attacker would follow — and break them first.",
+  "lore": "Fenrir, the great wolf the gods chained until he broke free at Ragnarök — here he traces how a breach slips its chains: foothold, lateral move, crown jewel.",
+  "problem": "Vulnerability lists, identity issues and failed controls live in separate silos, so nobody sees that an exploitable box sits one hop from a crown-jewel server. Teams face thousands of findings with no view of which chain actually gets an attacker to what matters.",
+  "does": "Fenrir chains the weaknesses Tenable already found — remote exploits, default credentials, open unauthenticated services, local privilege escalation, accounts reused across hosts, NTLM relay, domain-controller flaws and failed controls like LAPS, SMB signing and LLMNR — into ranked routes to every crown jewel (ACR ≥ 7), then finds the fixes that cut the most exposure.",
+  "glance": {
+    "caption": "Fenrir's At a glance: how many crown jewels are reachable and how (entry points, multi-step chains, KEV, reused accounts, failed controls, privilege escalation, NTLM relay) and Fix first — the exposure cut by the best fixes, plus how many hosts were scanned without credentials."
+  },
+  "capabilities": [
+    [
+      "Chained steps with evidence",
+      "exploit → privilege escalation → credential harvest → lateral move → crown jewel; every step names its finding and its ATT&CK technique."
+    ],
+    [
+      "Failed controls as enablers",
+      "failed compliance checks (LAPS, SMB signing, LLMNR, WDigest, LSASS protection, sudo, empty passwords) become the steps they make possible."
+    ],
+    [
+      "Honest credential pivots",
+      "an account present on several hosts is a pivot; navi.db can't show a shared password, so Fenrir doesn't claim one — except local Administrator where LAPS has failed."
+    ],
+    [
+      "Interactive attack map",
+      "attacker → crown jewels, with diverse routes per target; click any host or step for its evidence."
+    ],
+    [
+      "Fix first",
+      "choke points and a remediation bundle ranked by how much crown-jewel exposure each fix removes, recalculated as fixes are applied."
+    ],
+    [
+      "Gated tags and CSV",
+      "Attack Path : Entry Point, Pivot, Target or Choke Point on the exact assets; paths export to CSV."
+    ]
+  ],
+  "how": "Fenrir reads your local navi.db — open findings and their ports, KEV references, EPSS, VPR, failed compliance checks, accounts found on hosts (Janus's engine), credential state and ACR. There is no flow or firewall data in navi.db, so reachability is inferred from an assumed internal foothold, and every edge says how. Tags are written behind the write gate and a confirm.",
+  "who": "SOC and threat-led vulnerability teams, red and purple teams validating paths, and CISOs who need to show the chain — and how it was broken.",
+  "better": "Anubis's calibrated ACR decides what a crown jewel is; Janus supplies the accounts; Chronos's coverage tells you which hosts Fenrir can't see into. Nemesis adds an attack-path factor to each asset's score, and Covenant re-applies the Entry Point and Target tags on its schedule.",
+  "different": [
+    [
+      "Many signals, one list",
+      "exploitability, credentials, controls and criticality compound instead of competing."
+    ],
+    [
+      "Honest about reachability",
+      "inferred, not observed — and each step shows why it is believed."
+    ],
+    [
+      "Fix-first, not find-more",
+      "the output is the short list of fixes that breaks the most chains."
+    ]
+  ],
+  "cta": "Trace the chains to your crown jewels with Fenrir — then break them first."
+}

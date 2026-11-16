@@ -1,0 +1,42 @@
+{
+  "codename": "Plott",
+  "discipline": "Fixed Findings Explorer",
+  "category": "Explore",
+  "tagline": "Prove what's actually fixed — and how long it took.",
+  "lore": "The Plott, a hound that bays the moment it trees its quarry — here it trails the findings that have been fixed, so you can prove what is put to bed.",
+  "problem": "Remediation is only real when the finding closes. Showing what was fixed, when, how long it took and whether it met SLA usually means stitching exports together.",
+  "does": "Plott searches navi's remediation history: every fixed finding with each finding's first-seen and fixed dates, days to fix (computed, not trusted from navi's text field) and navi's own SLA Pass / Fail, SLA failures first.",
+  "glance": {
+    "caption": "Plott's results: each fixed finding with plugin, severity, first seen, fixed on, days to fix and its SLA verdict, worst first."
+  },
+  "capabilities": [
+    [
+      "Remediation history",
+      "every fixed finding with plugin, name, severity and state."
+    ],
+    [
+      "Days to fix",
+      "computed from first seen to fixed."
+    ],
+    [
+      "SLA verdict",
+      "navi's own Pass / Fail, from navi's SLA calculation."
+    ],
+    [
+      "Worst first",
+      "SLA failures first, then by severity; the asset opens Argos."
+    ],
+    [
+      "Ask in plain English",
+      "a question becomes one read-only SQL query over the remediation-history table that you can edit before it runs (needs an AI model)."
+    ],
+    [
+      "CSV and email",
+      "export the rows or send them through Gabriel."
+    ]
+  ],
+  "how": "Plott reads the fixed table in your local navi.db (filled by `navi config update fixed`; navi's SLA calculation stamps each row Pass / Fail) and changes nothing.",
+  "who": "VM leads proving progress, and auditors asking for remediation evidence.",
+  "better": "Sköll measures SLA across open and fixed findings; Plott is the row-level proof behind it.",
+  "cta": "Follow Plott's trail to what's really fixed — and how fast."
+}

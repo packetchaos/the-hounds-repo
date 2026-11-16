@@ -1,0 +1,60 @@
+{
+  "codename": "Covenant",
+  "discipline": "AI Navi Contract",
+  "category": "Orchestration",
+  "tagline": "Write the policy once, arm it when ready — the pack keeps it.",
+  "lore": "A covenant is a binding promise — here it captures your tagging and ACR policy once, then keeps it: planning first, executing only when armed, looping every few hours.",
+  "problem": "Tags and ACR go stale the moment the estate changes. The pack can find and propose all day, but if a human has to approve every tag on every cycle, upkeep stops the first busy week — and automation nobody can review is automation nobody trusts.",
+  "does": "Covenant turns your tagging history and a plain-English policy into a workflow: which hounds tag, with what logic, which ACR changes to make, which stale tags to clear first, and how often to run. It always shows the plan first; only when you arm it does the loop execute — every few hours, behind the same write gate as everything else.",
+  "glance": {
+    "caption": "Covenant's plan preview: for each enabled hound, the tags it would apply on this cycle and how many assets each covers, followed by the ACR changes — reviewed before the Contract is armed."
+  },
+  "capabilities": [
+    [
+      "Start from what you did",
+      "build the contract from the Tagging log (or an exported tag-log CSV): the hounds you used and the ACR changes you made become the starting policy."
+    ],
+    [
+      "Per-hound policy",
+      "19 tagging hounds, each on or off with plain-English logic; without a policy a hound proposes its riskiest top 50."
+    ],
+    [
+      "ACR rules in plain English",
+      "describe a calibration and Covenant writes the rule; optionally protect the changed assets with NO : UPDATE."
+    ],
+    [
+      "Garmr removal phase",
+      "clear the tags you list at the top of a cycle, pause for Tenable to catch up, then re-tag — without deleting the tags themselves."
+    ],
+    [
+      "Plan first, armed to act",
+      "disarmed, the loop only plans; armed (with writes enabled) it runs on a schedule, every 4 hours by default. A one-off cycle runs only when you confirm it."
+    ],
+    [
+      "Each cycle checked and reported",
+      "a QA pass on what landed, the loop log, Alert Raven's checks, and a run-summary email through Gabriel."
+    ],
+    [
+      "Escape hatch",
+      "export the plan as a runnable navi script for when writes must run somewhere else."
+    ]
+  ],
+  "how": "Each cycle can kick off `navi update assets` and `vulns` in the background, builds the plan from each hound's own discovery and tag scheme (the same tags a person would apply from that hound's page), then — only if armed — runs it through the background tag queue. Contracts can be saved and loaded as JSON files.",
+  "who": "Vulnerability management program owners who need upkeep to survive a busy quarter, and automation engineers who want autonomy an auditor can follow.",
+  "better": "Covenant orchestrates the tagging hounds — Laelaps, Pythia, Certania, Charon, Linnaeus, Fenrir, Nemesis, Terminus and the rest — plus Anubis's ACR rules and Garmr's removals. Alert Raven's checks and Gabriel's summary ride along on every cycle.",
+  "different": [
+    [
+      "Same tags as a human",
+      "each hound's adapter mirrors its own tag button — no separate automation scheme."
+    ],
+    [
+      "Nothing on its own",
+      "the loop runs only when armed, a one-off cycle only when you confirm it — both behind the write gate."
+    ],
+    [
+      "Portable",
+      "save, load or export the contract — your policy outlives the session."
+    ]
+  ],
+  "cta": "Write your Contract, arm it when you're ready — then read the summary, not the backlog."
+}

@@ -1,0 +1,50 @@
+{
+  "codename": "Saluki",
+  "discipline": "Compliance Explorer",
+  "category": "Explore",
+  "tagline": "Find any audit result — any check, on any asset — in one search.",
+  "lore": "The Saluki, one of the oldest hound breeds, a sighthound that marks its quarry across open ground — here it ranges every audit result in navi.db.",
+  "problem": "Compliance scans leave one result per check per asset — tens of thousands of rows. \"Which hosts fail this control?\", \"what does this audit file say about that server?\" and \"everything failing PCI\" are simple questions that shouldn't need a dashboard or SQL.",
+  "does": "Saluki searches every audit result in navi.db by check name or ID, audit file, framework, status, or asset — hostname, IP or UUID — with failed results first. Each row opens to show actual vs expected, the fix, and the framework references; a check opens across every asset that ran it.",
+  "glance": {
+    "caption": "Saluki's headline numbers on a 128-asset lab, counted over the whole search: 660 audit results on 60 assets across 11 checks, a 54.2% pass rate, 275 failed, 60 warnings — and all 60 assets failing at least one check."
+  },
+  "capabilities": [
+    [
+      "Search anything",
+      "check name or ID, audit file, hostname, IP or asset UUID in one box."
+    ],
+    [
+      "Filter fast",
+      "by status (failed, warning, passed, other), audit file and framework, with result counts in each list."
+    ],
+    [
+      "The whole filtered set",
+      "results, assets, checks, pass rate, failed, warnings and assets failing a check — counted over every match, not just the page."
+    ],
+    [
+      "Detail on click",
+      "actual vs expected, the solution, check info, a reference link, and the framework controls it maps to."
+    ],
+    [
+      "One check, every asset",
+      "click a check ID to see it on every asset that ran it."
+    ],
+    [
+      "Into the deep-dives",
+      "each asset opens Argos, or Tiresias for every check on that asset."
+    ],
+    [
+      "Ask in plain English",
+      "a question becomes one read-only SQL query over the audit-result table that you can edit before it runs (needs an AI model)."
+    ],
+    [
+      "CSV and email",
+      "export the whole search (up to 50,000 rows) or send it through Gabriel."
+    ]
+  ],
+  "how": "Saluki runs read-only searches over the compliance table in your local navi.db (filled by `navi config update compliance`), joined to assets for hostname and IP. Results page on the server, 20 rows a page (up to 50), so it stays fast on large estates.",
+  "who": "Auditors and GRC analysts answering a specific question, and system owners checking how their hosts measure against a benchmark.",
+  "better": "Minos gives the estate-wide verdict, Tiresias explains one asset, and Draco writes the custom checks that end up here. Saluki is the search across all of it.",
+  "cta": "Name the control — Saluki finds every asset that fails it."
+}

@@ -1,0 +1,35 @@
+{
+  "codename": "Arachne",
+  "discipline": "Web App Scanning",
+  "category": "Risk",
+  "tagline": "See every web app's exposure — by OWASP category, severity and technology.",
+  "lore": "Arachne, the weaver of Greek myth turned into the first spider — here she walks the web your apps spin: the findings that live behind the login and inside each request and response.",
+  "problem": "Web Application Scanning findings live apart from the rest of vulnerability management. Which apps carry criticals, which OWASP categories dominate, which technologies keep showing up, and which apps haven't been scanned lately is hard to see across a whole program.",
+  "does": "Arachne turns navi's WAS data into two dashboards: an overview of every web app — findings by severity, the OWASP Top 10 summed across apps, the technology inventory, scan coverage and apps ranked by risk — and a per-app report. Every bar, category and chip opens the matching apps in Beagle, and cohorts can be tagged on each app's Tenable asset.",
+  "glance": {
+    "caption": "Arachne's At a glance: apps and findings by severity, and scan coverage (fresh vs stale) — each opens the matching apps in Beagle.",
+    "note": "Screenshot not included: the test lab has no WAS data."
+  },
+  "capabilities": [
+    [
+      "WAS overview",
+      "severity totals, OWASP Top 10 profile, technology inventory, crawl depth and recency, apps ranked by risk."
+    ],
+    [
+      "Per-app report",
+      "one app's severity, OWASP profile, tech stack and findings, with each plugin's raw stored output."
+    ],
+    [
+      "Click through to the apps",
+      "every metric, bar and chip opens Beagle filtered to that group (a severity, an OWASP category, a technology, stale scans)."
+    ],
+    [
+      "WAS tags",
+      "WAS OWASP : <category>, WAS Severity : <level> and WAS Technology : <tech> on each matching app's Tenable asset."
+    ]
+  ],
+  "how": "Arachne reads the apps and findings tables in your local navi.db, filled by `navi config update was` (needs a Tenable WAS license); she parses navi's stored OWASP and tech lists for you. Tags go through navi behind the write gate and a confirm.",
+  "who": "AppSec teams running a WAS program, and VM leads who want web-app exposure next to the rest of the estate.",
+  "better": "Vizsla finds an app, Beagle maps one app's surface, and Arachne gives the program view. Nemesis counts web-app exposure in each asset's score, and Covenant re-applies the WAS tags on its schedule.",
+  "cta": "Let Arachne walk your web — and show you where it's weakest."
+}

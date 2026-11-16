@@ -1,0 +1,56 @@
+{
+  "codename": "Daedalus",
+  "discipline": "Dashboard Builder",
+  "category": "Explore",
+  "tagline": "Describe the view you need — get it in seconds.",
+  "lore": "Daedalus, the master craftsman who built the Labyrinth — here he builds the view you ask for from one plain-English request.",
+  "problem": "Every team eventually needs a view nobody built: assets per owner, certificate signature algorithms, the plugins that would close the most findings. Getting it usually means a ticket, a query and a reporting tool — days for a question that should take seconds.",
+  "does": "Daedalus turns a plain-English request into one read-only query over navi.db and renders the answer as a chart, KPI or table. 34 starter metrics run with no AI model at all. Pin what you like to your own dashboard, rearrange and resize it, email it, or promote it to a standalone page.",
+  "glance": {
+    "caption": "Daedalus's starter metrics — KEV-exposed assets, crown-jewel risk, blind hosts, ownership coverage, top fixes by findings closed, credentialed coverage, EOL products, certificate algorithms, remediation funnel and more — each one click to run and pin."
+  },
+  "capabilities": [
+    [
+      "Ask in plain English",
+      "\"top 10 plugins by affected assets\" — the model writes one SQL SELECT, which you can see before it renders."
+    ],
+    [
+      "Read-only by design",
+      "the query must be a single SELECT and navi.db is opened read-only, so nothing can be changed."
+    ],
+    [
+      "34 starter metrics, no model needed",
+      "from findings by severity and VPR band to stale assets, weak-key certificates and the remediation funnel."
+    ],
+    [
+      "25 chart types",
+      "KPI, bar, column, stacked, pie, donut, line, area, scatter, heatmap, Sankey, treemap, funnel, waterfall, Pareto, gauge, table and more."
+    ],
+    [
+      "Your dashboard",
+      "pin components, drag to reorder, size each one, switch chart type, export CSV or show the SQL; saved in your browser."
+    ],
+    [
+      "Share it",
+      "email the dashboard through Gabriel, or promote it to a standalone, refreshable Custom Dashboard page."
+    ]
+  ],
+  "how": "Daedalus sends your request and navi.db's schema to the configured AI model, validates the SQL it returns, and runs it read-only against your local navi.db. Starter metrics use built-in queries. Charts render as email-safe SVG, so they look the same on screen and in an inbox.",
+  "who": "Analysts with a one-off question, VM leads who want a team view without a BI project, and anyone who needs a chart for a meeting this afternoon.",
+  "better": "Daedalus visualizes what the pack writes into navi.db — Laelaps's KEV, Atlas's owners, Chronos's coverage, Charon's EOL — and Gabriel delivers the result.",
+  "different": [
+    [
+      "You see the SQL",
+      "every view shows the query behind it — no black box."
+    ],
+    [
+      "Can't break anything",
+      "read-only connection plus a single-SELECT guard."
+    ],
+    [
+      "Useful without a model",
+      "34 starter metrics work out of the box."
+    ]
+  ],
+  "cta": "Describe the view to Daedalus — he'll build it before the meeting starts."
+}

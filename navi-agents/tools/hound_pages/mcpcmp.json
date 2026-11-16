@@ -1,0 +1,34 @@
+{
+  "codename": "Pointer",
+  "discipline": "MCP Compare",
+  "category": "Reference",
+  "tagline": "Know which tool to reach for — the Tenable MCP or navi.",
+  "lore": "The Pointer freezes and aims its whole body at the quarry, so the hunter knows exactly where to go — here it points each job at the right tool: the Tenable MCP or navi.",
+  "problem": "Teams with both the Tenable MCP and navi waste time on the wrong one — trying to tag 50,000 assets with a rule that caps out, or looking for an ACR writer that only one tool has — and lose trust when the two disagree.",
+  "does": "The Pointer is a routing matrix: for each job — lookups, tagging small or at scale, OS / app / device tagging, ACR and AES, exports, SQL, scans, agents, policies, WAS, dashboards — which tool does it best, which can do it, and why. It lists the limits that force a hand-off and shows a navi-side snapshot to check what navi is pointed at.",
+  "glance": {
+    "caption": "MCP Compare's routing matrix: each job, whether navi and the Tenable MCP do it first-class (✅), possibly (☑) or not at all (—), and the reason."
+  },
+  "capabilities": [
+    [
+      "Capability and routing matrix",
+      "15 common jobs, each routed to navi, the Tenable MCP, or either — with the reason."
+    ],
+    [
+      "Limits that force a hand-off",
+      "rule-based tags cap at about 1,024 IPs / 1,999 UUIDs; OS, app and device tagging needs plugin-output fingerprinting; only navi writes ACR; native dashboards are Tenable-only."
+    ],
+    [
+      "When they disagree",
+      "suspect a stale navi.db first; different tenants are the rare case; navi can tell you which key and container it holds."
+    ],
+    [
+      "navi-side snapshot",
+      "the tag categories, asset count and freshness navi sees right now."
+    ]
+  ],
+  "how": "The matrix and notes are reference content in the page; the snapshot reads your local navi.db. Nothing is written. The full \"same account\" check across both tools needs the Tenable MCP alongside navi.",
+  "who": "Anyone using both the Tenable MCP and navi — engineers building workflows, and admins checking that both point at the same tenant.",
+  "better": "Every tagging hound uses navi for the jobs the matrix routes there (tagging at scale, ACR, plugin-output detection); Anubis is the ACR writer it points to.",
+  "cta": "Check the Pointer before you start — then use the right tool."
+}

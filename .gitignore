@@ -1,0 +1,8 @@
+# macOS folder metadata
+.DS_Store
+
+# editor / IDE settings
+.idea/
+
+# crest source images (~36 MB of webp) — the app uses the 384px PNGs in web/assets/crests/
+navi-agents/tools/hound_pages/crest_sources/

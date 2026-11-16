@@ -1,0 +1,42 @@
+{
+  "codename": "Atlas",
+  "discipline": "Exposure Routes",
+  "category": "Ownership",
+  "tagline": "Put an owner on every exposure route — and show the gaps.",
+  "lore": "Atlas, the Titan who gave his name to the book of maps — here he maps every exposure route and path to the people who own it.",
+  "problem": "Thousands of findings only become a manageable list when someone owns them. navi already groups findings into application routes and filesystem paths — but nobody has said who owns each one, so the unowned ones rot until they surface as an incident.",
+  "does": "Atlas maps every application route and filesystem path to an owner, in plain English — \"give the payment routes to VM Team, put /opt under Networking, ignore the ICMP route\" — and tags every asset on a matched route or path Owner : <route or path>: <owner>. He measures coverage honestly: an asset is closed only when every route it sits on has an owner.",
+  "glance": {
+    "caption": "Atlas's At a glance on a 128-asset lab: 6 exposure routes stand in for their findings — 99% fewer items to own; 17% of routes fully owned and every path owned, yet 95 assets still carry ownerless risk; and how the work spreads across owners."
+  },
+  "capabilities": [
+    [
+      "Owners in plain English",
+      "describe the mapping; Atlas resolves each owner against your Tenable users and groups and previews it before tagging."
+    ],
+    [
+      "Owners from Tenable",
+      "users, user groups and agent groups pulled live through navi (the Tenable MCP as a backup), cached so the page stays fast."
+    ],
+    [
+      "Tags on the right assets",
+      "Owner tags on every asset on a matched route or with a matched path, never removing anything."
+    ],
+    [
+      "Decisions, not just owners",
+      "mark a route ignored, accepted or mitigated, and the coverage counts it as handled."
+    ],
+    [
+      "Coverage you can defend",
+      "routes owned, partial or unowned; paths owned; assets fully closed; ownerless risk by VPR."
+    ],
+    [
+      "Ownership Sankey and map",
+      "routes and paths flowing to their owners, the gaps, and each owner's load; drill into any new path."
+    ]
+  ],
+  "how": "Atlas reads routes and paths from your local navi.db and owners live through navi. Plain-English owner assignment uses the configured AI model; the Tag owner panel and ignore / accept / mitigate instructions work without one. Tags go through navi's tag commands behind the write gate and a confirm; Refresh runs a background `navi update assets` so new Owner tags count.",
+  "who": "VM leads who need every finding to have an owner, team leads who want only their slice, and CISOs who must show accountability coverage.",
+  "better": "Terminus rolls Atlas's owners up to each asset, Gabriel emails each owner only their assets, Sköll measures SLA by owner, and Wolfhound, Greyhound and Cavall work the same routes and paths. Covenant can keep the Owner tags current from a mapping in its policy.",
+  "cta": "Ask Atlas who owns your exposure — and where the gaps are."
+}

@@ -1,0 +1,56 @@
+{
+  "codename": "Laelaps",
+  "discipline": "CISA KEV",
+  "category": "Tagging",
+  "tagline": "Find, date and tag every actively exploited vulnerability.",
+  "lore": "Laelaps, the hound fated always to catch its quarry — here he hunts every Known Exploited Vulnerability already caught in the wild.",
+  "problem": "CISA's Known Exploited Vulnerabilities catalog is the clearest \"fix this now\" signal in security — and each entry carries a federal remediation due date. Pulling KEV out of thousands of findings, matching it to due dates, and handing it to a patch team is tedious and easy to let slide.",
+  "does": "Laelaps finds every asset with a KEV finding from the CISA KEV reference Tenable attaches to each finding, joins it to CISA's catalog for due dates and ransomware use, and shows what is overdue, what is due soon, which crown jewels and vendors are involved — then tags the assets so the work can be routed.",
+  "glance": {
+    "caption": "Laelaps's At a glance: KEV exposure (assets and CVEs), CISA due-date compliance (overdue vs due soon), and threat context (ransomware-linked KEVs, crown jewels with KEV, top vendors) — each opens the list behind it."
+  },
+  "capabilities": [
+    [
+      "KEV from your own findings",
+      "Tenable marks each KEV finding with a CISA cross-reference and the date CISA added it; Laelaps reads that, so no memorized CVE list is involved."
+    ],
+    [
+      "Due dates and overdue",
+      "CISA's remediation due date per KEV, on a month-by-month timeline of overdue vs due later."
+    ],
+    [
+      "Ransomware, crown jewels, vendors",
+      "KEVs CISA links to ransomware campaigns, crown jewels (ACR above 7) carrying KEV, and the vendors and products involved."
+    ],
+    [
+      "Four tag schemes",
+      "CISA KEV : Vulnerable, CISA KEV : <date added>, CISA KEV Due : <due date> and CISA KEV : Ransomware — each on the exact assets."
+    ],
+    [
+      "Hunt in plain English",
+      "ask a KEV question and get the answer from one read-only SQL query over navi.db and its tags."
+    ],
+    [
+      "Approved downloads",
+      "the CISA catalog is fetched only after you approve it (or auto-approve in Settings), with a bundled snapshot when offline."
+    ]
+  ],
+  "how": "Laelaps reads the cross-references on findings in your local navi.db and joins CISA's KEV catalog by CVE. Vulnerable and date-added tags use navi's own `--xrefs CISA-KNOWN-EXPLOITED` / `--xid` selectors; Due and Ransomware tags use a tag-by-query on the assets with an open finding for those CVEs. All behind the write gate and a confirm.",
+  "who": "Vulnerability management leads who need a defensible \"patch this first\" list, and teams accountable for CISA due dates.",
+  "better": "KEV drives Nemesis's exploitability factor, the largest in its exposure score. Fenrir uses KEV exploits as attack-path steps, Pythia and Heimdall weight their risk by it, Alert Raven can fire on new KEV exposure, and On the Scent's KEV card opens the exact asset list. Covenant re-applies the KEV tags on its schedule.",
+  "different": [
+    [
+      "Due dates, not just IDs",
+      "the catalog's deadline turns a KEV list into a compliance calendar."
+    ],
+    [
+      "Evidence-based",
+      "tags come from the cross-reference on your actual findings."
+    ],
+    [
+      "Gated, reviewable writes",
+      "every tag proposed, approved and logged."
+    ]
+  ],
+  "cta": "Put Laelaps on the KEV trail — he always catches his quarry."
+}

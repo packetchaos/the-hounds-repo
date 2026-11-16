@@ -1,0 +1,52 @@
+{
+  "codename": "Orthrus",
+  "discipline": "MITRE ATT&CK",
+  "category": "Tagging",
+  "tagline": "Turn raw CVEs into what an attacker would do with them.",
+  "lore": "Orthrus, the two-headed dog and brother of Cerberus — here he links two worlds: your vulnerability findings and the attacker's ATT&CK playbook.",
+  "problem": "A CVE number says something is broken, not what an adversary does with it. Detection engineers think in ATT&CK techniques and tactics; vulnerability data arrives without that context, so two teams look at the same finding in two languages.",
+  "does": "Orthrus fetches the public ATT&CK-to-CVE mapping from MITRE's Center for Threat-Informed Defense, matches it to the CVEs in your findings, and shows the techniques and tactics your unpatched estate enables on an ATT&CK matrix. He tags the affected assets with each CVE's primary impact, secondary impact and exploit technique.",
+  "glance": {
+    "caption": "Orthrus's At a glance on the bundled sample navi.db: 3 assets whose findings cite a CVE in the public ATT&CK mapping, 5 techniques across 4 of 15 tactics — the coverage is only as wide as the public mapping."
+  },
+  "capabilities": [
+    [
+      "Public mapping, approved download",
+      "the Center for Threat-Informed Defense ATT&CK→CVE mapping, fetched after you approve it (or auto-approve in Settings), with a bundled snapshot offline."
+    ],
+    [
+      "Only what's in your estate",
+      "by default only CVEs present in navi.db, so every tag lands on real assets."
+    ],
+    [
+      "ATT&CK matrix",
+      "techniques and tactics your findings enable, by mapping type; full screen and email from the widget."
+    ],
+    [
+      "Mitre tags",
+      "Mitre : Primary Impact: <technique>, Secondary Impact: <technique> and Exploit Technique: <technique> on the assets carrying each CVE, via navi's tag-by-CVE."
+    ],
+    [
+      "Honest coverage",
+      "not every CVE has a mapped technique; an unmapped CVE simply gets no Mitre tag."
+    ]
+  ],
+  "how": "Orthrus reads CVEs from your local navi.db and joins the public mapping. Tags use `navi enrich tag --cve` — the CVE picks the assets — with the category fixed to Mitre, behind the write gate and a confirm.",
+  "who": "Threat-informed defense programs mapping exposure to techniques, and detection engineers who want to know which techniques their unpatched estate enables.",
+  "better": "Laelaps says a vulnerability is exploited; Orthrus says how it's used. Fenrir labels each attack-path step with its ATT&CK technique, Nemesis counts ATT&CK techniques in its score, and Covenant re-applies the Mitre tags on its schedule.",
+  "different": [
+    [
+      "Context on your findings",
+      "not another threat feed to read — labels on the vulnerabilities you already track."
+    ],
+    [
+      "Bridges two teams",
+      "vulnerability management and detection engineering sort the same list the same way."
+    ],
+    [
+      "Nothing invented",
+      "every technique comes from the public mapping."
+    ]
+  ],
+  "cta": "Ask Orthrus what your vulnerabilities let an attacker do."
+}

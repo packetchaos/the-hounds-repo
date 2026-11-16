@@ -1,0 +1,38 @@
+{
+  "codename": "Bloodhound",
+  "discipline": "Asset Explorer",
+  "category": "Explore",
+  "tagline": "Find any host — and every asset behind a dashboard number.",
+  "lore": "The Bloodhound, finest tracker of the pack — here it tracks any host across navi.db, and every asset behind a number.",
+  "problem": "\"Which assets is that number?\" is the first question after any dashboard — and answering it usually means a hand-written query or an export. Without the list, a metric can't be acted on.",
+  "does": "Bloodhound searches every asset by hostname, IP, OS or network. It is also where On the Scent's At a glance cards land: each card opens the exact assets behind its number — computed by the hound that owns it — riskiest (highest ACR) first, ready to page, search and export.",
+  "glance": {
+    "caption": "Bloodhound opened from an On the Scent card: the evidence card names the number and the hound that owns it, and the asset list below pages and searches on the server and exports to CSV."
+  },
+  "capabilities": [
+    [
+      "Search every asset",
+      "hostname, IP, OS or network in one box."
+    ],
+    [
+      "Evidence lists",
+      "KEV-exploitable assets, assets scored 60 or more, crown jewels (all, with KEV, or scanned without credentials), assets flagged by four or more hounds, EOL software, quantum-vulnerable crypto."
+    ],
+    [
+      "Same count as the card",
+      "each list is computed with the owning hound's own rule — Laelaps, Nemesis, Charon or Heimdall."
+    ],
+    [
+      "Any size",
+      "the list is stored on the server, so 50 or 150,000 assets page, search and export the same way."
+    ],
+    [
+      "One click to act",
+      "every host opens Argos, where its findings can be remediated with Amarok or tagged; a Tenable link opens it in Tenable."
+    ]
+  ],
+  "how": "Bloodhound reads your local navi.db and changes nothing. Evidence lists are built on request by the hound that owns the number, so they reflect navi.db now — a card built at the last Release the Hounds run can differ slightly.",
+  "who": "Analysts and VM leads who need to see — and act on — the assets behind a metric.",
+  "better": "On the Scent's cards open here; Argos takes over for one asset; Gabriel can email the list.",
+  "cta": "Give Bloodhound a number — it brings back every asset behind it."
+}

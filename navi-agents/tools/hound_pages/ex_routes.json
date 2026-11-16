@@ -1,0 +1,34 @@
+{
+  "codename": "Wolfhound",
+  "discipline": "Route Explorer",
+  "category": "Explore",
+  "tagline": "Search every application route — and tag the assets on it.",
+  "lore": "The Wolfhound, large enough to run down a wolf — here it runs down the application routes navi builds from your findings.",
+  "problem": "navi groups findings into application routes, and that is where exposure concentrates by app. Pulling one app's routes — and tagging the assets on them — shouldn't need a hand-written query.",
+  "does": "Wolfhound searches the application routes in navi.db by app name or vulnerability type, with each route's total findings and plugins. Tag applies Route : <name> to every asset on that route.",
+  "glance": {
+    "caption": "Wolfhound's results: each route's app, type, total findings and plugins, with a Tag button per route."
+  },
+  "capabilities": [
+    [
+      "Search routes",
+      "by app name or vulnerability type."
+    ],
+    [
+      "Route detail",
+      "total findings and the plugins behind each route."
+    ],
+    [
+      "Tag a route",
+      "Route : <name> on every asset on that route, with an editable value, behind the write gate and a confirm."
+    ],
+    [
+      "Email the result",
+      "send the rows through Gabriel."
+    ]
+  ],
+  "how": "Wolfhound reads the application routes in your local navi.db without changing it; results page on the server, 20 rows a page (up to 50). Tags go through navi's tag command.",
+  "who": "Analysts scoping an application's exposure and owners looking up their app.",
+  "better": "Atlas assigns owners to these routes, Cavall names the custom apps among them, and Greyhound does the same for filesystem paths.",
+  "cta": "Pull an app's routes with Wolfhound — and tag them in one step."
+}

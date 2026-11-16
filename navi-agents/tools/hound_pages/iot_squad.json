@@ -1,0 +1,46 @@
+{
+  "codename": "Cerberus",
+  "discipline": "IoT Discovery Squad",
+  "category": "Discovery",
+  "tagline": "Find unmanaged devices at the edge — and learn to find more.",
+  "lore": "Cerberus, the many-headed dog guarding the gate of the underworld — here a squad of four agents guards the network edge, where unknown devices slip in.",
+  "problem": "Cameras, controllers, printers, firewalls and lab gear sit at the network edge with no agent, no CMDB entry and no owner. Tenable often sees them in banners, certificates and service output — but nobody turns that evidence into an inventory.",
+  "does": "Cerberus is four cooperating agents. One confirms known devices from a detection registry; one finds the plugins on each confirmed host that carry the device's name; one sweeps those plugins across the estate and proposes new detections; one runs the loop and keeps a ledger of everything tested. You approve at two gates: tagging devices, and adding detections to the registry.",
+  "glance": {
+    "caption": "Cerberus's At a glance on a 128-asset lab: 8 IoT / OT devices confirmed by the registry, 6 of them with critical findings; 4 detections proposed for the registry from 8 carrier plugins; 6 of the 7 identity signals discovery depends on are present in the scan data."
+  },
+  "capabilities": [
+    [
+      "Registry detections",
+      "known devices matched by plugin, plugin name or output — the registry grows as you approve new detections."
+    ],
+    [
+      "Signal fusion",
+      "device type, network-card vendor (OUI), local-network service announcements (mDNS) and certificates find devices the registry doesn't know yet."
+    ],
+    [
+      "Carrier-plugin harvest",
+      "host by host, the plugins whose name or output carries the device term."
+    ],
+    [
+      "Learning loop",
+      "a device term found in a carrier plugin on enough assets (at least 2, rising with the size of the estate) becomes a proposed detection — confirm, cross-reference or new."
+    ],
+    [
+      "Exposure on devices",
+      "critical, high and KEV findings and AES for each device."
+    ],
+    [
+      "Coverage you can trust",
+      "a QA ledger of every plugin-term combination tested, and which of the seven identity signals your scans collect."
+    ],
+    [
+      "Two human gates",
+      "Gate 1 tags devices Asset Inventory : <facet>: <device>; Gate 2 adds approved detections to the registry, exportable."
+    ]
+  ],
+  "how": "Cerberus reads findings and plugin output in your local navi.db; nothing changes until you approve. If your scans are all credentialed agent or SSH scans of servers, the identity signals are absent and the squad finds little — the page says so instead of guessing. Tags go through navi behind the write gate and a confirm.",
+  "who": "OT and IoT security teams who need an inventory they can defend, network teams hunting the unmanaged edge, and VM teams extending coverage beyond agents.",
+  "better": "Cerberus's device tags share Linnaeus's Asset Inventory scheme, so classified devices can be owned (Terminus) and calibrated (Anubis); single candidate tags (IoT : <name>) feed Nemesis's exposure factor. Covenant re-applies the device tags on its schedule.",
+  "cta": "Let Cerberus watch the gate — and learn every device that walks through it."
+}

@@ -1,0 +1,42 @@
+{
+  "codename": "Terminus",
+  "discipline": "Asset Ownership",
+  "category": "Organize",
+  "tagline": "Know who owns every asset — and exactly which ones nobody does.",
+  "lore": "Terminus, the Roman god of boundary stones and property lines — here he settles who owns each asset, and marks what nobody has claimed.",
+  "problem": "Findings don't get fixed until someone owns them. Ownership usually lives in spreadsheets, CMDB fields and tribal knowledge, so the riskiest assets — crown jewels with open criticals — are often the ones nobody has claimed.",
+  "does": "Terminus answers ownership from the asset's side. For every asset he shows who owns it at three layers — Business Owner, the route and path owners from Atlas, and a single Asset Owner — how much of it is claimed, and what is left blind. You assign owners in plain English, preview the match, then tag.",
+  "glance": {
+    "caption": "Terminus's At a glance on a 128-asset lab: 57 assets owned at any layer (44.5%), 71 with no owner, 11 crown jewels (ACR ≥ 9) of which 3 have no owner, and 36 critical findings nobody owns — every card filters the table below it."
+  },
+  "capabilities": [
+    [
+      "Three ownership layers",
+      "Business Owner (accountable leader), Owner (route / path owners from Atlas) and Asset Owner (one owner for the whole asset, or for whatever is left)."
+    ],
+    [
+      "Coverage per asset",
+      "how much of each asset is claimed, which assets are fully claimed, and which have no owner at any layer."
+    ],
+    [
+      "Crown jewels first",
+      "assets with ACR ≥ 9 or a crown-jewel tag, unclaimed first, with what the other hounds already know about each one."
+    ],
+    [
+      "Risk without an owner",
+      "unclaimed crown jewels, open critical and CISA KEV findings on unowned assets, and assets no hound has signaled on."
+    ],
+    [
+      "Owners in plain English",
+      "\"assign Jane Smith to production\" — Terminus reads each asset's tags, previews who matches, and tags them on approval."
+    ],
+    [
+      "Built for large estates",
+      "the per-asset table pages and searches on the server; owner tagging runs as a background job, so 150,000 assets tag as easily as 50."
+    ]
+  ],
+  "how": "Terminus reads ownership from tags in your local navi.db. Business Owner and Asset Owner tags are written through navi's tag commands behind the write gate and a confirm; Refresh runs a background `navi update assets` so new tags show up.",
+  "who": "Vulnerability management leads who route work to owners, risk and GRC teams who need accountability, and IT leaders asking \"what do we own that nobody is watching?\"",
+  "better": "Atlas maps routes and paths to owners; Terminus rolls that up to the asset. Sköll measures SLA by Owner, Gabriel emails each owner their findings, Nemesis counts an ownership gap in its score, and On the Scent links its unclaimed card straight here.",
+  "cta": "Ask Terminus who owns what — and what nobody does."
+}

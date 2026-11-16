@@ -1,0 +1,56 @@
+{
+  "codename": "Amarok",
+  "discipline": "Command & Control",
+  "category": "Operationalize",
+  "tagline": "Take a finding to a fix — one gated, logged command at a time.",
+  "lore": "Amarok, the giant wolf of Inuit legend that hunts alone in the night — here he carries the operator's order to a Linux host over SSH: check it, fix it, prove it.",
+  "problem": "The pack can tell you what is wrong; fixing it still means logging into hosts one by one, guessing why a scan credential failed, and patching from a plugin's solution text by hand. That work is slow, error-prone, and rarely logged.",
+  "does": "Amarok runs read-only diagnostics, credential tests and \"does this path exist?\" checks on Linux hosts, and turns Tenable's own solution text into a remediation plan you review, then deploys it canary-first with a check after each step and a rollback. Every command on every host is recorded in a tamper-evident (hash-chained) log.",
+  "glance": {
+    "caption": "Amarok's At a glance: commands run (today, 7 days, hosts touched), problems in the last 7 days (failures, auth failures, host-key changes, commands on hosts not in navi.db) and remediation readiness (plans generated vs deployed, Linux hosts, runs in progress, and the C2 log's hash chain check)."
+  },
+  "capabilities": [
+    [
+      "Quick diagnostics",
+      "a catalog of read-only checks — OS and kernel, disk, memory, listening ports, DNS, public egress IP, Tenable cloud reachability, Nessus agent status, pending updates, failed services, SELinux / AppArmor, firewall."
+    ],
+    [
+      "Credential test",
+      "login and sudo without a password on each host — and the reason when it fails: auth, unreachable, port closed, DNS, timeout or a changed host key."
+    ],
+    [
+      "Does this path exist?",
+      "type, size, owner, permissions, modified time and SHA-256 for a path on one or many hosts."
+    ],
+    [
+      "Remediation plan from Tenable's text",
+      "the plugin's solution and output become a structured plan (an AI model if configured, package-manager templates if not), checked by a deterministic validator that blocks anything outside an allow-list."
+    ],
+    [
+      "Canary-first deploy",
+      "one host first, verify each step, stop on failure, roll back per host; then re-check navi.db to confirm the finding is gone after the next sync."
+    ],
+    [
+      "Free-form commands and files",
+      "for the operator who needs them — with a destructive-command check, armed batches and an abort switch."
+    ]
+  ],
+  "how": "Amarok drives `navi action push` (SSH to one Linux host per call) and reads plans from your local navi.db. Every remote action needs three things: writes enabled, remote execution separately enabled (NAVI_REMOTE_CODE_EXECUTION), and a confirm. Text from navi.db is treated as data, never as instructions, and the C2 log can be exported.",
+  "who": "Linux and infrastructure teams who remediate, scan engineers chasing credential failures, and VM leads who want fixes that are reviewed, staged and logged.",
+  "better": "Argos and the explorers hand a finding to Amarok pre-filled — never auto-run. Chronos shows which hosts failed credentials; Amarok tells you why. After a fix, Refresh pulls the new scan state so Sköll and Nemesis can count it.",
+  "different": [
+    [
+      "Source of truth first",
+      "plans start from Tenable's own solution text, not a model's guess."
+    ],
+    [
+      "A validator, not a second model",
+      "an allow-list and deny-list decide what can deploy; a model talked into `curl | sh` still can't ship it."
+    ],
+    [
+      "Nothing unlogged",
+      "every command on every host lands in a tamper-evident log."
+    ]
+  ],
+  "cta": "Send Amarok after the finding — reviewed, staged, logged."
+}

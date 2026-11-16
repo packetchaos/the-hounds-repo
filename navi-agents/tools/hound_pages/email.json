@@ -1,0 +1,42 @@
+{
+  "codename": "Gabriel",
+  "discipline": "Email & Reports",
+  "category": "Delivery",
+  "tagline": "Deliver every finding to the person who owns it.",
+  "lore": "Gabriel, the messenger — he carries what the pack found to the people who own it, with a link straight back to the fix.",
+  "problem": "Findings that never reach the right person never get fixed. A report sent to everyone is read by no one, and an owner who has to dig through a portal for their own assets usually doesn't.",
+  "does": "Gabriel turns the pack's findings into email routed by owner: each owner gets only their assets, with links back into Tenable. He also sends CISA KEV fire alarms, certificate countdowns, the On the Scent morning briefing, Contract plans and results — and any chart, list or dashboard in the app. You always preview first; sending is gated.",
+  "glance": {
+    "caption": "Gabriel's owner routing: owners read from Atlas's Owner tags, each with their asset count and KEV / critical exposure — preview the message for any owner before it goes."
+  },
+  "capabilities": [
+    [
+      "Owner-routed remediation",
+      "reads Owner tags from Atlas and emails each owner only their assets, each with its Tenable asset link and the plugin links for its findings."
+    ],
+    [
+      "Seven report types",
+      "owner remediation, vulnerability detail, KEV fire alarm, certificate countdown, morning briefing, Contract plan and Contract result."
+    ],
+    [
+      "Board or technical",
+      "summary counts for leadership, or per-asset, per-finding detail for the people who fix it."
+    ],
+    [
+      "Email anything on screen",
+      "any widget's picture and its list (a CSV attachment at 100 rows or more), a Sankey graph, or a whole Custom Dashboard."
+    ],
+    [
+      "From any hound",
+      "the Email findings button carries a hound's assets, finding IDs and the tag it applied straight into a draft."
+    ],
+    [
+      "Sends exactly what you previewed",
+      "the exact previewed messages are sent, and every send is recorded in the Tagging log."
+    ]
+  ],
+  "how": "Gabriel composes from your local navi.db without changing it, and sends with `navi action mail` — SMTP is configured once, outside the app, with `navi config smtp`. A send needs writes enabled, email enabled (NAVI_EMAIL) and an explicit confirm.",
+  "who": "Vulnerability management teams who need findings to reach asset owners, team leads who want each owner to see only their work, and CISOs who want the briefing in their inbox.",
+  "better": "Atlas's Owner tags decide who gets what; Laelaps supplies the KEV alarm, Certania the certificate countdown, On the Scent the morning briefing, and Covenant the per-cycle summary. Alert Raven sends its digest through the same mail path.",
+  "cta": "Let Gabriel put every finding in the right inbox — one click from the fix."
+}

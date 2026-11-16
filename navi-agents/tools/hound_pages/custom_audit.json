@@ -1,0 +1,42 @@
+{
+  "codename": "Draco",
+  "discipline": "Custom Audit",
+  "category": "Operationalize",
+  "tagline": "Turn a policy requirement into a scan-ready .audit file.",
+  "lore": "Draco, the Athenian lawgiver who set down the first written code — here he turns a policy requirement into a written, enforceable Tenable .audit check.",
+  "problem": "Every organization has requirements no stock benchmark covers — a registry value, a config line, a service that must never run. Writing them as Nessus .audit checks means learning a strict grammar by trial and error, and one quoting mistake stops the file from loading.",
+  "does": "Draco writes custom Tenable .audit files two ways: describe the check in plain English and an AI model drafts Nessus checks, or build each check field by field from a platform catalog. Every file is previewed live, syntax-validated and mapped to frameworks before you download it — and you can seed a whole CIS benchmark and adjust it in one prompt.",
+  "glance": {
+    "caption": "Draco's builder: a check described in plain English, the drafted <custom_item>, its framework references, and the live .audit preview with validation."
+  },
+  "capabilities": [
+    [
+      "Describe it",
+      "\"password minimum length must be 14 on Windows servers\" becomes drafted checks you can edit; with no AI model configured it says so and the builder still works."
+    ],
+    [
+      "Build it",
+      "Windows config (registry, password, lockout and audit policy, user rights, services, REG_CHECK, WMI, PowerShell), Windows file content, and Unix / Linux / macOS (file, content, command, RPM, process, service)."
+    ],
+    [
+      "CIS benchmark seeds",
+      "start from the built-in control index for CIS Docker, Ubuntu Linux or RHEL and tighten sections in one prompt — \"create a CIS Docker benchmark and tighten 5.x\"."
+    ],
+    [
+      "Validated before download",
+      "the .audit grammar is checked so the file loads into a compliance scan."
+    ],
+    [
+      "Framework references",
+      "NIST, PCI, HIPAA, CIS and ISO references suggested for each check."
+    ],
+    [
+      "Import and edit",
+      "upload an existing .audit; each <custom_item> is kept verbatim and becomes editable."
+    ]
+  ],
+  "how": "Draco writes nothing to Tenable or navi — the .audit file is built and downloaded in your browser. The benchmark library holds control numbers, short titles and framework mappings, not CIS text; verify numbering against the official benchmark before an assessment.",
+  "who": "Compliance engineers and auditors who need custom checks, and platform owners turning internal standards into something a scan can test.",
+  "better": "Upload Draco's file to a Tenable compliance scan; once results sync into navi.db, Minos judges them across the estate and Tiresias explains them asset by asset.",
+  "cta": "Tell Draco the rule — he writes the law your scanner can enforce."
+}

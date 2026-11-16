@@ -1,0 +1,41 @@
+
+# runtime tag-log sidecar (durable Tagging log)
+tag_jobs.db
+tag_jobs.db-*
+sample_navi.db
+__pycache__/
+*.pyc
+.DS_Store
+
+# secrets — Settings config store + dotenv
+hounds.config.json*
+hounds.config.json.tmp
+.env
+
+# test runs
+.pytest_cache/
+
+# Exposure Routes snapshot + owner-directory cache (owner names/emails — never commit)
+data/cache/
+
+# navi.db (the Tenable cache) never belongs in git; FUSE leftovers from the mounted folder
+navi.db
+navi.db-*
+.fuse_hidden*
+
+# gate switches (core/navi_cli.py): an enable file in the repo root turns writes / email /
+# remote execution ON for everyone who clones — never commit one
+ALLOW_WRITES
+.allow_writes
+allow_writes
+ALLOW_EMAIL
+.allow_email
+allow_email
+ALLOW_REMOTE_EXEC
+.allow_remote_exec
+allow_remote_exec
+
+# runtime state written into the repo tree: files staged for C2 push (scripts, agent
+# linking keys…) and per-hound metric history from your navi.db
+data/c2_uploads/
+data/history_*.jsonl

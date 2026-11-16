@@ -1,0 +1,47 @@
+{
+  "codename": "Sköll",
+  "discipline": "SLA Adherence",
+  "category": "Risk",
+  "tagline": "Hold every finding to its SLA clock — and see who's late.",
+  "lore": "Sköll, the wolf that forever chases the sun across the sky — here he chases every finding against its SLA clock, so remediation deadlines can't quietly slip.",
+  "problem": "Remediation SLAs are easy to set and hard to measure. Open findings age past their deadline unnoticed, \"fixed within SLA\" is a guess, and nobody can say which owner or team is falling behind — until the audit.",
+  "does": "Sköll measures adherence three ways: navi's own Pass / Fail SLA verdict, open findings aged against your per-severity SLA days, and fixed findings — were they fixed in time, and how long did it take. Every view can be segmented by any tag (Owner by default), and a daily snapshot builds the trend.",
+  "glance": {
+    "caption": "Sköll's At a glance: SLA adherence %, open findings past SLA by severity, the breach outlook, remediation performance (fixed within SLA, days to fix) and where the breaches are by owner — each card opens its detail.",
+    "note": "Screenshot not included yet: re-capture on your own navi.db with tools/hound_pages_capture.js."
+  },
+  "capabilities": [
+    [
+      "Three lenses",
+      "navi's verdict (after `navi config sla calculate`), open-finding aging (needs only your SLA days), and remediation of fixed findings."
+    ],
+    [
+      "Segment by anything",
+      "Owner by default, or any tag category and value."
+    ],
+    [
+      "Where the breaches are",
+      "open breaches by owner or tag, by severity, and the worst assets by open breaches."
+    ],
+    [
+      "Breach outlook",
+      "open findings due within 7, 14 and 30 days, and already past SLA, by severity — before they breach."
+    ],
+    [
+      "Monthly trend charts",
+      "adherence, backlog, new vs fixed, breaches opened, days to fix — each its own widget, full screen on demand."
+    ],
+    [
+      "Daily history",
+      "an unscoped run records the day's point, so trends build without extra work."
+    ],
+    [
+      "Email the dashboard",
+      "send it to the people who need it through Gabriel."
+    ]
+  ],
+  "how": "Sköll reads findings, the fixed table and your SLA thresholds from your local navi.db and writes no tags. Ages are computed from navi's timestamps (not navi's stored text value). Results are cached per navi.db and SLA policy and rebuilt in the background; the trend lives in the app's own store, not in navi.db.",
+  "who": "VM program owners reporting adherence, team leads who need to see their own backlog, and auditors asking for SLA evidence.",
+  "better": "Atlas's Owner tags give Sköll its default segments, Plott shows the row-level fixes behind the remediation numbers, Nemesis counts SLA breaches in its score, and Argos shows each asset's remediation clock.",
+  "cta": "Let Sköll chase the clock — so your deadlines don't slip past unnoticed."
+}

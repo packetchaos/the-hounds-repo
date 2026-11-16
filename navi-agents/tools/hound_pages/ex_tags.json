@@ -1,0 +1,38 @@
+{
+  "codename": "Basset",
+  "discipline": "Tag Explorer",
+  "category": "Explore",
+  "tagline": "See every tag — and exactly which assets carry it.",
+  "lore": "The Basset, nose held low, bred to read every scent mark on the trail — here it reads the marks the pack leaves: every tag and every asset under it.",
+  "problem": "Tags are how the pack's work reaches Tenable, but once there are hundreds of categories and values, nobody can say what exists, how many assets carry each one, or whether a tag landed where it should.",
+  "does": "Basset lists every tag in navi.db — one row per category : value with its asset count — searchable by category or value. Click a tag to see exactly which assets carry it, each linking to Argos and to the asset in Tenable.",
+  "glance": {
+    "caption": "Basset's results: each category : value with its asset count; clicking a tag lists the assets that carry it."
+  },
+  "capabilities": [
+    [
+      "Every tag",
+      "one row per category : value, with its asset count and when it was first and last applied."
+    ],
+    [
+      "Search",
+      "by category or value."
+    ],
+    [
+      "Who carries it",
+      "every asset carrying the tag — host, IP, OS, ACR, AES, when it was tagged, and a Tenable link."
+    ],
+    [
+      "Deep-dive",
+      "every host opens Argos."
+    ],
+    [
+      "Email the result",
+      "send the list through Gabriel."
+    ]
+  ],
+  "how": "Basset reads the tags and assets tables in your local navi.db and changes nothing. New tags appear after the next navi asset sync.",
+  "who": "Anyone checking that a tag landed, auditing the tag estate, or finding the assets behind a tag.",
+  "better": "Basset reads what the tagging hounds write. Garmr removes what no longer belongs, and the Tagging log shows each write from the pack's side.",
+  "cta": "Check any tag with Basset — and see every asset that carries it."
+}

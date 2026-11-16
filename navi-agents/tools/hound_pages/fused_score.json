@@ -1,0 +1,56 @@
+{
+  "codename": "Nemesis",
+  "discipline": "Exposure Score",
+  "category": "Risk",
+  "tagline": "Fuse every hound's signal into one score per asset.",
+  "lore": "Nemesis, the goddess of retribution who brings the reckoning to what has earned it — here she fuses every hound's signal into one exposure score per asset, and ranks what to act on first.",
+  "problem": "Each hound finds something real — KEV, EOL, weak crypto, an attack path, no owner — but a team can't work fifteen lists. The asset that appears on five of them matters more than any single finding, and no single score shows that.",
+  "does": "Nemesis gives every asset one 0–100 Exposure Score built from 16 signals — exploitability (KEV and EPSS), Tenable AES and VPR, ACR, attack paths, identity, compliance, web-app findings, EOL, internet exposure, AI risk, weak or expiring crypto, SLA aging, finding volume, ownership and ATT&CK — then shows what to act on now, the worst asset from each hound, and where their signals converge.",
+  "glance": {
+    "caption": "Nemesis's At a glance on a 128-asset lab: every asset scored (1 high, 28 elevated, 99 low), 1 to act on now at 60 or more; 7 of 11 crown jewels carry a KEV, 4 run EOL software and 7 are blind; 71 assets have no owner."
+  },
+  "capabilities": [
+    [
+      "16 signals, one number",
+      "weights sum to 100, so a score reads as the share of the most danger one asset can carry; dispositions discount it, and Chronos's coverage flags how far to trust it."
+    ],
+    [
+      "Your weighting",
+      "drag any weight to re-rank the estate to what matters to you; each weighting is cached separately."
+    ],
+    [
+      "Act now",
+      "the assets over 80, 60 or 40 today, with one-click hand-offs: tag Priority, tag owners (Terminus), email owners (Gabriel), raise ACR (Anubis) or add to the Contract."
+    ],
+    [
+      "Worst from each hound",
+      "the top asset each hound's signal points at — and the assets where several converge."
+    ],
+    [
+      "Explained",
+      "every asset's score broken down by factor, and how widespread each signal is across the estate."
+    ],
+    [
+      "Priority tags",
+      "Priority : P1 to P4 on the act-now set, recomputed on the server from navi.db — not taken from the browser."
+    ]
+  ],
+  "how": "Direct signals (KEV, EPSS, VPR, ACR, EOL, certificates, compliance, WAS, SLA aging) come straight from your local navi.db; the rest are read from the tags other hounds write. Per-asset aggregation runs inside the database, so it holds up on very large estates. Results are cached per navi.db and weighting, and rebuilt in the background.",
+  "who": "VM leads who need one ranked list, and executives who want to know which assets carry the most danger — and why.",
+  "better": "Nemesis is the pack's convergence point: Laelaps, Fenrir, Janus, Minos, Arachne, Charon, Pythia, Certania, Heimdall, Sköll, Terminus and Orthrus all feed it. On the Scent's crown-jewel and score cards open its evidence, Argos shows any asset's score and rank, and Covenant can tag the top of the list P1.",
+  "different": [
+    [
+      "A rank, not a count",
+      "the same ordering at 100 assets or a million."
+    ],
+    [
+      "Shows its work",
+      "every point traced to the hound and finding behind it."
+    ],
+    [
+      "Honest about blind spots",
+      "low scan coverage lowers confidence instead of hiding risk."
+    ]
+  ],
+  "cta": "Ask Nemesis which assets have earned the reckoning — and act on those first."
+}

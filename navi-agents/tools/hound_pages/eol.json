@@ -1,0 +1,38 @@
+{
+  "codename": "Charon",
+  "discipline": "EOL / Unsupported Software",
+  "category": "Tagging",
+  "tagline": "Tag the software no patch will ever save.",
+  "lore": "Charon, the ferryman across the Styx — here he ferries end-of-life and unsupported software to its reckoning: isolate it or replace it.",
+  "problem": "End-of-life software is risk you cannot patch away: no vendor fix is coming, so every new CVE against it is permanent. It rarely announces itself, and sits in the estate looking like healthy software until an auditor or an attacker finds it.",
+  "does": "Charon finds every asset with an Unsupported or End-of-Life finding, groups them by product (operating system or application), reads the end-of-life date Tenable reports, and shows how long each has been out of support and where it overlaps with crown jewels, CISA KEV and critical findings. Then he tags the assets so replacement can be planned and owned.",
+  "glance": {
+    "caption": "Charon's At a glance on a 128-asset lab: 70 assets on EOL software (8 products, 114 open findings), 18 of them crown jewels; 14 EOL assets also carry a CISA KEV and 53 have critical findings; the oldest product is 9.3 years past end of life."
+  },
+  "capabilities": [
+    [
+      "Detection that keeps up",
+      "matches lifecycle language in Tenable's plugin names (Unsupported, End of Life, SEoL …), so new EOL plugins are picked up with no rules to maintain."
+    ],
+    [
+      "Product view",
+      "each EOL product, operating system or application, with its end-of-life date from the plugin output and years past support."
+    ],
+    [
+      "Why it matters",
+      "EOL assets that are crown jewels (ACR above 7), carry a CISA KEV, or have critical findings."
+    ],
+    [
+      "Support timeline",
+      "when support ended, by date, across the estate."
+    ],
+    [
+      "Lifecycle tags",
+      "Lifecycle : Unsupported or End of Life on every affected asset, and Lifecycle EOL : <date> on exactly the assets whose output states that date."
+    ]
+  ],
+  "how": "Charon reads open findings and plugin output in your local navi.db. Lifecycle group tags use `navi enrich tag --name`; date tags use the exact asset list, never --plugin (which would tag every version's hosts). All writes are behind the write gate and a confirm.",
+  "who": "Vulnerability management teams carrying risk they can't patch away, and IT modernization owners who need an evidence-backed replacement queue.",
+  "better": "Mimir adds a second view — software versions checked against endoflife.date. Nemesis counts EOL in each asset's exposure score, Alert Raven can watch EOL rising, and On the Scent's EOL card opens the exact asset list. Covenant re-applies the Lifecycle tags on its schedule.",
+  "cta": "Ask Charon what is already past saving — and plan the replacement on your terms."
+}

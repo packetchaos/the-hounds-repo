@@ -1,7 +1,7 @@
 {
   "name": "navi-contract",
   "created": "2026-07-26T06:09:31Z",
-  "armed": true,
+  "armed": false,
   "schedule_hours": 4,
   "wait_minutes": 0,
   "navi_update": true,

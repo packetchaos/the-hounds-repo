@@ -1,0 +1,42 @@
+{
+  "codename": "Tiresias",
+  "discipline": "Compliance Deep-Dive",
+  "category": "Explore",
+  "tagline": "See why an asset fails audit — and the vulnerabilities behind it.",
+  "lore": "Tiresias, the blind seer of Thebes who saw what others missed — here he looks past a failed control to the real findings behind it.",
+  "problem": "A failed audit check says what is wrong but not how much it matters. Teams fix controls in isolation, without seeing that the same weakness also shows up as open vulnerabilities on the same host — or which benchmark is dragging the estate down.",
+  "does": "Tiresias investigates compliance two ways. By asset: every audit check the asset passed, failed or warned, with actual vs expected values and framework mappings, plus the inferred link between each failed control and real vulnerabilities on that host. By audit file: a benchmark leaderboard, each file's adherence, the checks and assets it covers, and the vulnerabilities behind its failing controls.",
+  "glance": {
+    "caption": "Tiresias on one asset: its pass / fail / warning counts, the audit-to-vulnerability correlations, and each check with actual vs expected and its framework references."
+  },
+  "capabilities": [
+    [
+      "Every check on one asset",
+      "status, actual vs expected value, and the frameworks and controls it maps to."
+    ],
+    [
+      "Audit ↔ vuln correlation",
+      "compliance results carry no CVEs, so Tiresias infers the link by topic on the same asset — and shows the evidence."
+    ],
+    [
+      "Audit-file lens",
+      "a leaderboard of benchmarks by adherence, then one file's checks, assets and the vulnerabilities behind its failures."
+    ],
+    [
+      "Estate-wide links",
+      "the audit-to-vulnerability correlations across every asset, not just one."
+    ],
+    [
+      "Opened from Minos",
+      "a Minos card (failed, a control, a framework, an audit file, under 50% pass) narrows the asset list and opens its worst asset."
+    ],
+    [
+      "Audit-Vuln Link tags",
+      "tag the asset with a correlated topic you choose, so the joint fix can be routed."
+    ]
+  ],
+  "how": "Tiresias reads the compliance and vulns tables in your local navi.db. The correlation is inferred by keyword topic, never claimed as a CVE match. The Audit-Vuln Link tag goes through navi's tag commands behind the write gate and a confirm.",
+  "who": "Auditors and GRC analysts preparing evidence, and system owners who need to know why their host fails and what to fix first.",
+  "better": "Minos gives the estate-wide verdict and hands each group to Tiresias. Argos and Beagle are the matching deep-dives for an asset's findings and for a web app.",
+  "cta": "Ask Tiresias why an asset fails — he sees the vulnerabilities behind the control."
+}

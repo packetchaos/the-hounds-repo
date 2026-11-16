@@ -1,0 +1,39 @@
+{
+  "codename": "Beagle",
+  "discipline": "Web App Recon",
+  "category": "Explore",
+  "tagline": "Map one web app's surface in one view.",
+  "lore": "The Beagle, a scent hound that works a trail to map exactly where its quarry has been — here it follows navi's WAS info plugins to lay out one web app's terrain.",
+  "problem": "A WAS scan collects far more than findings: the sitemap the crawler found, the scan's telemetry, cookies, allowed methods, external links, a screenshot. That context is what tells you how an app is built and exposed — and it's buried in informational plugins nobody reads.",
+  "does": "Point Beagle at a web app and it lays out the terrain from navi's WAS info plugins — sitemap, scan telemetry, target facts, screenshot, external URLs, cookies and allowed methods — plus the app's other informational and security findings. Every plugin opens its raw stored output, proof and request / response headers.",
+  "glance": {
+    "caption": "Beagle on one web app: its identity, the recon plugins (sitemap, telemetry, target facts, screenshot, external URLs, cookies, methods) and its security findings — each plugin one click from its raw output.",
+    "note": "Screenshot not included: the test lab has no WAS data."
+  },
+  "capabilities": [
+    [
+      "Recon at a glance",
+      "sitemap, scan telemetry, target facts, screenshot, external URLs, cookies and allowed methods from WAS info plugins."
+    ],
+    [
+      "Raw output on demand",
+      "each plugin's stored output, proof and request / response headers."
+    ],
+    [
+      "Security findings too",
+      "the app's non-informational findings, alongside the other info plugins."
+    ],
+    [
+      "Opened from Arachne",
+      "a dashboard link (a severity, an OWASP category, a technology, stale scans) narrows the app list to that group."
+    ],
+    [
+      "Pick any app",
+      "by app or asset UUID, or the riskiest app by default."
+    ]
+  ],
+  "how": "Beagle reads the WAS apps and findings tables in your local navi.db and changes nothing. WAS data needs a Tenable WAS license and `navi config update was`.",
+  "who": "AppSec engineers and pen testers scoping an app, and app owners who want to see what the scanner saw.",
+  "better": "Arachne and Vizsla send you here; Argos is the same deep-dive for infrastructure assets.",
+  "cta": "Put Beagle on an app's trail — it maps everywhere the scanner went."
+}

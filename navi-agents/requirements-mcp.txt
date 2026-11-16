@@ -1,0 +1,5 @@
+# The Hounds MCP server (optional, additive — the base app does NOT need this).
+# Install alongside requirements.txt only when running hounds_mcp.py.
+# Uses FastMCP; the standalone `fastmcp` package is the simplest, or the official
+# `mcp` SDK (which also ships FastMCP) works — hounds_mcp.py accepts either.
+fastmcp>=2.0

@@ -1,0 +1,46 @@
+{
+  "codename": "Argos",
+  "discipline": "Asset Deep-Dive",
+  "category": "Explore",
+  "tagline": "Pull one asset's whole story into a single dossier.",
+  "lore": "Argos, Odysseus's faithful hound — the only one who knew his master after twenty years. Give him one asset and he recognizes it across every table in navi.db.",
+  "problem": "When one asset matters — an incident, an audit, a crown jewel — its story is scattered across findings, tags, software, certificates, scan data and ownership. Pulling it together by hand takes the time you don't have when it counts.",
+  "does": "Give Argos a UUID or an IP and he assembles one dossier: identity and host profile, the asset's Exposure Score and rank, open findings and CVEs, SLA clock, compliance, certificates, EOL software, owners, identities, scan confidence, and every tag the pack put on it — each explained, with the hound that raised it.",
+  "glance": {
+    "caption": "Argos's At a glance for one asset: Exposure (Nemesis score, open critical / high, KEV), Remediation clock (findings past SLA, oldest open critical), Hygiene (compliance pass rate, certificates, EOL) and Confidence (days since last scan, credentialed or not, how many hounds tagged it) — each card opens the detail."
+  },
+  "capabilities": [
+    [
+      "Identity and host profile",
+      "hostname, IP, OS, network, ACR, AES, CPU / RAM / architecture from inventory plugins, last scan and its duration, and a Tenable link."
+    ],
+    [
+      "Exposure Score in context",
+      "this asset's Nemesis score and band, and its rank in the estate."
+    ],
+    [
+      "Every tag deciphered",
+      "what each tag means and which hound raised it — Laelaps for KEV, Certania for certificates, Charon for EOL, and the rest."
+    ],
+    [
+      "Findings with a fix path",
+      "top findings and CVEs with plugin output on demand; each one can be sent to Amarok for remediation."
+    ],
+    [
+      "Owners and identities",
+      "who owns the asset, with a link to assign one, and the accounts seen on the host."
+    ],
+    [
+      "Software, certificates, web pages",
+      "installed software, certificates with expiry and weak crypto, and web pages captured by plugins."
+    ],
+    [
+      "Live views from navi",
+      "per-asset software, patches and details pulled live from the navi CLI on demand."
+    ]
+  ],
+  "how": "Argos reads your local navi.db and changes nothing; the live views run `navi explore uuid` on demand. Every hound's asset rows and the evidence lists link here.",
+  "who": "Incident responders who need one asset's full story fast, analysts triaging a host, and anyone reviewing a crown jewel before a decision.",
+  "better": "Argos is where the pack's per-asset work meets: Nemesis's score, Sköll's SLA clock, Minos and Tiresias for compliance, Certania, Charon, Chronos's scan confidence and Atlas's owners. From a finding, Amarok can push the fix.",
+  "cta": "Point Argos at one asset — he knows everything the pack knows about it."
+}

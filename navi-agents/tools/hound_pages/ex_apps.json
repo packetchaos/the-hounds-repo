@@ -1,0 +1,43 @@
+{
+  "codename": "Vizsla",
+  "discipline": "WAS Apps Explorer",
+  "category": "Explore",
+  "tagline": "Search every web app navi has seen — then open its report.",
+  "lore": "The Vizsla, a tireless pointer bred to range wide and mark its quarry — here it ranges the WAS inventory and points at every web app.",
+  "problem": "A Web App Scanning program grows to hundreds of apps and targets. Finding the ones with criticals, a given technology, or a stale scan shouldn't mean paging through a console.",
+  "does": "Vizsla searches every web application in navi.db and filters by name, target, technology, severity and how recently it was scanned. Each row shows critical, high and medium counts, total findings, technology, top OWASP category and last scan; click an app for Arachne's report.",
+  "glance": {
+    "caption": "Vizsla's results: each web app with critical / high / medium counts, technology, top OWASP category and last scan date.",
+    "note": "Screenshot not included: the test lab has no WAS data."
+  },
+  "capabilities": [
+    [
+      "Search and filter",
+      "name, target, technology, severity presence and scan recency."
+    ],
+    [
+      "Severity at a glance",
+      "critical, high and medium counts and total findings per app."
+    ],
+    [
+      "Context",
+      "technology stack and top OWASP category."
+    ],
+    [
+      "Open the report",
+      "an app opens Arachne's App Report."
+    ],
+    [
+      "Ask in plain English",
+      "a question becomes one read-only SQL query over the web-app table that you can edit before it runs (needs an AI model)."
+    ],
+    [
+      "CSV and email",
+      "export the rows or send them through Gabriel."
+    ]
+  ],
+  "how": "Vizsla reads the WAS apps table in your local navi.db, filled by `navi config update was` (needs a Tenable WAS license). It changes nothing.",
+  "who": "AppSec teams triaging a WAS program and owners looking up their app.",
+  "better": "Arachne covers the WAS program as a whole and writes the WAS tags; Beagle maps one app's surface; Vizsla is how you find the app.",
+  "cta": "Find the app with Vizsla — then open its report."
+}

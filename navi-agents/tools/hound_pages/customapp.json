@@ -1,0 +1,38 @@
+{
+  "codename": "Cavall",
+  "discipline": "Custom App Names",
+  "category": "Discovery",
+  "tagline": "Find the software your inventory missed — and give it a name.",
+  "lore": "Cavall, King Arthur's hound, who left his pawprint in stone on the hunt — here he tracks the software that left its print in routes and paths but never made the inventory.",
+  "problem": "Every estate runs software no package inventory admits to — internal apps, custom builds, tools copied onto a server by hand. They leave traces in web routes and file paths, but nobody names them, so nobody owns, patches or retires them.",
+  "does": "Cavall mines the application routes and filesystem paths in your findings, compares them with the software inventory, and lists the apps that appear only there as candidates to name. Say \"tag my custom app billing-portal\" and he finds the matching routes and paths, shows the assets, and — once you approve — tags them Custom App : <name>.",
+  "glance": {
+    "caption": "Cavall's At a glance: candidate apps discovered in routes and paths but missing from the software inventory, their exposure, the biggest by asset count, and how many are already named."
+  },
+  "capabilities": [
+    [
+      "Route and path discovery",
+      "finds software by where it lives and how it's served — evidence package lists miss."
+    ],
+    [
+      "Gap against the inventory",
+      "keeps only what the software inventory doesn't already list."
+    ],
+    [
+      "Name it in plain English",
+      "\"tag my custom app billing-portal\" searches both routes and paths and shows the matches before anything is written."
+    ],
+    [
+      "Tags across both sources",
+      "Custom App : <name> on every asset with a matching path or route."
+    ],
+    [
+      "Ignore list",
+      "drop noise terms once, or import a list from CSV."
+    ]
+  ],
+  "how": "Cavall reads the application routes and filesystem paths in your local navi.db and compares them with the software inventory. Tags go through navi's tag commands behind the write gate and a confirm. Route and path evidence depends on scan coverage.",
+  "who": "Application owners who know what that mystery route is, and vulnerability management teams closing the unnamed-software gap.",
+  "better": "Mimir covers the packaged software; Cavall covers what never got packaged. Wolfhound and Greyhound explore the same routes and paths in depth, Atlas maps them to owners, and Covenant re-applies Custom App tags on its schedule.",
+  "cta": "Show Cavall your unnamed routes — and put a name on every one."
+}

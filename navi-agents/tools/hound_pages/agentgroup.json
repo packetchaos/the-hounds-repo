@@ -1,0 +1,35 @@
+{
+  "codename": "Sirius",
+  "discipline": "Agent Group Tagging",
+  "category": "Tagging",
+  "tagline": "Turn your agent groups into tags the whole platform can use.",
+  "lore": "Sirius, the Dog Star — brightest in the sky, marshalling the lesser stars — here he musters every Tenable agent into its group and tags it.",
+  "problem": "Your Tenable agent groups already describe how the estate is organized — by site, team or role — but agent groups can't be used everywhere tags can. Scans, dashboards, exports and every hound work from tags, so that structure stays locked inside agent management.",
+  "does": "Sirius lists your Tenable agent groups live and tags every asset in each group Agent Group : <group name>, matching Tenable's own membership. Pick groups three ways: type a list of names, tick them in a list, or tag every group at once.",
+  "glance": {
+    "caption": "Sirius's agent groups: every Tenable agent group pulled live, each one tick away from an Agent Group : <name> tag on all its assets.",
+    "note": "Screenshot not included: agent groups are pulled live from Tenable, and the test lab has no Tenable connection."
+  },
+  "capabilities": [
+    [
+      "Live from Tenable",
+      "agent groups pulled live through navi each time, not a stale copy."
+    ],
+    [
+      "Three ways to tag",
+      "a typed list of group names, a checkbox per group, or every group at once."
+    ],
+    [
+      "Exact membership",
+      "navi tags the assets in each group directly, so the tag matches Tenable's own membership."
+    ],
+    [
+      "One tag per group",
+      "Agent Group : <name>, consistent across the estate and usable in scans, dashboards and exports."
+    ]
+  ],
+  "how": "Sirius reads agent groups live through navi and tags with `navi enrich tag --c \"Agent Group\" --v <name> --group <name>` — one write per group, behind the write gate and a confirm, recorded in the Tagging log.",
+  "who": "Security operations teams who own the tag estate, and anyone who wants scans and reports scoped by how agents are actually deployed.",
+  "better": "Group tags give Terminus, Anubis and Sköll a ready-made way to segment the estate. Covenant keeps the group tags current on its schedule, and Garmr clears any that no longer belong.",
+  "cta": "Let Sirius lay down the structure — the whole pack navigates by the brightest star."
+}

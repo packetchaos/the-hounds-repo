@@ -1,0 +1,42 @@
+{
+  "codename": "Alert Raven",
+  "discipline": "Alerting",
+  "category": "Health",
+  "tagline": "Get one alert when a condition changes — not one every cycle.",
+  "lore": "Ravens travel with wolf packs, scouting ahead and calling out danger — here Alert Raven watches the sky while the pack hunts.",
+  "problem": "The conditions that matter — credentialed coverage slipping, a new CISA KEV on your assets, certificates about to expire — change between the times anyone looks. Dashboards wait to be opened, and alerts that fire every cycle get muted.",
+  "does": "Alert Raven watches navi.db for the conditions you choose and emails a digest when one newly fires. An alert is a number plus a condition: above or below a threshold, or a rise or drop since the last check. Start from a suggested pattern, or describe the alert in plain English, then test it before you save it.",
+  "glance": {
+    "caption": "Alert Raven's suggested patterns — credentialed coverage dropping, scans over 3 hours, new CISA KEV exposure, new critical findings, certificates expiring within 30 days, ownerless assets rising, EOL software rising — each one click to add, then test."
+  },
+  "capabilities": [
+    [
+      "Seven ready-made patterns",
+      "credentialed-scan coverage, slow scans, new CISA KEV exposure, new criticals, certificates expiring within 30 days, ownerless assets, end-of-life software."
+    ],
+    [
+      "Alerts in plain English",
+      "describe what to watch and Alert Raven drafts a read-only SQL metric, operator and threshold for review; without an AI model it builds the query from navi's tables."
+    ],
+    [
+      "Test before you save",
+      "a dry run shows the current value and whether it would fire — nothing is stored and nothing is sent."
+    ],
+    [
+      "Fires on change",
+      "an alert notifies when it goes from clear to firing, once, until it clears again — a lasting condition doesn't email every cycle."
+    ],
+    [
+      "One digest per check",
+      "everything that newly fired in one email, with the affected hosts, to an allowed recipient."
+    ],
+    [
+      "History",
+      "recent evaluations: what fired, what cleared, and the value each time."
+    ]
+  ],
+  "how": "Every metric is a read-only query over your local navi.db, or a built-in check (credential coverage uses the pack's shared credentialed rule). Alerts are saved locally. They are evaluated on demand or in the Contract's loop; the digest is sent with navi mail only when email is enabled (NAVI_EMAIL) and the recipient is allowed.",
+  "who": "Vulnerability management leads and SOC teams who want to hear about a change without watching a dashboard all day.",
+  "better": "Alert Raven watches the numbers the other hounds produce — Chronos's coverage, Laelaps's KEV, Certania's certificates, Atlas's ownership, Charon's EOL. Covenant runs its checks in the Contract loop, and the digest goes out through navi mail, the same path Gabriel uses.",
+  "cta": "Let the raven watch the sky — you'll hear when something changes."
+}

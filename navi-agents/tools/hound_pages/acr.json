@@ -1,0 +1,56 @@
+{
+  "codename": "Anubis",
+  "discipline": "ACR Calibration",
+  "category": "Risk",
+  "tagline": "Make risk scores reflect your business reality.",
+  "lore": "Anubis, who weighs the heart against the feather of truth — here he weighs each asset's true criticality, so every priority built on it is honest.",
+  "problem": "Out-of-the-box Asset Criticality Ratings rarely match reality: the test box scores like a crown jewel while the payment server sits at a default. Tenable One's exposure scores, and every hound that ranks by ACR, inherit that one wrong number.",
+  "does": "Anubis changes the ACR of every asset that carries a tag — set it to a value, or raise or lower it by N — with a business reason Tenable records alongside it. It shows exactly what navi will change before anything is written, logs every change, and can protect the assets it changed from later overwrites.",
+  "glance": {
+    "caption": "Anubis's own At a glance: assets the Hounds changed and whether they are protected (NO : UPDATE), what navi will skip, and changes by business case — read from navi.db and the ACR log."
+  },
+  "capabilities": [
+    [
+      "Set, +N or −N per tag",
+      "pick any tag from the live Tenable tag list and calibrate every asset on it at once; ACR stays within 1–10."
+    ],
+    [
+      "Business case on every change",
+      "Business Critical, In Scope For Compliance, Existing Mitigation Control or Dev Only, plus an optional note — sent to Tenable with the change."
+    ],
+    [
+      "Preview before you write",
+      "per change: how many assets will change, how many are protected, how many have no ACR yet and will be skipped."
+    ],
+    [
+      "Bulk in plain English",
+      "describe the calibration (\"production to 9, lab down 2\") and an optional AI model drafts the changes; only existing tags and scores 1–10 pass, and you approve each."
+    ],
+    [
+      "Protection with NO : UPDATE",
+      "tag the assets the Hounds changed so later bulk changes leave them alone — navi skips any asset tagged exactly NO : UPDATE."
+    ],
+    [
+      "ACR log + CSV",
+      "every change the Hounds made: asset, before and after, selector, business case — filterable and exportable."
+    ]
+  ],
+  "how": "The tag list comes live from `navi explore info tags`; preview and protection read your local navi.db. Changes run through `navi enrich acr` (set / inc / dec), behind the write gate and an explicit confirm. A new NO : UPDATE tag counts for navi after the next asset sync.",
+  "who": "Vulnerability management leads whose priorities depend on criticality, and risk owners who know which assets actually matter.",
+  "better": "Tag first, then calibrate: Linnaeus, Terminus and Sirius lay down the business tags Anubis calibrates against, and Covenant keeps them current and can apply ACR rules on its schedule. Fenrir (crown jewels = ACR ≥ 7) and Nemesis (crown jewels = ACR ≥ 9) both rank by the result.",
+  "different": [
+    [
+      "No surprises",
+      "the preview mirrors navi's own selection logic, so the count you approve is the count that changes."
+    ],
+    [
+      "Justified, not arbitrary",
+      "every change carries Tenable's reason flags and is kept in the ACR log for audit."
+    ],
+    [
+      "Protects its own work",
+      "NO : UPDATE stops a later bulk change from undoing a deliberate calibration; only Garmr removes it."
+    ]
+  ],
+  "cta": "Let Anubis weigh your estate — every priority downstream depends on the scales."
+}

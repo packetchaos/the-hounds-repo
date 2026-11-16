@@ -1,0 +1,50 @@
+{
+  "codename": "Harrier",
+  "discipline": "Software Explorer",
+  "category": "Explore",
+  "tagline": "A new zero-day lands — find every install in minutes.",
+  "lore": "The Harrier, a pack hound bred to run fresh quarry down fast and stay on the line — here it runs down every install of a piece of software in navi.db, the moment a new zero-day names it.",
+  "problem": "When a zero-day is announced there is a gap of hours or days before a scanner plugin can detect it, and the first question is always \"do we run that, and which versions?\" The answer is already in your software inventory, but it means reading an advisory, working out the affected versions, and querying thousands of package strings by hand.",
+  "does": "Harrier searches the software inventory in navi.db by product name, one version, or an affected version range, and shows where the software is installed: assets, versions, operating systems, networks and asset criticality, with every asset sorted into in range, distro build, no version, or not in range. Its ✨ zero-day lookup reads the affected products and versions from NVD, CVE.org, OSV or an advisory page — only from the sites you approve — and counts each product in your inventory.",
+  "glance": {
+    "caption": "Harrier on a 128-asset lab, searching log4j with the affected range its Log4Shell lookup read from NVD (CVE-2021-44228): log4j 2.14.1 on 3 assets, all 3 inside the range — and all 3 crown jewels (ACR 9–10)."
+  },
+  "capabilities": [
+    [
+      "Where it's installed",
+      "assets, distinct versions and products for any search, with breakdowns by version, operating system, network and asset criticality — counted over the whole search, not just the page."
+    ],
+    [
+      "Affected-range check",
+      "give a range like `>=2.0 <2.17.1; >=2.18 <2.18.2` and every asset is sorted into in range, distro build, no version or not in range, with crown jewels in range called out."
+    ],
+    [
+      "Honest about distro builds",
+      "a RHEL, Ubuntu, Debian or SUSE package inside the range is flagged \"distro build\", because distros back-port fixes without changing the version; confirm those against the distro's advisory."
+    ],
+    [
+      "✨ Zero-day lookup",
+      "type a CVE id, a product (\"new Ivanti Connect Secure bug\") or paste an advisory URL; Harrier proposes NVD, CVE.org and OSV, or an NVD search of the last 120 days, and reads only the sites you tick."
+    ],
+    [
+      "Every site approved, every time",
+      "nothing is fetched until you approve it, the approval is never remembered, and the lookup only reaches public addresses — never your internal network."
+    ],
+    [
+      "Affected products, counted for you",
+      "each product and version range from the lookup — with CISA KEV, CVSS and the fixed versions — is counted in your inventory in one pass; one click searches it."
+    ],
+    [
+      "Versions compared properly",
+      "2.4.9 < 2.4.10, 1.0.2k < 1.0.2u, 2.0-rc1 < 2.0, epochs ignored — the same way for every product."
+    ],
+    [
+      "CSV and email",
+      "export every install in the search (up to 50,000) or send it through Gabriel; each asset opens in Argos."
+    ]
+  ],
+  "how": "Harrier runs read-only searches over the software table (and cpes, when navi has it) in your local navi.db, using the same name and version parser as Mimir. The match is plain SQL and version comparison, so a model never decides what is affected. The lookup reads NVD, CVE.org and OSV data by rules; an AI model, if one is set up, is used only to read other advisory pages and to suggest package-name variants (httpd, apache2), and every range it returns is re-checked before use. It writes no tags.",
+  "who": "Vulnerability management and incident-response teams answering \"are we exposed?\" in the first hours of a new disclosure, before a Tenable plugin exists.",
+  "better": "Mimir shows version sprawl and end-of-life across the whole estate; Harrier hunts one product against one advisory. Once a plugin ships, Hellhound and Laelaps take over the findings, Argos opens each asset, and Nemesis scores the risk.",
+  "cta": "Name the zero-day — Harrier finds every install before the plugin does."
+}

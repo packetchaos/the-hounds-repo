@@ -1,0 +1,38 @@
+{
+  "codename": "Hellhound",
+  "discipline": "Vulnerability Explorer",
+  "category": "Explore",
+  "tagline": "Hunt any finding — by plugin, CVE, severity or finding ID.",
+  "lore": "The Hellhound, a beast that hunts in the dark — here it hunts findings across navi.db by plugin, CVE, severity or finding ID.",
+  "problem": "Finding every instance of one vulnerability — a CVE in the news, a plugin a vendor just flagged — shouldn't mean writing SQL or waiting on a report.",
+  "does": "Hellhound searches every finding in navi.db, one row each, by plugin name or ID, CVE, severity or finding ID, and shows each finding with its asset and VPR. A finding ID opens it in Tenable, the asset opens Argos, and a fix can be handed to Amarok.",
+  "glance": {
+    "caption": "Hellhound's results: one row per finding with plugin, severity, VPR and asset — each linking to Tenable, Argos or an Amarok fix."
+  },
+  "capabilities": [
+    [
+      "Search by anything",
+      "plugin name, plugin ID, CVE, severity or finding ID."
+    ],
+    [
+      "Findings in context",
+      "asset, severity and VPR on every row."
+    ],
+    [
+      "Open in Tenable",
+      "a finding ID opens that finding in Tenable."
+    ],
+    [
+      "Deep-dive and fix",
+      "the asset opens Argos; Remediate hands the plugin and host to Amarok, pre-filled, never auto-run."
+    ],
+    [
+      "Email the result",
+      "send the rows to an owner through Gabriel."
+    ]
+  ],
+  "how": "Hellhound runs a read-only search over the findings in your local navi.db; results page on the server, 20 rows a page (up to 50).",
+  "who": "Analysts answering \"where do we have this?\" and responders scoping a new CVE.",
+  "better": "Part of the search pack with Bloodhound, Foxhound, Wolfhound and Greyhound. Laelaps and Nemesis rank what Hellhound finds; Amarok fixes it.",
+  "cta": "Name the vulnerability — Hellhound finds every instance."
+}

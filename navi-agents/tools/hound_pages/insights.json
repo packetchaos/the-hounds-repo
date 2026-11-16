@@ -1,0 +1,46 @@
+{
+  "codename": "Sphinx",
+  "discipline": "On the Scent",
+  "category": "Overview",
+  "tagline": "See what you're not seeing — on one page.",
+  "lore": "The Sphinx guarded Thebes with riddles — here she poses the gaps in your coverage back to you: the exposure you didn't know you had.",
+  "problem": "Each hound answers its own question well, but a CISO doesn't want twenty answers — they want one picture and one next move. Without a view that brings them together, the most dangerous risk survives: the unknown unknowns nobody thought to ask a single tool about.",
+  "does": "Sphinx reads what the whole pack found on its last release and puts it on one page, On the Scent: how exposed the estate is, where risk concentrates, what is converging, what is on the clock, the blind spots, and the next moves — including a recommended play and how much exposure it would remove. Every number opens the exact assets behind it.",
+  "glance": {
+    "caption": "On the Scent's At a glance after a release: how exposed (estate score, KEV, crown jewels, blind), where it concentrates, converging signals, on the clock, blind spots, pack coverage and next moves — each card opens its evidence in Bloodhound or the owning hound, already filtered."
+  },
+  "capabilities": [
+    [
+      "At a glance, actionable",
+      "every card opens its evidence: the exact assets (KEV, score ≥ 60, crown jewels, with KEV or blind, EOL, quantum-vulnerable …) or the owning hound, already filtered."
+    ],
+    [
+      "Coverage funnel",
+      "all assets → seen by a hound → credentialed → classified → owned → business-tiered, each step linked to the hound that owns the gap."
+    ],
+    [
+      "Dark matter",
+      "assets no hound saw, blind hosts, unclassified, unowned, no business tier, shadow AI."
+    ],
+    [
+      "Who's barking",
+      "the worst assets by fused score, with each hound's points on each host; the estate as one square per asset."
+    ],
+    [
+      "Converging signals",
+      "signal stacks, the overlap map and cross-hound surprises — where several hounds fire on the same assets."
+    ],
+    [
+      "Recommended play",
+      "patch KEV / critical, replace EOL, renew certificates, segment exposure or assign owners — with the exposure it would remove and the signals it neutralizes."
+    ],
+    [
+      "What changed",
+      "the digest of what moved since the last release."
+    ]
+  ],
+  "how": "On the Scent reads the cached results of the last Release the Hounds plus Nemesis's fused scores; it writes nothing. Evidence lists are computed on demand by the hound that owns each number, so they match the card.",
+  "who": "CISOs who want the estate on one page, VM leads running the morning stand-up, and anyone building executive reporting that survives questions.",
+  "better": "On the Scent is where the pack converges — Nemesis's scores, Laelaps, Chronos, Linnaeus, Terminus, Anubis, Pythia, Charon, Heimdall and the rest. Bloodhound shows the evidence behind each card, and Gabriel can send the briefing.",
+  "cta": "Open On the Scent tomorrow morning — and see what you weren't seeing."
+}

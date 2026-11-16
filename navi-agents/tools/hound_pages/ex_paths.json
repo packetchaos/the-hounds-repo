@@ -1,0 +1,34 @@
+{
+  "codename": "Greyhound",
+  "discipline": "Path Explorer",
+  "category": "Explore",
+  "tagline": "Find any file path on any host — and tag where it lives.",
+  "lore": "The Greyhound, fastest of the hounds — here it sprints through every filesystem path navi has found on your assets.",
+  "problem": "The paths a scanner finds reveal where software actually lives — a vulnerable library, a copied binary, an app outside the package manager. Finding every host with one path shouldn't need SQL.",
+  "does": "Greyhound searches the filesystem paths found on assets by path text, with the plugin that found each and the host and IP. Tag applies Path : <name> to every asset carrying that exact path.",
+  "glance": {
+    "caption": "Greyhound's results: each path with its plugin, host and IP, and a Tag button per path."
+  },
+  "capabilities": [
+    [
+      "Search paths",
+      "by any part of the path."
+    ],
+    [
+      "Where it was found",
+      "the plugin, host and IP for each path; the host opens Argos."
+    ],
+    [
+      "Tag a path",
+      "Path : <name> on every asset with that exact path, with an editable value, behind the write gate and a confirm."
+    ],
+    [
+      "Email the result",
+      "send the rows through Gabriel."
+    ]
+  ],
+  "how": "Greyhound reads the filesystem paths in your local navi.db without changing it; results page on the server, 20 rows a page (up to 50). Tags go through navi's tag-by-query.",
+  "who": "Analysts locating a file or package across hosts, and owners checking where their software is deployed.",
+  "better": "Cavall turns unnamed paths into Custom App tags, Atlas maps paths to owners, and Wolfhound does the same for application routes.",
+  "cta": "Type a path — Greyhound finds every host it lives on."
+}
