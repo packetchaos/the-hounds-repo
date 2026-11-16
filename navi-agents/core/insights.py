@@ -140,10 +140,9 @@ def compute(db_path=None):
     except Exception:
         pass
     cloud = 0
-    cc = [c for c in ("aws_id", "gcp_instance_id", "azure_vm_id", "azure_resource_id") if c in acols]
-    if cc:
-        where = " OR ".join(f"COALESCE({c},'')<>''" for c in cc)
-        cloud = sc(f"SELECT COUNT(uuid) FROM assets WHERE {where}")
+    from core import cloud as _cloud
+    if _cloud.columns(acols):
+        cloud = sc("SELECT COUNT(uuid) FROM assets WHERE " + _cloud.sql_is_cloud(acols))
     # AI — Tenable's Artificial Intelligence plugin family
     ai = (assets_of("family LIKE '%Artificial Intelligence%'") if hx else
           sc("SELECT COUNT(DISTINCT asset_uuid) FROM vulns WHERE plugin_family "
@@ -440,10 +439,20 @@ def scent_board(db_path=None):
     risk_by_hound_sorted = sorted(risk_by_hound, key=lambda x: -x["total"])
 
     # 3) Coverage funnel — what the pack can actually SEE, stage by stage (drop-offs = blind spots).
+    # "Credentialed" counts assets the scanner logged into (core.credstate: any 19506
+    # "Credentialed checks : yes", or 141118 / 110095) — never "every asset without a failure".
+    try:
+        from core import credstate
+        _cs = credstate.counts(db_path)
+        cred_n = _cs["credentialed"]
+        cred_note = (f"{_cs['blind']} scanned without a credentialed login"
+                     + (f" · {max(0, total - _cs['scanned'])} never scanned" if total > _cs["scanned"] else ""))
+    except Exception:
+        cred_n, cred_note = max(0, total - blind), f"{blind} blind / uncredentialed"
     funnel = [
         {"label": "All assets", "count": total, "note": "the whole estate"},
         {"label": "Seen by a Hound", "count": max(0, total - no_signal), "note": f"{no_signal} truly dark"},
-        {"label": "Credentialed", "count": max(0, total - blind), "note": f"{blind} blind / uncredentialed"},
+        {"label": "Credentialed", "count": cred_n, "note": cred_note},
         {"label": "Classified", "count": max(0, total - unclassified), "note": f"{unclassified} unclassified"},
         {"label": "Owned", "count": max(0, total - unowned), "note": f"{unowned} unowned"},
         {"label": "Business-tiered", "count": max(0, total - no_tier), "note": f"{no_tier} untiered"},
@@ -501,6 +510,17 @@ CROWN_RULE = {"fused_score": "ACR ≥ 9", "asset_ownership": "ACR ≥ 9", "postq
 
 def _P(a, sec=""):
     return "/agents/%s/page.html%s" % (a, ("#" + sec) if sec else "")
+
+
+def _EV(key):
+    """The evidence list behind a number (core/evidence) — the Asset Explorer, computed by the
+    hound that owns it (build 467: At a glance opens the data, not just the hound)."""
+    return "/agents/ex_assets/page.html?evidence=%s" % key
+
+
+def _V(agent, param, value, sec=""):
+    """A hound opened ON its evidence: its own filter applied once its data is on screen."""
+    return "/agents/%s/page.html?%s=%s%s" % (agent, param, value, ("#" + sec) if sec else "")
 
 
 def _manifests():
@@ -854,27 +874,32 @@ def scent_digest(db_path=None):
     glance = [
         {"group": "How exposed", "cards": [
             card("fused_score", fk.get("avg", 0), "avg exposure score / 100", _P("fused_score", "sec-lb")),
-            card("fused_score", fk.get("high", 0), "assets scored ≥ 60", _P("fused_score", "sec-act"), "crit",
-                 "🎯 Nemesis · act now →"),
-            card("cisakev", kevs.get("kev_assets", 0), "KEV-exploitable assets", _P("cisakev", "secCves"), "crit"),
+            card("fused_score", fk.get("high", 0), "assets scored ≥ 60", _EV("score60"), "crit",
+                 "🧾 the assets · Nemesis →"),
+            card("cisakev", kevs.get("kev_assets", 0), "KEV-exploitable assets", _EV("kev"), "crit",
+                 "🧾 the assets · CISA KEV →"),
             card("compliance", comp.get("pass_pct", 0), "% audit checks passing", _P("compliance", "secStatus"), "warn")
             if comp.get("available", True) else
             {"v": None, "l": "% audit checks passing", "u": "no audit data in navi.db →", "href": _P("compliance"),
              "sev": None, "zero": True, "agent": "compliance"}]},
         {"group": "Where it concentrates", "cards": [
-            card("fused_score", fk.get("crown", 0), "crown jewels (ACR ≥ 9)", _P("acr"), None, "🎯 Anubis · ACR →"),
-            card("eol", eolm.get("eol_assets", 0), "assets on EOL software", _P("eol", "secProd"), "warn"),
-            card("certificate", cert.get("expired_assets", 0), "assets with expired certs", _P("certificate", "secCerts"), "warn"),
-            card("postquantum", pq.get("exposed", 0), "quantum-vulnerable assets", _P("postquantum", "secRoad"))]},
+            card("fused_score", fk.get("crown", 0), "crown jewels (ACR ≥ 9)", _EV("crown"), None, "🧾 the assets · Nemesis →"),
+            card("eol", eolm.get("eol_assets", 0), "assets on EOL software", _EV("eol"), "warn", "🧾 the assets · Charon →"),
+            card("certificate", cert.get("expired_assets", 0), "assets with expired certs",
+                 _V("certificate", "view", "expired", "secCerts"), "warn", "🧾 the expired certs · Certania →"),
+            card("postquantum", pq.get("exposed", 0), "quantum-vulnerable assets", _EV("pq"), None, "🧾 the assets · Heimdall →")]},
         {"group": "Converging", "cards": [
-            card("fused_score", fk.get("crown_kev", 0), "crown jewels (ACR ≥ 9) with KEV", "#secConverge", "crit", "🔗 Convergence →"),
-            card("fused_score", fk.get("crown_blind", 0), "crown jewels (ACR ≥ 9) blind", "#secConverge", "crit", "🔗 Convergence →"),
-            card("fused_score", lit4, "assets lit by ≥ 4 hounds", "#secConverge", "warn", "🔗 Signal stack →")]},
+            card("fused_score", fk.get("crown_kev", 0), "crown jewels (ACR ≥ 9) with KEV", _EV("crown_kev"), "crit", "🧾 the assets →"),
+            card("fused_score", fk.get("crown_blind", 0), "crown jewels (ACR ≥ 9) blind", _EV("crown_blind"), "crit", "🧾 the assets →"),
+            card("fused_score", lit4, "assets lit by ≥ 4 hounds", _EV("lit4"), "warn", "🧾 the assets →")]},
         {"group": "Blind spots", "cards": [
-            card("scan_eval", max(0, (se.get("assets") or total) - cred_ok), "not credential-scanned OK",
-                 _P("scan_eval", "secAssets"), "crit"),
-            card("classify", cl.get("unclassified", 0), "unclassified", _P("classify"), "warn"),
-            card("asset_ownership", own.get("unclaimed", 0), "unclaimed by any owner", _P("asset_ownership"), "warn")]},
+            # scanned without a credentialed login (core.credstate — the same set Chronos filters)
+            card("scan_eval", se.get("blind", max(0, (se.get("assets") or total) - cred_ok)), "scanned without a credentialed login",
+                 _V("scan_eval", "view", "blind", "secAssets"), "crit", "🧾 the assets · Chronos →"),
+            card("classify", cl.get("unclassified", 0), "unclassified", _V("classify", "cls", "Unclassified"), "warn",
+                 "🧾 the assets · Classification →"),
+            card("asset_ownership", own.get("unclaimed", 0), "unclaimed by any owner", _V("asset_ownership", "scope", "unclaimed"),
+                 "warn", "🧾 the assets · Atlas →")]},
     ]
 
     # ---- how exposed

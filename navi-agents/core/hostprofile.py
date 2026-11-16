@@ -10,6 +10,7 @@ Parses per-asset hardware + scan-info from navi.db plugin output:
 Read-only.
 """
 import re
+from core import cloud as _cloud
 
 _PLUGINS = ("24270", "45432", "45433", "48942", "19506")
 
@@ -91,13 +92,13 @@ def device_nature(asset_uuid, db_path=None):
     # cloud instance IDs on the asset row = virtual by definition
     try:
         acols = {r["name"] for r in db.query('PRAGMA table_info("assets");', path=db_path)}
-        cc = [c for c in ("aws_id", "azure_vm_id", "gcp_instance_id") if c in acols]
+        cc = _cloud.columns(acols)
         if cc:
             a = db.query("SELECT %s FROM assets WHERE uuid=? LIMIT 1" % ", ".join(cc),
                          (asset_uuid,), path=db_path)
             if a:
                 for c in cc:
-                    if str(a[0].get(c) or "").strip():
+                    if _cloud.present(a[0].get(c)):
                         add("cloud", "Cloud instance", c.replace("_", " ") + " present")
                         add("vm", labels["vm"], "cloud instance (" + c + ")")
                         break

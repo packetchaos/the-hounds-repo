@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Software Explorer · Harrier · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>.plink{color:var(--accent);text-decoration:none;font-weight:600;cursor:pointer}.plink:hover{text-decoration:underline}
+#tbl{table-layout:fixed;width:100%}#tbl th,#tbl td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.st{display:inline-block;padding:1px 8px;border-radius:100px;font-size:11px;font-weight:700;font-family:var(--mono);white-space:nowrap}
+.st-affected{background:var(--crit-bg);color:var(--crit)} .st-check{background:var(--high-bg);color:var(--high)}
+.st-unknown{background:var(--med-bg);color:var(--med)} .st-clear{background:var(--ok-bg);color:var(--ok)} .st-match{color:var(--ink-2)}
+.fin{padding:9px;border-radius:8px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink)}
+/* ✨ zero-day lookup */
+#zd{border:1px solid var(--accent);border-radius:10px;padding:12px 14px;margin:6px 0 12px;background:var(--bg-2)}
+#zd h3{margin:0 0 6px;font-size:15px}
+.src{display:grid;grid-template-columns:22px 1fr;gap:2px 8px;padding:7px 4px;border-bottom:1px solid var(--line)}
+.src:last-child{border-bottom:0} .src .dom{font-weight:700} .src .why{font-size:12.5px;color:var(--ink-2)}
+.src .u{font-family:var(--mono);font-size:11px;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.kind{display:inline-block;font-size:10.5px;font-family:var(--mono);padding:0 6px;border-radius:4px;background:var(--panel-2);color:var(--ink-3);margin-left:6px}
+.visit{font-size:12.5px;font-family:var(--mono);margin:2px 0}
+.adv{border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:10px 0;background:var(--panel)}
+.adv .hd{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.adv .cve{font-weight:700;font-family:var(--mono)}
+.adv .sum{font-size:13px;color:var(--ink-2);margin:6px 0;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+.adv .sum.open{-webkit-line-clamp:unset}
+.adv table{width:100%;font-size:12.5px;table-layout:auto} .adv td{vertical-align:top;white-space:normal;word-break:break-word} .adv td:last-child{white-space:nowrap;word-break:normal}
+.badge-kev{background:var(--crit-bg);color:var(--crit);font-weight:700;font-size:11px;padding:1px 7px;border-radius:100px}
+.sev{font-size:11px;font-family:var(--mono);color:var(--ink-3)}
+.hit{color:var(--crit);font-weight:700} .zero{color:var(--ink-3)}
+/* where it's installed */
+#where{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px;margin:4px 0 12px}
+.wbox{background:var(--panel-2);border:1px solid var(--line);border-radius:var(--radius-sm);padding:10px 12px;min-width:0}
+.wbox h4{margin:0 0 6px;font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-3)}
+.wr{display:grid;grid-template-columns:minmax(0,1fr) 46px;gap:2px 8px;align-items:center;font-size:12px;margin:3px 0}
+.wr .lb{overflow:hidden;text-overflow:ellipsis;white-space:nowrap} .wr .n{text-align:right;font-family:var(--mono)}
+.wr .bar{grid-column:1/3;height:6px;border-radius:3px;background:var(--line);overflow:hidden;display:flex}
+.wr .bar i{display:block;height:100%} .wr .bar i.h{background:var(--crit)} .wr .bar i.c{background:var(--high)} .wr .bar i.a{background:var(--accent)}
+.wr.click{cursor:pointer}.wr.click:hover .lb{color:var(--accent)}
+.legend-s{font-size:12px;color:var(--ink-3);margin:-4px 0 10px}
+#prods .chip{cursor:pointer;margin:2px}
+#stf button.on{background:var(--accent);color:#fff;border-color:transparent}
+.inst{font-family:var(--mono);font-size:11.5px}
+</style>
+</head><body data-page-cache="off">
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+  <section class="card">
+    <h2 style="margin:0">💿 Software Explorer <span class="sub" style="font-weight:400">· Harrier runs down every install</span></h2>
+    <p class="sub" style="margin:2px 0 8px">Zero-day hunting over the software inventory in navi.db. Search a product to see where it is installed and at which versions; add an affected version range to see which assets fall inside it. Or use ✨ <b>Look up a zero-day</b> to read the affected products and versions from NVD, CVE.org, OSV or an advisory — <b>you approve every site it reads</b>. Read-only: Harrier writes no tags.</p>
+
+    <div id="zd">
+      <h3>✨ Look up a zero-day</h3>
+      <div class="toolbar" style="margin:0">
+        <input id="zq" class="fin" style="flex:1;min-width:260px" placeholder="A CVE id (CVE-2026-1234), a product (“new Ivanti Connect Secure bug”), or paste an advisory URL…">
+        <button class="btn sm" id="zplan">✨ Find sources</button>
+      </div>
+      <div id="zflash" class="flash"></div>
+      <div id="zsrc" style="display:none">
+        <p class="sub" style="margin:8px 0 4px">Harrier will read <b>only the sites you tick</b>, now, from this machine — nothing else is fetched, and nothing is remembered as approved.</p>
+        <div id="zlist"></div>
+        <div class="toolbar" style="margin-top:6px">
+          <input id="zadd" class="fin" style="flex:1;min-width:220px" placeholder="Add another advisory URL (https://…)">
+          <button class="btn ghost sm" id="zaddb">＋ Add</button>
+          <a class="plink" id="zall" style="font-size:12.5px">tick all</a>
+          <button class="btn run sm" id="zgo" disabled>Approve &amp; read 0 sites</button>
+        </div>
+      </div>
+      <div id="zres"></div>
+    </div>
+
+    <div class="toolbar">
+      <input id="q" class="fin" style="flex:1;min-width:200px" placeholder="product or part of its name — openssl, log4j, httpd, chrome…">
+      <input id="ver" class="fin" style="width:150px" placeholder="version (3.0.2 or 3.0*)" title="One version exactly, or a prefix ending in *">
+      <input id="rng" class="fin" style="width:230px" placeholder="affected range, e.g. <2.4.60" title="Affected versions. Clauses separated by ; are OR'd, constraints inside a clause are AND'd: >=2.0 <2.17.1; >=2.18 <2.18.2">
+      <label class="sub" style="display:flex;gap:4px;align-items:center" title="Match the product name exactly, not as part of a longer name"><input type="checkbox" id="exact"> exact name</label>
+      <button class="btn run sm" id="go" data-run>▶ Search</button>
+      <button class="btn ghost sm" id="csv" title="Every install in this search (up to 50,000) as CSV">⤓ CSV</button>
+    </div>
+    <div id="flash" class="flash"></div>
+    <div id="swGlance"><div class="kpi" id="kpi" style="margin-bottom:10px"></div>
+    <div class="legend-s" id="legend"></div>
+    <div id="where"></div></div>
+    <div id="prods"></div>
+    <div class="toolbar" id="stf"></div>
+    <div style="overflow-x:auto"><table id="tbl" class="nopage norsz nocsv"><colgroup><col style="width:17%"><col style="width:132px"><col style="width:27%"><col style="width:17%"><col style="width:12%"><col style="width:52px"><col style="width:96px"></colgroup>
+      <thead><tr><th>Asset</th><th>Status</th><th>Installed</th><th>OS</th><th>Network</th><th>ACR</th><th>Last seen</th></tr></thead>
+      <tbody><tr><td colspan="7" class="sub">Search a product to see where it is installed.</td></tr></tbody></table></div>
+    <div class="toolbar" id="pager"></div>
+  </section>
+  <footer>Software Explorer · Harrier · read-only navi.db search over <span class="mono">software</span> (and <span class="mono">cpes</span>) · version sprawl and EOL across the estate is <a href="/agents/software/page.html">Mimir</a>; one asset in depth is <a href="/agents/argos/page.html">Argos</a></footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('ex_software'); let PAGE=hPageSize('tbl'); let LAST=null; let STF='';
+const P=new URLSearchParams(location.search);
+const $=id=>document.getElementById(id);
+const fnum=n=>(n==null||n===''?'—':Number(n).toLocaleString());
+const STL={affected:'in range',check:'in range · distro',unknown:'no version',clear:'not in range',match:'installed'};
+const STT={affected:'The installed version is inside the affected range.',
+  check:'Inside the range, but a distro build (RHEL / Ubuntu / Debian / SUSE …): distros back-port fixes without changing the upstream version — confirm against the distro advisory.',
+  unknown:'navi recorded the product without a version — it cannot be compared.',
+  clear:'The installed version is outside the affected range.', match:'Installed (no range given).'};
+const st=s=>'<span class="st st-'+esc(s)+'" title="'+esc(STT[s]||'')+'">'+esc(STL[s]||s)+'</span>';
+function kpi(v,l,c,t){ return '<div class="k"'+(t?' title="'+esc(t)+'"':'')+'><div class="v"'+(c?' style="color:'+c+'"':'')+'>'+v+'</div><div class="l">'+esc(l)+'</div></div>'; }
+function form(){ return {q:$('q').value.trim(), version:$('ver').value.trim(), range:$('rng').value.trim(), exact:$('exact').checked}; }
+
+/* ── search ─────────────────────────────────────────────────────────────── */
+async function go(off, opts){ off=off||0; const b=Object.assign(form(), opts||{});
+  if(b.q.length<2){ flash('flash','Type at least 2 characters of a product name.','warn'); return; }
+  $('go').disabled=true; flash('flash','<span class="spin"></span> searching the software inventory…','run');
+  let o; try{ o=await API.post('search',Object.assign({limit:PAGE,offset:off,status:STF},b)); }catch(e){ o={ok:false,error:e.message}; }
+  $('go').disabled=false;
+  if(!o||!o.ok){ flash('flash','✗ '+esc((o&&(o.message||o.error))||'search failed'),'crit'); return; }
+  const r=o.result||{};
+  if(r.missing){ flash('flash','No software inventory in navi.db yet — run <span class="mono">navi config update full</span> (or the software update) to load it.','warn'); return; }
+  flashClear('flash'); LAST={req:b,res:r,off:off}; render();
+}
+function render(){ const r=LAST.res, k=r.kpi||{}, ranged=!!k.ranged, off=LAST.off;
+  if(!k.assets){ $('kpi').innerHTML=''; $('where').innerHTML=''; $('prods').innerHTML=''; $('stf').innerHTML=''; $('legend').textContent='';
+    $('pager').innerHTML=''; document.querySelector('#tbl tbody').innerHTML='<tr><td colspan="7" class="sub">Not installed anywhere in navi.db'+(LAST.req.version?' at that version':'')+'. Try a shorter part of the name, or another spelling (httpd vs apache2).</td></tr>'; return; }
+  let h=kpi(fnum(k.assets),'assets with it')+kpi(fnum(k.versions),'distinct versions')+kpi(fnum(k.products),k.products===1?'product':'products matched');
+  if(ranged) h+=kpi(fnum(k.affected),'in the affected range','var(--crit)',STT.affected)+kpi(fnum(k.check),'in range · distro build','var(--high)',STT.check)
+      +kpi(fnum(k.unknown),'no version to compare','var(--med)',STT.unknown)+kpi(fnum(k.clear),'not in range','var(--ok)',STT.clear);
+  else h+=kpi(fnum(k.installs),'installs')+kpi(fnum(k.unknown),'without a version');
+  h+=kpi(fnum(k.crown),'crown jewels (ACR 9–10)'+(ranged?' · '+fnum(k.crown_hit)+' in range':''),ranged&&k.crown_hit?'var(--crit)':'');
+  $('kpi').innerHTML=h;
+  $('legend').innerHTML=ranged?('Range <span class="mono">'+esc(r.ranges)+'</span> · <b>in range · distro</b> = a distro package: the vendor may have back-ported the fix without changing the version, so confirm with the distro advisory.'
+    +(k.not_in_assets?' · '+fnum(k.not_in_assets)+' install(s) on assets no longer in the assets table.':'')):'Add an affected range (e.g. <span class="mono">&lt;2.4.60</span>) to sort these into in range / not in range.';
+  const B=r.breakdowns||{};
+  const box=(title,list,clickVer,more)=>{ if(!list||!list.length) return ''; const mx=Math.max(...list.map(x=>x.assets))||1;
+    return '<div class="wbox"><h4>'+esc(title)+'</h4>'+list.map((x,i)=>{
+      const aff=ranged?(x.aff!=null?x.aff:(x.status==='affected'?x.assets:0)):0, chk=ranged?(x.chk!=null?x.chk:(x.status==='check'?x.assets:0)):0, hit=aff+chk;
+      const w=Math.round(100*x.assets/mx), wa=Math.round(100*aff/mx), wc=Math.round(100*chk/mx);
+      const lab=(clickVer&&x.product&&k.products>1?x.product+' ':'')+x.label;
+      return '<div class="wr'+(clickVer&&!x.other?' click':'')+'" '+(clickVer&&!x.other?'data-v="'+i+'"':'')+' title="'+esc(lab+' — '+x.assets+' asset(s)'+(ranged?', '+hit+' in range':''))+'">'
+        +'<span class="lb">'+(clickVer&&x.status?st(x.status)+' ':'')+esc(lab)+'</span><span class="n">'+fnum(x.assets)+'</span>'
+        +'<span class="bar"><i class="h" style="width:'+wa+'%"></i><i class="c" style="width:'+wc+'%"></i><i class="a" style="width:'+Math.max(0,w-wa-wc)+'%"></i></span></div>'; }).join('')
+      +(more?'<div class="sub" style="font-size:11.5px;margin-top:4px">+ '+fnum(more)+' more versions</div>':'')+'</div>'; };
+  $('where').innerHTML=box('By version',B.versions,true,B.versions_more)+box('By operating system',B.os)+box('By network',B.network)+box('By asset criticality',B.acr);
+  $('where').querySelectorAll('[data-v]').forEach(el=>el.onclick=()=>{ const x=B.versions[+el.dataset.v]; if(!x.label||x.label==='(no version)')return;
+    $('ver').value=x.label; if(k.products>1){ $('q').value=x.product; $('exact').checked=true; } STF=''; go(0); });
+  const ps=r.products||[];
+  $('prods').innerHTML=ps.length>1?('<div class="sub" style="font-size:12px;margin-bottom:2px">'+fnum(r.nproducts)+' products match “'+esc(LAST.req.q)+'” — click one to search it alone:</div>'
+    +ps.slice(0,40).map((p,i)=>'<span class="chip" data-p="'+i+'" title="'+esc(p.name+' · '+p.nver+' version(s) · newest '+(p.newest||'—')+' · source '+p.src)+'">'+esc(p.name)+' · '+fnum(p.assets)
+      +(ranged&&(p.affected+p.check)?' · <span class="hit">'+fnum(p.affected+p.check)+' in range</span>':'')+'</span>').join('')):'';
+  $('prods').querySelectorAll('[data-p]').forEach(el=>el.onclick=()=>{ $('q').value=ps[+el.dataset.p].name; $('exact').checked=true; $('ver').value=''; STF=''; go(0); });
+  const tabs=[['','All',k.assets]].concat(ranged?[['affected','In range',k.affected],['check','Distro build',k.check],['unknown','No version',k.unknown],['clear','Not in range',k.clear]]:[]);
+  $('stf').innerHTML=tabs.length>1?tabs.map(t=>'<button class="btn ghost sm'+(STF===t[0]?' on':'')+'" data-s="'+t[0]+'">'+esc(t[1])+' · '+fnum(t[2])+'</button>').join(''):'';
+  $('stf').querySelectorAll('[data-s]').forEach(b=>b.onclick=()=>{ STF=b.dataset.s; go(0, LAST.req); });
+  const rows=r.rows||[];
+  document.querySelector('#tbl tbody').innerHTML=rows.length?rows.map(x=>{
+    const host=(x.hostname||'').trim(), ip=(x.ip_address||'').trim(), u=x.asset_uuid||'';
+    const lbl=host||ip||(u?u.slice(0,14)+'…':'—');
+    const inst=x.installs.map(i=>(k.products>1?esc(i.product)+' ':'')+'<b>'+esc(i.version||'(no version)')+'</b>').join(', ')+(x.ninstalls>x.installs.length?' …':'');
+    const instT=x.installs.map(i=>i.product+' '+(i.version||'(no version)')+' — '+(STL[i.status]||i.status)).join('\n');
+    return '<tr><td><a class="plink" href="/agents/argos/page.html?target='+encodeURIComponent(u)+'" title="'+esc((host?host+' · ':'')+(ip?ip+' · ':'')+u)+'">'+esc(lbl)+'</a></td>'
+      +'<td>'+st(x.status)+'</td><td class="inst" title="'+esc(instT)+'">'+inst+'</td>'
+      +'<td title="'+esc(x.operating_system||'')+'">'+esc((x.operating_system||'—').split('\n')[0])+'</td><td title="'+esc(x.network||'')+'">'+esc(x.network||'—')+'</td>'
+      +'<td class="mono">'+esc(x.acr==null?'—':x.acr)+'</td><td class="mono" style="font-size:11.5px">'+esc((x.last_found||'—').slice(0,10))+'</td></tr>'; }).join('')
+    :'<tr><td colspan="7" class="sub">No assets in this filter.</td></tr>';
+  const pg=$('pager'); pg.innerHTML='<button class="btn ghost sm" '+(off<=0?'disabled':'')+' id="pp">◀ Prev</button><span class="chip">page '+(r.page||1)+' · rows '+(rows.length?off+1:0)+'–'+(off+rows.length)+' of '+fnum(r.total)+'</span><button class="btn ghost sm" '+(r.has_next?'':'disabled')+' id="pn">Next ▶</button>';
+  $('pp').onclick=()=>go(Math.max(0,off-PAGE), LAST.req); $('pn').onclick=()=>go(off+PAGE, LAST.req);
+  hSizeControl(pg,'tbl',v=>{ PAGE=v; go(0, LAST.req); });
+}
+$('go').onclick=()=>{ STF=''; go(0); };
+['q','ver','rng'].forEach(id=>$(id).addEventListener('keydown',e=>{ if(e.key==='Enter'){ STF=''; go(0); } }));
+$('csv').onclick=async()=>{ const b=$('csv'), l=b.textContent, f=form(); if(f.q.length<2){ flash('flash','Search a product first.','warn'); return; }
+  b.disabled=true; b.textContent='⤓ exporting…';
+  let o; try{ o=await API.post('export',Object.assign({status:STF},f)); }catch(e){ o={ok:false,error:e.message}; }
+  b.disabled=false; b.textContent=l;
+  if(!o||!o.ok){ flash('flash','✗ '+esc((o&&(o.message||o.error))||'export failed'),'crit'); return; }
+  if(!o.rows){ flash('flash','Nothing to export for this search.','warn'); return; }
+  downloadText('software-explorer.csv',o.csv);
+  if(o.capped) flash('flash','Exported the first '+fnum(o.max)+' installs — narrow the search for the rest.','warn'); };
+
+/* ── ✨ zero-day lookup ─────────────────────────────────────────────────── */
+let SRC=[], LLM=false, MAXU=10, ZMAX=false;
+function drawSources(){ $('zsrc').style.display=SRC.length?'':'none';
+  $('zlist').innerHTML=SRC.map((s,i)=>'<label class="src"><input type="checkbox" data-i="'+i+'"'+(s.on?' checked':'')+'><span><span class="dom">'+esc(s.domain||'?')+'</span><span class="kind">'+esc(s.kind)+'</span>'
+    +'<div class="why">'+esc(s.why)+'</div><div class="u" title="'+esc(s.url)+'">'+esc(s.url)+'</div></span></label>').join('');
+  $('zlist').querySelectorAll('[data-i]').forEach(c=>c.onchange=()=>{ SRC[+c.dataset.i].on=c.checked; count(); });
+  count(); }
+function count(){ const n=SRC.filter(s=>s.on).length; $('zgo').disabled=!n||n>MAXU;
+  $('zgo').textContent='Approve & read '+n+' site'+(n===1?'':'s');
+  if(n>MAXU){ ZMAX=true; flash('zflash','At most '+MAXU+' sites per lookup.','warn'); } else if(ZMAX){ ZMAX=false; flashClear('zflash'); } }
+$('zall').onclick=()=>{ const all=SRC.every(s=>s.on); SRC.forEach(s=>s.on=!all); drawSources(); };
+$('zaddb').onclick=()=>{ const u=$('zadd').value.trim(); const ok=safeUrl(u,''); if(!ok||!/^https?:\/\//i.test(u)){ flash('zflash','Enter a full http(s) URL.','warn'); return; }
+  let dom=''; try{ dom=new URL(u).hostname; }catch(e){}
+  if(!SRC.some(s=>s.url===u)) SRC.push({url:u,domain:dom,kind:'page',why:'a page you added',on:false}); $('zadd').value=''; flashClear('zflash'); drawSources(); };
+async function zplan(){ const p=$('zq').value.trim(); if(!p){ flash('zflash','Describe the vulnerability first.','warn'); return; }
+  $('zplan').disabled=true; flash('zflash','<span class="spin"></span> working out where to look…','run'); $('zres').innerHTML='';
+  let o; try{ o=await API.post('lookup_plan',{prompt:p}); }catch(e){ o={ok:false,error:e.message}; }
+  $('zplan').disabled=false;
+  if(!o||!o.ok){ SRC=[]; drawSources(); flash('zflash','✗ '+esc((o&&(o.message||o.error))||'failed'),'crit'); return; }
+  const r=o.result; LLM=!!r.llm; ZMAX=false; MAXU=r.max_urls||10; SRC=r.sources.map(s=>Object.assign({on:false},s));
+  flash('zflash',(r.cves.length?'CVE '+r.cves.map(esc).join(', '):r.keywords.length?'No CVE id — searching NVD for “'+esc(r.keywords.join(' '))+'”':'No CVE id — the page you pasted')
+    +(r.interpreted_by==='model'?' (read by the model)':'')+'. Tick the sites Harrier may read.'
+    +(LLM?'':' <span class="sub">No model is set up, so a pasted advisory web page can’t be read — NVD, CVE.org and OSV still can.</span>'),'ok');
+  drawSources(); }
+$('zplan').onclick=zplan; $('zq').addEventListener('keydown',e=>{ if(e.key==='Enter') zplan(); });
+$('zgo').onclick=async()=>{ const pick=SRC.filter(s=>s.on), urls=pick.map(s=>s.url); if(!urls.length) return;
+  const doms=[...new Set(pick.map(s=>s.domain||s.url))];
+  if(!confirm('Read '+urls.length+' page(s) from these site(s), now, from this machine?\n\n• '+doms.join('\n• ')
+    +'\n\nNothing else is fetched, and this approval is not remembered.')) return;
+  $('zgo').disabled=true; flash('zflash','<span class="spin"></span> reading '+urls.length+' approved site(s) and checking your inventory…','run');
+  let o; try{ o=await API.post('lookup_fetch',{urls:urls,prompt:$('zq').value.trim(),confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+  count();
+  if(!o||!o.ok){ flash('zflash','✗ '+esc((o&&(o.message||o.error))||'lookup failed'),'crit'); return; }
+  flashClear('zflash'); drawResults(o.result); };
+let ADV=[];
+function drawResults(r){ ADV=r.advisories||[];
+  const vis='<div style="margin:8px 0">'+r.visits.map(v=>'<div class="visit">'+(v.ok?'✓':'✗')+' '+esc(v.domain)+' — '
+    +(v.ok?(v.how==='rules'?'read ('+fnum(v.found)+' record'+(v.found===1?'':'s')+')':v.how==='model'?'read by the model ('+fnum(v.found)+')':esc(v.note||v.how)):esc(v.error||'failed'))
+    +(v.truncated?' · first 2 MB only':'')+'</div>').join('')+'</div>';
+  if(!ADV.length){ $('zres').innerHTML=vis+'<div class="sub">No affected products found in what was read.</div>'; return; }
+  $('zres').innerHTML=vis+ADV.map((a,ai)=>{ const tot=a.products.reduce((n,p)=>n+((p.inventory||{}).assets||0),0);
+    return '<div class="adv"><div class="hd"><span class="cve">'+esc(a.cve)+'</span>'+(a.kev?'<span class="badge-kev" title="In the CISA KEV catalog'+(a.kev_due?' — due '+esc(a.kev_due):'')+'">CISA KEV</span>':'')
+      +(a.severity||a.cvss!=null?'<span class="sev">'+esc(a.severity||'')+(a.cvss!=null?' '+esc(a.cvss):'')+'</span>':'')
+      +(a.published?'<span class="sev">published '+esc(String(a.published).slice(0,10))+'</span>':'')
+      +'<span class="sev">from '+esc((a.sources||[a.source]).join(' + '))+'</span>'
+      +'<span style="margin-left:auto" class="'+(tot?'hit':'zero')+'">'+(r.inventory?(tot?fnum(tot)+' asset match(es) in your inventory':'not found in your inventory'):'')+'</span></div>'
+      +(a.title?'<div style="font-weight:600;margin-top:4px">'+esc(a.title)+'</div>':'')
+      +(a.summary?'<div class="sum" data-sum>'+esc(a.summary)+'</div>':'')
+      +(a.products.length?'<table class="nopage norsz nocsv"><thead><tr><th>Affected product</th><th>Affected versions</th><th>Fixed</th><th>In your inventory</th><th></th></tr></thead><tbody>'
+        +a.products.map((p,pi)=>{ const v=p.inventory; const inv=!v?'<span class="sub">—</span>':!v.assets?'<span class="zero" title="searched: '+esc(v.terms.join(', '))+'">none</span>'
+            :'<b>'+fnum(v.assets)+'</b> asset(s)'+(v.ranged?' · <span class="hit">'+fnum(v.affected)+' in range</span>'+(v.check?' · '+fnum(v.check)+' distro':'')+(v.unknown?' · '+fnum(v.unknown)+' no version':''):'')
+              +'<div class="sub" style="font-size:11.5px">'+v.products.map(x=>esc(x.name)+' ('+fnum(x.assets)+')').join(', ')+(v.nproducts>v.products.length?' …':'')+'</div>';
+          return '<tr><td><b>'+esc(p.product)+'</b>'+(p.vendor?'<div class="sub" style="font-size:11.5px">'+esc(p.vendor)+'</div>':'')+(p.note?'<div class="sub" style="font-size:11.5px;color:var(--med)">'+esc(p.note)+'</div>':'')+'</td>'
+            +'<td class="mono" style="font-size:11.5px">'+(p.ranges==='>=0'?'all versions':esc(p.ranges||'(not stated)'))+'</td><td class="mono" style="font-size:11.5px">'+esc(p.fixed||'—')+'</td><td>'+inv+'</td>'
+            +'<td><button class="btn ghost sm" data-a="'+ai+'" data-p="'+pi+'" title="Search the inventory for this product and range — searched as: '+esc(p.terms.join(', '))+'">Search ▸</button></td></tr>'; }).join('')+'</tbody></table>'
+        :'<div class="sub">No affected products or versions listed in what was read.</div>')+'</div>'; }).join('');
+  $('zres').querySelectorAll('[data-sum]').forEach(el=>el.onclick=()=>el.classList.toggle('open'));
+  $('zres').querySelectorAll('button[data-a]').forEach(b=>b.onclick=()=>{ const p=ADV[+b.dataset.a].products[+b.dataset.p]; const v=p.inventory||{};
+    const best=(v.products&&v.products.length===1)?v.products[0].name:(v.terms&&v.terms[0])||p.terms[0]||p.product;
+    $('q').value=best; $('exact').checked=!!(v.products&&v.products.length===1); $('ver').value=''; $('rng').value=p.ranges||'';
+    STF=''; go(0); $('q').scrollIntoView({behavior:'smooth',block:'center'}); }); }
+
+mountAgentHeader({id:'ex_software',icon:'💿',name:'Software Explorer',sub:'Harrier · zero-day hunting over the software inventory'});
+try{ hMailAuto({tableSel:'#tbl'}); }catch(e){}
+(async()=>{ try{ const s=await API.post('status',{}); const r=s&&s.result||{};
+  if(r.software===false&&r.cpes===false) flash('flash','No software inventory in navi.db yet — run <span class="mono">navi config update full</span> to load it.','warn');
+  else if(r.records!=null) $('q').placeholder='search '+fnum(r.records)+' software records — openssl, log4j, httpd, chrome…'; }catch(e){}
+  if(P.get('q')){ $('q').value=P.get('q'); if(P.get('version')) $('ver').value=P.get('version'); if(P.get('range')) $('rng').value=P.get('range'); go(0); }
+  if(P.get('cve')){ $('zq').value=P.get('cve'); zplan(); } })();
+</script>
+</body></html>

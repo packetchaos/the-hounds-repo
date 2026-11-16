@@ -115,6 +115,7 @@ def evaluate(db_path=None, keep_uuids=False, all_rows=False):
     by_scanner, by_policy, by_scan = {}, {}, {}
     all_durs = []
     latest = {}                                    # asset -> its most recent 19506 parse
+    cred_yes = set()                               # ANY 19506 row says "Credentialed checks : yes" (core.credstate)
     for i, r in enumerate(rows):
         if not i % 200:                            # the SQL budget can't stop Python parsing
             db.checkpoint("scan evaluation: 19506 parse")
@@ -159,6 +160,8 @@ def evaluate(db_path=None, keep_uuids=False, all_rows=False):
                 b["versions"].add(rec["nessus"])
             if rec["feed"] and (b["feed"] is None or rec["feed"] > b["feed"]):
                 b["feed"] = rec["feed"]
+        if u and cred:
+            cred_yes.add(u)
         if u:
             cur = latest.get(u)
             if cur is None or (start and (cur["start"] is None or start > cur["start"])):
@@ -203,15 +206,22 @@ def evaluate(db_path=None, keep_uuids=False, all_rows=False):
         rec = latest.get(u) or {}
         sig = signals.get(u, set())
         states = {CRED_PLUGINS[p] for p in sig if p in CRED_PLUGINS}
-        if rec.get("cred") is True:
-            states.add("ok")
-        elif rec.get("cred") is False:
-            states.add("uncredentialed")
-        if "nocreds" in states:
-            states.discard("nocreds"); states.add("uncredentialed")
-        status = next((st for st in STATUS_ORDER if st in states), "unknown")
-        if status == "uncredentialed" and "ok" in states and rec.get("cred") is not False:
+        # build 465 — coverage first (core.credstate): CREDENTIALED = any 19506 "Credentialed
+        # checks : yes" or 141118 / 110095. A credentialed host is "ok" even if one credential
+        # failed (19506 yes + 104410): that failure is an ISSUE on it, not a blind spot. A host
+        # that is NOT credentialed takes the worst failure state as the reason it is blind.
+        credentialed = u in cred_yes or "ok" in states
+        fails = [st for st in ("failed", "insufficient", "intermittent") if st in states]
+        issue = ""
+        if credentialed:
             status = "ok"
+            issue = fails[0] if fails else ""
+        elif fails:
+            status = fails[0]
+        elif rec or "nocreds" in states:
+            status = "uncredentialed"
+        else:
+            status = "unknown"
         start = rec.get("start")
         age = (today - start).days if start else None
         fresh = "never" if not rec else ("unknown" if age is None else
@@ -225,7 +235,7 @@ def evaluate(db_path=None, keep_uuids=False, all_rows=False):
             "asset_uuid": u,
             "host": (a.get("hostname") or "").strip() or a.get("ip_address") or rec.get("host") or "(none)",
             "ip": a.get("ip_address") or rec.get("ip"), "url": a.get("url") or rec.get("url"), "acr": acr,
-            "status": status, "patch": ("failed" if "21745" in sig else "na" if "117886" in sig else ""),
+            "status": status, "cred": credentialed, "issue": issue, "patch": ("failed" if "21745" in sig else "na" if "117886" in sig else ""),
             "fresh": fresh, "age_days": age, "last_scan": start.isoformat() if start else None,
             "scanner": rec.get("scanner") or "", "policy": rec.get("policy") or "", "scan": rec.get("scan") or "",
             "type": ("Agent" if rec.get("agent") else ("Network" if rec else "")),
@@ -240,6 +250,7 @@ def evaluate(db_path=None, keep_uuids=False, all_rows=False):
         "status:insufficient": ids(lambda x: x["status"] == "insufficient"),
         "status:intermittent": ids(lambda x: x["status"] == "intermittent"),
         "status:uncredentialed": ids(lambda x: x["status"] == "uncredentialed"),
+        "issue:cred": ids(lambda x: bool(x["issue"])),
         "patch:failed": ids(lambda x: x["patch"] == "failed"),
         "fresh:31-90": ids(lambda x: x["fresh"] == "31-90"),
         "fresh:90+": ids(lambda x: x["fresh"] == "90+"),
@@ -279,6 +290,8 @@ def evaluate(db_path=None, keep_uuids=False, all_rows=False):
         "agent": sum(1 for x in scanned if x["type"] == "Agent"), "network": sum(1 for x in scanned if x["type"] == "Network"),
         "fresh": fr_n, "status": st_n,
         "cred_ok_pct": round(100.0 * st_n["ok"] / len(scanned), 1) if scanned else None,
+        "credentialed": st_n["ok"],                       # = core.credstate "credentialed"
+        "cred_issue": sum(1 for x in assets if x["issue"]),   # credentialed, but a credential failed / lacked privilege
         "blind": st_n["failed"] + st_n["insufficient"] + st_n["intermittent"] + st_n["uncredentialed"],
         "patch_failed": len(sets["patch:failed"]), "patch_na": sum(1 for x in assets if x["patch"] == "na"),
         "stale_30": fr_n["31-90"] + fr_n["90+"], "stale_90": fr_n["90+"],

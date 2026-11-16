@@ -49,7 +49,8 @@ _MUTATING = {"hx_cancel", "tag_cancel", "release_cancel",   # stop work: never c
 # is live end to end.
 # The Search Hounds (Argos + the explorers + Advanced) answer a question about navi.db as it is
 # NOW — every search goes to the database, never a remembered answer.
-_NOCACHE_AGENTS = {"settings", "hub", "argos", "explore", "ex_apps", "ex_assets", "ex_fixed", "ex_paths",
+_NOCACHE_AGENTS = {"settings", "hub", "argos", "explore", "ex_apps", "ex_assets", "ex_compliance", "ex_fixed", "ex_paths",
+                   "ex_software",
                    "ex_plugins", "ex_routes", "ex_tags", "ex_vulns",
                    # Command & Control: live gate / runs / command log — never a remembered answer
                    "c2"}
@@ -172,8 +173,8 @@ def _cache_key(agent_id, action, payload):
 
 
 def _invalidate(agent_id):
-    for k in [k for k in _CACHE if k.startswith(agent_id + "|")]:
-        _CACHE.pop(k, None)
+    for k in [k for k in list(_CACHE) if k.startswith(agent_id + "|")]:   # list(): an atomic snapshot —
+        _CACHE.pop(k, None)                                              # other request threads write _CACHE
 
 
 def clear_cache():
@@ -674,7 +675,8 @@ def _dispatch(agent_id: str, action: str, payload: dict):
         _invalidate(agent_id)                    # data may have changed — drop stale reads
     elif cacheable and isinstance(out, tuple) and len(out) == 2:
         if len(_CACHE) >= _CACHE_MAX:
-            oldest = min(_CACHE, key=lambda k: _CACHE[k][0])
-            _CACHE.pop(oldest, None)
+            snap = list(_CACHE.items())          # atomic snapshot (threaded server)
+            if snap:
+                _CACHE.pop(min(snap, key=lambda kv: kv[1][0])[0], None)
         _CACHE[_cache_key(agent_id, action, payload)] = (now, out)
     return out

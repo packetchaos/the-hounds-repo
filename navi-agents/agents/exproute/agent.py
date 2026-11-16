@@ -423,8 +423,11 @@ def _base(db_path=None) -> dict:
     b = {"has_routes": bool(q("SELECT name FROM sqlite_master WHERE type='table' AND name='vuln_route'"))}
     if not b["has_routes"]:
         return b
-    apps = [r["app_name"] for r in q("SELECT DISTINCT app_name FROM vuln_route WHERE app_name IS NOT NULL")]
-    known = {_nk(a) for a in apps} | {_nk(r["path"]) for r in q("SELECT DISTINCT path FROM vuln_paths WHERE path IS NOT NULL")}
+    # `if r[...]`: navi's " " placeholder reads as None (core.db._row) — IS NOT NULL doesn't drop it
+    apps = [r["app_name"] for r in q("SELECT DISTINCT app_name FROM vuln_route WHERE app_name IS NOT NULL")
+            if r.get("app_name")]
+    known = {_nk(a) for a in apps} | {_nk(r["path"]) for r in q("SELECT DISTINCT path FROM vuln_paths WHERE path IS NOT NULL")
+                                      if r.get("path")}
 
     def split(val):
         """'<name>: <user>'. Split at the ': ' whose left side is a known route/path — so an
@@ -468,6 +471,8 @@ def _base(db_path=None) -> dict:
     app_plugins, plugin_apps = {}, {}
     for r in q("SELECT app_name, plugin_list FROM vuln_route WHERE app_name IS NOT NULL"):
         app = r.get("app_name")
+        if not app:                       # " " → None (core.db._row): IS NOT NULL doesn't catch it
+            continue
         pids = set(_plugin_ids(r.get("plugin_list")))
         app_plugins.setdefault(app, set()).update(pids)
         for pid in pids:
@@ -496,6 +501,8 @@ def _base(db_path=None) -> dict:
     path_assets, path_plugin, path_rows = {}, {}, set()
     for r in q("SELECT path, asset_uuid, plugin_id FROM vuln_paths WHERE path IS NOT NULL"):
         p, au, pid = r["path"], r.get("asset_uuid"), str(r.get("plugin_id"))
+        if not p:                         # " " → None (core.db._row)
+            continue
         path_assets.setdefault(p, set()).add(au)
         path_plugin.setdefault(p, set()).add(pid)
         path_rows.add((p, au))

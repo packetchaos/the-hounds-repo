@@ -73,7 +73,7 @@ def _has_table(name, db_path=None) -> bool:
         return False
 
 
-def discover(db_path=None) -> dict:
+def discover(db_path=None, keep_uuids=False) -> dict:
     """The quantum-vulnerable surface. Sources, in order of what tenants actually have:
       1. Certificates — RSA/ECC/DSA signature algorithms (broken by Shor). Present on almost
          every scan, so this is the reliable floor.
@@ -115,9 +115,12 @@ def discover(db_path=None) -> dict:
             "Tenable's Post-Quantum Cipher Analysis plugins (277650/277652/277653) aren't in this "
             "navi.db yet — so exposure is derived from certificate + transport crypto instead. Run "
             "those plugins in a scan for the richest signal.")
-    return {"plugins": out, "assets": len(all_uuids),
+    res = {"plugins": out, "assets": len(all_uuids),
             "cert_assets": len(cert_set), "transport_assets": len(trans_set),
             "pqc_plugin_assets": len(plugin_assets), "note": note}
+    if keep_uuids:                       # the exact set "exposed" counts (core/evidence)
+        res["_uuids"] = sorted(u for u in all_uuids if u)
+    return res
 
 
 def tag_all() -> list:

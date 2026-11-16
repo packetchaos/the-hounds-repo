@@ -39,6 +39,10 @@ const CARDS=[
   {t:'🏷️ Tags', n:'Basset', d:'Search tag categories &amp; values — asset counts per tag, and a joined view of exactly which assets carry each one.', href:'/agents/ex_tags/page.html'},
   {t:'🔎 Routes', n:'Wolfhound', d:'Search exposure routes (vuln_route) — app routes and where they concentrate risk.', href:'/agents/ex_routes/page.html'},
   {t:'🔎 Paths', n:'Greyhound', d:'Search filesystem paths (vuln_paths) — the fix locations behind the findings.', href:'/agents/ex_paths/page.html'},
+  {t:'🔎 Apps', n:'Vizsla', d:'Search every web application navi has seen — by name, target, technology, severity, or scan recency.', href:'/agents/ex_apps/page.html'},
+  {t:'🔎 Fixed', n:'Plott', d:'Search remediation history — every fixed finding, days to fix, and the SLA Pass / Fail verdict.', href:'/agents/ex_fixed/page.html'},
+  {t:'📋 Compliance', n:'Saluki', d:'Search every audit result — by check, audit file, framework, status, or asset — failed first, with actual vs expected and the fix.', href:'/agents/ex_compliance/page.html'},
+  {t:'💿 Software', n:'Harrier', d:'Zero-day hunting — where a product is installed, at which versions, and which assets fall in an affected range. ✨ Look up a new CVE; you approve every site it reads.', href:'/agents/ex_software/page.html'},
 ];
 document.getElementById('sgrid').innerHTML=CARDS.map(c=>
   '<a class="scard" href="'+c.href+'"><div class="t">'+c.t+'</div><div class="n">'+c.n+'</div><div class="d">'+c.d+'</div></a>').join('');

@@ -15,6 +15,7 @@ previous snapshot). Two metric sources:
 import json
 import os
 import re
+import calendar
 import time
 
 from core import db, hx_summary, navi_cli, tagname
@@ -37,14 +38,15 @@ _MAX_DETAIL = 100
 #  builtin checks — return {"value": float, "unit": str, "affected": [rows], "note": str}
 # --------------------------------------------------------------------------- #
 def _chk_cred_coverage(db_path, params):
-    """% of assets with a clean credentialed scan (no plugin 104410 failure).
-    Affected = the failed assets with the account parsed out of the 104410 output."""
-    from core import scan_eval
-    ev = scan_eval.evaluate(db_path)
-    cred = ev.get("credential", {}) or {}
-    total = int(cred.get("total_assets") or 0)
-    fail = int(cred.get("cred_fail_assets") or 0)
-    value = round(100.0 * (total - fail) / total, 1) if total else 100.0
+    """% of assets the scanner logged into (core.credstate: any 19506 "Credentialed checks :
+    yes", or 141118 / 110095) — build 465; it used to count every asset WITHOUT a 104410 as
+    credentialed. Affected = the 104410 failures with the account parsed from the output."""
+    from core import credstate
+    cs = credstate.counts(db_path)
+    total = int(db.scalar("SELECT COUNT(*) FROM assets", path=db_path) or 0)
+    credn = min(cs["credentialed"], total) if total else cs["credentialed"]
+    fail = int(db.scalar("SELECT COUNT(DISTINCT asset_uuid) FROM vulns WHERE plugin_id='104410'", path=db_path) or 0)
+    value = round(100.0 * credn / total, 1) if total else 100.0
     # pull the failed account out of the 104410 plugin output for each affected asset
     affected = []
     try:
@@ -58,7 +60,8 @@ def _chk_cred_coverage(db_path, params):
                          "ip": r.get("ip_address") or "", "account": _account_from_104410(r.get("output") or ""),
                          "uuid": r.get("asset_uuid") or ""})
     return {"value": value, "unit": "%", "affected": affected,
-            "note": "%d of %d assets credentialed · %d failing (plugin 104410)" % (total - fail, total, fail)}
+            "note": "%d of %d assets credentialed (19506 / 141118) · %d scanned without a credentialed login · "
+                    "%d with a rejected credential (104410)" % (credn, total, cs["blind"], fail)}
 
 
 def _chk_slow_scans(db_path, params):
@@ -508,7 +511,8 @@ def _send_digest(newly, recipient):
 # --------------------------------------------------------------------------- #
 def _within_days(iso, days):
     try:
-        return (time.time() - time.mktime(time.strptime(iso[:19], "%Y-%m-%dT%H:%M:%S"))) <= days * 86400
+        # the stamps are UTC (time.gmtime + 'Z') — timegm, not mktime (which reads them as local time)
+        return (time.time() - calendar.timegm(time.strptime(iso[:19], "%Y-%m-%dT%H:%M:%S"))) <= days * 86400
     except Exception:
         return False
 

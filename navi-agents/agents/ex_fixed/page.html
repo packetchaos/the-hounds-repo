@@ -13,6 +13,8 @@
   <section class="card">
     <h2 style="margin:0">🩹 Fixed Explorer <span class="sub" style="font-weight:400">· Plott noses the remediation trail</span></h2>
     <p class="sub" style="margin:2px 0 8px">Search the <b>fixed</b> table — remediation history and the <b>Pass/Fail SLA verdict</b> from <span class="mono">navi config sla calculate</span>. Days-to-fix is computed from first-seen → fixed. Sorted worst-first. Click an asset for its Argos deep-dive.</p>
+    <div class="toolbar needs-llm"><input id="nlq" placeholder="Ask in plain English → SQL on the fixed table…" style="flex:1;min-width:240px;padding:9px;border-radius:8px;border:1px solid var(--accent);background:var(--bg-2);color:var(--ink)"><button class="btn sm" id="nlgo" data-run>✨ Ask</button></div>
+    <div id="nlout" class="needs-llm"></div>
     <div class="kpi" id="kpi" style="margin-bottom:10px"></div>
     <div class="toolbar">
       <input id="q" placeholder="plugin name / id / asset uuid…" style="flex:1;min-width:200px;padding:9px;border-radius:8px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink)">
@@ -76,6 +78,7 @@ document.getElementById('csv').onclick=()=>{ if(!LAST.length){alert('Nothing to 
 document.getElementById('go').onclick=()=>go(0);
 document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter')go(0);});
 ['sev','state','pf'].forEach(id=>document.getElementById(id).onchange=()=>go(0));
+wireNlBox('fixed');
 mountAgentHeader({id:'ex_fixed',icon:'🩹',name:'Fixed Explorer',sub:'Plott · remediation history + SLA verdicts'});
 try{ hMailAuto(); }catch(e){}
 go(0);

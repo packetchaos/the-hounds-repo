@@ -19,10 +19,24 @@ import re
 from core import db, llm, navi_cli
 
 # tables the NL→SQL explorer boxes are allowed to query
-_NL_TABLES = {"assets", "vulns", "vuln_route", "vuln_paths", "tags"}
+_NL_TABLES = {"assets", "vulns", "vuln_route", "vuln_paths", "tags", "apps", "fixed", "compliance"}
 _SQL_BANNED = re.compile(
     r"\b(insert|update|delete|drop|alter|create|attach|detach|pragma|replace|"
     r"vacuum|reindex|truncate|grant|revoke|load_extension|readfile|writefile)\b", re.I)
+
+
+_RUN_MAX = 500          # rows run_sql returns, whatever LIMIT the SQL carries
+
+
+# one left-to-right pass: a quote inside a "quoted identifier" or a comment can't start a fake
+# string literal and hide a ';' or a keyword from the checks below
+_SQL_LEX = re.compile(r"'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"|`(?:[^`]|``)*`|\[[^\]]*\]|--[^\n]*|/\*.*?(?:\*/|$)", re.S)
+
+
+def _bare(s):
+    """The SQL with its 'string literals' blanked and comments removed — so a LIKE '%update%' or
+    '%limit%' is not read as a keyword (the engine-level guard in db.user_query is the real backstop)."""
+    return _SQL_LEX.sub(lambda m: "''" if m.group(0)[0] == "'" else (m.group(0) if m.group(0)[0] in '"`[' else " "), s)
 
 
 def _safe_select(sql: str):
@@ -31,12 +45,13 @@ def _safe_select(sql: str):
         return None, "no SQL produced"
     if not re.match(r"^(select|with)\b", s, re.I):
         return None, "only SELECT / WITH queries are allowed"
-    if ";" in s:
+    bare = _bare(s)
+    if ";" in bare:
         return None, "only a single statement is allowed"
-    if _SQL_BANNED.search(s):
+    if _SQL_BANNED.search(bare):
         return None, "read-only queries only (no writes / DDL / file access)"
-    if not re.search(r"\blimit\b", s, re.I):
-        s += " LIMIT 500"
+    if not re.search(r"\blimit\b", bare, re.I):
+        s += "\nLIMIT 500"          # own line: never inside a trailing -- comment
     return s, None
 
 
@@ -97,6 +112,9 @@ def asset(p):
             "counts": {"vulns": len(vulns), "certs": len(certs)}}, 200
 
 
+_VULN_ROWS = 2000
+
+
 def vuln(p):
     plugin = str(p.get("plugin") or "").strip()
     if not plugin:
@@ -109,14 +127,20 @@ def vuln(p):
     name = db.scalar("SELECT plugin_name FROM vulns WHERE plugin_id=? LIMIT 1;", (plugin,))
     fsel = ", v.url AS finding_url" if has_v_url else ""
     asel = ", a.url AS asset_url" if has_a_url else ""
+    # bounded (scale): a common plugin is on every asset — count it over the covering index,
+    # send the first _VULN_ROWS findings with a trimmed output (the page shows 260 chars)
+    total = db.scalar("SELECT COUNT(*) FROM vulns" + db.indexed_by("hx_v_plugin") + " WHERE plugin_id=?",
+                      (plugin,)) or 0
     rows = db.query(
-        f"SELECT v.asset_uuid, a.hostname, a.ip_address, v.output, v.last_found{fsel}{asel} "
+        f"SELECT v.asset_uuid, a.hostname, a.ip_address, substr(v.output, 1, 400) AS output, "
+        f"v.last_found{fsel}{asel} "
         "FROM vulns v LEFT JOIN assets a ON a.uuid=v.asset_uuid "
-        "WHERE v.plugin_id=? ORDER BY a.ip_address;", (plugin,))
+        "WHERE v.plugin_id=? ORDER BY a.ip_address LIMIT ?;", (plugin, _VULN_ROWS))
     for r in rows:
         r["hostname"] = (r.get("hostname") or "").strip() or "(none)"
     return {"ok": True, "plugin": plugin, "plugin_name": name or "(unknown plugin)",
-            "plugin_url": plugin_url, "assets": rows, "count": len(rows)}, 200
+            "plugin_url": plugin_url, "assets": rows, "count": max(int(total), len(rows)),
+            "truncated": int(total) > len(rows)}, 200
 
 
 def cert_month(p):
@@ -255,11 +279,20 @@ def run_sql(p):
     sql, err = _safe_select(p.get("sql", ""))
     if err:
         return {"ok": False, "message": err}, 200
+    rows, more = [], False
     try:
-        rows = db.user_query(sql)          # engine-level guard: navi's credential tables are unreadable
+        it = db.user_iter(sql)             # engine-level guard: navi's credential tables are unreadable
+        try:
+            for r in it:                   # streamed + capped: a sub-query LIMIT or LIMIT 100000
+                if len(rows) >= _RUN_MAX:  # can't send millions of rows to the browser
+                    more = True
+                    break
+                rows.append(r)
+        finally:
+            it.close()
     except Exception as e:
         return {"ok": False, "message": str(e), "sql": sql}, 200
-    return {"ok": True, "sql": sql, "rows": rows, "count": len(rows),
+    return {"ok": True, "sql": sql, "rows": rows, "count": len(rows), "truncated": more,
             "columns": list(rows[0].keys()) if rows else []}, 200
 
 

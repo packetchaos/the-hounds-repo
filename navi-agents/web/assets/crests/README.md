@@ -25,3 +25,18 @@ background to match the app.
 | `ex_plugins.png` | Plugin Explorer — Foxhound |
 | `ex_routes.png` | Route Explorer — Wolfhound |
 | `ex_paths.png` | Path Explorer — Greyhound |
+| `asset_ownership.png` | Asset Ownership — Terminus |
+| `c2.png` | Command & Control — Amarok |
+| `compliance.png` | Compliance — Minos |
+| `compliance_asset.png` | Compliance Deep-Dive — Tiresias |
+| `custom_audit.png` | Custom Audit — Draco |
+| `ex_apps.png` | WAS Apps Explorer — Vizsla |
+| `ex_compliance.png` | Compliance Explorer — Saluki |
+| `ex_fixed.png` | Fixed Explorer — Plott |
+| `ex_tags.png` | Tag Explorer — Basset |
+| `ex_software.png` | Software Explorer — Harrier |
+| `fused_score.png` | Exposure Score — Nemesis |
+| `mcpcmp.png` | MCP Compare — Pointer |
+| `sla.png` | SLA Adherence — Sköll |
+| `was.png` | WAS · Web Apps — Arachne |
+| `was_asset.png` | Web App Recon — Beagle |

@@ -52,12 +52,12 @@ def _agent():
 _BLIND = ("failed", "insufficient", "intermittent", "uncredentialed")
 FLAGS = {"st:" + s for s in ("failed", "insufficient", "intermittent", "uncredentialed", "ok", "unknown")} | {
     "f:failed", "f:insufficient", "f:intermittent", "f:uncredentialed", "f:blind", "f:patch", "f:stale30",
-    "f:stale90", "f:never", "f:slow", "f:crownblind", "f:crown", "f:agent", "f:network"}
+    "f:stale90", "f:never", "f:slow", "f:crownblind", "f:crown", "f:agent", "f:network", "f:issue"}
 SECTIONS = {"assets": {"sorts": {}, "flags": FLAGS}}
 CSV_COLS = ["host", "ip", "acr", "credentials", "patch_assessment", "last_scan", "age_days", "type", "scanner",
             "policy", "scan", "duration_sec"]
 _ST_LABEL = {"failed": "Failed", "insufficient": "Insufficient privilege", "intermittent": "Intermittent",
-             "uncredentialed": "Uncredentialed", "ok": "Credentialed OK", "unknown": "No scan data"}
+             "uncredentialed": "Uncredentialed", "ok": "Credentialed", "unknown": "No scan data"}
 
 
 def _flags(x, slow_sec):
@@ -79,6 +79,8 @@ def _flags(x, slow_sec):
         f.append("f:crown")
         if st in _BLIND or fr in ("90+", "never"):
             f.append("f:crownblind")
+    if x.get("issue"):
+        f.append("f:issue")
     if x.get("type") == "Agent":
         f.append("f:agent")
     elif x.get("type") == "Network":

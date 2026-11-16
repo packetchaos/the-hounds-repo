@@ -277,7 +277,7 @@ function boardHtml(){
   const E=D.exposure||{}, T=E.assets||0;
   // order (build 461): what you need first — the glance, the next moves, what's on the clock and
   // the reduction the recommended play buys — then the analysis
-  return sec('secGlance','At a glance','📊','At a glance','Every number comes from the hound that owns it, as of the last release — click to open that hound.','<div id="glance"></div>')+
+  return sec('secGlance','At a glance','📊','At a glance','Every number comes from the hound that owns it, as of the last release — click it to see the assets behind it (the evidence) and act on them.','<div id="glance"></div>')+
   sec('secNext','Next moves','➡️','What to do next','Ranked hand-offs — each opens the hound that does the work (writes stay gated on that hound\'s page).',
     `<div class="nx" id="nx"></div>
      <div style="margin-top:12px"><a class="btn ghost sm" href="/agents/email/page.html" title="Hand this board to Gabriel to email">📧 Email this board</a></div>`)+

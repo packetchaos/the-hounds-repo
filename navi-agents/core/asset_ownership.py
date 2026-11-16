@@ -22,6 +22,7 @@ tag. All reads are read-only; every write goes through the gated navi tag path.
 import re
 
 from core import db, hx_summary, navi_cli, tagname
+from core import cloud as _cloud
 
 CROWN_ACR = 9
 _CROWN_TAG_VALUES = {"crown jewel", "crown-jewel", "mission critical", "mission-critical",
@@ -84,7 +85,7 @@ def assets_with_tags(db_path=None) -> list[dict]:
     url = "url" if "url" in cols else "NULL AS url"
     rows = _q(f"SELECT uuid, hostname, ip_address ip, {acr}, {aes}, {url} FROM assets", path=db_path)
     by = {}
-    cloud_cols = [c for c in ("aws_id", "azure_vm_id", "gcp_instance_id") if c in cols]
+    cloud_cols = _cloud.columns(cols)
     for r in rows:
         u = r.get("uuid")
         if not u:
@@ -96,7 +97,7 @@ def assets_with_tags(db_path=None) -> list[dict]:
         cc = ", ".join(cloud_cols)
         for r in _q(f"SELECT uuid, {cc} FROM assets", path=db_path):
             u = r.get("uuid")
-            if u in by and any(r.get(c) for c in cloud_cols):
+            if u in by and any(_cloud.present(r.get(c)) for c in cloud_cols):
                 by[u]["cloud"] = True
     for r in _q("SELECT asset_uuid, tag_key, tag_value FROM tags WHERE asset_uuid IS NOT NULL", path=db_path):
         e = by.get(r.get("asset_uuid"))
@@ -303,7 +304,7 @@ def _iter_assets_with_tags(db_path=None):
     acr = "acr" if "acr" in cols else "NULL AS acr"
     aes = "aes" if "aes" in cols else "NULL AS aes"
     url = "url" if "url" in cols else "NULL AS url"
-    cloud_cols = [c for c in ("aws_id", "azure_vm_id", "gcp_instance_id") if c in cols]
+    cloud_cols = _cloud.columns(cols)
     cc = "".join(", " + c for c in cloud_cols)
     arows = db.iter(f"SELECT rowid AS _rid, uuid, hostname, ip_address ip, {acr}, {aes}, {url}{cc} FROM assets "
                     "WHERE uuid IS NOT NULL AND uuid<>'' ORDER BY uuid, rowid", path=db_path, budget="job")
@@ -321,14 +322,14 @@ def _iter_assets_with_tags(db_path=None):
         if cur is not None and cur["uuid"] == u:          # duplicate asset rows: the last row's attributes win
             cur.update(hostname=r.get("hostname"), ip=r.get("ip"), acr=_fnum(r.get("acr")),
                        aes=_fnum(r.get("aes")), url=r.get("url"))
-            if cloud_cols and any(r.get(c) for c in cloud_cols):
+            if cloud_cols and any(_cloud.present(r.get(c)) for c in cloud_cols):
                 cur["cloud"] = True
             continue
         if cur is not None:
             yield cur
         cur = {"uuid": u, "hostname": r.get("hostname"), "ip": r.get("ip"), "acr": _fnum(r.get("acr")),
                "aes": _fnum(r.get("aes")), "url": r.get("url"), "tags": [], "_tagmap": {}, "_rid": r.get("_rid")}
-        if cloud_cols and any(r.get(c) for c in cloud_cols):
+        if cloud_cols and any(_cloud.present(r.get(c)) for c in cloud_cols):
             cur["cloud"] = True
         while tnext is not None and (tnext[0] or "") < u:
             tnext = next(trows, None)

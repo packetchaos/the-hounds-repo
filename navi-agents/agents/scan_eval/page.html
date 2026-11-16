@@ -83,7 +83,7 @@ const N=v=>(v==null?0:v).toLocaleString();
 const dur=s=>{ if(s==null)return '—'; s=Math.round(s); return s<60?s+'s':(s<3600?Math.floor(s/60)+'m '+(s%60)+'s':Math.floor(s/3600)+'h '+Math.floor((s%3600)/60)+'m'); };
 const pct=v=>v==null?'<span class="sub">—</span>':`<span class="meter"><i style="width:${v}%;background:${v>=80?'#30a46c':v>=40?'#e0913a':'var(--crit)'}"></i></span>${v}%`;
 const ST={failed:['Failed','var(--crit)'],insufficient:['Insufficient privilege','#e0913a'],intermittent:['Intermittent','#c9a227'],
-  uncredentialed:['Uncredentialed','#8b95a7'],ok:['Credentialed OK','#30a46c'],unknown:['No scan data','#c4c9d4']};
+  uncredentialed:['Uncredentialed','#8b95a7'],ok:['Credentialed','#30a46c'],unknown:['No scan data','#c4c9d4']};
 const FR={'0-7':['≤ 7 days','#30a46c'],'8-30':['8–30 days','#7cc48a'],'31-90':['31–90 days','#e0913a'],'90+':['> 90 days','var(--crit)'],never:['Never scanned','#8b95a7'],unknown:['Date unknown','#c4c9d4']};
 const BLIND=['failed','insufficient','intermittent','uncredentialed'];
 /* filter → [label, predicate, tag keys that tag exactly this set] */
@@ -100,6 +100,7 @@ const FILTERS={
   slow:['Scan over 1 hour',x=>(x.dur||0)>(DATA.slow_sec||3600),['slow']],
   crownblind:['Crown-jewel blind spots',x=>x.crown&&(BLIND.includes(x.status)||x.fresh==='90+'||x.fresh==='never'),['crown:blind']],
   crown:['Crown jewels (ACR ≥ 7)',x=>x.crown,[]],
+  issue:['Credentialed, but a credential failed or lacked privilege',x=>!!x.issue,[]],
   agent:['Scanned by a Nessus Agent',x=>x.type==='Agent',[]], network:['Scanned over the network',x=>x.type==='Network',[]] };
 const KEYVAL={'status:failed':'Cred Failure','status:insufficient':'Insufficient Privilege','status:intermittent':'Intermittent Auth','status:uncredentialed':'Uncredentialed',
   'patch:failed':'Patch Assessment Failed','fresh:31-90':'Stale Scan 30d+','fresh:90+':'Stale Scan 90d+','fresh:never':'Never Scanned','slow':'Slow Scan','crown:blind':'Crown Jewel Blind Spot'};
@@ -118,6 +119,9 @@ async function run(){
   else if(!m.scanned) flash('flash','No Nessus Scan Information (plugin 19506) in navi.db — run a navi update that includes vulns.','warn');
   else flashClear('flash');
   render();
+  // evidence deep link (On the Scent): ?view=blind → the asset table filtered to it
+  hViewOnce('view', v=>{ if(!FILTERS[v]) return; FILTER=v; STF='all'; renderMetrics(); renderAssets();
+    setTimeout(()=>document.getElementById('secAssets').scrollIntoView({behavior:'smooth',block:'start'}),60); });
 }
 
 /* ---- gated writes: one line of feedback; detail lives in the Tagging log ---- */
@@ -168,12 +172,13 @@ function renderMetrics(){
             {v:N(fr['0-7']), l:'scanned in the last 7 days', u:`${N(fr['8-30'])} more within 30 days`, sev:'ok', zero:false},
             {v:`${N(m.network)} / ${N(m.agent)}`, l:'network / agent scanned', u:'by the latest scan of each asset', sev:'info', filter:m.agent?'agent':'network',
              t:'network / agent scanned — by the latest scan of each asset · click to show agent-scanned assets', zero:false}]},
-    {title:'Credential health', t:'Each asset counted once, under its worst state.',
-     hero:{v:m.cred_ok_pct!=null?m.cred_ok_pct+'%':'—', l:'credentialed OK', u:`${N(st.ok)} of ${N(m.scanned)} scanned assets`, sev:'ok', zero:false},
+    {title:'Credential health', t:'Credentialed = any 19506 “Credentialed checks : yes”, or 141118 / 110095. A host that is not credentialed is counted once, under the reason.',
+     hero:{v:m.cred_ok_pct!=null?m.cred_ok_pct+'%':'—', l:'credentialed', u:`${N(st.ok)} of ${N(m.scanned)} scanned assets${m.cred_issue?` · ${N(m.cred_issue)} with a credential issue`:''}`, sev:'ok', zero:false},
      bar:has?Object.keys(ST).map(s=>({label:ST[s][0], value:st[s]||0, color:BARC[s]})):null,
-     chips:[{v:N(st.failed), l:'credential failures', u:'credentials provided but rejected · 104410', sev:'crit', filter:'failed'},
-            {v:N(st.insufficient), l:'insufficient privilege', u:"logged in, but can't run every check · 110385 / 102094", sev:'high', filter:'insufficient'},
-            {v:N(st.intermittent), l:'intermittent authentication', u:'login worked only some of the time · 117885', sev:'med', filter:'intermittent'},
+     chips:[{v:N(st.failed), l:'credential failures — blind', u:'credentials rejected and no credentialed login · 104410', sev:'crit', filter:'failed'},
+            {v:N(st.insufficient), l:'insufficient privilege — blind', u:"no credentialed login (19506) · 110385 / 102094", sev:'high', filter:'insufficient'},
+            {v:N(st.intermittent), l:'intermittent authentication — blind', u:'no credentialed login (19506) · 117885', sev:'med', filter:'intermittent'},
+            {v:N(m.cred_issue), l:'credentialed, with a credential issue', u:'19506 yes, but a credential failed or lacked privilege (104410 / 110385 / 117885)', sev:'med', filter:'issue'},
             {v:N(st.uncredentialed), l:'scanned without credentials', u:'none provided, or 19506 says credentialed : no', filter:'uncredentialed'},
             {v:N(m.patch_failed), l:'patch assessment failed', u:`OS patch checks didn't run · 21745${m.patch_na?` · ${N(m.patch_na)} not available (117886)`:''}`, sev:'high', filter:'patch'}]},
     {title:'Freshness and crown jewels', t:"Days since each asset's most recent scan, as of "+(DATA.today||'today')+'.',
@@ -198,7 +203,7 @@ function viewFlags(){ const f=[]; if(STF!=='all') f.push('st:'+STF); if(FILTER) 
 function aQ(){ return String((document.getElementById('aQ')||{}).value||'').trim(); }
 function assetRow(x){ return `<tr><td><b>${host(x.asset_uuid,x.host)}</b><div class="sub mono" style="font-size:11px">${x.ip&&x.ip!==x.host?esc(x.ip)+' ':''}${safeUrl(x.url,'')?`<a href="${esc(safeUrl(x.url))}" target="_blank" rel="noopener noreferrer" class="plink" title="Open in Tenable">↗</a>`:''}</div></td>`+
       `<td>${x.acr==null?'<span class="sub">—</span>':(x.crown?`<b style="color:var(--crit)">${x.acr}</b>`:x.acr)}</td>`+
-      `<td><span class="pill" style="color:${(ST[x.status]||ST.unknown)[1]}">${esc((ST[x.status]||ST.unknown)[0])}</span>${x.patch==='failed'?' <span class="pill" style="color:#e0913a" title="21745 OS Security Patch Assessment Failed">patch checks failed</span>':''}</td>`+
+      `<td><span class="pill" style="color:${(ST[x.status]||ST.unknown)[1]}">${esc((ST[x.status]||ST.unknown)[0])}</span>${x.issue?` <span class="pill" style="color:#e0913a" title="credentialed (19506 yes), but ${esc(x.issue==='failed'?'one credential was rejected (104410)':x.issue==='insufficient'?'a login lacked privilege (110385 / 102094)':'authentication was intermittent (117885)')}">${esc(x.issue==='failed'?'a credential failed':x.issue==='insufficient'?'some checks lacked privilege':'intermittent login')}</span>`:''}${x.patch==='failed'?' <span class="pill" style="color:#e0913a" title="21745 OS Security Patch Assessment Failed">patch checks failed</span>':''}</td>`+
       `<td>${x.last_scan?`${esc(x.last_scan)} <span class="sub" style="color:${FR[x.fresh]?FR[x.fresh][1]:'inherit'}">${N(x.age_days)}d</span>`:`<span class="sub">${x.fresh==='never'?'never':'—'}</span>`}</td>`+
       `<td><span class="mono" style="font-size:12px">${esc(x.scanner||'—')}</span>${x.type?`<div class="sub" style="font-size:11px">${esc(x.type)}</div>`:''}</td><td>${esc(x.policy||'—')}</td>`+
       `<td class="mono">${x.dur!=null?dur(x.dur):'—'}</td></tr>`; }

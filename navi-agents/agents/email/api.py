@@ -23,6 +23,7 @@ import datetime
 import re
 
 from core import db, tagname
+from core.acrlog import csv_safe   # spreadsheet-formula neutraliser for CSV attachments
 from core.gates import confirmed
 
 AGENT = None
@@ -1349,7 +1350,7 @@ def widget(p):
             w = csv.writer(buf)
             w.writerow(cols)
             for r in rows:
-                w.writerow([r.get(c, "") for c in cols])
+                w.writerow([csv_safe(r.get(c, "")) for c in cols])
             data_csv = buf.getvalue().encode("utf-8-sig")
             if pic is not None:
                 with zipfile.ZipFile(apath, "w", zipfile.ZIP_DEFLATED) as z:
@@ -1438,7 +1439,7 @@ def data(p):
                 w = csv.writer(fh)
                 w.writerow(cols)
                 for row in rows:
-                    w.writerow([(row.get(c, "") if isinstance(row, dict) else "") for c in cols])
+                    w.writerow([csv_safe(row.get(c, "")) if isinstance(row, dict) else "" for c in cols])
             body_inner = (intro + sql_block
                           + f"<p style='margin:0 0 10px;color:#475569'>The full result — <b>{n} rows</b> — is "
                             f"attached as <b>{_esc(attached)}</b> (too large to render inline).</p>"

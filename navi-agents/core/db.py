@@ -787,6 +787,18 @@ def _translate(e, s):
     return None
 
 
+def _row(r) -> dict:
+    """sqlite3.Row -> dict, with navi's "missing" placeholder normalised: navi's th_* exports
+    write a single space (" ") for a field the API didn't return, so a whitespace-only text
+    value becomes None here — `hostname or ipv4` then falls back as intended. The literal
+    text "None" (navi's str(None)) is left alone. tuples=True streams are returned raw."""
+    d = dict(r)
+    for k, v in d.items():
+        if v.__class__ is str and v and v.isspace():
+            d[k] = None
+    return d
+
+
 def _run(sql, params, path, budget, guard, max_rows, cancel_tok, heavy, mode):
     """mode: 'all' -> list[dict], 'one' -> first row (dict) or None."""
     s = _Stmt(sql, budget, cancel_tok, heavy)
@@ -804,15 +816,15 @@ def _run(sql, params, path, budget, guard, max_rows, cancel_tok, heavy, mode):
         cur = w.con.execute(sql, params)
         if mode == "one":
             r = cur.fetchone()
-            return dict(r) if r is not None else None
+            return _row(r) if r is not None else None
         if not max_rows:
-            return [dict(r) for r in cur.fetchall()]
+            return [_row(r) for r in cur.fetchall()]
         out = []
         while True:
             batch = cur.fetchmany(min(_CHUNK, max_rows + 1 - len(out)))
             if not batch:
                 return out
-            out.extend(dict(r) for r in batch)
+            out.extend(_row(r) for r in batch)
             if len(out) > max_rows:
                 raise TooManyRows(max_rows, sql)
     except (QueryTimeout, TooManyRows) as e:
@@ -921,7 +933,7 @@ def iter_chunks(sql: str, params: tuple = (), path: str | None = None,
             if not batch:
                 return
             if not tuples:
-                batch = [dict(r) for r in batch]
+                batch = [_row(r) for r in batch]
             if s.cancel.is_set():
                 raise QueryCancelled(sql)
             if s.deadline is not None and time.monotonic() > s.deadline:
@@ -1026,7 +1038,8 @@ _CATCOLS = {
     "vuln_route": ["vuln_type"],
     "tags": ["tag_key", "tag_value"],
     "certs": ["signature_algorithm", "country"],
-    "fixed": ["severity"],
+    "fixed": ["severity", "state", "pass_fail"],
+    "compliance": ["status", "audit_file"],
     "agents": ["platform", "status"],
 }
 
@@ -1036,6 +1049,9 @@ def _table_cols(table, path=None):
         return {r["name"] for r in query(f'PRAGMA table_info("{table}");', path=path)}
     except Exception:
         return set()
+
+
+_HINT_ROWS = 200000
 
 
 def value_hint(tables, path=None, cap: int = 60) -> str:
@@ -1048,7 +1064,9 @@ def value_hint(tables, path=None, cap: int = 60) -> str:
             if c not in cols:
                 continue
             try:
-                rows = query(f'SELECT DISTINCT "{c}" AS v FROM "{t}" '
+                # a hint, not a census: sample the first _HINT_ROWS rows — a DISTINCT over the
+                # whole vulns table is a full scan of a 100M-row / 148 GB navi.db per ✨ question
+                rows = query(f'SELECT DISTINCT "{c}" AS v FROM (SELECT "{c}" FROM "{t}" LIMIT {_HINT_ROWS}) '
                              f'WHERE "{c}" IS NOT NULL AND TRIM("{c}")<>\'\' LIMIT {cap}', path=path)
             except Exception:
                 continue

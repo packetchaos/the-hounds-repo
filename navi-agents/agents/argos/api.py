@@ -109,6 +109,17 @@ def _decipher(cat, val):
         fk = facet.strip().lower()
         meta = _FACET_INTEL.get(fk, {"hound": "Linnaeus", "agent": "classify", "weight": 1,
                                      "band": "info", "why": "Inventory classification (" + facet.strip() + ")."})
+        if fk == "device type":
+            # build 473: a Server / Desktop / Switch is a classification, not an IoT signal —
+            # only IoT / OT device types carry the IoT / OT weight
+            from core import classify as _cl
+            hit = _cl.device_type(sub)
+            dc = hit[1] if hit else ""
+            if dc in ("IoT", "OT"):
+                meta = dict(_FACET_INTEL[dc.lower()])
+            else:
+                meta = {"hound": "Linnaeus", "agent": "classify", "weight": 1, "band": "info",
+                        "why": "Device type — what this asset physically is."}
         return dict(meta, category=cat, value=val, facet=facet.strip(), subvalue=sub.strip())
     for key, meta in _TAG_INTEL:
         if key in c:
@@ -548,6 +559,16 @@ def _glance(uuid, tags, vrows=None, certs=None):
                          "date": _iso_date(ms.group(1)) if ms else None,
                          "name": mn.group(1).strip()[:60] if mn else None,
                          "credentialed": (mc.group(1).lower() == "yes") if mc else None}
+            # credentialed = ANY 19506 "Credentialed checks : yes" or 141118 / 110095 (core.credstate)
+            # — not only the newest scan's report
+            if g["scan"]["credentialed"] is not True:
+                try:
+                    if db.query("SELECT 1 FROM vulns WHERE asset_uuid=? AND (plugin_id IN ('141118','110095') OR "
+                                "(plugin_id='19506' AND output LIKE '%Credentialed checks : yes%')) LIMIT 1",
+                                (uuid,), budget="open"):
+                        g["scan"]["credentialed"] = True
+                except Exception:
+                    pass
     # ---- compliance (Minos / Tiresias)
     if "asset_uuid" in _cols("compliance"):
         try:

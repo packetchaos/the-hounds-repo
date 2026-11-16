@@ -50,10 +50,10 @@ async function load(){
     `<div class="k"><div class="v">${o.count}</div><div class="l">affected assets</div></div>`
     +(withIp.length?`<div class="k" style="display:flex;align-items:center">${c2Link('remediate',{plugin_id:o.plugin,targets:withIp.slice(0,256).map(a=>({ip:a.ip_address,uuid:a.asset_uuid,hostname:a.hostname})),source:'Plugin detail'},'🛠 Remediate on '+withIp.length+' host(s)')}</div>`:'');
   const t=document.querySelector('#atbl tbody');
-  document.getElementById('acount').textContent=`(${o.assets.length})`;
+  document.getElementById('acount').textContent=o.truncated?`(first ${o.assets.length.toLocaleString()} of ${Number(o.count).toLocaleString()})`:`(${o.assets.length})`;
   t.innerHTML = o.assets.length ? o.assets.map(a=>
     `<tr><td><a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(a.asset_uuid)}">${esc(a.hostname)}</a>${plat(a.finding_url,'Finding ↗')||plat(a.asset_url,'Asset ↗')}</td>`+
-    `<td class="mono">${esc(a.ip_address||'')}</td><td class="out">${esc((a.output||'').slice(0,260))}</td>`+
+    `<td class="mono">${esc(a.ip_address||'')}</td><td class="out">${esc((a.output&&String(a.output).trim()!=='None'?String(a.output):'—').slice(0,260))}</td>`+
     `<td class="mono">${esc((a.last_found||'').slice(0,10))}</td></tr>`).join('')
     : '<tr><td colspan="4" class="sub">No affected assets.</td></tr>';
 }

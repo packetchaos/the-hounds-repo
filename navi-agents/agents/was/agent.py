@@ -1,7 +1,7 @@
 """Arachne — the WAS (Web Application Scanning) agent.
 
-Named for the Aztec dog-god who guards and guides souls: Arachne watches over the web
-apps. It owns two dashboards over navi's `apps`/`findings` tables — a consolidated
+Named for the weaver of Greek myth turned into the first spider: Arachne watches over
+the web apps. It owns two dashboards over navi's `apps`/`findings` tables — a consolidated
 Overview (all apps) and a per-app App Report — surfacing severity, the OWASP Top-10
 profile, the technology stack, and scan coverage. All read-only; core.was does the work.
 """

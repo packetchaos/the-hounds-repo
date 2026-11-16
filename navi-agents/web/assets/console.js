@@ -617,6 +617,77 @@ function handoffParams(){
   const q=new URLSearchParams(location.search);
   return {focus:(q.get('focus')||'').trim(), run:q.get('run')==='1', from:q.get('from')||''};
 }
+/* ---- ⚙ settings gear (build 468): the right end of every page's header bar, after "📧 Email
+   dashboard". Its light: red = key configurations required (navi.db unreadable / no assets / no
+   findings), amber = optional configurations missing (certs, software, routes / paths, WAS,
+   compliance, SLA, Fixed, EPSS, ⚡ Optimize, AI model), purple = all set. Hover lists what's
+   missing; click opens Settings. Status: /api/hub/config_status, cached 60 s per tab. */
+const _GEAR_SVG='<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.2"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1.11-1.56 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.56-1.11 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34H9a1.7 1.7 0 0 0 1.03-1.56V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87V9c.26.6.86 1 1.51 1.03H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.51 1z"/></svg>';
+function _gearStyle(){ if(document.getElementById('hGearCss')) return; const s=document.createElement('style'); s.id='hGearCss';
+  s.textContent='.hgear{position:relative;display:inline-flex;align-items:center;justify-content:center;width:32px;height:30px;flex:0 0 auto;border:1px solid var(--line);border-radius:9px;color:var(--ink-2);background:var(--panel);text-decoration:none;transition:color .12s,border-color .12s}'
+    +'.hgear:hover,.hgear:focus-visible{color:var(--ink);border-color:var(--accent)}'
+    +'.hgear i{position:absolute;top:-3px;right:-3px;width:10px;height:10px;border-radius:50%;border:2px solid var(--panel);background:var(--ink-3)}'
+    +'.hgear.lvl-red i{background:#e5484d;box-shadow:0 0 6px rgba(229,72,77,.8)}'
+    +'.hgear.lvl-amber i{background:#f0a020;box-shadow:0 0 5px rgba(240,160,32,.6)}'
+    +'.hgear.lvl-ok i{background:#8b5cf6;box-shadow:0 0 5px rgba(139,92,246,.6)}'
+    +'.hgear.here{border-color:var(--accent);color:var(--accent)}'
+    // phones: the bar is one fixed row — let "Next agent" and "Email dashboard" shrink, never the gear
+    +'@media (max-width:700px){header.top .nextagent,#app-header .nextagent{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}'
+    +'header.top>.hmbtn,#app-header>.hmbtn{flex:0 1 auto;min-width:34px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}}';
+  document.head.appendChild(s); }
+function _gearLast(){ const g=document.getElementById('hGear'); if(g&&g.parentNode&&g.parentNode.lastElementChild!==g) g.parentNode.appendChild(g);
+  const s=document.getElementById('hSearch'); if(s&&g&&g.parentNode&&s.nextElementSibling!==g) g.parentNode.insertBefore(s,g); }
+/* 🔎 Search icon (build 471) — just left of the gear: one click to the Search Hounds, to look at data fast. */
+const _SEARCH_SVG='<svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 21 21"/></svg>';
+function _onSearchPage(){ const p=location.pathname; if(/\/web\/search\.html$/.test(p)) return true;
+  try{ return SEARCH_PAGES.some(x=>p===x[1]||p.endsWith(x[1])); }catch(e){ return false; } }
+function mountSearchIcon(hdr){
+  let s=document.getElementById('hSearch');
+  if(!s){ s=document.createElement('a'); s.id='hSearch'; s.className='hgear hsearch'; s.href='/web/search.html';
+    s.title='Search Hounds — assets, vulns, plugins, tags, routes, paths, apps, fixed, compliance'; s.setAttribute('aria-label','Search Hounds'); s.innerHTML=_SEARCH_SVG; }
+  s.classList.toggle('here',_onSearchPage());
+  hdr.appendChild(s); }
+function _gearPaint(o){ const g=document.getElementById('hGear'); if(!g||!o||!o.ok) return;
+  g.classList.remove('lvl-red','lvl-amber','lvl-ok'); g.classList.add('lvl-'+(o.level||'ok'));
+  const list=(o.items||[]).slice(0,10).map(i=>(i.level==='red'?'● ':'○ ')+i.label+(i.fix?' — '+i.fix:'')).join('\n');
+  g.title=(o.title||'Settings')+(list?'\n'+list:'')+'\n\nClick to open Settings';
+  g.setAttribute('aria-label','Settings — '+(o.title||'')); }
+async function mountSettingsGear(){
+  const hdr=document.getElementById('app-header')||document.querySelector('header.top'); if(!hdr) return;
+  _gearStyle();
+  let g=document.getElementById('hGear');
+  if(!g){ g=document.createElement('a'); g.id='hGear'; g.className='hgear'; g.href='/web/settings.html';
+    g.title='Settings'; g.setAttribute('aria-label','Settings'); g.innerHTML=_GEAR_SVG+'<i></i>'; }
+  if(/\/web\/settings\.html$/.test(location.pathname)) g.classList.add('here');
+  mountSearchIcon(hdr); hdr.appendChild(g); _gearLast();
+  const onSettings=g.classList.contains('here'); let o=null;
+  if(!onSettings){ try{ const c=JSON.parse(sessionStorage.getItem('houndsCfgStatus')||'null'); if(c&&Date.now()-c.t<60000) o=c.o; }catch(e){} }
+  if(!o){ try{ o=await jpost('/api/hub/config_status',{}); }catch(e){ o=null; }
+    if(o&&o.ok){ try{ sessionStorage.setItem('houndsCfgStatus',JSON.stringify({t:Date.now(),o})); }catch(e){} } }
+  _gearPaint(o);
+}
+if(document.readyState!=='loading') mountSettingsGear(); else document.addEventListener('DOMContentLoaded',mountSettingsGear);
+
+/* ---- evidence deep links (build 467): ?view=<filter> / ?cls=<class> / ?scope=<scope> ----
+   An On the Scent card opens a hound ON its evidence: the page applies its own filter once its
+   data is on screen (a release's cached run replays on open). hViewOnce(name, fn) runs fn(value)
+   the first time it is called with that URL parameter present; if the page has no data yet
+   (never run / not released), a note asks for ▶ Run and the filter applies after it. */
+function hViewParam(name){ try{ return (new URLSearchParams(location.search).get(name||'view')||'').trim(); }catch(e){ return ''; } }
+const _hViewDone={};
+function hViewOnce(name, fn){
+  const v=hViewParam(name); if(!v||_hViewDone[name]) return false;
+  _hViewDone[name]=true; const n=document.getElementById('hViewNote'); if(n) n.remove();
+  try{ fn(v); }catch(e){} return true; }
+function _hViewHint(){
+  const keys=['view','cls','scope'].filter(k=>hViewParam(k)); if(!keys.length) return;
+  setTimeout(()=>{ if(keys.every(k=>_hViewDone[k])) return;
+    const w=document.querySelector('.wrap'); if(!w||document.getElementById('hViewNote')) return;
+    const d=document.createElement('div'); d.id='hViewNote'; d.className='flash';
+    d.style.cssText='display:block;margin:10px 0;border-left:4px solid var(--amber,#e0a526)';
+    d.innerHTML='🧾 You opened this hound on its evidence (<b>'+esc(keys.map(k=>hViewParam(k)).join(', '))+'</b>). It has no run on screen yet — press <b>▶ Run</b> and the list is filtered to it.';
+    const h=w.querySelector('header'); if(h&&h.nextSibling) w.insertBefore(d,h.nextSibling); else w.prepend(d); }, 2500); }
+if(document.readyState!=='loading') _hViewHint(); else document.addEventListener('DOMContentLoaded',_hViewHint);
 /* Highlight + scroll to the first table row containing `text` (case-insensitive). */
 function focusRow(tableSel, text){
   if(!text) return false;
@@ -764,16 +835,18 @@ function _harvestFindings(agentId, action, resp, reqBody){
 const CODENAMES = {
   c2:{name:'Amarok',lore:'<b>Amarok</b>, the giant wolf of Inuit legend that hunts its quarry down alone in the night — here he is the pack\'s executor, carrying the operator\'s command to a single Linux host over SSH: run one order, ship it a file, or apply a patch drawn from the vulns table. He moves one host at a time, acts only when <b>armed</b> and confirmed, goes canary-first with stop-on-failure, and every push is written to the ledger.'},
   classify:{name:'Linnaeus',lore:'Carl <b>Linnaeus</b>, the father of taxonomy who gave every living thing its name and rank \u2014 here he classifies every asset by what it <i>is</i> (Windows / Linux / macOS / IoT / OT / network / hypervisor), from the OS field with a plugin-output fallback, so the rest of the pack knows exactly what each host is.'},
-  was:{name:'Arachne',lore:'<b>Arachne</b>, the Aztec dog-god who guides souls through the shadow-world — here he walks your web apps\' hidden surface, the dynamic (DAST) findings that live behind the login and inside the request/response, mapping OWASP-class exposure a network scan never sees.'},
+  was:{name:'Arachne',lore:'<b>Arachne</b>, the weaver of Greek myth whom Athena turned into the first spider — here she walks your web apps\' hidden surface, the dynamic (DAST) findings that live behind the login and inside the request/response, mapping OWASP-class exposure a network scan never sees.'},
   sla:{name:'Sk\u00f6ll',lore:'<b>Sk\u00f6ll</b>, the wolf that forever chases the sun across the sky — here he chases every finding against its clock, surfacing the SLA breaches: what is overdue, by how long, and for whom, so remediation deadlines can\'t quietly slip.'},
   asset_ownership:{name:'Terminus',lore:'<b>Terminus</b>, the Roman god of boundary stones and property lines — he answers who owns each asset. Business leaders own groups of assets (Business Owner), technology owners hold routes &amp; paths (Owner, via Atlas), and a single Asset Owner can claim an asset\'s every route &amp; path. Surfaces what is unclaimed, what is blind, and what the pack knows about your crown jewels.'},
   fused_score:{name:'Nemesis',lore:'<b>Nemesis</b>, the goddess of retribution who brings the reckoning to what has earned it — here she fuses every Hound\'s signal into one exposure score per asset, surfaces the worst from each and where they converge, ranks the estate worst-first, and turns a remediation play into a projected reduction. The pack\'s convergence page.'},
   ex_apps:{name:'Vizsla',lore:'The <b>Vizsla</b> — a tireless pointer bred to range wide and mark its quarry — here it ranges the WAS inventory and points you at every web application navi has seen, so you can pick one and dig in.'},
+  ex_software:{name:'Harrier',lore:'The <b>Harrier</b> — a pack hound bred to run fresh quarry down fast and stay on the line — here it runs down every <b>install</b> of a piece of software in navi.db, the moment a new zero-day names it.'},
+  ex_compliance:{name:'Saluki',lore:'The <b>Saluki</b> — one of the oldest hound breeds, a sighthound that marks its quarry across open ground — here it ranges every <b>audit result</b> in navi.db, so you can find any check, on any asset, in one search.'},
   ex_fixed:{name:'Plott',lore:'The <b>Plott</b> — bays the moment it trees its quarry — here it trails the findings that have been <b>fixed</b> (closed / remediated), so you can prove what is actually put to bed versus what only looks quiet.'},
  certificate:{name:'Certania',lore:'Coined from <b>“certificate”</b> + the loyal hound. It stands watch over the chain of trust, sniffing out certificates about to expire.'},
  iot_squad:{name:'Cerberus Hound',lore:'<b>Cerberus</b>, the many-headed dog guarding the underworld’s gate. The IoT squad is a pack guarding the network edge — the unknown devices at the gate.'},
  acr:{name:'Anubis',lore:'<b>Anubis</b>, who weighs the heart against the feather of truth. ACR calibration weighs each asset’s <i>true</i> criticality.'},
- customapp:{name:'Cavall Hound',lore:'<b>Cavall Panoptes</b>, the giant with a hundred ever-open eyes. It sees the custom apps your inventory misses.'},
+ customapp:{name:'Cavall Hound',lore:'<b>Cavall</b>, King Arthur\'s hound, who left his pawprint in stone on the hunt — here he tracks the custom apps that left their print in routes and paths but never made your inventory.'},
  mitre:{name:'Orthrus Hound',lore:'<b>Orthrus</b>, the two-headed dog and brother of Cerberus. It links two worlds — mapping CVEs to adversary ATT&CK techniques.'},
  eol:{name:'Charon',lore:'<b>Charon</b>, the ferryman across the Styx. It ferries end-of-life and unsupported software to its reckoning.'},
  dashboard:{name:'Daedalus',lore:'<b>Daedalus</b>, the master craftsman who built the Labyrinth. The dashboard builder crafts a custom view from one plain-English request.'},
@@ -799,7 +872,7 @@ const CODENAMES = {
  was_asset:{name:'Beagle',lore:'The <b>Beagle</b> — a scent hound that works a trail to map exactly where its quarry has been. Argos for web apps: point it at one app and it follows navi’s WAS info plugins to lay out the terrain — sitemap, scan telemetry, target facts, the screenshot, external URLs, cookies and methods — every plugin clickable to its raw stored output.'},
  compliance:{name:'Minos',lore:'<b>Minos</b>, the mythic judge who weighs each case and renders a verdict — here he weighs the estate against its audit benchmarks. Pass, fail, warning; the controls failing the most assets; how failures map to NIST, PCI, HIPAA, CIS and ISO — and a way to assign an Audit Owner to a control’s failing assets.'},
  custom_audit:{name:'Draco',lore:'<b>Draco</b>, the Athenian lawgiver who set down the first written legal code — here he turns a policy requirement into a written, enforceable Tenable <span class="mono">.audit</span> check. Describe the need in plain English and Claude drafts valid Nessus checks, or build one field-by-field from the platform catalog; Draco validates the syntax and auto-maps each check to its framework controls, then hands you a scan-ready file. Minos judges against benchmarks; Draco writes them.'},
- compliance_asset:{name:'Tiresias',lore:'<b>Tiresias</b>, the detective — point him at one asset and he lays out every audit check it passed, failed or warned (actual vs expected, the fix, the framework mappings), then infers the connection between a failed control and the real findings that back it, so a config gap and the vuln proving it can be tagged and routed together.'},
+ compliance_asset:{name:'Tiresias',lore:'<b>Tiresias</b>, the blind seer of Thebes who saw what others missed — point him at one asset and he lays out every audit check it passed, failed or warned (actual vs expected, the fix, the framework mappings), then infers the connection between a failed control and the real findings that back it, so a config gap and the vuln proving it can be tagged and routed together.'},
  advanced:{name:'Deerhound',lore:'The <b>Deerhound</b> — a great sighthound bred to run down big game over vast open ground. The advanced search ranges across every table at once, joining and filtering the whole estate.'},
  email:{name:'Gabriel',lore:'<b>Gabriel</b>, the messenger — the one who carries the word to those who need it. The email agent closes the loop: it takes what the pack found and delivers it to the humans who own it, with deep-links back into Tenable.'},
  alert:{name:'Alert Raven',lore:'In the wild, <b>ravens ride with the wolf pack</b> — scouting ahead, then calling out where the kill (and the danger) is; the wolves hunt, the raven watches the sky. <b>Alert Raven</b> rides with the Hounds the same way: it keeps watch over navi.db and calls out — an email digest — the moment a tracked condition turns dangerous.'},
@@ -874,7 +947,7 @@ const DEEP_DIVE = {
 };
 /* search / explorer agents have no origin article — no deep dive for them.
    postquantum + attackpath were built on THIS project (not from the navi origin), so no origin story. */
-const _DD_SKIP = new Set(['ex_assets','ex_vulns','ex_plugins','ex_routes','ex_paths','ex_tags','postquantum','attackpath',
+const _DD_SKIP = new Set(['ex_compliance','ex_software','ex_assets','ex_vulns','ex_plugins','ex_routes','ex_paths','ex_tags','postquantum','attackpath',
   'advsearch','advanced','explore','dash','dashboard','mcpcmp','customdash','tags','tagdetail','taglog','tags-log','asset','vuln']);  /* search / explorer / generic tools — no hound origin story */
 function deepDive(id){ if(_DD_SKIP.has(id)) return null; return (typeof DEEP_DIVE!=='undefined') && (DEEP_DIVE[id] || DEEP_DIVE._fallback) || null; }
 function deepDiveChips(id){
@@ -900,131 +973,304 @@ function deepDiveCode(id){ const d=deepDive(id); if(!d) return '';
   return '<a class="btn ghost sm" href="'+esc(safeUrl(houndsRepoUrl(id)))+'" target="_blank" rel="noopener noreferrer" title="Source — this hound in the-hounds-repo">‹ › Code</a>'; }
 /* ===== Per-agent intro: value line + expanded key capabilities (from the field guide) ===== */
 const AGENT_INTRO = {
- certificate:{does:"Keeps certificate expirations from becoming outages — finds every cert expiring within a year, shows exactly who's affected, and tags the risk before it bites.",caps:[
-   "Pulls every certificate expiring in the next <b>12 months</b> from navi.db and maps each one to the asset that presents it.",
-   "Builds <b>two heat maps</b> — issue × asset and expiry-month × asset — to reveal clustering and drive a renewal plan.",
-   "Tags affected assets <span class='mono'>Cert failure:&lt;Mon-DD-YYYY&gt;</span> (gated) so dashboards and downstream agents can prioritize them.",
-   "Caches IoT / appliance devices seen in certificate subjects — feeding the IoT squad and Heimdall's crypto inventory."]},
- iot_squad:{does:"A four-agent pack that hunts unmanaged IoT/OT at the network edge, names it, tags it — and gets smarter every run.",caps:[
-   "Runs <b>Discovery → Expansion → Cross-Reference → QA</b> to detect devices Nessus mislabels as generic Linux.",
-   "Fingerprints by plugin, SSL certificate, MAC OUI and mDNS to identify vendor + device type.",
-   "Tags confirmed devices <span class='mono'>IoT:&lt;name&gt;</span> using navi built-ins (<span class='mono'>--plugin/--output</span>) so large fleets tag server-side, not by UUID list.",
-   "Learns new detection signatures over time and lets you approve or reject candidates from a review queue."]},
- acr:{does:"The hub of the whole pack — turns everyone's tags into Asset Criticality so the right things rise to the top.",caps:[
-   "Adjusts ACR per tag (<b>set / +N / −N</b>) with a required business justification.",
-   "Bulk-applies ACR by rule across many tags at once, including plain-English rule authoring.",
-   "Converts producer tags (crown jewel, KEV, exposed AI) into the ACR every correlator keys off.",
-   "Retune once and Fenrir, Heimdall, Pythia and Janus all re-prioritize together."]},
- customapp:{does:"Finds the software your inventory can't see — custom and in-house apps hiding in routes and paths — and lets you name them.",caps:[
-   "Mines <span class='mono'>vuln_route</span> + <span class='mono'>vuln_paths</span> to surface apps missing from the credentialed software table.",
-   "Tag a custom app in <b>plain English</b>; it searches routes/paths and tags every matching asset.",
-   "Tags via <span class='mono'>--route_id</span> and a precise path query (gated), filling Mimir's inventory gaps.",
-   "Detects when the routing/paths tables aren't populated and tells you the exact navi commands to run."]},
- mitre:{does:"Maps your real CVEs to adversary ATT&CK techniques — so you see not just what's vulnerable, but how it gets attacked.",caps:[
-   "Fetches the live <b>ATT&CK → CVE</b> mapping and matches it against the CVEs actually in navi.db.",
-   "Tags each CVE with its technique / impact, strictly via navi's native <span class='mono'>--cve</span> selector.",
-   "Complements Laelaps: KEV proves <i>exploited</i>, ATT&CK explains the <i>technique</i>.",
-   "Feeds On the Scent with technique-on-crown-jewel insight."]},
- eol:{does:"Ferries End-of-Life and unsupported software to its reckoning — tagging the assets running code no vendor will patch.",caps:[
-   "Tags assets running <b>End-of-Life / unsupported</b> software, unioned with Mimir's endoflife.date data.",
-   "Uses navi's plugin-name match (built-in) so tagging scales without UUID lists.",
-   "Marks EOL software as an exploitable foothold for Fenrir's attack-path chains.",
-   "Feeds Mimir's risk view and Anubis's ACR rules."]},
- dashboard:{does:"Builds a custom view from one plain-English request — KPIs, a chart, or a table — for anything we didn't ship a page for.",caps:[
-   "Describe a view in plain English; it writes <b>one read-only</b> SELECT over navi.db (or live counts via Tenable One).",
-   "Renders as KPI tiles, a bar chart, or a sortable data table.",
-   "<b>Read-only</b> — nothing is ever written.",
-   "Promote a useful view to a saved Custom Dashboard."]},
- ai:{does:"The oracle for AI risk — finds every AI/ML system in the estate, classifies what it is, and flags what's exposed.",caps:[
-   "Content-first discovery across the AI plugin family + software + CPEs + plugin output.",
-   "Classifies <b>role</b> (Serving / Vector / GPU / MLOps / LLM client / Dev tool) and flags exposed endpoints.",
-   "Correlates AI × KEV, governs data-egress (sanctioned vs shadow), and maps findings to <b>MITRE ATLAS</b>.",
-   "Includes a 🔍 Why evidence inspector + false-positive suppression; tags <span class='mono'>AI Role:*</span>, <span class='mono'>AI Exposed</span>, <span class='mono'>AI Priority</span>."]},
- identity:{does:"Guards the doorways — inventories human and non-human identities and flags the weak credentials attackers pivot through.",caps:[
-   "Content-first <b>NHI + human identity</b> discovery; flags non-expiring, privileged, guest-enabled and machine identities.",
-   "Surfaces coverage gaps (blind hosts), SSH password auth and weak policy.",
-   "Correlates crown-jewel identities, account reuse, default/blank creds and AD attack paths.",
-   "Tags the hosting assets — Fenrir's single biggest source of credential pivots."]},
- scan_eval:{does:"Measures where your scans spend their time — and, crucially, what they can't see: the blind and uncredentialed hosts.",caps:[
-   "Per-asset <b>credential health</b>: failed, insufficient privilege, intermittent or no credentials — from the Target Credential Status / Issues plugins and 19506.",
-   "<b>Scan freshness</b> (never / 30 / 90 days), agent vs network, and <b>crown-jewel blind spots</b>.",
-   "Scanner / policy / scan time per asset, load share, credential success and <b>plugin-feed currency</b>.",
-   "Tags the exact assets under <span class='mono'>Scan Health</span> so scanning gaps become actionable.",
-   "The honesty layer — blind hosts are the 'we can't see this' caveat for Janus, Fenrir and On the Scent."]},
- insights:{does:"Your morning 'what am I not seeing' page — rolls every agent's findings into one ranked exposure view.",caps:[
-   "Aggregates all producers into an <b>Exposure-at-a-glance</b> ranked list + category tiles.",
-   "Click any bar to drill straight into the Dashboard builder.",
-   "Highlights unknown-unknowns — the coverage and exposure gaps across the pack."]},
- exproute:{does:"Puts a name on remediation — maps who owns which routes and paths so findings route to a human.",caps:[
-   "Pulls users &amp; groups (navi primary, Tenable MCP backup) — paginated and searchable.",
-   "Describe in plain English who owns which routes/paths; it tags every matched asset <span class='mono'>Owner:&lt;group/user&gt;</span> (gated).",
-   "Tracks ownership coverage — how much of the attack surface has an owner assigned."]},
- software:{does:"Remembers every software version in the estate and shows you the sprawl — plus EOL, crown jewels and a risk leaderboard.",caps:[
-   "Merges <span class='mono'>software</span> + <span class='mono'>cpes</span> inventories into one product map: version sprawl, most-deployed, single-install, source delta.",
-   "Adds endoflife.date lifecycle and a 'behind latest' worklist.",
-   "Surfaces <b>crown-jewel software</b> → suggested ACR, and ranks products on a KEV/critical <b>risk leaderboard</b>.",
-   "Tags <span class='mono'>Software:*</span>, <span class='mono'>Software EOL:*</span>, <span class='mono'>Crown Jewel:*</span>, <span class='mono'>Software Risk:*</span> (gated); auto-switches to plugin+regex tagging past the 1999-UUID cap."]},
- tagremoval:{does:"The cleanup hound — the only agent allowed to remove tags, unmaking what no longer belongs before the pack re-tags.",caps:[
-   "Lists existing tags with their asset counts and lets you select exactly what to remove.",
-   "Removes tags via navi's ephemeral <span class='mono'>-remove</span> — the <b>only</b> agent permitted to delete tags.",
-   "Preserves tag UUIDs where it matters so downstream references don't break.",
-   "Can feed the Contract's removal policy (remove → wait → re-tag)."]},
- agentgroup:{does:"Musters every Tenable agent into its group and tags it — turning agent groups into segmentation you can act on.",caps:[
-   "Tags assets by Tenable agent group via navi's <span class='mono'>--group</span> built-in.",
-   "Turns agent-group membership into <span class='mono'>Agent Group:&lt;name&gt;</span> segmentation tags (gated).",
-   "Feeds the Contract for scheduled re-tagging."]},
- contract:{does:"The orchestrator — capture your tagging &amp; ACR policy once, arm it, and it runs the whole pack on a schedule.",caps:[
-   "Enable agents, set a schedule, <b>arm</b> it — it runs the gated tag/ACR plan on a loop.",
-   "Keeps durable run-history and a 'what changed since last cycle' diff.",
-   "Authors ACR rules from plain English and drives the scheduled morning digest.",
-   "Runs the <b>remove → wait 30 min → re-add</b> refresh so tags always reflect current reality."]},
- cisakev:{does:"The hound that always catches its quarry — tags every Known-Exploited vulnerability, already proven in the wild.",caps:[
-   "Tags KEV assets off the <span class='mono'>CISA-KNOWN-EXPLOITED</span> xref — all KEV, by catalog date, or by month in one click.",
-   "Uses navi's <span class='mono'>--xrefs/--xid</span> built-ins and refreshes ephemerally on each KEV release.",
-   "Includes an NL→SQL KEV hunt.",
-   "The exploitability signal for the whole pack — Fenrir footholds, Pythia AI×KEV, Heimdall correlation."]},
- postquantum:{does:"Watches the quantum horizon — flags the RSA/ECC crypto that won't survive it and builds a migration roadmap.",caps:[
-   "Inventories cert crypto (RSA/ECC/DSA = broken by Shor) and builds a <b>harvest-now-decrypt-later</b> hit-list (long-lived certs × ACR).",
-   "Reads transport signals (TLS/SSH KEX, weak MAC) and crypto-agility (OpenSSH/OpenSSL readiness).",
-   "Correlates crown jewels, emits a migration roadmap CSV and a <b>CNSA 2.0</b> timeline.",
-   "Tags <span class='mono'>PQC Risk:*</span>, <span class='mono'>PQC Harvest-Now</span>, <span class='mono'>PQC Transport:*</span>, <span class='mono'>PQC Priority</span> (gated)."]},
- attackpath:{does:"The capstone correlator — chains exploits, privilege escalation, account reuse, relay, domain flaws and failed controls into ranked paths to the crown jewels.",caps:[
-   "Builds an attack graph from navi.db <b>vulns</b>, <b>compliance</b> results and <b>identities</b>: remote exploits → privilege escalation → account reuse / NTLM relay / domain admin → crown jewel (ACR ≥ 7).",
-   "<b>Interactive attack map</b>, up to five diverse routes per crown jewel, with every step's evidence and ATT&amp;CK technique.",
-   "<b>Fix first</b>: choke points and a greedy remediation bundle that cuts the most crown-jewel exposure; tags <span class='mono'>Attack Path : Entry Point | Pivot | Target | Choke Point</span> (gated).",
-   "Consumes Laelaps (KEV), Janus (identities), Anubis (ACR targets), Minos (compliance) and EPSS.",
-   "Honest caveat: reachability and domain membership are inferred, not observed; likelihoods rank routes, they are not breach probabilities."]},
- ex_assets:{does:"The finest tracker of the pack — find and profile any host across navi.db.",caps:[
-   "Search assets by hostname, IP or UUID and open a full profile.",
-   "See an asset's vulnerabilities, tags and platform links in one place."]},
- ex_vulns:{does:"Hunts findings in the dark — search vulnerabilities by plugin, CVE, severity or VPR.",caps:[
-   "Query the vulns table by plugin, CVE, severity, state or VPR.",
-   "Drill from a finding to its affected assets and plugin output."]},
- ex_plugins:{does:"The plugin explorer — find which plugins fired and on how many assets.",caps:[
-   "Search plugins by id, name or family with asset counts.",
-   "Pivot from a plugin to the assets it fired on."]},
- ex_routes:{does:"The route explorer — browse technology-level vuln routes.",caps:[
-   "Search application / OS routes and their vuln totals.",
-   "Feed route ids into ownership + custom-app tagging."]},
- ex_paths:{does:"The path explorer — search vulnerable filesystem / URL paths.",caps:[
-   "Search paths by substring and see the assets + plugins behind them.",
-   "Source data for custom-app discovery and ownership mapping."]},
- ex_tags:{does:"The tag explorer — browse every tag in navi.db and see exactly which assets carry it.",caps:[
-   "Search tags by category or value, with a DISTINCT asset count per tag.",
-   "Drill into any tag for its assets — joined to the assets table (host, IP, OS, ACR/AES, platform link, Argos deep-dive)."]},
- argos:{does:"Give it one asset — a UUID or an IP — and it tells the whole story on a single dashboard: risk band, the pack's tags deciphered, top CVEs, software and certs.",caps:[
-   "Looks an asset up by <span class='mono'>UUID</span> or <span class='mono'>IP</span> (navi explore uuid takes either) and resolves it across every navi.db table.",
-   "<b>Deciphers the pack's tags</b> — each tag shows what it means and which Hound raised it (Laelaps → CISA KEV, Certania → cert failure, Charon → EOL, Heimdall → post-quantum…).",
-   "Scores 0–100 from the severity mix, KEV / exploitable findings and tag intelligence, with a severity breakdown, top CVEs, software and weak-crypto certs.",
-   "Runs the live <span class='mono'>navi explore uuid</span> flag views on demand — <span class='mono'>-software</span>, <span class='mono'>-patches</span>, <span class='mono'>-details</span>, <span class='mono'>-cves</span>."]},
+ /* generated by tools/hound_pages.py --intro from tools/hound_pages/<id>.json — edit those */
+ acr:{does:"Anubis changes the ACR of every asset that carries a tag — set it to a value, or raise or lower it by N — with a business reason Tenable records alongside it. It shows exactly what navi will change before anything is written, logs every change, and can protect the assets it changed from later overwrites.",caps:[
+   "<b>Set, +N or −N per tag<\/b> — pick any tag from the live Tenable tag list and calibrate every asset on it at once; ACR stays within 1–10.",
+   "<b>Business case on every change<\/b> — Business Critical, In Scope For Compliance, Existing Mitigation Control or Dev Only, plus an optional note — sent to Tenable with the change.",
+   "<b>Preview before you write<\/b> — per change: how many assets will change, how many are protected, how many have no ACR yet and will be skipped.",
+   "<b>Bulk in plain English<\/b> — describe the calibration (\"production to 9, lab down 2\") and an optional AI model drafts the changes; only existing tags and scores 1–10 pass, and you approve each.",
+   "<b>Protection with NO : UPDATE<\/b> — tag the assets the Hounds changed so later bulk changes leave them alone — navi skips any asset tagged exactly NO : UPDATE.",
+   "<b>ACR log + CSV<\/b> — every change the Hounds made: asset, before and after, selector, business case — filterable and exportable."]},
+ agentgroup:{does:"Sirius lists your Tenable agent groups live and tags every asset in each group Agent Group : &lt;group name&gt;, matching Tenable's own membership. Pick groups three ways: type a list of names, tick them in a list, or tag every group at once.",caps:[
+   "<b>Live from Tenable<\/b> — agent groups pulled live through navi each time, not a stale copy.",
+   "<b>Three ways to tag<\/b> — a typed list of group names, a checkbox per group, or every group at once.",
+   "<b>Exact membership<\/b> — navi tags the assets in each group directly, so the tag matches Tenable's own membership.",
+   "<b>One tag per group<\/b> — Agent Group : &lt;name&gt;, consistent across the estate and usable in scans, dashboards and exports."]},
+ ai:{does:"Pythia finds AI across five data sources, gives each asset a role, flags endpoints that are exposed or unauthenticated, maps where data can leave (sanctioned vs shadow), checks KEV, critical and end-of-life risk, maps MITRE ATLAS techniques, and compares each asset's ACR with the ACR its role suggests.",caps:[
+   "<b>Five-source discovery<\/b> — Tenable's Artificial Intelligence plugin family, the software and CPE inventories, plugin output, and network endpoints — one AI asset list.",
+   "<b>Role and suggested ACR<\/b> — Model Serving, Vector DB / RAG, GPU / Training, MLOps, Notebook / Dev, AI Dev Tool, LLM API Client — each with a suggested ACR (e.g. Model Serving 9).",
+   "<b>Exposed and unauthenticated endpoints<\/b> — AI services listening on inference, notebook or MLOps ports, with an unauthenticated check from the plugin output.",
+   "<b>Data-egress governance<\/b> — egress capability and destinations seen in plugin output, split sanctioned vs shadow by an allowlist you edit.",
+   "<b>Why + false-positive control<\/b> — every row shows its evidence (source, term, plugin, snippet); dismiss a false positive per asset, per framework or everywhere.",
+   "<b>MITRE ATLAS map<\/b> — AI-specific adversary techniques implied by each asset's role, exposure and egress — click a technique or tactic to list and tag its assets.",
+   "<b>Gated tags and ACR<\/b> — AI, AI Role, AI Software, AI Exposed, AI Priority, AI Egress and AI ATLAS tags; under-rated assets get AI ACR Raise and the role's suggested ACR."]},
+ alert:{does:"Alert Raven watches navi.db for the conditions you choose and emails a digest when one newly fires. An alert is a number plus a condition: above or below a threshold, or a rise or drop since the last check. Start from a suggested pattern, or describe the alert in plain English, then test it before you save it.",caps:[
+   "<b>Seven ready-made patterns<\/b> — credentialed-scan coverage, slow scans, new CISA KEV exposure, new criticals, certificates expiring within 30 days, ownerless assets, end-of-life software.",
+   "<b>Alerts in plain English<\/b> — describe what to watch and Alert Raven drafts a read-only SQL metric, operator and threshold for review; without an AI model it builds the query from navi's tables.",
+   "<b>Test before you save<\/b> — a dry run shows the current value and whether it would fire — nothing is stored and nothing is sent.",
+   "<b>Fires on change<\/b> — an alert notifies when it goes from clear to firing, once, until it clears again — a lasting condition doesn't email every cycle.",
+   "<b>One digest per check<\/b> — everything that newly fired in one email, with the affected hosts, to an allowed recipient.",
+   "<b>History<\/b> — recent evaluations: what fired, what cleared, and the value each time."]},
+ argos:{does:"Give Argos a UUID or an IP and he assembles one dossier: identity and host profile, the asset's Exposure Score and rank, open findings and CVEs, SLA clock, compliance, certificates, EOL software, owners, identities, scan confidence, and every tag the pack put on it — each explained, with the hound that raised it.",caps:[
+   "<b>Identity and host profile<\/b> — hostname, IP, OS, network, ACR, AES, CPU / RAM / architecture from inventory plugins, last scan and its duration, and a Tenable link.",
+   "<b>Exposure Score in context<\/b> — this asset's Nemesis score and band, and its rank in the estate.",
+   "<b>Every tag deciphered<\/b> — what each tag means and which hound raised it — Laelaps for KEV, Certania for certificates, Charon for EOL, and the rest.",
+   "<b>Findings with a fix path<\/b> — top findings and CVEs with plugin output on demand; each one can be sent to Amarok for remediation.",
+   "<b>Owners and identities<\/b> — who owns the asset, with a link to assign one, and the accounts seen on the host.",
+   "<b>Software, certificates, web pages<\/b> — installed software, certificates with expiry and weak crypto, and web pages captured by plugins.",
+   "<b>Live views from navi<\/b> — per-asset software, patches and details pulled live from the navi CLI on demand."]},
+ asset_ownership:{does:"Terminus answers ownership from the asset's side. For every asset he shows who owns it at three layers — Business Owner, the route and path owners from Atlas, and a single Asset Owner — how much of it is claimed, and what is left blind. You assign owners in plain English, preview the match, then tag.",caps:[
+   "<b>Three ownership layers<\/b> — Business Owner (accountable leader), Owner (route / path owners from Atlas) and Asset Owner (one owner for the whole asset, or for whatever is left).",
+   "<b>Coverage per asset<\/b> — how much of each asset is claimed, which assets are fully claimed, and which have no owner at any layer.",
+   "<b>Crown jewels first<\/b> — assets with ACR ≥ 9 or a crown-jewel tag, unclaimed first, with what the other hounds already know about each one.",
+   "<b>Risk without an owner<\/b> — unclaimed crown jewels, open critical and CISA KEV findings on unowned assets, and assets no hound has signaled on.",
+   "<b>Owners in plain English<\/b> — \"assign Jane Smith to production\" — Terminus reads each asset's tags, previews who matches, and tags them on approval.",
+   "<b>Built for large estates<\/b> — the per-asset table pages and searches on the server; owner tagging runs as a background job, so 150,000 assets tag as easily as 50."]},
+ attackpath:{does:"Fenrir chains the weaknesses Tenable already found — remote exploits, default credentials, open unauthenticated services, local privilege escalation, accounts reused across hosts, NTLM relay, domain-controller flaws and failed controls like LAPS, SMB signing and LLMNR — into ranked routes to every crown jewel (ACR ≥ 7), then finds the fixes that cut the most exposure.",caps:[
+   "<b>Chained steps with evidence<\/b> — exploit → privilege escalation → credential harvest → lateral move → crown jewel; every step names its finding and its ATT&amp;CK technique.",
+   "<b>Failed controls as enablers<\/b> — failed compliance checks (LAPS, SMB signing, LLMNR, WDigest, LSASS protection, sudo, empty passwords) become the steps they make possible.",
+   "<b>Honest credential pivots<\/b> — an account present on several hosts is a pivot; navi.db can't show a shared password, so Fenrir doesn't claim one — except local Administrator where LAPS has failed.",
+   "<b>Interactive attack map<\/b> — attacker → crown jewels, with diverse routes per target; click any host or step for its evidence.",
+   "<b>Fix first<\/b> — choke points and a remediation bundle ranked by how much crown-jewel exposure each fix removes, recalculated as fixes are applied.",
+   "<b>Gated tags and CSV<\/b> — Attack Path : Entry Point, Pivot, Target or Choke Point on the exact assets; paths export to CSV."]},
+ c2:{does:"Amarok runs read-only diagnostics, credential tests and \"does this path exist?\" checks on Linux hosts, and turns Tenable's own solution text into a remediation plan you review, then deploys it canary-first with a check after each step and a rollback. Every command on every host is recorded in a tamper-evident (hash-chained) log.",caps:[
+   "<b>Quick diagnostics<\/b> — a catalog of read-only checks — OS and kernel, disk, memory, listening ports, DNS, public egress IP, Tenable cloud reachability, Nessus agent status, pending updates, failed services, SELinux / AppArmor, firewall.",
+   "<b>Credential test<\/b> — login and sudo without a password on each host — and the reason when it fails: auth, unreachable, port closed, DNS, timeout or a changed host key.",
+   "<b>Does this path exist?<\/b> — type, size, owner, permissions, modified time and SHA-256 for a path on one or many hosts.",
+   "<b>Remediation plan from Tenable's text<\/b> — the plugin's solution and output become a structured plan (an AI model if configured, package-manager templates if not), checked by a deterministic validator that blocks anything outside an allow-list.",
+   "<b>Canary-first deploy<\/b> — one host first, verify each step, stop on failure, roll back per host; then re-check navi.db to confirm the finding is gone after the next sync.",
+   "<b>Free-form commands and files<\/b> — for the operator who needs them — with a destructive-command check, armed batches and an abort switch."]},
+ certificate:{does:"Certania finds every certificate that has already expired — month by month over the last 12 months, plus everything older that is still deployed — and every certificate expiring in the next 12 months, maps each to its assets, and lays them out on one timeline. Certania tags the assets with their exact expiry date so the renewal becomes routable work.",caps:[
+   "<b>Expired and expiring inventory<\/b> — expired by month for the last 12 months and older, plus everything failing in the next 12 months, each with its assets.",
+   "<b>One expiry timeline<\/b> — older, the last 12 months and the next 12 months on one axis, so renewals are planned by month, not found by outage.",
+   "<b>Risk context<\/b> — crown jewels (ACR above 7) with an expired or expiring certificate, weak crypto (MD5 / SHA-1 signatures, RSA keys under 2048 bits), self-signed certificates, and days expired.",
+   "<b>Cert failure : &lt;date&gt; tags<\/b> — the assets behind each expiry date you choose, tagged with that exact date — a dated, routable work item.",
+   "<b>Cert Issue tags by plugin<\/b> — every certificate plugin firing in navi.db, with its asset count; tag its assets Cert Issue : &lt;plugin name&gt;.",
+   "<b>Devices and apps from certificates<\/b> — device and application names identified from certificate subjects."]},
+ cisakev:{does:"Laelaps finds every asset with a KEV finding from the CISA KEV reference Tenable attaches to each finding, joins it to CISA's catalog for due dates and ransomware use, and shows what is overdue, what is due soon, which crown jewels and vendors are involved — then tags the assets so the work can be routed.",caps:[
+   "<b>KEV from your own findings<\/b> — Tenable marks each KEV finding with a CISA cross-reference and the date CISA added it; Laelaps reads that, so no memorized CVE list is involved.",
+   "<b>Due dates and overdue<\/b> — CISA's remediation due date per KEV, on a month-by-month timeline of overdue vs due later.",
+   "<b>Ransomware, crown jewels, vendors<\/b> — KEVs CISA links to ransomware campaigns, crown jewels (ACR above 7) carrying KEV, and the vendors and products involved.",
+   "<b>Four tag schemes<\/b> — CISA KEV : Vulnerable, CISA KEV : &lt;date added&gt;, CISA KEV Due : &lt;due date&gt; and CISA KEV : Ransomware — each on the exact assets.",
+   "<b>Hunt in plain English<\/b> — ask a KEV question and get the answer from one read-only SQL query over navi.db and its tags.",
+   "<b>Approved downloads<\/b> — the CISA catalog is fetched only after you approve it (or auto-approve in Settings), with a bundled snapshot when offline."]},
+ classify:{does:"Linnaeus classifies every asset from the tags the pack has written, and shows exactly what is still unclassified. From operating-system fingerprints and device signals he suggests classes for the untagged assets, groups them into cohorts you can approve, and writes the tags.",caps:[
+   "<b>Classes from tags<\/b> — the pack's own taxonomy — Asset Inventory, IoT, Device Type, OS — rolled up into Windows, Linux, macOS, Server, Workstation, Mobile, IoT, OT, network, hypervisor, cloud and Unclassified.",
+   "<b>Standard device types<\/b> — Server, Desktop, Laptop, Workstation, Phone / Tablet, Camera, Printer, NAS, VoIP, UPS / Power, Badge Reader, Switch, Router, Firewall, Wireless Access Point, Load Balancer, Hypervisor, PLC, HMI, RTU — offered as you tag, and each maps to its class.",
+   "<b>OS and device signals<\/b> — untagged assets grouped by Nessus's own device type (printer, camera, switch, firewall …) or by detected OS (\"Windows Server 2022 — 40 assets\"), each cohort one approval away from a tag.",
+   "<b>OS explorer<\/b> — OS families and versions for the untagged assets, with a confidence rating for each fingerprint.",
+   "<b>Tag by OS in plain English<\/b> — \"tag all my assets by OS with a confidence over 70\" becomes a plan you review before anything is written.",
+   "<b>Environment Explorer<\/b> — a zoomable sunburst of class → subnet → software and Docker, down to each asset (which opens in Argos).",
+   "<b>Risk and ownership per class<\/b> — KEV and critical findings, cloud assets, and classified assets with no owner — so the unclassified bucket becomes a ranked worklist."]},
+ compliance:{does:"Minos turns your audit results into one verdict: pass rate, results by status, the controls failing the most assets, how failures map to frameworks such as NIST 800-53, PCI, HIPAA, CIS and ISO, every audit benchmark, and a scorecard per asset. He can tag an Audit Owner on the assets failing a control.",caps:[
+   "<b>Results by status<\/b> — passed, failed, warning and unknown across every check × asset, with pass rate = pass ÷ (pass + fail).",
+   "<b>Controls failing the most assets<\/b> — the short list of controls whose fix moves the most assets.",
+   "<b>Framework exposure<\/b> — failures rolled up by the frameworks and controls each check references (NIST, PCI, HIPAA, CIS, ISO …).",
+   "<b>Audit benchmarks<\/b> — every audit file in navi.db, with its results.",
+   "<b>Per-asset scorecards<\/b> — which assets pass least, which have warnings, which are clean.",
+   "<b>Audit Owner tags<\/b> — assign an owner to the assets that fail one control — Audit Owner : &lt;owner&gt;.",
+   "<b>One click to the evidence<\/b> — every card, bar, control, framework and benchmark opens the matching assets in Tiresias."]},
+ compliance_asset:{does:"Tiresias investigates compliance two ways. By asset: every audit check the asset passed, failed or warned, with actual vs expected values and framework mappings, plus the inferred link between each failed control and real vulnerabilities on that host. By audit file: a benchmark leaderboard, each file's adherence, the checks and assets it covers, and the vulnerabilities behind its failing controls.",caps:[
+   "<b>Every check on one asset<\/b> — status, actual vs expected value, and the frameworks and controls it maps to.",
+   "<b>Audit ↔ vuln correlation<\/b> — compliance results carry no CVEs, so Tiresias infers the link by topic on the same asset — and shows the evidence.",
+   "<b>Audit-file lens<\/b> — a leaderboard of benchmarks by adherence, then one file's checks, assets and the vulnerabilities behind its failures.",
+   "<b>Estate-wide links<\/b> — the audit-to-vulnerability correlations across every asset, not just one.",
+   "<b>Opened from Minos<\/b> — a Minos card (failed, a control, a framework, an audit file, under 50% pass) narrows the asset list and opens its worst asset.",
+   "<b>Audit-Vuln Link tags<\/b> — tag the asset with a correlated topic you choose, so the joint fix can be routed."]},
+ contract:{does:"Covenant turns your tagging history and a plain-English policy into a workflow: which hounds tag, with what logic, which ACR changes to make, which stale tags to clear first, and how often to run. It always shows the plan first; only when you arm it does the loop execute — every few hours, behind the same write gate as everything else.",caps:[
+   "<b>Start from what you did<\/b> — build the contract from the Tagging log (or an exported tag-log CSV): the hounds you used and the ACR changes you made become the starting policy.",
+   "<b>Per-hound policy<\/b> — 19 tagging hounds, each on or off with plain-English logic; without a policy a hound proposes its riskiest top 50.",
+   "<b>ACR rules in plain English<\/b> — describe a calibration and Covenant writes the rule; optionally protect the changed assets with NO : UPDATE.",
+   "<b>Garmr removal phase<\/b> — clear the tags you list at the top of a cycle, pause for Tenable to catch up, then re-tag — without deleting the tags themselves.",
+   "<b>Plan first, armed to act<\/b> — disarmed, the loop only plans; armed (with writes enabled) it runs on a schedule, every 4 hours by default. A one-off cycle runs only when you confirm it.",
+   "<b>Each cycle checked and reported<\/b> — a QA pass on what landed, the loop log, Alert Raven's checks, and a run-summary email through Gabriel.",
+   "<b>Escape hatch<\/b> — export the plan as a runnable navi script for when writes must run somewhere else."]},
+ custom_audit:{does:"Draco writes custom Tenable .audit files two ways: describe the check in plain English and an AI model drafts Nessus checks, or build each check field by field from a platform catalog. Every file is previewed live, syntax-validated and mapped to frameworks before you download it — and you can seed a whole CIS benchmark and adjust it in one prompt.",caps:[
+   "<b>Describe it<\/b> — \"password minimum length must be 14 on Windows servers\" becomes drafted checks you can edit; with no AI model configured it says so and the builder still works.",
+   "<b>Build it<\/b> — Windows config (registry, password, lockout and audit policy, user rights, services, REG_CHECK, WMI, PowerShell), Windows file content, and Unix / Linux / macOS (file, content, command, RPM, process, service).",
+   "<b>CIS benchmark seeds<\/b> — start from the built-in control index for CIS Docker, Ubuntu Linux or RHEL and tighten sections in one prompt — \"create a CIS Docker benchmark and tighten 5.x\".",
+   "<b>Validated before download<\/b> — the .audit grammar is checked so the file loads into a compliance scan.",
+   "<b>Framework references<\/b> — NIST, PCI, HIPAA, CIS and ISO references suggested for each check.",
+   "<b>Import and edit<\/b> — upload an existing .audit; each &lt;custom_item&gt; is kept verbatim and becomes editable."]},
+ customapp:{does:"Cavall mines the application routes and filesystem paths in your findings, compares them with the software inventory, and lists the apps that appear only there as candidates to name. Say \"tag my custom app billing-portal\" and he finds the matching routes and paths, shows the assets, and — once you approve — tags them Custom App : &lt;name&gt;.",caps:[
+   "<b>Route and path discovery<\/b> — finds software by where it lives and how it's served — evidence package lists miss.",
+   "<b>Gap against the inventory<\/b> — keeps only what the software inventory doesn't already list.",
+   "<b>Name it in plain English<\/b> — \"tag my custom app billing-portal\" searches both routes and paths and shows the matches before anything is written.",
+   "<b>Tags across both sources<\/b> — Custom App : &lt;name&gt; on every asset with a matching path or route.",
+   "<b>Ignore list<\/b> — drop noise terms once, or import a list from CSV."]},
+ dashboard:{does:"Daedalus turns a plain-English request into one read-only query over navi.db and renders the answer as a chart, KPI or table. 34 starter metrics run with no AI model at all. Pin what you like to your own dashboard, rearrange and resize it, email it, or promote it to a standalone page.",caps:[
+   "<b>Ask in plain English<\/b> — \"top 10 plugins by affected assets\" — the model writes one SQL SELECT, which you can see before it renders.",
+   "<b>Read-only by design<\/b> — the query must be a single SELECT and navi.db is opened read-only, so nothing can be changed.",
+   "<b>34 starter metrics, no model needed<\/b> — from findings by severity and VPR band to stale assets, weak-key certificates and the remediation funnel.",
+   "<b>25 chart types<\/b> — KPI, bar, column, stacked, pie, donut, line, area, scatter, heatmap, Sankey, treemap, funnel, waterfall, Pareto, gauge, table and more.",
+   "<b>Your dashboard<\/b> — pin components, drag to reorder, size each one, switch chart type, export CSV or show the SQL; saved in your browser.",
+   "<b>Share it<\/b> — email the dashboard through Gabriel, or promote it to a standalone, refreshable Custom Dashboard page."]},
+ email:{does:"Gabriel turns the pack's findings into email routed by owner: each owner gets only their assets, with links back into Tenable. He also sends CISA KEV fire alarms, certificate countdowns, the On the Scent morning briefing, Contract plans and results — and any chart, list or dashboard in the app. You always preview first; sending is gated.",caps:[
+   "<b>Owner-routed remediation<\/b> — reads Owner tags from Atlas and emails each owner only their assets, each with its Tenable asset link and the plugin links for its findings.",
+   "<b>Seven report types<\/b> — owner remediation, vulnerability detail, KEV fire alarm, certificate countdown, morning briefing, Contract plan and Contract result.",
+   "<b>Board or technical<\/b> — summary counts for leadership, or per-asset, per-finding detail for the people who fix it.",
+   "<b>Email anything on screen<\/b> — any widget's picture and its list (a CSV attachment at 100 rows or more), a Sankey graph, or a whole Custom Dashboard.",
+   "<b>From any hound<\/b> — the Email findings button carries a hound's assets, finding IDs and the tag it applied straight into a draft.",
+   "<b>Sends exactly what you previewed<\/b> — the exact previewed messages are sent, and every send is recorded in the Tagging log."]},
+ eol:{does:"Charon finds every asset with an Unsupported or End-of-Life finding, groups them by product (operating system or application), reads the end-of-life date Tenable reports, and shows how long each has been out of support and where it overlaps with crown jewels, CISA KEV and critical findings. Then he tags the assets so replacement can be planned and owned.",caps:[
+   "<b>Detection that keeps up<\/b> — matches lifecycle language in Tenable's plugin names (Unsupported, End of Life, SEoL …), so new EOL plugins are picked up with no rules to maintain.",
+   "<b>Product view<\/b> — each EOL product, operating system or application, with its end-of-life date from the plugin output and years past support.",
+   "<b>Why it matters<\/b> — EOL assets that are crown jewels (ACR above 7), carry a CISA KEV, or have critical findings.",
+   "<b>Support timeline<\/b> — when support ended, by date, across the estate.",
+   "<b>Lifecycle tags<\/b> — Lifecycle : Unsupported or End of Life on every affected asset, and Lifecycle EOL : &lt;date&gt; on exactly the assets whose output states that date."]},
+ ex_apps:{does:"Vizsla searches every web application in navi.db and filters by name, target, technology, severity and how recently it was scanned. Each row shows critical, high and medium counts, total findings, technology, top OWASP category and last scan; click an app for Arachne's report.",caps:[
+   "<b>Search and filter<\/b> — name, target, technology, severity presence and scan recency.",
+   "<b>Severity at a glance<\/b> — critical, high and medium counts and total findings per app.",
+   "<b>Context<\/b> — technology stack and top OWASP category.",
+   "<b>Open the report<\/b> — an app opens Arachne's App Report.",
+   "<b>Ask in plain English<\/b> — a question becomes one read-only SQL query over the web-app table that you can edit before it runs (needs an AI model).",
+   "<b>CSV and email<\/b> — export the rows or send them through Gabriel."]},
+ ex_assets:{does:"Bloodhound searches every asset by hostname, IP, OS or network. It is also where On the Scent's At a glance cards land: each card opens the exact assets behind its number — computed by the hound that owns it — riskiest (highest ACR) first, ready to page, search and export.",caps:[
+   "<b>Search every asset<\/b> — hostname, IP, OS or network in one box.",
+   "<b>Evidence lists<\/b> — KEV-exploitable assets, assets scored 60 or more, crown jewels (all, with KEV, or scanned without credentials), assets flagged by four or more hounds, EOL software, quantum-vulnerable crypto.",
+   "<b>Same count as the card<\/b> — each list is computed with the owning hound's own rule — Laelaps, Nemesis, Charon or Heimdall.",
+   "<b>Any size<\/b> — the list is stored on the server, so 50 or 150,000 assets page, search and export the same way.",
+   "<b>One click to act<\/b> — every host opens Argos, where its findings can be remediated with Amarok or tagged; a Tenable link opens it in Tenable."]},
+ ex_compliance:{does:"Saluki searches every audit result in navi.db by check name or ID, audit file, framework, status, or asset — hostname, IP or UUID — with failed results first. Each row opens to show actual vs expected, the fix, and the framework references; a check opens across every asset that ran it.",caps:[
+   "<b>Search anything<\/b> — check name or ID, audit file, hostname, IP or asset UUID in one box.",
+   "<b>Filter fast<\/b> — by status (failed, warning, passed, other), audit file and framework, with result counts in each list.",
+   "<b>The whole filtered set<\/b> — results, assets, checks, pass rate, failed, warnings and assets failing a check — counted over every match, not just the page.",
+   "<b>Detail on click<\/b> — actual vs expected, the solution, check info, a reference link, and the framework controls it maps to.",
+   "<b>One check, every asset<\/b> — click a check ID to see it on every asset that ran it.",
+   "<b>Into the deep-dives<\/b> — each asset opens Argos, or Tiresias for every check on that asset.",
+   "<b>Ask in plain English<\/b> — a question becomes one read-only SQL query over the audit-result table that you can edit before it runs (needs an AI model).",
+   "<b>CSV and email<\/b> — export the whole search (up to 50,000 rows) or send it through Gabriel."]},
+ ex_fixed:{does:"Plott searches navi's remediation history: every fixed finding with each finding's first-seen and fixed dates, days to fix (computed, not trusted from navi's text field) and navi's own SLA Pass / Fail, SLA failures first.",caps:[
+   "<b>Remediation history<\/b> — every fixed finding with plugin, name, severity and state.",
+   "<b>Days to fix<\/b> — computed from first seen to fixed.",
+   "<b>SLA verdict<\/b> — navi's own Pass / Fail, from navi's SLA calculation.",
+   "<b>Worst first<\/b> — SLA failures first, then by severity; the asset opens Argos.",
+   "<b>Ask in plain English<\/b> — a question becomes one read-only SQL query over the remediation-history table that you can edit before it runs (needs an AI model).",
+   "<b>CSV and email<\/b> — export the rows or send them through Gabriel."]},
+ ex_paths:{does:"Greyhound searches the filesystem paths found on assets by path text, with the plugin that found each and the host and IP. Tag applies Path : &lt;name&gt; to every asset carrying that exact path.",caps:[
+   "<b>Search paths<\/b> — by any part of the path.",
+   "<b>Where it was found<\/b> — the plugin, host and IP for each path; the host opens Argos.",
+   "<b>Tag a path<\/b> — Path : &lt;name&gt; on every asset with that exact path, with an editable value, behind the write gate and a confirm.",
+   "<b>Email the result<\/b> — send the rows through Gabriel."]},
+ ex_plugins:{does:"Foxhound lists every distinct plugin in navi.db with its family and the number of assets it fires on, searchable by ID, name or family. Any plugin on assets can be handed to Amarok for a remediation plan.",caps:[
+   "<b>Every distinct plugin<\/b> — ID, name and family, with how many assets it fires on.",
+   "<b>Search<\/b> — by ID, name or family.",
+   "<b>Open the detail<\/b> — a linked row opens the plugin's full detail.",
+   "<b>Fix from here<\/b> — Fix sends the plugin to Amarok's remediation planner, pre-filled."]},
+ ex_routes:{does:"Wolfhound searches the application routes in navi.db by app name or vulnerability type, with each route's total findings and plugins. Tag applies Route : &lt;name&gt; to every asset on that route.",caps:[
+   "<b>Search routes<\/b> — by app name or vulnerability type.",
+   "<b>Route detail<\/b> — total findings and the plugins behind each route.",
+   "<b>Tag a route<\/b> — Route : &lt;name&gt; on every asset on that route, with an editable value, behind the write gate and a confirm.",
+   "<b>Email the result<\/b> — send the rows through Gabriel."]},
+ ex_software:{does:"Harrier searches the software inventory in navi.db by product name, one version, or an affected version range, and shows where the software is installed: assets, versions, operating systems, networks and asset criticality, with every asset sorted into in range, distro build, no version, or not in range. Its ✨ zero-day lookup reads the affected products and versions from NVD, CVE.org, OSV or an advisory page — only from the sites you approve — and counts each product in your inventory.",caps:[
+   "<b>Where it's installed<\/b> — assets, distinct versions and products for any search, with breakdowns by version, operating system, network and asset criticality — counted over the whole search, not just the page.",
+   "<b>Affected-range check<\/b> — give a range like <span class='mono'>&gt;=2.0 &lt;2.17.1; &gt;=2.18 &lt;2.18.2<\/span> and every asset is sorted into in range, distro build, no version or not in range, with crown jewels in range called out.",
+   "<b>Honest about distro builds<\/b> — a RHEL, Ubuntu, Debian or SUSE package inside the range is flagged \"distro build\", because distros back-port fixes without changing the version; confirm those against the distro's advisory.",
+   "<b>✨ Zero-day lookup<\/b> — type a CVE id, a product (\"new Ivanti Connect Secure bug\") or paste an advisory URL; Harrier proposes NVD, CVE.org and OSV, or an NVD search of the last 120 days, and reads only the sites you tick.",
+   "<b>Every site approved, every time<\/b> — nothing is fetched until you approve it, the approval is never remembered, and the lookup only reaches public addresses — never your internal network.",
+   "<b>Affected products, counted for you<\/b> — each product and version range from the lookup — with CISA KEV, CVSS and the fixed versions — is counted in your inventory in one pass; one click searches it.",
+   "<b>Versions compared properly<\/b> — 2.4.9 &lt; 2.4.10, 1.0.2k &lt; 1.0.2u, 2.0-rc1 &lt; 2.0, epochs ignored — the same way for every product.",
+   "<b>CSV and email<\/b> — export every install in the search (up to 50,000) or send it through Gabriel; each asset opens in Argos."]},
+ ex_tags:{does:"Basset lists every tag in navi.db — one row per category : value with its asset count — searchable by category or value. Click a tag to see exactly which assets carry it, each linking to Argos and to the asset in Tenable.",caps:[
+   "<b>Every tag<\/b> — one row per category : value, with its asset count and when it was first and last applied.",
+   "<b>Search<\/b> — by category or value.",
+   "<b>Who carries it<\/b> — every asset carrying the tag — host, IP, OS, ACR, AES, when it was tagged, and a Tenable link.",
+   "<b>Deep-dive<\/b> — every host opens Argos.",
+   "<b>Email the result<\/b> — send the list through Gabriel."]},
+ ex_vulns:{does:"Hellhound searches every finding in navi.db, one row each, by plugin name or ID, CVE, severity or finding ID, and shows each finding with its asset and VPR. A finding ID opens it in Tenable, the asset opens Argos, and a fix can be handed to Amarok.",caps:[
+   "<b>Search by anything<\/b> — plugin name, plugin ID, CVE, severity or finding ID.",
+   "<b>Findings in context<\/b> — asset, severity and VPR on every row.",
+   "<b>Open in Tenable<\/b> — a finding ID opens that finding in Tenable.",
+   "<b>Deep-dive and fix<\/b> — the asset opens Argos; Remediate hands the plugin and host to Amarok, pre-filled, never auto-run.",
+   "<b>Email the result<\/b> — send the rows to an owner through Gabriel."]},
+ exproute:{does:"Atlas maps every application route and filesystem path to an owner, in plain English — \"give the payment routes to VM Team, put /opt under Networking, ignore the ICMP route\" — and tags every asset on a matched route or path Owner : &lt;route or path&gt;: &lt;owner&gt;. He measures coverage honestly: an asset is closed only when every route it sits on has an owner.",caps:[
+   "<b>Owners in plain English<\/b> — describe the mapping; Atlas resolves each owner against your Tenable users and groups and previews it before tagging.",
+   "<b>Owners from Tenable<\/b> — users, user groups and agent groups pulled live through navi (the Tenable MCP as a backup), cached so the page stays fast.",
+   "<b>Tags on the right assets<\/b> — Owner tags on every asset on a matched route or with a matched path, never removing anything.",
+   "<b>Decisions, not just owners<\/b> — mark a route ignored, accepted or mitigated, and the coverage counts it as handled.",
+   "<b>Coverage you can defend<\/b> — routes owned, partial or unowned; paths owned; assets fully closed; ownerless risk by VPR.",
+   "<b>Ownership Sankey and map<\/b> — routes and paths flowing to their owners, the gaps, and each owner's load; drill into any new path."]},
+ fused_score:{does:"Nemesis gives every asset one 0–100 Exposure Score built from 16 signals — exploitability (KEV and EPSS), Tenable AES and VPR, ACR, attack paths, identity, compliance, web-app findings, EOL, internet exposure, AI risk, weak or expiring crypto, SLA aging, finding volume, ownership and ATT&amp;CK — then shows what to act on now, the worst asset from each hound, and where their signals converge.",caps:[
+   "<b>16 signals, one number<\/b> — weights sum to 100, so a score reads as the share of the most danger one asset can carry; dispositions discount it, and Chronos's coverage flags how far to trust it.",
+   "<b>Your weighting<\/b> — drag any weight to re-rank the estate to what matters to you; each weighting is cached separately.",
+   "<b>Act now<\/b> — the assets over 80, 60 or 40 today, with one-click hand-offs: tag Priority, tag owners (Terminus), email owners (Gabriel), raise ACR (Anubis) or add to the Contract.",
+   "<b>Worst from each hound<\/b> — the top asset each hound's signal points at — and the assets where several converge.",
+   "<b>Explained<\/b> — every asset's score broken down by factor, and how widespread each signal is across the estate.",
+   "<b>Priority tags<\/b> — Priority : P1 to P4 on the act-now set, recomputed on the server from navi.db — not taken from the browser."]},
+ identity:{does:"Janus builds an inventory of the accounts Tenable found on your hosts and classifies each as human, service / non-human (NHI) or machine. He flags privileged and non-expiring accounts, the same account on many hosts, SSH password logins and default credentials, ranks identities sitting on KEV, critical or crown-jewel hosts, and shows the hosts he can't see into because the scan had no credentials.",caps:[
+   "<b>Identities from the scan<\/b> — local-user enumeration plugins (Linux user list, SMB local users and more) parsed into accounts, each with the hosts it lives on.",
+   "<b>Classified<\/b> — human, service / NHI or machine — from well-known Windows SIDs, AD machine accounts ($), Linux UID conventions and known service names.",
+   "<b>Risk flags<\/b> — privileged, non-expiring passwords, account reuse across five or more hosts, SSH password auth, default credentials, on a KEV, critical or crown-jewel host.",
+   "<b>Honest about reuse<\/b> — the same account name on many hosts is reported as account reuse — never claimed as a shared password.",
+   "<b>Coverage<\/b> — credentialed vs blind hosts by the pack's single credentialed rule, and the scan credentials themselves.",
+   "<b>Tags that route the work<\/b> — Identity / NHI / Machine ID : &lt;account&gt; on its hosts, Identity Risk : Account Reuse, Identity Coverage : No Credentials, Owner : &lt;name&gt;; an AI model can propose more."]},
+ insights:{does:"Sphinx reads what the whole pack found on its last release and puts it on one page, On the Scent: how exposed the estate is, where risk concentrates, what is converging, what is on the clock, the blind spots, and the next moves — including a recommended play and how much exposure it would remove. Every number opens the exact assets behind it.",caps:[
+   "<b>At a glance, actionable<\/b> — every card opens its evidence: the exact assets (KEV, score ≥ 60, crown jewels, with KEV or blind, EOL, quantum-vulnerable …) or the owning hound, already filtered.",
+   "<b>Coverage funnel<\/b> — all assets → seen by a hound → credentialed → classified → owned → business-tiered, each step linked to the hound that owns the gap.",
+   "<b>Dark matter<\/b> — assets no hound saw, blind hosts, unclassified, unowned, no business tier, shadow AI.",
+   "<b>Who's barking<\/b> — the worst assets by fused score, with each hound's points on each host; the estate as one square per asset.",
+   "<b>Converging signals<\/b> — signal stacks, the overlap map and cross-hound surprises — where several hounds fire on the same assets.",
+   "<b>Recommended play<\/b> — patch KEV / critical, replace EOL, renew certificates, segment exposure or assign owners — with the exposure it would remove and the signals it neutralizes.",
+   "<b>What changed<\/b> — the digest of what moved since the last release."]},
+ iot_squad:{does:"Cerberus is four cooperating agents. One confirms known devices from a detection registry; one finds the plugins on each confirmed host that carry the device's name; one sweeps those plugins across the estate and proposes new detections; one runs the loop and keeps a ledger of everything tested. You approve at two gates: tagging devices, and adding detections to the registry.",caps:[
+   "<b>Registry detections<\/b> — known devices matched by plugin, plugin name or output — the registry grows as you approve new detections.",
+   "<b>Signal fusion<\/b> — device type, network-card vendor (OUI), local-network service announcements (mDNS) and certificates find devices the registry doesn't know yet.",
+   "<b>Carrier-plugin harvest<\/b> — host by host, the plugins whose name or output carries the device term.",
+   "<b>Learning loop<\/b> — a device term found in a carrier plugin on enough assets (at least 2, rising with the size of the estate) becomes a proposed detection — confirm, cross-reference or new.",
+   "<b>Exposure on devices<\/b> — critical, high and KEV findings and AES for each device.",
+   "<b>Coverage you can trust<\/b> — a QA ledger of every plugin-term combination tested, and which of the seven identity signals your scans collect.",
+   "<b>Two human gates<\/b> — Gate 1 tags devices Asset Inventory : &lt;facet&gt;: &lt;device&gt;; Gate 2 adds approved detections to the registry, exportable."]},
+ mcpcmp:{does:"The Pointer is a routing matrix: for each job — lookups, tagging small or at scale, OS / app / device tagging, ACR and AES, exports, SQL, scans, agents, policies, WAS, dashboards — which tool does it best, which can do it, and why. It lists the limits that force a hand-off and shows a navi-side snapshot to check what navi is pointed at.",caps:[
+   "<b>Capability and routing matrix<\/b> — 15 common jobs, each routed to navi, the Tenable MCP, or either — with the reason.",
+   "<b>Limits that force a hand-off<\/b> — rule-based tags cap at about 1,024 IPs / 1,999 UUIDs; OS, app and device tagging needs plugin-output fingerprinting; only navi writes ACR; native dashboards are Tenable-only.",
+   "<b>When they disagree<\/b> — suspect a stale navi.db first; different tenants are the rare case; navi can tell you which key and container it holds.",
+   "<b>navi-side snapshot<\/b> — the tag categories, asset count and freshness navi sees right now."]},
+ mitre:{does:"Orthrus fetches the public ATT&amp;CK-to-CVE mapping from MITRE's Center for Threat-Informed Defense, matches it to the CVEs in your findings, and shows the techniques and tactics your unpatched estate enables on an ATT&amp;CK matrix. He tags the affected assets with each CVE's primary impact, secondary impact and exploit technique.",caps:[
+   "<b>Public mapping, approved download<\/b> — the Center for Threat-Informed Defense ATT&amp;CK→CVE mapping, fetched after you approve it (or auto-approve in Settings), with a bundled snapshot offline.",
+   "<b>Only what's in your estate<\/b> — by default only CVEs present in navi.db, so every tag lands on real assets.",
+   "<b>ATT&amp;CK matrix<\/b> — techniques and tactics your findings enable, by mapping type; full screen and email from the widget.",
+   "<b>Mitre tags<\/b> — Mitre : Primary Impact: &lt;technique&gt;, Secondary Impact: &lt;technique&gt; and Exploit Technique: &lt;technique&gt; on the assets carrying each CVE, via navi's tag-by-CVE.",
+   "<b>Honest coverage<\/b> — not every CVE has a mapped technique; an unmapped CVE simply gets no Mitre tag."]},
+ postquantum:{does:"Heimdall finds the quantum-vulnerable surface three ways — certificates (RSA, ECC and DSA are all vulnerable to Shor's algorithm, whatever the key length), on-the-wire transport crypto from TLS and SSH plugins, and Tenable's Post-Quantum Cipher Analysis plugins — scores crypto agility from OpenSSH and OpenSSL versions, and ranks a migration roadmap by ACR and CISA KEV against the CNSA 2.0 deadlines.",caps:[
+   "<b>Certificate quantum risk<\/b> — every certificate by algorithm family, with how many are still valid at each CNSA 2.0 / NIST milestone and the long-lived harvest-now set.",
+   "<b>Transport crypto<\/b> — TLS and SSH key exchange without ML-KEM or a hybrid group, SHA-1 MACs and deprecated protocol versions.",
+   "<b>Tenable's PQC plugins<\/b> — services not using post-quantum ciphers, the target cipher inventory, and services already using them.",
+   "<b>Crypto-agility tiers<\/b> — each host PQC-ready, Upgradable or Legacy from its OpenSSH / OpenSSL versions.",
+   "<b>Migration roadmap<\/b> — assets ranked by crypto risk weighted by ACR and KEV, crown jewels first; export to CSV.",
+   "<b>Tags that route the migration<\/b> — Post-Quantum : Cipher Analysis on the quantum-vulnerable set, plus PQC Risk, Transport, Priority, Harvest-Now and Agility tags from the roadmap."]},
+ scan_eval:{does:"Chronos reads Tenable's scan-information and credential-status plugins to show which assets were scanned with a working login, which were blind and why, how fresh each scan is, which crown jewels sit in a blind spot, and how scanners, policies and scans perform. Every set can be tagged so the fix gets routed.",caps:[
+   "<b>One credentialed rule<\/b> — credentialed = the scan-information plugin reports credentialed checks, or a valid-credentials plugin is present; blind = scanned without credentials. Every hound in the pack uses this rule.",
+   "<b>Why a host is blind<\/b> — credential failed, insufficient privilege, intermittent, or no credentials at all — and credentialed hosts that still have a credential issue.",
+   "<b>Freshness<\/b> — scanned in the last 7 days, 8–30, 31–90, over 90, never, or date unknown; network vs agent scans.",
+   "<b>Crown-jewel blind spots<\/b> — crown jewels (ACR ≥ 7) that are uncredentialed or failed, or not scanned in over 90 days.",
+   "<b>Performance and scanners<\/b> — average scan time, slow scans, slow scanners, policies and scans; scanner load; scanners on an old plugin feed; safe-checks scans.",
+   "<b>Scan Health tags<\/b> — Cred Failure, Insufficient Privilege, Intermittent Auth, Uncredentialed, Patch Assessment Failed, Stale Scan 30d+ / 90d+, Never Scanned, Slow Scan, Crown Jewel Blind Spot, and by scanner, policy or scan."]},
+ sla:{does:"Sköll measures adherence three ways: navi's own Pass / Fail SLA verdict, open findings aged against your per-severity SLA days, and fixed findings — were they fixed in time, and how long did it take. Every view can be segmented by any tag (Owner by default), and a daily snapshot builds the trend.",caps:[
+   "<b>Three lenses<\/b> — navi's verdict (after <span class='mono'>navi config sla calculate<\/span>), open-finding aging (needs only your SLA days), and remediation of fixed findings.",
+   "<b>Segment by anything<\/b> — Owner by default, or any tag category and value.",
+   "<b>Where the breaches are<\/b> — open breaches by owner or tag, by severity, and the worst assets by open breaches.",
+   "<b>Breach outlook<\/b> — open findings due within 7, 14 and 30 days, and already past SLA, by severity — before they breach.",
+   "<b>Monthly trend charts<\/b> — adherence, backlog, new vs fixed, breaches opened, days to fix — each its own widget, full screen on demand.",
+   "<b>Daily history<\/b> — an unscoped run records the day's point, so trends build without extra work.",
+   "<b>Email the dashboard<\/b> — send it to the people who need it through Gabriel."]},
+ software:{does:"Mimir reconciles the software and CPE inventories into one product list, shows version sprawl, the most-deployed and the single-install products, checks versions against endoflife.date, flags the software that makes a host a crown jewel, and ranks a risk leaderboard by the KEV and critical exposure on the hosts that run each product.",caps:[
+   "<b>One product list, two sources<\/b> — software and CPE inventories reconciled, each product badged with the source that saw it, and a delta view of what one source missed.",
+   "<b>Sprawl, common, single-install<\/b> — the product on fourteen versions, the package on half the estate, the one-off install nobody owns.",
+   "<b>Lifecycle check<\/b> — products matched to endoflife.date (on demand, cached) — assets on end-of-life or behind-latest versions.",
+   "<b>Crown-jewel software<\/b> — domain controllers, certificate authorities, databases, hypervisors, backup, security tooling, remote access — each role with a suggested ACR.",
+   "<b>Risk leaderboard<\/b> — products ranked by KEV, critical findings and VPR on their hosts and in their own plugins; full screen and email from the widget.",
+   "<b>Ask in plain English<\/b> — a question becomes one read-only SQL query over software, assets and findings that you review before it runs.",
+   "<b>Software tags<\/b> — Software : &lt;product&gt; (or a version, EOL set or crown role) — the server rebuilds the exact assets from navi.db."]},
+ tagremoval:{does:"Garmr lists every tag navi can remove — the tags in navi.db with the number of assets carrying each — and removes the ones you choose through the same background queue every hound uses. He also explains why some tags in Tenable are out of navi's reach, and can hand your choices to the Contract to clear at the start of every cycle before re-tagging.",caps:[
+   "<b>Only what navi can remove<\/b> — the tags navi.db knows about, with asset counts — a tag that exists only in Tenable is shown separately, never offered.",
+   "<b>Tags navi can't reach<\/b> — navi.db assets compared with Tenable's licensed and stale assets.",
+   "<b>Deliberate removal<\/b> — pick the tags, confirm, and each is queued as a removal — marked as a removal in the Tagging log.",
+   "<b>The pack's only remover<\/b> — every other hound only adds tags; removal lives here and in the Contract's removal phase.",
+   "<b>Hand-off to the Contract<\/b> — the Contract removes your chosen tags first, pauses (30 minutes by default) for Tenable, runs navi update, then re-tags — without deleting the tags themselves."]},
+ was:{does:"Arachne turns navi's WAS data into two dashboards: an overview of every web app — findings by severity, the OWASP Top 10 summed across apps, the technology inventory, scan coverage and apps ranked by risk — and a per-app report. Every bar, category and chip opens the matching apps in Beagle, and cohorts can be tagged on each app's Tenable asset.",caps:[
+   "<b>WAS overview<\/b> — severity totals, OWASP Top 10 profile, technology inventory, crawl depth and recency, apps ranked by risk.",
+   "<b>Per-app report<\/b> — one app's severity, OWASP profile, tech stack and findings, with each plugin's raw stored output.",
+   "<b>Click through to the apps<\/b> — every metric, bar and chip opens Beagle filtered to that group (a severity, an OWASP category, a technology, stale scans).",
+   "<b>WAS tags<\/b> — WAS OWASP : &lt;category&gt;, WAS Severity : &lt;level&gt; and WAS Technology : &lt;tech&gt; on each matching app's Tenable asset."]},
+ was_asset:{does:"Point Beagle at a web app and it lays out the terrain from navi's WAS info plugins — sitemap, scan telemetry, target facts, screenshot, external URLs, cookies and allowed methods — plus the app's other informational and security findings. Every plugin opens its raw stored output, proof and request / response headers.",caps:[
+   "<b>Recon at a glance<\/b> — sitemap, scan telemetry, target facts, screenshot, external URLs, cookies and allowed methods from WAS info plugins.",
+   "<b>Raw output on demand<\/b> — each plugin's stored output, proof and request / response headers.",
+   "<b>Security findings too<\/b> — the app's non-informational findings, alongside the other info plugins.",
+   "<b>Opened from Arachne<\/b> — a dashboard link (a severity, an OWASP category, a technology, stale scans) narrows the app list to that group.",
+   "<b>Pick any app<\/b> — by app or asset UUID, or the riskiest app by default."]},
  advanced:{does:"The power-user search — write natural language or SQL that ranges across every navi.db table at once, joining and filtering the whole estate.",caps:[
    "Cross-table NL→SQL with joins over assets, vulns, routes and paths.",
    "For the questions the single-lens search hounds can't answer alone."]},
- email:{does:"The loop-closer — turns the pack's findings into email that lands with the right human, with deep-links back into the Tenable platform.",caps:[
-   "<b>Owner-routed remediation</b> — reads Atlas <span class='mono'>Owner:</span> tags and emails each owner ONLY their assets, each with its Tenable deep-link.",
-   "<b>KEV fire-alarms</b> (Laelaps), <b>cert countdowns</b> (Certania) and a leadership <b>morning briefing</b> (On the Scent).",
-   "<b>Agent findings hand-off</b> — any Hound can send Gabriel the finding IDs that made up its search + the tagged assets; Gabriel emails the overview and says which Hound produced it.",
-   "Board vs technical templates. Preview is read-only; sending is <b>double-gated</b> (writes + email + confirm) and logged as an accountability ledger."]},
 };
 function _introStyle(){
   if(document.getElementById('introStyle')) return;
@@ -1181,6 +1427,7 @@ function hMail(container, getPayload, opts){
   const row=document.createElement('div'); row.className='hmrow';
   row.innerHTML='<input type="email" placeholder="recipient@company.com"><button class="btn run sm">\u25b6 Send</button><button class="btn ghost sm">\u2715</button><span class="res sub"></span>';
   container.appendChild(btn); container.appendChild(row);
+  if(mode==='dashboard') _gearLast();            // the ⚙ settings gear stays right of "Email dashboard"
   const inp=row.querySelector('input'), send=row.querySelectorAll('button')[0], cancel=row.querySelectorAll('button')[1], res=row.querySelector('.res');
   btn.onclick=()=>{ const show=row.style.display!=='flex'; row.style.display=show?'flex':'none'; if(show){ inp.value=inp.value||_hmailTo(); inp.focus(); } };
   cancel.onclick=()=>{ row.style.display='none'; res.innerHTML=''; };
@@ -1478,6 +1725,8 @@ const SEARCH_PAGES = [
   ['🔎 Paths',   '/agents/ex_paths/page.html'],
   ['🔎 Apps',    '/agents/ex_apps/page.html'],
   ['🔎 Fixed',   '/agents/ex_fixed/page.html'],
+  ['🔎 Compliance','/agents/ex_compliance/page.html'],
+  ['🔎 Software','/agents/ex_software/page.html'],
 ];
 function mountSearchNav(){
   const p = location.pathname;
@@ -1860,6 +2109,7 @@ async function mountAgentHeader(opts){
   _mountCodename(host);
   mountTopNav();
   mountNextAgent(host);
+  mountSettingsGear();                           // innerHTML above wiped it — put it back, last
   try{
     const h = await jget('/api/health');
     window.__LLM_AVAILABLE = !!h.llm; applyLlmGate();

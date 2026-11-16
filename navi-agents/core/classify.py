@@ -17,6 +17,7 @@ Two distinct layers — the same split the IoT squad uses (detect → HITL tag �
 import re
 
 from core import db, hx_summary, software as _sw, tagname
+from core import cloud as _cloud
 from core.iot_common import SOFTWARE_ENUM_PLUGINS
 
 # --- signal keyword sets (for os_signals detection) ------------------------------
@@ -35,9 +36,8 @@ _NET = ("pfsense", "opnsense", "fortigate", "fortios", "fortinet", "pan-os", "pa
 # hostname tokens that imply network gear (used as a secondary signal)
 _NET_HOST = ("-sw", "sw-", "-rtr", "rtr-", "-fw", "fw-", "-gw", "gw-", "router", "switch", "firewall")
 # cloud provenance columns navi syncs → provider. First populated column wins.
-_CLOUD_COLS = (("aws_id", "AWS"), ("aws_ec2_name", "AWS"), ("aws_ec2_region", "AWS"),
-               ("azure_vm_id", "Azure"), ("azure_resource_id", "Azure"), ("azure_subscription_id", "Azure"),
-               ("gcp_instance_id", "GCP"), ("gcp_project_id", "GCP"))
+# (core.cloud: a real id only — navi writes " " / "None" for a field Tenable did not return)
+_CLOUD_COLS = _cloud.CLOUD_COLS
 _IOT_TYPES = [
     ("Camera", ("camera", "ipcam", "hikvision", "dahua", "axis communications", "vivotek", "reolink", "amcrest", "onvif", "nvr", "dvr")),
     ("NAS", ("synology", "diskstation", "qnap", "terastation", "truenas", "freenas", "netapp", "drobo", "readynas")),
@@ -46,6 +46,77 @@ _IOT_TYPES = [
     ("UPS / Power", ("apc ", "eaton ups", "vertiv", "tripp lite", "cyberpower")),
     ("VoIP", ("yealink", "polycom", "grandstream", "cisco ip phone", "sip phone")),
 ]
+# ---- Device Type vocabulary (build 473) — the options the page offers, and how a Device Type
+# tag maps to a class. (label, class, keywords matched in a tag value, lower-case). A Server /
+# Desktop / Laptop tag keeps the OS class when the asset also has an OS tag; otherwise it is
+# its own Server / Workstation class. Old values (e.g. "NAS", "VoIP") keep matching.
+DEVICE_TYPES = [
+    ("Server", "Server", ("server", "general-purpose")),
+    ("Desktop", "Workstation", ("desktop",)),
+    ("Laptop", "Workstation", ("laptop", "notebook")),
+    ("Workstation", "Workstation", ("workstation", "thin client", "kiosk")),
+    ("Phone / Tablet", "Mobile", ("mobile", "phone / tablet", "tablet", "smartphone", "iphone", "ipad", "android")),
+    ("Hypervisor", "Virtual Infrastructure", ("hypervisor", "esxi", "vcenter")),
+    ("Switch", "Network", ("switch",)),
+    ("Router", "Network", ("router",)),
+    ("Firewall", "Network", ("firewall",)),
+    ("Wireless Access Point", "Network", ("wireless", "access point", "wap")),
+    ("Load Balancer", "Network", ("load balancer", "load-balancer", "proxy", "packet-shaper")),
+    ("Camera", "IoT", ("camera", "webcam", "nvr", "dvr")),
+    ("Printer", "IoT", ("printer", "print server", "mfp", "copier")),
+    ("NAS", "IoT", ("nas", "storage")),
+    ("VoIP", "IoT", ("voip", "ip phone", "sip phone")),
+    ("Media", "IoT", ("media", "smart tv", "display", "chromecast")),
+    ("UPS / Power", "IoT", ("ups", "power", "pdu")),
+    ("Badge Reader", "IoT", ("badge", "door controller", "access control")),
+    ("Embedded", "IoT", ("embedded", "iot")),
+    ("PLC", "OT", ("plc",)),
+    ("HMI", "OT", ("hmi",)),
+    ("RTU", "OT", ("rtu",)),
+    ("Engineering Workstation", "OT", ("engineering workstation",)),
+    ("OT Device", "OT", ("ot device", "scada", "ics", "dcs", "historian")),
+]
+DEVICE_TYPE_LABELS = [d[0] for d in DEVICE_TYPES]
+# the order a value is matched in: OT first ("engineering workstation" ≠ Workstation), then the
+# more specific network / IoT words before the broad server / workstation ones
+_DEV_MATCH = ([d for d in DEVICE_TYPES if d[1] == "OT"] + [d for d in DEVICE_TYPES if d[1] in ("Network", "Virtual Infrastructure")]
+              + [d for d in DEVICE_TYPES if d[1] == "IoT" and d[0] != "Embedded"] + [d for d in DEVICE_TYPES if d[1] == "Mobile"]
+              + [d for d in DEVICE_TYPES if d[1] in ("Server", "Workstation")] + [d for d in DEVICE_TYPES if d[0] == "Embedded"])
+# Nessus Device Type (plugin 54615) "Remote device type : <x>" → a Device Type label
+# (general-purpose is decided by the OS: Windows desktop editions / macOS → Desktop, else Server)
+_NESSUS_DEVTYPE = {"printer": "Printer", "camera": "Camera", "webcam": "Camera", "switch": "Switch",
+                   "router": "Router", "firewall": "Firewall", "wireless-access-point": "Wireless Access Point",
+                   "load-balancer": "Load Balancer", "proxy": "Load Balancer", "packet-shaper": "Load Balancer",
+                   "hypervisor": "Hypervisor", "scada": "OT Device", "embedded": "Embedded",
+                   "mobile": "Phone / Tablet", "voip": "VoIP", "storage": "NAS"}
+_DEVTYPE_RE = re.compile(r"remote device type\s*:\s*([a-z0-9_-]+)", re.I)
+
+
+def device_type(value):
+    """(label, class) for a Device Type value — a known label, or matched by keyword; None if
+    it matches nothing (a customer-defined type)."""
+    v = (value or "").strip().lower()
+    if not v:
+        return None
+    for label, cls, _kw in DEVICE_TYPES:
+        if v == label.lower():
+            return (label, cls)
+    for label, cls, kws in _DEV_MATCH:
+        if any(re.search(r"(?<![a-z0-9])" + re.escape(k) + r"(?![a-z0-9])", v) for k in kws):
+            return (label, cls)
+    return None
+
+
+def _general_purpose_type(os_):
+    """Server or Desktop for a general-purpose host, from its OS string."""
+    o = (os_ or "").lower()
+    if "windows" in o and "server" not in o:
+        return "Desktop"
+    if "mac os" in o or "macos" in o:
+        return "Desktop"
+    return "Server"
+
+
 _CREDFAIL = ("110723", "104410", "24786", "21745")
 _GEN_OS = ("windows", "mac os", "macos")
 
@@ -248,8 +319,10 @@ def _tag_class(th):
         return ("IoT", th["iot"], "tag: IoT")
     if th.get("device type"):
         dv = th["device type"]
-        cls = "OT" if any(k in dv.lower() for k in ("plc", "hmi", "rtu", "scada")) else "IoT"
-        return (cls, dv, "tag: Device Type")
+        hit = device_type(dv)
+        if hit and hit[1] in ("Server", "Workstation") and th.get("os"):
+            return (_os_to_class(th["os"]), dv, "tag: Device Type")      # a Windows server stays Windows
+        return (hit[1] if hit else "Other", dv, "tag: Device Type")
     osv = th.get("os")
     if osv:
         return (_os_to_class(osv), osv, "tag: OS")
@@ -344,10 +417,7 @@ def classify(db_path=None, glance=False):
     eol_os = _eol_os_assets(db_path) if glance else set()
 
     def _cloud_of(a):
-        for c, prov in _CLOUD_COLS:
-            if a.get(c):
-                return prov
-        return ""
+        return _cloud.provider(a)
 
     out = []
     for a in assets:
@@ -380,7 +450,8 @@ def classify(db_path=None, glance=False):
         c["cloud"] += 1 if r["cloud"] else 0
         key = r["sub"] or r["reason"] or "—"
         c["subs"][key] = c["subs"].get(key, 0) + 1
-    order = ["Windows", "Linux", "macOS", "IoT", "OT", "Network", "Cloud", "Virtual Infrastructure", "Other", "Unclassified"]
+    order = ["Windows", "Linux", "macOS", "Server", "Workstation", "Mobile", "IoT", "OT", "Network", "Cloud",
+             "Virtual Infrastructure", "Other", "Unclassified"]
     class_list = []
     for name in order + [k for k in classes if k not in order]:
         if name in classes:
@@ -411,6 +482,12 @@ def classify(db_path=None, glance=False):
             stats["workstations"] += 1
         elif c == "Linux":
             stats["servers"] += 1
+        elif c == "Server":
+            stats["servers"] += 1
+        elif c == "Workstation":
+            stats["workstations"] += 1
+        elif c == "Mobile":
+            stats["mobile"] = stats.get("mobile", 0) + 1
     stats["unclassified_pct"] = round(100.0 * unclassified / total, 1) if total else 0.0
     res = {"ok": True, "total": total, "classified": classified, "unclassified": unclassified,
            "coverage_pct": round(100.0 * classified / total, 1) if total else 0.0,
@@ -433,7 +510,12 @@ def _glance(out, class_list, db_path=None):
     low = [r for r in fp if r["confidence"] < LOW_CONF]
     # riskiest unclassified asset → Argos (KEV, then critical, then ACR)
     unk = [r for r in out if r["cls"] == "Unclassified" and (r["kev"] or r["critical"])]
-    unk.sort(key=lambda r: (-int(bool(r["kev"])), -int(bool(r["critical"])), -float(r.get("acr") or 0), r["hostname"]))
+    def _acr(r):                       # navi writes the text "None" for a missing ACR
+        try:
+            return float(r.get("acr") or 0)
+        except (TypeError, ValueError):
+            return 0.0
+    unk.sort(key=lambda r: (-int(bool(r["kev"])), -int(bool(r["critical"])), -_acr(r), r["hostname"]))
     top = unk[0] if unk else None
     classified = [r for r in out if r["cls"] != "Unclassified"]
     eol = sum(1 for r in out if r.get("eol_os"))
@@ -479,6 +561,15 @@ def _gather_signals(db_path, keep):
     S["iot_type"] = {}
     for label, terms in _IOT_TYPES:
         S["iot_type"][label] = by_name(terms)
+    # Nessus's own verdict (plugin 54615 Device Type): "Remote device type : printer"
+    S["devtype"] = {}
+    try:
+        for r in db.iter("SELECT asset_uuid, output FROM vulns WHERE plugin_id='54615'", path=db_path):
+            m = _DEVTYPE_RE.search(r.get("output") or "")
+            if m and r.get("asset_uuid"):
+                S["devtype"][r["asset_uuid"]] = m.group(1).lower()
+    except Exception:
+        pass
     return S
 
 
@@ -489,6 +580,12 @@ def _signal_class(a, S):
     sw = (u in S["sw_win"]) or (u in S["sw_nix"])
     if u in S["ot"] or any(k in host for k in _OT_HOST):
         return ("Device Type", "Engineering Workstation" if sw else "OT Device")
+    # Nessus says what the box physically is — a printer running embedded Linux is a Printer
+    nt = (S.get("devtype") or {}).get(u, "")
+    if nt in ("switch", "router", "firewall", "wireless-access-point", "load-balancer", "proxy", "packet-shaper"):
+        return ("Device Type", _NESSUS_DEVTYPE[nt])
+    if nt in ("printer", "camera", "webcam", "scada", "mobile", "voip", "storage"):
+        return ("Device Type", _NESSUS_DEVTYPE[nt])
     if u in S["net"] or any(k in host for k in _NET_HOST):
         return ("Class", "Network")
     if u in S["hyper"] or "esxi" in osl:

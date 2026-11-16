@@ -79,7 +79,7 @@ const SEV=["info","warning","critical"];
 let DRAFT=null;
 
 async function load(){
-  await mountAgentHeader({icon:'🚨',name:'Alerting',sub:'Alert Raven'});
+  await mountAgentHeader({id:'alert',icon:'🚨',name:'Alerting',sub:'Alert Raven'});
 try{ hMailAuto(); }catch(e){}
   const m=await API.post('metrics').catch(()=>null); renderMetrics(m||{});
   const l=await API.post('list').catch(()=>({alerts:[]})); renderAlerts((l&&l.alerts)||[]);

@@ -205,7 +205,10 @@ def _build_query(db_path, only=None):
         exp = "not_valid_after" if "not_valid_after" in cc else None
         sg = f"lower(COALESCE({sig},''))" if sig else "''"
         alg = "algorithm" if "algorithm" in cc else None
-        kalg = f"lower(COALESCE({alg},{sig or 'NULL'},''))" if alg else sg
+        # navi writes " " for a field the API didn't return — a blank algorithm is missing, so
+        # fall through to the signature algorithm (else an RSA key under 2048 bits is missed)
+        sg_v = f"NULLIF(TRIM({sig}),'')" if sig else "NULL"
+        kalg = f"lower(COALESCE(NULLIF(TRIM({alg}),''),{sg_v},''))" if alg else sg
         # SHA-1 / MD5 signatures ("SHA-1 With RSA Encryption"); short keys only for RSA — a 256-bit
         # ECDSA key is strong
         weak = (f"({sg} LIKE '%sha1%' OR {sg} LIKE '%sha-1%' OR {sg} LIKE '%md5%'"
@@ -468,6 +471,16 @@ ACT_THRESHOLDS = (80, 60, 40)
 
 def _scored(p, wmap, epss_map, only=None):
     """Stream (signals, factor points, unrounded score, score) for every asset (or `only` one)."""
+    # build 465: "blind" = scanned but NOT credentialed (core.credstate — any 19506 "Credentialed
+    # checks : yes" or 141118 / 110095 is credentialed); failure plugins alone no longer decide it
+    from core import credstate
+    try:
+        if only:
+            _bl = {only} if credstate.asset_blind(only, p) else set()
+        else:
+            _bl = credstate.sets(p)["blind"]
+    except Exception:
+        _bl = None                                     # keep the query's failure-plugin flag
     con = db.connect(p)
     con.row_factory = sqlite3.Row
     con.create_function("_cert_days", 1, _cert_days, deterministic=True)
@@ -479,6 +492,8 @@ def _scored(p, wmap, epss_map, only=None):
                 break
             for r in batch:
                 s = _row_signals(r, epss_map)
+                if _bl is not None:
+                    s["blind"] = 1 if s["uuid"] in _bl else 0
                 pts = _factor_pts(s, wmap)
                 fscore = sum(pts.values()) * _disp_mul(s)
                 yield s, pts, fscore, min(100, _r(fscore))
@@ -520,6 +535,18 @@ def asset_score(uuid, db_path=None, weights=None, epss_cap=_EPSS_CAP):
         return {"score": score, "band": _band(score), "factors": pts,
                 "kev": bool(s["kev"]), "sla": bool(s["sla"]), "unowned": bool(s["unowned"])}
     return None
+
+
+def iter_scored(db_path=None, weights=None, epss_cap=_EPSS_CAP):
+    """(signals, score) for EVERY asset — the whole estate, the same scoring the kpis count
+    (core/evidence lists the assets behind an On the Scent card from it)."""
+    p = db_path or db.db_path()
+    if not _has("assets", p):
+        return
+    wmap, _ = _resolve_weights(weights)
+    epss_map, _ = _epss_map(p, epss_cap)
+    for s, _pts, _fscore, score in _scored(p, wmap, epss_map):
+        yield s, score
 
 
 def select_uuids(db_path=None, weights=None, threshold=80, uuid=None, fallback=10, epss_cap=_EPSS_CAP):

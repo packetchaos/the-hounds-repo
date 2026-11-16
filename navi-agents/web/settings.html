@@ -36,6 +36,9 @@
   .src{display:inline-block;margin-left:6px;padding:0 6px;border-radius:6px;font-size:10px;letter-spacing:.03em;text-transform:none;border:1px solid var(--line);color:var(--mut)}
   .src.shell{border-color:var(--cx-e7c66b);color:var(--cx-e7c66b)} .src.config{border-color:var(--ok);color:var(--ok)} .src.session{border-color:var(--accent);color:var(--accent)}
   /* navi job buttons: press in on click, stay lit while their job runs */
+  /* Release the Hounds' preflight links straight to a card (#secTables / #secHx / #secSla) */
+  section.card[id]{scroll-margin-top:72px}
+  section.card:target{outline:2px solid var(--amber,#e0a526);outline-offset:3px}
   [data-kind].btn{transition:transform .06s ease, box-shadow .12s ease}
   [data-kind].btn:active,[data-kind].btn.pressed{transform:translateY(1px) scale(.98);box-shadow:inset 0 2px 6px rgba(0,0,0,.35)}
   [data-kind].btn.running{border:1px solid var(--accent);color:var(--accent);background:transparent;box-shadow:inset 0 2px 6px rgba(0,0,0,.25);transform:translateY(1px)}
@@ -116,7 +119,7 @@
   </section>
 
   <!-- NAVI.DB CHECKS -->
-  <section class="card">
+  <section class="card" id="secTables">
     <div class="toolbar"><div><h2 style="margin:0">🗄 navi.db tables</h2>
       <p class="sub" style="margin:2px 0 0">Is each table populated? <span class="dot ok" style="display:inline-block"></span> has rows · <span class="dot empty" style="display:inline-block"></span> exists but empty · <span class="dot missing" style="display:inline-block"></span> missing. Routes &amp; Paths aren't part of a normal full sync — update them here. <span class="mono" id="dbmeta"></span></p></div>
       <span style="margin-left:auto;display:flex;gap:6px">
@@ -160,7 +163,7 @@
   </section>
 
   <!-- SLA POLICY -->
-  <section class="card">
+  <section class="card" id="secSla">
     <div class="toolbar"><div><h2 style="margin:0">⏱ SLA policy <span id="slaFixChip" class="chip" style="margin-left:6px;display:none"></span></h2>
       <p class="sub" style="margin:2px 0 0">Per-severity remediation windows (days) that drive <b>Sköll — SLA Adherence</b>. <b>Save</b> runs <span class="mono">navi config sla reset</span> (a local navi.db config write — not gated). Then <b>Build Fixed</b> and <b>Recalculate SLA</b> to stamp Pass/Fail verdicts — both stream in the CLI window below.</p></div></div>
     <div class="slagrid" id="slaGrid"></div>

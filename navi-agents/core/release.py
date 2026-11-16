@@ -93,6 +93,101 @@ def _auto_approve():
         return False
 
 
+# ---------------------------------------------------------------- preflight (build 466)
+# What each hound needs in navi.db before a release is worth running it. "block" = the hound
+# has nothing to read without it (the dialog offers to skip it); "warn" = it runs, but part
+# of its answer is missing or it will be slow. Each fix points at the Settings card that
+# corrects it. Probes are EXISTS / LIMIT 1 — instant even on a 148 GB navi.db.
+SETTINGS_TABLES = "/web/settings.html#secTables"
+PREFLIGHT = [
+    {"key": "vulns", "label": "Findings (vulns)", "tables": ["vulns"], "level": "block", "hounds": "*",
+     "fix": "navi config update vulns", "settings": SETTINGS_TABLES,
+     "why": "every hound reads findings"},
+    {"key": "assets", "label": "Assets", "tables": ["assets"], "level": "block", "hounds": "*",
+     "fix": "navi config update assets", "settings": SETTINGS_TABLES, "why": "every hound reads the asset inventory"},
+    {"key": "certs", "label": "Certificates", "tables": ["certs"], "level": "block",
+     "hounds": ["certificate", "postquantum"], "fix": "navi config certificates", "settings": SETTINGS_TABLES,
+     "why": "Certania and Heimdall read the certificate inventory"},
+    {"key": "software", "label": "Software inventory", "tables": ["software"], "level": "block",
+     "hounds": ["software"], "fix": "navi config software (needs credentialed scans)", "settings": SETTINGS_TABLES,
+     "why": "Mimir reads the software inventory"},
+    {"key": "routes_paths", "label": "Routes and paths", "tables": ["vuln_route", "vuln_paths"], "any": True,
+     "level": "block", "hounds": ["exproute", "asset_ownership"], "fix": "navi config update route · navi config update paths",
+     "settings": SETTINGS_TABLES, "why": "Exposure Routes and Ownership map routes and paths — neither is in navi.db"},
+    {"key": "routes", "label": "Routes", "tables": ["vuln_route"], "level": "warn", "only_if": "vuln_paths",
+     "hounds": ["exproute", "asset_ownership"], "fix": "navi config update route", "settings": SETTINGS_TABLES,
+     "why": "paths are there, routes are not — the route side will be empty"},
+    {"key": "paths", "label": "Paths", "tables": ["vuln_paths"], "level": "warn", "only_if": "vuln_route",
+     "hounds": ["exproute", "asset_ownership"], "fix": "navi config update paths", "settings": SETTINGS_TABLES,
+     "why": "routes are there, paths are not — the path side will be empty"},
+    {"key": "was", "label": "Web Application Scanning (WAS)", "tables": ["apps"], "level": "block", "hounds": ["was"],
+     "fix": "navi config update was (needs a WAS license)", "settings": SETTINGS_TABLES,
+     "why": "Arachne reads WAS web apps and findings"},
+    {"key": "compliance", "label": "Compliance / audit results", "tables": ["compliance"], "level": "block",
+     "hounds": ["compliance"], "fix": "navi config update compliance", "settings": SETTINGS_TABLES,
+     "why": "the Compliance hound reads audit results"},
+    {"key": "compliance_ap", "label": "Compliance / audit results", "tables": ["compliance"], "level": "warn",
+     "hounds": ["attackpath"], "fix": "navi config update compliance", "settings": SETTINGS_TABLES,
+     "why": "Attack Paths runs without them, but misses the failed-control steps"},
+    {"key": "sla", "label": "SLA policy", "tables": ["sla"], "level": "block", "hounds": ["sla"],
+     "fix": "set the per-severity days and Save SLA", "settings": "/web/settings.html#secSla",
+     "why": "Sköll needs the SLA windows"},
+    {"key": "fixed", "label": "Fixed findings (remediation history)", "tables": ["fixed"], "level": "warn", "hounds": ["sla"],
+     "fix": "🧱 Build Fixed table", "settings": "/web/settings.html#secSla",
+     "why": "SLA runs, but the fix history and trend are empty"},
+    {"key": "epss", "label": "EPSS scores", "tables": ["epss"], "level": "warn", "hounds": ["fused_score", "insights"],
+     "fix": "navi config epss", "settings": SETTINGS_TABLES, "why": "Exposure Score runs without the EPSS signal"},
+    {"key": "indexes", "label": "Hounds indexes and summary tables (⚡ Optimize)", "level": "warn", "hounds": "*",
+     "fix": "⚡ Optimize", "settings": "/web/settings.html#secHx",
+     "why": "every hound runs, but large hounds scan the whole of navi.db and take far longer"},
+]
+
+
+def _has_rows(table, db_path=None):
+    try:
+        if not db.scalar("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,), path=db_path, budget=0):
+            return False
+        return bool(db.scalar('SELECT EXISTS (SELECT 1 FROM "%s" LIMIT 1)' % table, path=db_path, budget=0))
+    except Exception:
+        return False
+
+
+def preflight(agents=None, db_path=None):
+    """[{key, label, ok, level, why, fix, settings, hounds:[agent…]}] for the hounds a release
+    would run (agents = their keys). Only checks that affect at least one of them are listed."""
+    agents = list(agents or [])
+    has = {}
+
+    def h(t):
+        if t not in has:
+            has[t] = _has_rows(t, db_path)
+        return has[t]
+    out = []
+    for c in PREFLIGHT:
+        hs = agents if c["hounds"] == "*" else [a for a in c["hounds"] if a in agents]
+        if not hs:
+            continue
+        if c["key"] == "indexes":
+            try:
+                from core import hx_optimize
+                st = hx_optimize.status()
+                sm = st.get("summary") or {}
+                ok = bool(st.get("optimized")) and (not sm.get("applies") or bool(sm.get("fresh")))
+                detail = ("" if ok else ("%d index(es) missing" % st["missing"]) if st.get("missing")
+                          else "the summary tables are stale — navi.db changed since the last ⚡ Optimize")
+            except Exception as e:
+                ok, detail = True, "could not check (%s)" % type(e).__name__
+        else:
+            if c.get("only_if") and not h(c["only_if"]):
+                continue                         # covered by the combined routes/paths check
+            got = [h(t) for t in c["tables"]]
+            ok = any(got) if c.get("any") else all(got)
+            detail = "" if ok else ("no rows in " + " / ".join(c["tables"]))
+        out.append({"key": c["key"], "label": c["label"], "ok": ok, "level": c["level"], "why": c["why"],
+                    "fix": c["fix"], "settings": c["settings"], "detail": detail, "hounds": hs})
+    return out
+
+
 def plan(approve_downloads=None):
     """What a release would run, in order, with a time estimate per hound.
     Estimate = the last release's time for that hound (scaled to today's navi.db size),
@@ -129,7 +224,12 @@ def plan(approve_downloads=None):
             it.update(run=True, est_s=round(est, 1), basis=basis, download=r.get("download"))
             total += est
         items.append(it)
-    return {"ok": True, "items": items, "total_s": round(total, 1), "vuln_rows": rows,
+    try:
+        pf = preflight([i["agent"] for i in items if i.get("run")])
+    except Exception as e:
+        pf = [{"key": "preflight", "label": "Preflight", "ok": False, "level": "warn", "why": "could not run the checks",
+               "fix": "", "settings": SETTINGS_TABLES, "detail": "%s: %s" % (type(e).__name__, e), "hounds": []}]
+    return {"ok": True, "items": items, "total_s": round(total, 1), "vuln_rows": rows, "preflight": pf,
             "auto_approve_downloads": auto, "approve_downloads": approve,
             "excluded": rc.get("excluded", {}), "state": state()}
 
@@ -190,10 +290,19 @@ def cancel():
     return True
 
 
-def start(approve_downloads=None):
-    """Start a release (or return the one already running)."""
+def start(approve_downloads=None, agents=None):
+    """Start a release (or return the one already running). agents = the hounds the user
+    ticked (None = every runnable hound); the rest are recorded as skipped "not selected"."""
     global _THREAD, _TOKEN
     pl = plan(approve_downloads)
+    if agents is not None:
+        sel = {str(a) for a in agents}
+        for i in pl["items"]:
+            if i.get("run") and i["agent"] not in sel:
+                i.update(run=False, note="not selected")
+        pl["total_s"] = round(sum(i.get("est_s") or 0 for i in pl["items"] if i.get("run")), 1)
+        if not any(i.get("run") for i in pl["items"]):
+            return {"ok": False, "error": "no hound selected"}
     with _LOCK:
         if _STATE.get("status") == "running":
             return {"ok": True, "already_running": True, "state": json.loads(json.dumps(_STATE, default=str))}

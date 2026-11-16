@@ -8,6 +8,20 @@
 </head><body data-page-cache="off">
 <div class="wrap">
   <header class="top" id="app-header"></header>
+  <!-- EVIDENCE (build 467): /agents/ex_assets/page.html?evidence=<key> — the assets behind an
+       On the Scent number, computed by the hound that owns it -->
+  <section class="card" id="evCard" style="display:none">
+    <div class="toolbar" style="align-items:flex-start;gap:10px;flex-wrap:wrap"><div style="flex:1;min-width:260px">
+      <h2 style="margin:0" id="evTitle">🧾 Evidence</h2>
+      <p class="sub" style="margin:3px 0 0" id="evWhy"></p></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn ghost sm" id="evCsv" type="button" disabled>⬇ CSV (all)</button>
+        <a class="btn ghost sm" id="evHound" href="#">Open the hound →</a><a class="btn ghost sm" href="/agents/insights/page.html">← On the Scent</a></div></div>
+    <div id="evFlash" class="flash"></div>
+    <div class="toolbar" style="margin:8px 0"><input id="evQ" class="fld" placeholder="Search these assets — host, IP, OS" style="flex:1;min-width:220px"><span class="chip" id="evCount"></span></div>
+    <table id="evTbl" style="table-layout:fixed;width:100%"><colgroup><col><col style="width:130px"><col style="width:230px"><col style="width:52px"><col style="width:96px"><col style="width:78px"></colgroup>
+      <thead><tr><th>Host</th><th>IP</th><th>OS</th><th>ACR</th><th>Last seen</th><th>Platform</th></tr></thead><tbody><tr><td colspan="6" class="sub"><span class="spin"></span> working out the evidence…</td></tr></tbody></table>
+    <p class="sub" style="font-size:11.5px;margin:8px 0 0">Click a host for its <b>Argos</b> deep-dive — its findings, 🛠 remediate (C2) and tags. The list is computed now from navi.db by the hound that owns the number, so it can differ slightly from a card built at the last release.</p>
+  </section>
   <section class="card">
     <h2 style="margin:0">🔎 Asset Explorer</h2>
     <p class="sub" style="margin:2px 0 8px">Search navi.db assets by hostname, IP, OS or network. 20 rows/page (Rows: up to 50). Click a host to open its <b>Argos deep-dive</b> — with a link out to the Tenable platform.</p>
@@ -39,6 +53,39 @@ async function go(off){ off=off||0;
 }
 document.getElementById('go').onclick=()=>go(0);
 document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter')go(0);});
+/* ---- evidence (build 467) ---- */
+let EV=null, TEV=null;
+const _evKey=(()=>{ try{ return new URLSearchParams(location.search).get('evidence')||''; }catch(e){ return ''; } })();
+function evRow(r){ const h=(r.hostname||'').trim()||r.ip_address||'(none)';
+  return `<tr><td title="${esc(h)}"><a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(r.uuid)}" title="Open the Argos asset deep-dive">${esc(h)}</a></td>`+
+    `<td class="mono">${esc(r.ip_address||'')}</td><td title="${esc(r.operating_system||'')}">${esc(r.operating_system||'')}</td>`+
+    `<td>${esc(String(r.acr==null?'':r.acr))}</td><td class="sub">${esc(String(r.last_found||'').slice(0,10))}</td>`+
+    `<td>${safeUrl(r.url,'')?`<a class="plink" href="${esc(safeUrl(r.url))}" target="_blank" rel="noopener noreferrer">Open ↗</a>`:'<span class="sub">—</span>'}</td></tr>`; }
+async function loadEvidence(key){
+  const card=document.getElementById('evCard'); card.style.display='';
+  document.getElementById('evTitle').textContent='🧾 Evidence — '+key;
+  // the card click asked for this list: a run, not a page-open read (may take minutes on a big navi.db)
+  let o; try{ o=await API.post('evidence',{key, _run:true}); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o||!o.ok){ document.querySelector('#evTbl tbody').innerHTML='<tr><td colspan="6" class="sub">✗ '+esc((o&&o.error)||'could not build the list')+'</td></tr>'; return; }
+  EV=o.evidence||o.summary||{};
+  document.title=(EV.label||'Evidence')+' · Asset Explorer';
+  document.getElementById('evTitle').textContent='🧾 '+(EV.label||key)+' — '+Number(EV.count||0).toLocaleString();
+  document.getElementById('evWhy').innerHTML=esc(EV.why||'')+' · counted by <b>'+esc(EV.hound||'')+'</b> · computed '+esc(EV.computed_at||'')+(EV.seconds!=null?' in '+esc(EV.seconds)+' s':'');
+  const hl=document.getElementById('evHound'); hl.href='/agents/'+encodeURIComponent(EV.agent||'')+'/page.html'; hl.textContent='Open '+(EV.hound||'the hound')+' →';
+  const run=(o.drill||{}).run;
+  document.getElementById('evCsv').disabled=!run;
+  TEV=hDrill({api:API, table:'evTbl', run, section:'assets', cols:6, row:evRow, search:'evQ', first:o,
+    empty:'<tr><td colspan="6" class="sub">'+(EV.count?'Nothing matches the search.':'No assets — nothing to act on here right now.')+'</td></tr>',
+    onRender:T=>{ const k=T.total?+T.total.value||0:0; document.getElementById('evCount').textContent=(k===EV.count?'':Number(k).toLocaleString()+' of ')+Number(EV.count||0).toLocaleString()+' assets'; }});
+  setTimeout(()=>card.scrollIntoView({behavior:'smooth',block:'start'}),50);
+}
+document.getElementById('evCsv').onclick=async function(){ if(!TEV||!TEV.state||!TEV.state.run) return;
+  const b=this, l=b.textContent; b.disabled=true; b.textContent='⏳ CSV…';
+  let o; try{ o=await API.post('export',{run:TEV.state.run, q:(document.getElementById('evQ').value||'').trim()}); }catch(e){ o={ok:false,error:e.message}; }
+  b.disabled=false; b.textContent=l;
+  if(!o||!o.ok){ flash('evFlash','✗ '+esc((o&&o.error)||'export failed'),'crit'); return; }
+  downloadText(_safeName('evidence-'+_evKey)+'.csv', o.csv); };
+if(_evKey) loadEvidence(_evKey);
 mountAgentHeader({icon:'🔎',name:'Asset Explorer',sub:'navi.db search · 500/page'});
 try{ hMailAuto(); }catch(e){}
 wireNlBox('assets');

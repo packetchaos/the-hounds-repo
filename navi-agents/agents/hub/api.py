@@ -108,7 +108,11 @@ def release_start(p):
     if not confirmed(p):
         return {"ok": False, "error": "confirm=true required to release the hounds"}, 400
     ap = p.get("approve_downloads")
-    return release.start(None if ap is None else bool(ap)), 200
+    ag = p.get("agents")
+    if ag is not None and not (isinstance(ag, list) and len(ag) <= 64 and all(isinstance(a, str) and len(a) < 40 for a in ag)):
+        return {"ok": False, "error": "agents must be a list of hound keys"}, 400
+    r = release.start(None if ap is None else bool(ap), agents=ag)
+    return r, (200 if r.get("ok") else 400)
 
 
 def release_status(p):
@@ -121,7 +125,54 @@ def release_cancel(p):
     return {"ok": True, "cancelled": release.cancel(), "state": release.state()}, 200
 
 
-ACTIONS = {"roster": roster, "run_all": run_all, "trust": trust,
+# ---------------------------------------------------------------- ⚙ settings status light (build 468)
+def config_status(p):
+    """The header gear's light. red = a KEY configuration is missing (navi.db unreadable, no
+    assets or no findings — no hound can run); amber = OPTIONAL data / setup is missing (some
+    hounds run with less: certs, software, routes / paths, WAS, compliance, SLA, Fixed, EPSS,
+    ⚡ Optimize, an AI model); purple = all set. Cheap: EXISTS probes + the Optimize catalog."""
+    from core import release, db
+    items = []                       # {level, label, fix, href}
+    try:
+        ok_db = bool(db.scalar("SELECT 1", budget=0) == 1)
+    except Exception as e:
+        ok_db = False
+        items.append({"level": "red", "label": "navi.db can't be read", "fix": str(e)[:160],
+                      "href": "/web/settings.html"})
+    if ok_db:
+        seen = set()
+        for c in release.PREFLIGHT:
+            if c["key"] in seen or c.get("only_if") or c["key"] == "compliance_ap":
+                continue
+            seen.add(c["key"])
+            if c["key"] == "indexes":
+                try:
+                    from core import hx_optimize
+                    st = hx_optimize.status()
+                    sm = st.get("summary") or {}
+                    good = bool(st.get("optimized")) and (not sm.get("applies") or bool(sm.get("fresh")))
+                except Exception:
+                    good = True
+            else:
+                got = [release._has_rows(t) for t in c["tables"]]
+                good = any(got) if c.get("any") else all(got)
+            if not good:
+                key = c["key"] in ("vulns", "assets")
+                items.append({"level": "red" if key else "amber", "label": c["label"], "fix": c["fix"],
+                              "href": c["settings"], "why": c["why"]})
+    try:
+        from core import llm
+        if not llm.available():
+            items.append({"level": "amber", "label": "AI model", "fix": "set a model and key in Settings",
+                          "href": "/web/settings.html", "why": "the plain-English boxes and AI summaries are off"})
+    except Exception:
+        pass
+    level = "red" if any(i["level"] == "red" for i in items) else ("amber" if items else "ok")
+    title = {"red": "Key configurations required", "amber": "Optional configurations missing", "ok": "All set"}[level]
+    return {"ok": True, "level": level, "title": title, "items": items}, 200
+
+
+ACTIONS = {"roster": roster, "run_all": run_all, "trust": trust, "config_status": config_status,
            "pc_get": pc_get, "pc_put": pc_put, "pc_patch": pc_patch, "pc_del": pc_del, "pc_list": pc_list,
            "release_plan": release_plan, "release_start": release_start,
            "release_status": release_status, "release_cancel": release_cancel}

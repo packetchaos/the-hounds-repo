@@ -90,7 +90,7 @@ const API=agentApi('certificate');
 let M=null, RUN=null, FIRST=null, WRITES=false, APPLIED=new Set(), FILTER=null, STF='', SCOPE=null, _sel=new Set(), _isel=new Set(), iotF='all';
 let TC=null, TCR=null, TIOT=null, _selN=null;
 const N=v=>(v==null?0:v).toLocaleString();
-const FILTERS={ last12:['Expired in the last 12 months'], older:['Expired over 12 months ago'], due30:['Failing ≤ 30 days'], due90:['Failing ≤ 90 days'],
+const FILTERS={ expired:['Expired (any date)'], last12:['Expired in the last 12 months'], older:['Expired over 12 months ago'], due30:['Failing ≤ 30 days'], due90:['Failing ≤ 90 days'],
   failing:['Failing in 12 months'], crown:['On crown jewels'], weak:['Weak crypto'], self:['Self-signed'] };
 
 async function run(){
@@ -106,6 +106,9 @@ async function run(){
   ['issTbl'].forEach(hPageReset);
   flashClear('flash'); render();
   if(!M.cert_rows) flash('flash','No rows in the navi.db certs table. Populate it with a navi update (certs), then run again.','warn');
+  // evidence deep link (On the Scent): ?view=expired → the certificate list filtered to it
+  hViewOnce('view', v=>{ if(!FILTERS[v]) return; FILTER=v; renderMetrics(); renderCerts();
+    setTimeout(()=>document.getElementById('secCerts').scrollIntoView({behavior:'smooth',block:'start'}),60); });
   return true;
 }
 const inScope=()=>{ const m=(M&&M.metrics)||{}; return (m.expired||0)+(m.failing||0); };

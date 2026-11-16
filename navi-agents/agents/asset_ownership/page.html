@@ -387,6 +387,8 @@ async function load(){
   renderCrown(res.crown_jewels||[], k);
   renderBlind(res.blind_spots||[]);
   renderOwners(res.owners||[], res.owners_total||0);
+  // evidence deep link (On the Scent): ?scope=unclaimed → the asset table on that scope
+  hViewOnce('scope', v=>{ if(SCOPES[v]){ SCOPE=v; setTimeout(()=>document.getElementById('tblCard').scrollIntoView({behavior:'smooth',block:'start'}),80); } });
   setScope(SCOPE);
   mountSectionNav();
   setNavCount('cjCard', fnum(k.crown||0)); setNavCount('blindCard', fnum(k.blind||0));

@@ -668,10 +668,12 @@ def scan(db_path=None):
         _flag(acct["__41028"], "write (private)")
 
     # coverage gap — reachable hosts scanned WITHOUT credentials
-    blind_set = _uset("SELECT DISTINCT asset_uuid FROM vulns WHERE plugin_id IN ('110723','104410')", db_path)
+    # build 465 — one rule for every hound (core.credstate): credentialed = any 19506
+    # "Credentialed checks : yes" or 141118 / 110095; uncredentialed = scanned but not that
+    from core import credstate
+    _cs = credstate.sets(db_path)
+    blind_set, cred_set = set(_cs["blind"]), set(_cs["credentialed"])
     blind = len(blind_set)
-    cred_set = _uset("SELECT DISTINCT asset_uuid FROM vulns WHERE plugin_id='19506' "
-                     "AND lower(output) LIKE '%credentialed checks : yes%'", db_path)
     host_sets["uncredentialed"] = sorted(blind_set)
 
     order = {"machine": 0, "nhi": 1, "human": 2, "service": 3}

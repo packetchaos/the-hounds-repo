@@ -48,6 +48,20 @@
 .relbox .rh{padding:14px 18px 6px}.relbox .rb{padding:4px 18px;overflow:auto}.relbox .rf{padding:12px 18px;border-top:1px solid var(--line);display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .reltbl{width:100%;font-size:12.5px;border-collapse:collapse}.reltbl td{padding:5px 6px;border-top:1px solid var(--line)}
 .reltbl td.e{font-family:var(--mono);text-align:right;white-space:nowrap;color:var(--ink-2)}.reltbl tr.off td{opacity:.55}
+/* build 466 — pick which hounds to release + the preflight step */
+.reltbl td.c{width:26px;padding-right:0}.reltbl tr.unsel td:not(.c){opacity:.5}
+.reltbl input[type=checkbox]{width:15px;height:15px;accent-color:var(--amber);cursor:pointer}
+.relsel{display:flex;gap:8px;align-items:center;margin:2px 0 6px;font-size:12px}
+.relsel button{font-size:11.5px;padding:2px 9px}
+.relsel select{font-size:11.5px;padding:2px 6px;border-radius:7px;border:1px solid var(--line);background:var(--panel-2);color:var(--ink)}
+.reltbl .slow{color:var(--amber);font-weight:700}
+.pfrow{display:grid;grid-template-columns:22px 1fr auto;gap:8px;align-items:start;padding:9px 0;border-top:1px solid var(--line);font-size:12.5px}
+.pfrow:first-child{border-top:0}
+.pfrow .pi{font-size:15px;line-height:1.2}.pfrow .pa{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.pfrow .ph{color:var(--ink-2);font-size:11.5px;margin-top:2px}.pfrow .pf{font-family:var(--mono);font-size:11px;color:var(--ink-2)}
+.pfrow.block .pi{color:var(--crit)}.pfrow.warn .pi{color:var(--amber)}.pfrow.skipped{opacity:.55}
+.pfok{font-size:12px;color:var(--ok);margin:6px 0}
+@media (max-width:560px){.pfrow{grid-template-columns:22px 1fr}.pfrow .pa{grid-column:2;justify-content:flex-start}}
 .relprog{margin:12px 0 0;padding:12px 14px;border:1px solid var(--line);border-radius:11px;background:var(--panel)}
 .relprog .pbar{height:8px;border-radius:5px;background:var(--panel-2);overflow:hidden;margin:8px 0}.relprog .pbar>i{display:block;height:100%;background:var(--amber);transition:width .4s}
 .rchips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
@@ -250,33 +264,100 @@ async function releasePlan(approve){
   let o; try{ o=await jpost('/api/hub/release_plan', approve==null?{}:{approve_downloads:!!approve}); }catch(e){ o={ok:false,error:e.message}; }
   return o;
 }
-function relModal(pl){
+/* build 466 — the dialog is two steps:
+   1. PREFLIGHT (only when something is missing): what each hound needs in navi.db (WAS, compliance,
+      certs, software, routes / paths, SLA, EPSS, ⚡ Optimize …) — "Skip" unticks the hounds that
+      can't run without it, "Go to Settings" opens the card that fixes it.
+   2. PICK + RELEASE: a checkbox per hound (remembered in this browser), the estimate for the
+      ticked ones; the server runs only those (agents: […]) and records the rest "not selected". */
+let REL_OFF=null, REL_PFSKIP=null;   // unticked hounds; preflight checks the user skipped
+function _relLoad(){ if(REL_OFF) return; REL_OFF=new Set(); REL_PFSKIP=new Set();
+  try{ JSON.parse(localStorage.getItem('houndsRelOff')||'[]').forEach(a=>REL_OFF.add(String(a))); }catch(e){} }
+function _relSave(){ try{ localStorage.setItem('houndsRelOff', JSON.stringify([...REL_OFF])); }catch(e){} }
+function _pfOpen(pl){ return (pl.preflight||[]).filter(c=>!c.ok); }
+function relModal(pl, step){
+  _relLoad();
   const old=document.getElementById('relModal'); if(old) old.remove();
   const m=document.createElement('div'); m.id='relModal'; m.className='relmodal';
-  const run=pl.items.filter(i=>i.run), dl=pl.items.some(i=>i.download);
-  m.innerHTML=`<div class="relbox" role="dialog" aria-modal="true" aria-labelledby="relTitle">
-    <div class="rh"><h2 id="relTitle" style="margin:0;font-size:17px">🐾 Release the Hounds</h2>
-      <p class="sub" style="margin:4px 0 0">Runs <b>${run.length}</b> hound${run.length===1?'':'s'} in the sidebar's order (On the Scent last — it summarises the rest), in the background — you can leave this page. Estimated <b>${fmtDur(pl.total_s)}</b> for ${Number(pl.vuln_rows||0).toLocaleString()} findings in navi.db. Reads only: nothing is tagged, applied or sent.</p></div>
-    <div class="rb"><table class="reltbl"><tbody>${pl.items.map(i=>`<tr class="${i.run?'':'off'}"><td>${esc(i.label)}</td><td class="sub">${i.run?esc(i.basis||''):esc(i.note||'skipped')}</td><td class="e">${i.run?'~'+fmtDur(i.est_s):'—'}</td></tr>`).join('')}</tbody></table>
-      ${dl?`<label style="display:flex;gap:8px;align-items:flex-start;margin:12px 0 4px;font-size:12.5px"><input type="checkbox" id="relDl" ${pl.approve_downloads?'checked':''} ${pl.auto_approve_downloads?'disabled':''}>
-        <span>Approve the public catalog downloads MITRE ATT&amp;CK and CISA KEV need (the ATT&amp;CK→CVE map and the KEV list)${pl.auto_approve_downloads?' — already auto-approved in <a href="/web/settings.html">Settings</a>':' for this release — unticked, those two are skipped'}.</span></label>`:''}
-      <p class="sub" style="font-size:11.5px;margin:8px 0 2px">Left out on purpose: ${Object.values(pl.excluded||{}).map(v=>esc(String(v).split(' — ')[0])).join(', ')}.</p></div>
-    <div class="rf"><button class="relbtn" id="relGo" type="button" ${run.length?'':'disabled'}>Continue — release ${run.length}</button>
-      <button class="btn ghost sm" id="relNo" type="button">Cancel</button><span class="sub" id="relMsg" style="margin-left:auto"></span></div></div>`;
-  document.body.appendChild(m);
+  const issues=_pfOpen(pl), runnable=pl.items.filter(i=>i.run), dl=pl.items.some(i=>i.download);
+  const name=a=>{ const i=pl.items.find(x=>x.agent===a); return i?i.label:a; };
+  if(step==null) step=issues.length?'pf':'pick';
   const close=()=>m.remove();
+  if(step==='pf'){
+    const blk=issues.filter(c=>c.level==='block'), wrn=issues.filter(c=>c.level!=='block');
+    const row=c=>{ const skipped=c.level==='block'&&c.hounds.every(a=>REL_OFF.has(a));
+      return `<div class="pfrow ${c.level==='block'?'block':'warn'}${skipped?' skipped':''}"><span class="pi">${c.level==='block'?'⛔':'⚠'}</span>
+        <div><b>${esc(c.label)}</b> <span class="sub">— ${esc(c.detail||'missing')}</span>
+          <div class="ph">${esc(c.why)} · <b>${c.hounds.length===runnable.length&&c.hounds.length>3?'every hound':esc(c.hounds.map(name).join(', '))}</b></div>
+          ${c.fix?`<div class="pf">fix: ${esc(c.fix)}</div>`:''}</div>
+        <div class="pa">${c.level==='block'?`<button class="btn ghost sm" data-pfskip="${esc(c.key)}" type="button">${skipped?'✓ skipped':'Skip '+(c.hounds.length===1?'it':c.hounds.length)}</button>`:''}
+          <a class="btn ghost sm" href="${esc(c.settings||'/web/settings.html')}" target="_blank" rel="noopener">Go to Settings →</a></div></div>`; };
+    m.innerHTML=`<div class="relbox" role="dialog" aria-modal="true" aria-labelledby="relTitle">
+      <div class="rh"><h2 id="relTitle" style="margin:0;font-size:17px">🐾 Release the Hounds — preflight</h2>
+        <p class="sub" style="margin:4px 0 0">navi.db is missing data some hounds need. <b>Skip</b> leaves those hounds out of this release; <b>Go to Settings</b> opens the card that fixes it (in a new tab — come back and press <b>↻ Re-check</b>).</p></div>
+      <div class="rb">${blk.length?`<div class="sub" style="margin:8px 0 2px;font-weight:700">Can't run without it (${blk.length})</div>${blk.map(row).join('')}`:''}
+        ${wrn.length?`<div class="sub" style="margin:12px 0 2px;font-weight:700">Runs, but with less (${wrn.length})</div>${wrn.map(row).join('')}`:''}</div>
+      <div class="rf"><button class="relbtn" id="pfGo" type="button">${blk.length?'Skip what can\'t run & continue':'Continue'}</button>
+        <button class="btn ghost sm" id="pfRe" type="button">↻ Re-check</button>
+        <a class="btn ghost sm" href="/web/settings.html#secTables" target="_blank" rel="noopener">Go to Settings →</a>
+        <button class="btn ghost sm" id="relNo" type="button" style="margin-left:auto">Cancel</button></div></div>`;
+    document.body.appendChild(m);
+    m.querySelectorAll('[data-pfskip]').forEach(b=>b.onclick=()=>{ const c=issues.find(x=>x.key===b.dataset.pfskip); if(!c) return;
+      const all=c.hounds.every(a=>REL_OFF.has(a)); c.hounds.forEach(a=>all?REL_OFF.delete(a):REL_OFF.add(a)); _relSave(); relModal(pl,'pf'); });
+    document.getElementById('pfGo').onclick=()=>{ blk.forEach(c=>c.hounds.forEach(a=>REL_OFF.add(a))); _relSave(); relModal(pl,'pick'); };
+    document.getElementById('pfRe').onclick=async function(){ this.disabled=true; const p2=await releasePlan(pl.approve_downloads); if(p2&&p2.ok) relModal(p2); else this.disabled=false; };
+  } else {
+    const sel=()=>runnable.filter(i=>!REL_OFF.has(i.agent));
+    const blocked=new Set(); issues.filter(c=>c.level==='block').forEach(c=>c.hounds.forEach(a=>blocked.add(a)));
+    const warned={}; issues.filter(c=>c.level!=='block').forEach(c=>c.hounds.forEach(a=>{ (warned[a]=warned[a]||[]).push(c.label); }));
+    const rowH=i=>{ const on=i.run&&!REL_OFF.has(i.agent);
+      const why=!i.run?esc(i.note||'skipped'):(blocked.has(i.agent)?'<span style="color:var(--crit)">⛔ missing data — see preflight</span>':(warned[i.agent]&&warned[i.agent].length<3?'<span style="color:var(--amber)">⚠ '+esc(warned[i.agent].join(', '))+'</span>':esc(i.basis||'')));
+      return `<tr class="${i.run?(on?'':'unsel'):'off'}"><td class="c">${i.run?`<input type="checkbox" data-rel="${esc(i.agent)}" ${on?'checked':''} aria-label="Release ${esc(i.label)}">`:''}</td><td>${esc(i.label)}</td><td class="sub">${why}</td><td class="e">${i.run?`<span class="${(i.est_s||0)>=900?'slow':''}" title="${(i.est_s||0)>=900?'a long one — consider its own release':''}">${(i.est_s||0)>=900?'⏳ ':''}~${fmtDur(i.est_s)}</span>`:'—'}</td></tr>`; };
+    m.innerHTML=`<div class="relbox" role="dialog" aria-modal="true" aria-labelledby="relTitle">
+      <div class="rh"><h2 id="relTitle" style="margin:0;font-size:17px">🐾 Release the Hounds</h2>
+        <p class="sub" style="margin:4px 0 0" id="relSum"></p></div>
+      <div class="rb">${issues.length?`<div class="sub" style="margin:6px 0">Preflight: ${issues.filter(c=>c.level==='block').length} missing · ${issues.filter(c=>c.level!=='block').length} warning(s) — <a href="#" id="relPf">review</a></div>`:'<div class="pfok">✓ Preflight: navi.db has what every selected hound needs.</div>'}
+        <div class="relsel" style="flex-wrap:wrap"><b>Hounds</b><button class="btn ghost sm" id="relAll" type="button">Select all</button><button class="btn ghost sm" id="relNone" type="button">None</button>
+          <label class="sub" style="display:flex;gap:5px;align-items:center" title="Tick only the hounds whose estimate is under this — the slow ones can run in their own release later">Quick ones only:
+            <select id="relQuick"><option value="">—</option><option value="120">under 2 min each</option><option value="300">under 5 min each</option><option value="900">under 15 min each</option><option value="1800">under 30 min each</option></select></label>
+          <span class="sub" id="relCnt" style="margin-left:auto"></span></div>
+        <table class="reltbl"><tbody>${pl.items.map(rowH).join('')}</tbody></table>
+        ${dl?`<label style="display:flex;gap:8px;align-items:flex-start;margin:12px 0 4px;font-size:12.5px"><input type="checkbox" id="relDl" ${pl.approve_downloads?'checked':''} ${pl.auto_approve_downloads?'disabled':''}>
+          <span>Approve the public catalog downloads MITRE ATT&amp;CK and CISA KEV need (the ATT&amp;CK→CVE map and the KEV list)${pl.auto_approve_downloads?' — already auto-approved in <a href="/web/settings.html">Settings</a>':' for this release — unticked, those two are skipped'}.</span></label>`:''}
+        <p class="sub" style="font-size:11.5px;margin:8px 0 2px">Left out on purpose: ${Object.values(pl.excluded||{}).map(v=>esc(String(v).split(' — ')[0])).join(', ')}.</p></div>
+      <div class="rf"><button class="relbtn" id="relGo" type="button">Continue</button>
+        <button class="btn ghost sm" id="relNo" type="button">Cancel</button><span class="sub" id="relMsg" style="margin-left:auto"></span></div></div>`;
+    document.body.appendChild(m);
+    const paint=()=>{ const s=sel(), tot=s.reduce((t,i)=>t+(i.est_s||0),0);
+      document.getElementById('relSum').innerHTML=`Runs <b>${s.length}</b> of ${runnable.length} hound${runnable.length===1?'':'s'} in the sidebar's order (On the Scent last — it summarises the rest), in the background — you can leave this page. Estimated <b>${fmtDur(tot)}</b> for ${Number(pl.vuln_rows||0).toLocaleString()} findings in navi.db. Reads only: nothing is tagged, applied or sent.`;
+      const slowOff=runnable.filter(i=>REL_OFF.has(i.agent)&&(i.est_s||0)>=900).length;
+      document.getElementById('relCnt').textContent=s.length+' of '+runnable.length+' selected'+(slowOff?' · '+slowOff+' slow one'+(slowOff===1?'':'s')+' left for later':'');
+      const g=document.getElementById('relGo'); g.disabled=!s.length; g.textContent=s.length?'Continue — release '+s.length:'Pick at least one hound';
+      m.querySelectorAll('input[data-rel]').forEach(cb=>{ cb.checked=!REL_OFF.has(cb.dataset.rel); cb.closest('tr').classList.toggle('unsel',!cb.checked); }); };
+    m.querySelectorAll('input[data-rel]').forEach(cb=>cb.onchange=()=>{ cb.checked?REL_OFF.delete(cb.dataset.rel):REL_OFF.add(cb.dataset.rel); _relSave(); paint(); });
+    document.getElementById('relAll').onclick=()=>{ runnable.forEach(i=>REL_OFF.delete(i.agent)); _relSave(); paint(); };
+    document.getElementById('relNone').onclick=()=>{ runnable.forEach(i=>REL_OFF.add(i.agent)); _relSave(); paint(); };
+    // "quick ones only": tick every hound whose estimate is under the limit, untick the slow ones
+    // (On the Scent stays ticked — it only summarises what ran); blocked hounds stay unticked
+    document.getElementById('relQuick').onchange=function(){ const lim=+this.value; if(!lim) return;
+      runnable.forEach(i=>{ if(blocked.has(i.agent)) REL_OFF.add(i.agent); else if((i.est_s||0)<lim||i.agent==='insights') REL_OFF.delete(i.agent); else REL_OFF.add(i.agent); });
+      _relSave(); paint(); this.value=''; };
+    const pfl=document.getElementById('relPf'); if(pfl) pfl.onclick=e=>{ e.preventDefault(); relModal(pl,'pf'); };
+    const dlb=document.getElementById('relDl');
+    if(dlb) dlb.onchange=async()=>{ const p2=await releasePlan(dlb.checked); if(p2&&p2.ok) relModal(p2,'pick'); };
+    paint();
+    document.getElementById('relGo').onclick=async function(){
+      const agents=sel().map(i=>i.agent); if(!agents.length) return;
+      this.disabled=true; document.getElementById('relMsg').innerHTML='<span class="spin"></span> starting…';
+      let o; try{ o=await jpost('/api/hub/release_start',{confirm:true, approve_downloads:dlb?dlb.checked:undefined, agents}); }catch(e){ o={ok:false,error:e.message}; }
+      if(!o||!o.ok){ document.getElementById('relMsg').textContent='✗ '+((o&&o.error)||'failed'); this.disabled=false; return; }
+      close(); relShow(o.state); relPoll();
+    };
+  }
   m.addEventListener('click',e=>{ if(e.target===m) close(); });
   document.getElementById('relNo').onclick=close;
   document.addEventListener('keydown',function esck(e){ if(e.key==='Escape'){ close(); document.removeEventListener('keydown',esck); } });
-  const dlb=document.getElementById('relDl');
-  if(dlb) dlb.onchange=async()=>{ const p2=await releasePlan(dlb.checked); if(p2&&p2.ok) relModal(p2); };
-  document.getElementById('relGo').onclick=async function(){
-    this.disabled=true; document.getElementById('relMsg').innerHTML='<span class="spin"></span> starting…';
-    let o; try{ o=await jpost('/api/hub/release_start',{confirm:true, approve_downloads:dlb?dlb.checked:undefined}); }catch(e){ o={ok:false,error:e.message}; }
-    if(!o||!o.ok){ document.getElementById('relMsg').textContent='✗ '+((o&&o.error)||'failed'); this.disabled=false; return; }
-    close(); relShow(o.state); relPoll();
-  };
-  setTimeout(()=>{ const g=document.getElementById('relGo'); if(g) g.focus(); },30);
+  setTimeout(()=>{ const g=document.getElementById(step==='pf'?'pfGo':'relGo'); if(g) g.focus(); },30);
 }
 function relShow(st){
   const box=document.getElementById('relProg'), btn=document.getElementById('relBtn');

@@ -183,7 +183,7 @@ def _enrich(cands, tok_assets, db_path=None) -> dict:
     route_pl = {}
     for r in _safe_rows("SELECT app_name, plugin_list FROM vuln_route WHERE app_name IS NOT NULL;", db_path):
         ids = set(re.findall(r"\d+", str(r.get("plugin_list") or "")))
-        route_pl.setdefault(r["app_name"].strip().lower(), set()).update(ids)
+        route_pl.setdefault((r.get("app_name") or "").strip().lower(), set()).update(ids)   # " " → None (core.db)
     # route membership: only the candidate routes' plugins, read through hx_v_plugin
     # (plugin_id, asset_uuid, …) — an index SEARCH per plugin, never every (plugin, asset) pair
     route_assets = {}

@@ -176,7 +176,7 @@ def _cols(table, path=None):
 CROWN_ACR = 7
 
 
-def analyze(db_path=None, groups=None):
+def analyze(db_path=None, groups=None, keep_uuids=False):
     groups = groups or DEFAULT_GROUPS
     pats = sorted({p for _, ps in groups for p in ps})
     where = _clause(pats)
@@ -350,5 +350,8 @@ def analyze(db_path=None, groups=None):
         "median_years_past": round(past[len(past) // 2] / 365.25, 1) if past else None,
         "products_5y": sum(1 for d in past if d >= 5 * 365.25), "has_state": has_state,
     }
-    return {"ok": True, "metrics": metrics, "products": products, "date_groups": date_groups,
-            "timeline": timeline, "crown": crown_rows, "today": today.isoformat()}
+    out = {"ok": True, "metrics": metrics, "products": products, "date_groups": date_groups,
+           "timeline": timeline, "crown": crown_rows, "today": today.isoformat()}
+    if keep_uuids:                       # the exact set metrics.eol_assets counts (core/evidence)
+        out["_assets"] = sorted(u for u in eol_assets if u)
+    return out

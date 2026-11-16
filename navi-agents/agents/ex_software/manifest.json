@@ -1,0 +1,12 @@
+{
+  "id": "ex_software",
+  "name": "Software Explorer",
+  "icon": "💿",
+  "order": 27,
+  "category": "Explore",
+  "codename": "Harrier",
+  "summary": "Zero-day hunting over the software inventory — where a product is installed, at which versions, and which assets fall in an affected version range. ✨ Look up a new CVE (you approve every site it reads) to get the affected products and versions. Read-only navi.db search.",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": ["status", "search", "export", "lookup_plan", "lookup_fetch"]
+}

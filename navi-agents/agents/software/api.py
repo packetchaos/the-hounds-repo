@@ -50,12 +50,14 @@ def _safe_select(sql, add_limit=True):
         return None, "no SQL produced"
     if not re.match(r"^(select|with)\b", s, re.I):
         return None, "only SELECT / WITH queries are allowed"
-    if ";" in s:
+    from agents.explore.api import _bare      # literals blanked, comments dropped, "identifiers" kept whole
+    bare = _bare(s)
+    if ";" in bare:
         return None, "only a single statement is allowed"
-    if _SQL_BANNED.search(s):
+    if _SQL_BANNED.search(bare):
         return None, "read-only queries only (no writes / DDL / file access)"
-    if add_limit and not re.search(r"\blimit\b", s, re.I):
-        s += " LIMIT 500"
+    if add_limit and not re.search(r"\blimit\b", bare, re.I):
+        s += "\nLIMIT 500"          # own line: never inside a trailing -- comment
     return s, None
 
 

@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Compliance Explorer · Saluki · Navi Agents</title>
+<link rel="stylesheet" href="/static/console.css"/>
+<style>.plink{color:var(--accent);text-decoration:none;font-weight:600;cursor:pointer}.plink:hover{text-decoration:underline}
+#tbl{table-layout:fixed;width:100%}#tbl th,#tbl td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#tbl tr.row{cursor:pointer} #tbl tr.row:hover td{background:var(--panel-2)}
+#tbl tr.det td{white-space:normal;background:var(--bg-2);font-size:12.5px;line-height:1.5}
+.det dl{display:grid;grid-template-columns:120px 1fr;gap:4px 12px;margin:4px 0}
+.det dt{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.04em;padding-top:2px}
+.det dd{margin:0;word-break:break-word;white-space:pre-wrap}
+.st{display:inline-block;padding:1px 8px;border-radius:100px;font-size:11px;font-weight:700;font-family:var(--mono)}
+.st-failed{background:var(--crit-bg);color:var(--crit)} .st-warning{background:var(--med-bg);color:var(--med)}
+.st-passed{background:var(--ok-bg);color:var(--ok)} .st-unknown{color:var(--ink-3)}
+.fsel{max-width:240px}</style>
+</head><body data-page-cache="off">
+<div class="wrap">
+  <header class="top" id="app-header"></header>
+  <section class="card">
+    <h2 style="margin:0">📋 Compliance Explorer <span class="sub" style="font-weight:400">· Saluki ranges every audit result</span></h2>
+    <p class="sub" style="margin:2px 0 8px">Search every audit check result in navi.db — by check, audit file, framework, status, or asset (host / IP). Failed first, then warnings. Click a row for actual vs expected, the fix and the framework references; click a check to see it on every asset. 20 rows/page (Rows: up to 50). The headline numbers count the whole filtered set.</p>
+    <div class="toolbar needs-llm"><input id="nlq" placeholder="Ask in plain English → SQL on the compliance table…" style="flex:1;min-width:240px;padding:9px;border-radius:8px;border:1px solid var(--accent);background:var(--bg-2);color:var(--ink)"><button class="btn sm" id="nlgo" data-run>✨ Ask</button></div>
+    <div id="nlout" class="needs-llm"></div>
+    <div class="kpi" id="kpi" style="margin-bottom:10px"></div>
+    <div class="toolbar">
+      <input id="q" placeholder="check name / id, audit file, host, IP or asset uuid…" style="flex:1;min-width:220px;padding:9px;border-radius:8px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink)">
+      <select class="fld" id="status"><option value="">any status</option><option value="failed">Failed</option><option value="warning">Warning</option><option value="passed">Passed</option><option value="unknown">Other / unknown</option></select>
+      <select class="fld fsel" id="audit"><option value="">any audit file</option></select>
+      <select class="fld fsel" id="fw"><option value="">any framework</option></select>
+      <button class="btn run sm" id="go" data-run>▶ Search</button>
+      <button class="btn ghost sm" id="csv" title="Every row of this search (up to 50,000) as CSV">⤓ CSV</button>
+      <span class="chip" id="count"></span>
+    </div>
+    <div class="toolbar" id="scope" style="display:none"></div>
+    <div id="flash" class="flash"></div>
+    <div style="overflow-x:auto"><table id="tbl" class="nopage norsz nocsv"><colgroup><col style="width:15%"><col style="width:76px"><col style="width:30%"><col style="width:15%"><col style="width:16%"><col style="width:16%"></colgroup>
+      <thead><tr><th>Asset</th><th>Status</th><th>Check</th><th>Audit file</th><th>Actual</th><th>Frameworks</th></tr></thead>
+      <tbody><tr><td colspan="6" class="sub">Search to load…</td></tr></tbody></table></div>
+    <div class="toolbar" id="pager"></div>
+  </section>
+  <footer>Compliance Explorer · Saluki · read-only navi.db search · data from <span class="mono">navi config update compliance</span> · the verdict across the estate is <a href="/agents/compliance/page.html">Minos</a>; one asset in depth is <a href="/agents/compliance_asset/page.html">Tiresias</a></footer>
+</div>
+<script src="/static/console.js"></script>
+<script>
+const API=agentApi('ex_compliance'); let PAGE=hPageSize('tbl'); let ROWS=[];
+const P=new URLSearchParams(location.search);
+const SCOPE={asset:(P.get('asset')||'').trim(), check:(P.get('check')||'').trim(), checkName:''};
+const fnum=n=>(n==null||n===''?'—':Number(n).toLocaleString());
+const st=s=>'<span class="st st-'+esc(s||'unknown')+'">'+esc(s==='unknown'?'other':(s||'other'))+'</span>';
+function body(off){ return {q:document.getElementById('q').value.trim(), status:document.getElementById('status').value,
+  audit_file:document.getElementById('audit').value, framework:document.getElementById('fw').value,
+  asset:SCOPE.asset, check:SCOPE.check, offset:off||0}; }
+function renderScope(){ const s=document.getElementById('scope'); const parts=[];
+  if(SCOPE.check) parts.push('<span class="chip">check <b>'+esc(SCOPE.check)+'</b>'+(SCOPE.checkName?' · '+esc(SCOPE.checkName):'')+' <a class="plink" data-clr="check">✕</a></span>');
+  if(SCOPE.asset) parts.push('<span class="chip">asset <b>'+esc(SCOPE.asset)+'</b> <a class="plink" data-clr="asset">✕</a></span>');
+  s.style.display=parts.length?'':'none'; s.innerHTML=parts.join(' ');
+  s.querySelectorAll('[data-clr]').forEach(a=>a.onclick=()=>{ SCOPE[a.dataset.clr]=''; if(a.dataset.clr==='check')SCOPE.checkName=''; go(0); }); }
+async function loadFacets(){
+  let o; try{ o=await API.post('facets',{}); }catch(e){ return; }
+  if(!o||!o.ok||!o.result||o.result.missing) return;
+  const sel=(id,list,key,want)=>{ const el=document.getElementById(id);
+    el.innerHTML=el.options[0].outerHTML+list.map(x=>'<option value="'+esc(x[key])+'">'+esc(x[key])+' ('+fnum(x.results)+')</option>').join('');
+    if(want&&list.some(x=>x[key]===want)) el.value=want; };
+  sel('audit',o.result.audit_files||[],'audit_file',P.get('audit'));
+  sel('fw',o.result.frameworks||[],'framework',P.get('framework'));
+}
+async function go(off){ off=off||0; renderScope();
+  document.getElementById('go').disabled=true; flash('flash','<span class="spin"></span> searching the audit results…','run');
+  let o; try{ o=await API.post('search',Object.assign({limit:PAGE},body(off))); }catch(e){ o={ok:false,error:e.message}; }
+  document.getElementById('go').disabled=false;
+  if(!o||!o.ok){ flash('flash','✗ '+esc((o&&(o.message||o.error))||'failed'),'crit'); return; }
+  const res=o.result||{};
+  if(res.missing){ flash('flash','No compliance data in navi.db yet — run <span class="mono">navi config update compliance</span> (Settings ▸ navi.db tables).','warn');
+    document.querySelector('#tbl tbody').innerHTML='<tr><td colspan="6" class="sub">No compliance table.</td></tr>'; return; }
+  flashClear('flash'); const rows=res.rows||[]; ROWS=rows; const k=res.kpi||{};
+  document.getElementById('kpi').innerHTML=
+     kpi(fnum(k.results),'results (filtered)')+kpi(fnum(k.assets),'assets')+kpi(fnum(k.checks),'checks')
+    +kpi(k.pass_pct!=null?k.pass_pct+'%':'—','pass rate · pass ÷ (pass + fail)')
+    +kpi(fnum(k.failed),'failed',' var(--crit)')+kpi(fnum(k.warning),'warnings',' var(--med)')+kpi(fnum(k.passed),'passed',' var(--ok)')
+    +kpi(fnum(k.failing_assets),'assets failing a check',' var(--crit)');
+  document.getElementById('count').textContent=rows.length+' shown';
+  document.querySelector('#tbl tbody').innerHTML=rows.length?rows.map((r,i)=>{
+    const host=(r.hostname||'').trim(), ip=(r.ip_address||'').trim(), u=(r.asset_uuid||'').trim();
+    const lbl=host||ip||(u?u.slice(0,14)+'…':'—');
+    const acell=u?`<a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(u)}" title="${esc((host?host+' · ':'')+(ip?ip+' · ':'')+u)}">${esc(lbl)}</a>`:'<span class="sub">—</span>';
+    return `<tr class="row" data-i="${i}"><td>${acell}</td><td>${st(r.status)}</td>`
+      +`<td title="${esc((r.check_id||'')+' · '+(r.check_name||''))}"><a class="plink" data-chk="${i}">${esc(r.check_id||'')}</a> ${esc(r.check_name||'')}</td>`
+      +`<td title="${esc(r.audit_file||'')}">${esc(r.audit_file||'')}</td>`
+      +`<td title="${esc(r.actual_value||'')}" class="mono" style="font-size:11.5px">${esc(r.actual_value||'—')}</td>`
+      +`<td title="${esc(r.refs||'')}" style="font-size:12px">${esc(r.refs||'—')}</td></tr>`;
+  }).join(''):'<tr><td colspan="6" class="sub">No matches.</td></tr>';
+  document.querySelectorAll('#tbl tr.row').forEach(tr=>tr.onclick=e=>{ if(e.target.closest('a'))return; toggle(tr); });
+  document.querySelectorAll('#tbl [data-chk]').forEach(a=>a.onclick=e=>{ e.preventDefault(); const r=ROWS[+a.dataset.chk];
+    SCOPE.check=r.check_id||''; SCOPE.checkName=r.check_name||''; go(0); });
+  const pg=document.getElementById('pager'); const page=res.page||1;
+  pg.innerHTML='<button class="btn ghost sm" '+(off<=0?'disabled':'')+' id="pp">◀ Prev</button><span class="chip">page '+page+' · rows '+(rows.length?off+1:0)+'–'+(off+rows.length)+'</span><button class="btn ghost sm" '+(res.has_next?'':'disabled')+' id="pn">Next ▶</button>';
+  const pp=document.getElementById('pp'); if(pp)pp.onclick=()=>go(Math.max(0,off-PAGE));
+  const pn=document.getElementById('pn'); if(pn)pn.onclick=()=>go(off+PAGE);
+  hSizeControl(pg,'tbl',v=>{ PAGE=v; go(0); });
+}
+function toggle(tr){ const nx=tr.nextElementSibling; if(nx&&nx.classList.contains('det')){ nx.remove(); return; }
+  const r=ROWS[+tr.dataset.i]; const u=(r.asset_uuid||'').trim(); const see=safeUrl(r.see_also||'','');
+  const dd=(l,v,mono)=>v?'<dt>'+esc(l)+'</dt><dd'+(mono?' class="mono"':'')+'>'+esc(v)+'</dd>':'';
+  const det=document.createElement('tr'); det.className='det';
+  det.innerHTML='<td colspan="6" class="det"><dl>'
+    +dd('Check',(r.check_id||'')+' · '+(r.check_name||''))+dd('Actual',r.actual_value,1)+dd('Expected',r.expected_value,1)
+    +dd('Solution',r.solution)+dd('Info',r.info)+dd('Frameworks',r.refs)
+    +(see?'<dt>See also</dt><dd><a class="plink" href="'+esc(see)+'" target="_blank" rel="noopener noreferrer">'+esc(see)+'</a></dd>':'')
+    +'</dl>'+(u?'<div class="toolbar" style="margin-top:6px"><a class="btn ghost sm" href="/agents/compliance_asset/page.html?asset='+encodeURIComponent(u)+'">🔍 Tiresias — every check on this asset</a>'
+      +'<a class="btn ghost sm" href="/agents/argos/page.html?target='+encodeURIComponent(u)+'">🔦 Argos — the whole asset</a></div>':'')+'</td>';
+  tr.insertAdjacentElement('afterend',det); }
+function kpi(v,l,c){ return '<div class="k"><div class="v"'+(c?' style="color:'+c+'"':'')+'>'+v+'</div><div class="l">'+esc(l)+'</div></div>'; }
+document.getElementById('csv').onclick=async()=>{ const b=document.getElementById('csv'), l=b.textContent; b.disabled=true; b.textContent='⤓ exporting…';
+  let o; try{ o=await API.post('export',body(0)); }catch(e){ o={ok:false,error:e.message}; }
+  b.disabled=false; b.textContent=l;
+  if(!o||!o.ok){ flash('flash','✗ '+esc((o&&(o.message||o.error))||'export failed'),'crit'); return; }
+  if(!o.rows){ flash('flash','Nothing to export for this search.','warn'); return; }
+  downloadText('compliance-explorer.csv',o.csv);
+  if(o.capped) flash('flash','Exported the first '+fnum(o.max)+' rows of this search — narrow the filters for the rest.','warn'); };
+document.getElementById('go').onclick=()=>go(0);
+document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter')go(0);});
+['status','audit','fw'].forEach(id=>document.getElementById(id).onchange=()=>go(0));
+if(P.get('q')) document.getElementById('q').value=P.get('q');
+if(['failed','warning','passed','unknown'].includes(P.get('status')||'')) document.getElementById('status').value=P.get('status');
+wireNlBox('compliance');
+mountAgentHeader({id:'ex_compliance',icon:'📋',name:'Compliance Explorer',sub:'Saluki · every audit result in navi.db'});
+try{ hMailAuto(); }catch(e){}
+loadFacets().then(()=>go(0));
+</script>
+</body></html>

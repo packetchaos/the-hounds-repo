@@ -1,0 +1,12 @@
+{
+  "id": "ex_compliance",
+  "name": "Compliance Explorer",
+  "icon": "📋",
+  "order": 27,
+  "category": "Explore",
+  "codename": "Saluki",
+  "summary": "Search every audit result in navi.db — by check, audit file, framework, status, or asset (host / IP). Failed first, with actual vs expected, the fix, and the framework references. Read-only navi.db search.",
+  "needs_backend": true,
+  "page": "page.html",
+  "actions": ["search", "facets", "export"]
+}

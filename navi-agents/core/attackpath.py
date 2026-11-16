@@ -908,9 +908,15 @@ def analyze(db_path=None, crown_acr=CROWN_ACR, max_paths=200):
         "fallback_targets": fallback, "graph_edges": E,
         "entries_searched": len(ent_states), "entry_states": len(best_in),
     }
-    blind = _q("SELECT COUNT(DISTINCT asset_uuid) n FROM vulns WHERE plugin_id IN ('110723','104410','21745','110385')",
-               path=db_path)
-    m["uncredentialed"] = (blind[0].get("n") if blind else 0) or 0
+    # scanned without a credentialed login (core.credstate — 19506 "Credentialed checks : yes"
+    # or 141118 / 110095 is credentialed; failure plugins alone don't decide it)
+    try:
+        from core import credstate
+        m["uncredentialed"] = credstate.counts(db_path)["blind"]
+    except Exception:
+        blind = _q("SELECT COUNT(DISTINCT asset_uuid) n FROM vulns WHERE plugin_id IN ('110723','104410','110385')",
+                   path=db_path)
+        m["uncredentialed"] = (blind[0].get("n") if blind else 0) or 0
     m["n_controls_step"] = sum(1 for c in controls if c["effect"] == "step")
     note = ""
     if fallback:

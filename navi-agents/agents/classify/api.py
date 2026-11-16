@@ -148,6 +148,7 @@ def run(p):
     res = AGENT.run()
     small = {k: v for k, v in res.items() if k != "assets"}
     small["assets_total"] = len(res.get("assets") or [])
+    small["device_types"] = _classify.DEVICE_TYPE_LABELS
     try:
         small["drill"] = {"action": "drill", "run": _publish(res.get("assets") or []), "section": "assets"}
     except Exception as e:                 # the summary still works; the drill-down falls back to `assets`
@@ -199,6 +200,7 @@ def signals(p):
     only = (p or {}).get("all") is not True
     res = dict(_classify.os_signals(only_untagged=only))
     res["cohorts"] = [{k: v for k, v in c.items() if k != "uuids"} for c in (res.get("cohorts") or [])]
+    res["device_types"] = _classify.DEVICE_TYPE_LABELS
     return {"ok": True, "result": res}, 200
 
 
@@ -293,8 +295,9 @@ def tag(p):
 
     # The classification is computed in Python (core.classify); the cohort is paged by
     # core.navi_cli.tag_set: ≤1,999 UUIDs per navi job (a tag series above), add-only.
-    jobs = navi_cli.tag_set("Asset Inventory", tag_value, uuids=uuids, col="asset_uuid", table="vulns",
-                            agent="classify")
+    # over assets.uuid (tag_set's default): a --query over vulns.asset_uuid silently drops every
+    # asset with no findings (a cloud-connector asset, a freshly discovered host)
+    jobs = navi_cli.tag_set("Asset Inventory", tag_value, uuids=uuids, agent="classify")
     chunks = jobs
     job_ids = [j.get("job_id") for j in jobs if j.get("job_id") is not None]
     first = jobs[0] if jobs else {}
