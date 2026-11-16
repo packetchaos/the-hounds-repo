@@ -280,9 +280,13 @@ _BANNER_PLUGINS = ("10107", "48243", "106375", "10719", "194915", "48204", "2426
 
 def _shadow(path):
     total = _scalar("SELECT COUNT(uuid) FROM assets", path) or 0
-    inv = _scalar("SELECT COUNT(DISTINCT asset_uuid) FROM software", path) or 0
-    inv_set = {r["asset_uuid"] for r in _q("SELECT DISTINCT asset_uuid FROM software", path)}
     amap = {a["uuid"]: a for a in _q("SELECT uuid, hostname, ip_address FROM assets", path)}
+    try:                    # navi stores software.asset_uuid as a LIST of uuids — expand it
+        from core import software as _sw
+        inv_set = _sw.inventory_assets(path)
+    except Exception:
+        inv_set = set()
+    inv = len(inv_set & set(amap)) if amap else len(inv_set)
     ph = ",".join("'" + p + "'" for p in _BANNER_PLUGINS)
     apps = []
     for r in _q("SELECT asset_uuid, plugin_id, plugin_name, output FROM vulns WHERE plugin_id IN (" + ph + ")", path):

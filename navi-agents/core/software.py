@@ -26,6 +26,28 @@ def row_assets(v):
     return [v] if v else []
 
 
+# navi's `software` table (navi config software → insert_software) holds ONE row per distinct
+# software string, and asset_uuid is the Python list of every asset with it, as text:
+# "['ec88…', 'd423…']" — even for a single asset. Some datasets (and the sample DBs) hold one
+# plain uuid per row. Never compare or join software.asset_uuid to a uuid directly:
+#   Python → row_assets() / js_uuids() / inventory_assets()
+#   SQL    → FROM software s, <sw_assets_sql()> j   … j.value is one asset uuid per row
+def sw_assets_sql(col="s.asset_uuid"):
+    """A json_each() table source that expands software.asset_uuid (list text or one uuid) into
+    one row per asset — use as `FROM software s, <this> j` and read j.value."""
+    return ("json_each(CASE WHEN substr(trim(%s),1,1)='[' THEN replace(%s, char(39), char(34)) "
+            "ELSE json_array(%s) END)" % (col, col, col))
+
+
+def inventory_assets(db_path=None) -> set:
+    """Every asset uuid that has at least one software row (either storage shape)."""
+    out = set()
+    for (v,) in db.iter("SELECT DISTINCT asset_uuid FROM software WHERE asset_uuid IS NOT NULL",
+                        path=db_path, tuples=True, budget="job"):
+        out.update(row_assets(v))
+    return out
+
+
 def parse_software(s: str):
     """(name, version) for either software_string style: Windows-style
     "Name - 1.2.3  [version 1.2.3]" (the [version …] marker wins) or RPM NVR."""
@@ -375,7 +397,9 @@ def product_sets(db_path=None, only=None):
             continue
         p = P(name)
         p["soft"] = True
-        p["installs"] += 1
+        # navi writes ONE software row per distinct string with every asset that has it in a
+        # list (navi config software → insert_software) — so a row is len(uu) installs, not 1
+        p["installs"] += len(uu)
         vs = p["versions"].setdefault(ver, set())
         p["assets"].update(uu)
         vs.update(uu)

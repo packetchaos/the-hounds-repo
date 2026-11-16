@@ -308,7 +308,9 @@ def nl_query(p):
 _NAVI_JOINS = [
     ("assets.uuid", "vulns.asset_uuid", "one asset → many vuln findings"),
     ("assets.uuid", "tags.asset_uuid", "asset → tag assignments (tag_key / tag_value)"),
-    ("assets.uuid", "software.asset_uuid", "installed software per asset"),
+    ("assets.uuid", "software.asset_uuid", "installed software — ONE row per software string; asset_uuid is the "
+                                           "LIST of assets as text \"['uuid', …]\". Never join it directly: "
+                                           "%s, then j.value = assets.uuid" % "FROM software s, json_each(CASE WHEN substr(trim(s.asset_uuid),1,1)='[' THEN replace(s.asset_uuid, char(39), char(34)) ELSE json_array(s.asset_uuid) END) j"),
     ("assets.uuid", "certs.asset_uuid", "SSL/TLS certs per asset"),
     ("assets.uuid", "vuln_paths.asset_uuid", "vulnerable filesystem paths per asset"),
     ("assets.uuid", "fixed.asset_uuid", "remediated findings per asset"),

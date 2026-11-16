@@ -29,7 +29,10 @@ SCHEMA_NOTES = (
     "CAST(col AS REAL). For EPSS ALWAYS join the small zipper(plugin_id,epss_value) "
     "table on vulns.plugin_id (do NOT join the 300k-row epss table by cves LIKE). For "
     "CERTIFICATE questions use the certs table; for SOFTWARE questions use the software "
-    "table (software_string). Dates are ISO strings. Use ONLY the tables/columns listed.")
+    "table (software_string) — it has ONE row per software string and software.asset_uuid is the LIST "
+    "of assets as text \"['uuid', …]\": never join or COUNT it directly, expand it with "
+    "FROM software s, json_each(CASE WHEN substr(trim(s.asset_uuid),1,1)=\'[\' THEN replace(s.asset_uuid, char(39), char(34)) ELSE json_array(s.asset_uuid) END) j and use j.value as the asset uuid. "
+    "Dates are ISO strings. Use ONLY the tables/columns listed.")
 
 # join keys the dashboard may use (mirrors the advanced-search map)
 _JOINS = [

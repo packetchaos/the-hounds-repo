@@ -604,7 +604,8 @@ def _alert_guide(include_output=False):
         "Examples:\n"
         "  • 'assets that have a MITRE and CISA KEV and EOL and NHI tag' → INTERSECT four tag subselects "
         "(lower(tag_key||' '||tag_value) LIKE '%mitre%', … '%kev%', … '%eol%', … '%nhi%')  ·  op appears\n"
-        "  • 'assets running OpenSSL 1.0' → SELECT COUNT(DISTINCT asset_uuid) FROM software WHERE lower(software_string) LIKE '%openssl 1.0%'  ·  op appears\n"
+        "  • 'assets running OpenSSL 1.0' → SELECT COUNT(DISTINCT j.value) FROM software s, json_each(CASE WHEN substr(trim(s.asset_uuid),1,1)='[' THEN replace(s.asset_uuid, char(39), char(34)) ELSE json_array(s.asset_uuid) END) j WHERE lower(s.software_string) LIKE '%openssl 1.0%'  ·  op appears "
+        "(software.asset_uuid is a LIST of uuids as text — always expand it with that json_each, never COUNT or compare it directly)\n"
         "  • 'certs signed with SHA-1' → SELECT COUNT(*) FROM certs WHERE lower(signature_algorithm) LIKE '%sha1%'  ·  op appears\n"
         "  • 'assets with a file under /opt/tomcat' → SELECT COUNT(DISTINCT asset_uuid) FROM vuln_paths WHERE lower(path) LIKE '%/opt/tomcat%'  ·  op appears\n"
         "  • 'new CISA KEV exposure' → SELECT COUNT(DISTINCT asset_uuid) FROM vulns WHERE xrefs LIKE '%CISA-KNOWN-EXPLOITED%'  ·  op rise_abs, threshold 1\n"
@@ -680,7 +681,9 @@ def _term_subquery(term, include_output=False, tables=None):
     if "tags" in tables:
         parts.append("SELECT asset_uuid FROM tags WHERE " + like("tag_key||' '||tag_value"))
     if "software" in tables:
-        parts.append("SELECT asset_uuid FROM software WHERE " + like("coalesce(software_string,'')"))
+        from core.software import sw_assets_sql       # software.asset_uuid is a LIST of uuids
+        parts.append("SELECT j.value AS asset_uuid FROM software s, " + sw_assets_sql() +
+                     " j WHERE " + like("coalesce(s.software_string,'')"))
     if "vuln_paths" in tables:
         parts.append("SELECT asset_uuid FROM vuln_paths WHERE " + like("coalesce(path,'')"))
     if "certs" in tables:

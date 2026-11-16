@@ -79,7 +79,14 @@ def compute(db_path=None):
     total = sc("SELECT COUNT(uuid) FROM assets")
     # intersect with assets — software may carry orphan asset_uuids not in the assets table,
     # so a bare COUNT(DISTINCT asset_uuid) can exceed total and yield >100% coverage.
-    inv = sc("SELECT COUNT(DISTINCT s.asset_uuid) FROM software s JOIN assets a ON a.uuid=s.asset_uuid")
+    # navi stores software.asset_uuid as a LIST of uuids ("['…', '…']") — expand it, then
+    # intersect with assets (orphans would push coverage past 100 %)
+    try:
+        from core import software as _sw
+        inv = len(_sw.inventory_assets(db_path) &
+                  {u for (u,) in db.iter("SELECT uuid FROM assets", path=db_path, tuples=True, budget="job")})
+    except Exception:
+        inv = sc("SELECT COUNT(DISTINCT s.asset_uuid) FROM software s JOIN assets a ON a.uuid=s.asset_uuid")
     shadow = max(0, total - inv)
 
     try:
