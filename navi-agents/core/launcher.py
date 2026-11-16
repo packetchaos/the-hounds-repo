@@ -54,7 +54,7 @@ _NOCACHE_AGENTS = {"settings", "hub", "argos", "explore", "ex_apps", "ex_assets"
                    "ex_plugins", "ex_routes", "ex_tags", "ex_vulns",
                    # Command & Control: live gate / runs / command log — never a remembered answer
                    "c2"}
-_LIVE = {"status", "log", "loop_log", "history", "scheduler", "list", "get", "metrics",
+_LIVE = {"status", "log", "loop_log", "history", "scheduler", "list", "get", "metrics", "release_get",
          "tag_jobs", "navi_poll", "navi_jobs", "db_checks", "sla_get", "activity"}
 # actions with their own server-side snapshot (or a peek of one): the short result cache
 # would only serve a stale "building…" / old summary. Still counted as runs (unlike _LIVE).
@@ -265,6 +265,8 @@ _OPEN_ACTIONS = {
     ("hub", "pc_get"), ("hub", "pc_put"), ("hub", "pc_list"), ("hub", "roster"),
     ("hub", "release_plan"), ("hub", "release_status"), ("hub", "release_start"),
     ("hub", "release_cancel"),
+    ("contract", "release_get"), ("contract", "release_save"), ("contract", "release_run"),
+    ("contract", "release_cancel"),
 }
 # long orchestration runs started from a page → the background budget (2 h, heavy)
 _JOB_ACTIONS = {("contract", "run_now"), ("contract", "plan")}

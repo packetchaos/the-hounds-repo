@@ -95,6 +95,7 @@
       <div class="rl"><b>🐾 Release the Hounds</b> — run every hound in the sidebar's order (On the Scent last — it summarises the rest), in the background, so each page is already populated when you open it. Reads only: nothing is tagged, applied or sent. Search hounds, Argos, ACR, the AI Contract, Dashboards and the other hands-on tools are left out.</div>
       <button class="relbtn" id="relBtn" type="button">🐾 Release the Hounds</button>
     </div>
+    <div class="sub" id="relSched" style="margin:6px 2px 0;font-size:12.5px">⏰ <b>Keep the pack ready</b> — the <a href="/agents/contract/page.html#release">AI Contract</a> can refresh navi.db (assets, vulns, certs, software …), optimize it and release the hounds on a schedule, so everything is ready when you log in.</div>
     <div id="relProg" class="relprog" style="display:none"></div>
     <div class="no-llm-note sub" style="display:none;margin-top:8px;color:var(--warn,var(--cx-e7c66b))">Set <span class="mono">ANTHROPIC_API_KEY</span> on the server to enable “ask which agent can help”.</div>
 
@@ -383,6 +384,24 @@ function relShow(st){
     else if(i.status==='done'){ el.badge.innerHTML='<span class="badge b-live">released ✓</span>'; el.lastrun.textContent=new Date(((i.started||0)+(i.sec||0))*1000).toLocaleString(); }
     else if(i.status==='error'){ el.badge.innerHTML='<span class="badge b-err">error</span>'; el.metric.textContent=' '+(i.note||''); } });
 }
+/* ⏰ the AI Contract's release schedule (core/release_pipeline.py) — one line under the button */
+async function relSched(){
+  let o; try{ o=await jpost('/api/contract/release_get',{}); }catch(e){ o=null; }
+  if(!o||!o.ok){ setTimeout(relSched, 60000); return; }
+  const c=o.config||{}, st=o.state||{}, last=o.last, el=document.getElementById('relSched');
+  const at=t=>new Date(t*1000).toLocaleString([], {weekday:'short',hour:'2-digit',minute:'2-digit'});
+  const link='<a href="/agents/contract/page.html#release">AI Contract ▸ Release the Hounds</a>';
+  let h;
+  if(st.status==='running'){ const steps=st.steps||[], cur=steps.find(x=>x.status==='running');
+    h='⟳ <b>Keeping the pack ready</b> — running now'+(cur?': '+esc(cur.label):'')+' ('+(steps.indexOf(cur)+1)+' of '+steps.length+') · '+link; }
+  else if(c.enabled){
+    const trig=[c.daily?'ready by <b>'+esc(c.ready_by)+'</b> '+(c.days==='weekdays'?'on weekdays':'daily')+(o.next_start?' (starts '+esc(at(o.next_start))+')':''):'', c.after_tagging?'after each tagging cycle':''].filter(Boolean).join(' and ');
+    h='⏰ <b>Scheduled</b> — '+(trig||'no trigger picked')+(last?' · last run '+esc(at(last.started))+' '+(last.status==='done'?'✓':'<span style="color:var(--crit)">'+esc(last.status)+'</span>'):'')+' · '+link; }
+  else h='⏰ <b>Keep the pack ready</b> — the '+link+' can refresh navi.db (assets, vulns, certs, software …), optimize it and release the hounds on a schedule, so everything is ready when you log in.';
+  el.innerHTML=h;
+  setTimeout(relSched, st.status==='running'?5000:60000);
+}
+relSched();
 async function relPoll(){
   clearTimeout(REL_POLL);
   let o; try{ o=await jpost('/api/hub/release_status',{}); }catch(e){ o=null; }
@@ -390,7 +409,12 @@ async function relPoll(){
   else REL_POLL=setTimeout(relPoll,4000);
 }
 document.getElementById('relBtn').onclick=async function(){
-  this.disabled=true; const pl=await releasePlan(); this.disabled=false;
+  // the plan runs the preflight against navi.db (a few seconds on a big one) — say so
+  const box=document.getElementById('relProg'), was=box.innerHTML, shown=box.style.display, lbl=this.textContent;
+  this.disabled=true; this.textContent='🔎 Checking navi.db…';
+  box.style.display='block'; box.innerHTML='<div style="display:flex;align-items:center;gap:10px"><span class="spin"></span><b>Checking navi.db</b><span class="sub">— what each hound needs (WAS, compliance, certs, software, routes, SLA …) and how long each one takes. A big navi.db can take a few seconds.</span></div>';
+  const pl=await releasePlan();
+  this.disabled=false; this.textContent=lbl; box.innerHTML=was; box.style.display=shown;
   if(!pl||!pl.ok){ flash('flash','✗ '+esc((pl&&pl.error)||'could not plan the release'),'crit'); return; }
   if(pl.state&&pl.state.status==='running'){ relShow(pl.state); relPoll(); return; }
   relModal(pl);

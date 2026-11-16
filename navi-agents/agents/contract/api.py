@@ -1,5 +1,5 @@
 """AI Navi Contract — HTTP actions (authoring, plan, arm, run, schedule)."""
-from core import contract, navi_cli
+from core import contract, gates, navi_cli, release_pipeline
 from .agent import ContractAgent
 from core.gates import confirmed
 
@@ -116,8 +116,49 @@ def scheduler(p):
     return {"ok": True, "scheduler": contract.scheduler_status()}, 200
 
 
+# ── Release the Hounds pipeline (core/release_pipeline.py) ─────────────────────────────
+def release_get(p):
+    return {"ok": True, **release_pipeline.status()}, 200
+
+
+def _local_confirmed(p, what):
+    if not confirmed(p):
+        return {"ok": False, "needs_confirm": True, "error": _NEED % what}, 400
+    if not gates.client_is_loopback():
+        return {"ok": False, "error": "Only a browser on this machine can %s (it runs ⚡ Optimize, "
+                                      "which writes navi.db)." % what.split(" — ")[0]}, 403
+    return None
+
+
+def release_save(p):
+    """Save the release schedule. Turning it on (or keeping it on) needs confirm + this machine;
+    turning it off is always allowed."""
+    cfg = release_pipeline.normalize(p.get("config") or {})
+    if cfg["enabled"]:
+        bad = _local_confirmed(p, "schedules navi updates, optimize and the release")
+        if bad:
+            return bad
+    c = release_pipeline.save_config(cfg)
+    return {"ok": True, "config": c, **{k: v for k, v in release_pipeline.status().items() if k != "config"}}, 200
+
+
+def release_run(p):
+    bad = _local_confirmed(p, "runs the navi updates, optimize and the release now")
+    if bad:
+        return bad
+    cfg = p.get("config")
+    r = release_pipeline.start("manual", cfg=cfg if isinstance(cfg, dict) else None)
+    return (r, 200) if r.get("ok") else (r, 400)
+
+
+def release_cancel(p):
+    return {"ok": True, "cancelled": release_pipeline.cancel(), "state": release_pipeline.state()}, 200
+
+
 ACTIONS = {"get": get, "set": set_, "build_from_log": build_from_log,
            "build_from_csv": build_from_csv, "plan": plan,
            "export": export, "run_now": run_now, "arm": arm, "disarm": disarm,
            "save": save, "load": load, "list": list_, "status": status,
-           "loop_log": loop_log, "scheduler": scheduler}
+           "loop_log": loop_log, "scheduler": scheduler,
+           "release_get": release_get, "release_save": release_save, "release_run": release_run,
+           "release_cancel": release_cancel}

@@ -11,6 +11,22 @@
   },
   "history": [
     {
+      "ts": "2026-11-16T18:33:12Z",
+      "source": "contract",
+      "evaluated": 3,
+      "newly": [],
+      "still": 0,
+      "sent": false
+    },
+    {
+      "ts": "2026-11-16T18:33:12Z",
+      "source": "contract",
+      "evaluated": 3,
+      "newly": [],
+      "still": 0,
+      "sent": false
+    },
+    {
       "ts": "2026-11-12T17:25:22Z",
       "source": "contract",
       "evaluated": 3,
@@ -166,5 +182,5 @@
       "sent": false
     }
   ],
-  "last_run": "2026-11-12T17:25:22Z"
+  "last_run": "2026-11-16T18:33:12Z"
 }

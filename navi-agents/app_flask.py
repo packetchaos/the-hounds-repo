@@ -20,6 +20,12 @@ AGENTS = os.path.join(HERE, "agents")
 # nonexistent navi-agents/static/ and would shadow our /static → web/assets route,
 # 404-ing console.css / console.js). Our explicit /static handler below serves them.
 app = Flask(__name__, static_folder=None)
+
+try:                                    # AI Contract ▸ Release the Hounds: resume the daily schedule
+    from core import release_pipeline as _rp
+    _rp.resume()
+except Exception as _e:                 # pragma: no cover — never block startup
+    print("release schedule not resumed: %s" % _e)
 app.config["MAX_CONTENT_LENGTH"] = security.MAX_BODY      # → 413
 
 

@@ -20,6 +20,12 @@ AGENTS = os.path.join(HERE, "agents")
 
 app = FastAPI(title="Navi Agents", version="2.0.0")
 
+try:                                    # AI Contract ▸ Release the Hounds: resume the daily schedule
+    from core import release_pipeline as _rp
+    _rp.resume()
+except Exception as _e:                 # pragma: no cover — never block startup
+    print("release schedule not resumed: %s" % _e)
+
 
 def _harden(resp):
     # always revalidate — an updated console.js / page must never be shadowed by a stale copy

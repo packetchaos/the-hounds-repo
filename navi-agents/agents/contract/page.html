@@ -13,6 +13,18 @@
 .armed{background:rgba(52,211,153,.14);color:var(--ok);border:1px solid rgba(52,211,153,.4)}
 .disarmed{background:rgba(138,153,173,.16);color:var(--mut);border:1px solid var(--line)}
 .kpi .v{font-size:18px}
+.rpgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-top:6px}
+.rpbox{background:var(--panel-2);border:1px solid var(--line);border-radius:var(--radius-sm);padding:10px 12px}
+.rph{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-3);margin-bottom:6px;font-weight:700}
+.rpl{display:block;margin:6px 0;padding-left:22px;text-indent:-22px;line-height:1.7}
+.rpl input[type=checkbox]{width:16px;margin:0 6px 0 0;vertical-align:-2px}
+.rpl input.fld,.rpl select.fld{text-indent:0;padding:3px 6px;margin:0 2px}
+.rpnote{margin:0 0 6px 22px;font-size:12px}
+.rpchecks{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:2px 10px}
+.rpsteps{margin:8px 0;display:flex;flex-direction:column;gap:3px}
+.rpstep{display:grid;grid-template-columns:22px minmax(0,1fr) 70px;gap:6px;font-size:12.5px;align-items:baseline}
+.rpstep .n{color:var(--ink-3);font-size:11.5px}
+.rpstep.running{font-weight:700}.rpstep.error .lbl{color:var(--crit)}.rpstep.pending{color:var(--ink-3)}
 </style>
 </head><body data-cache-inputs="off">
 <div class="wrap">
@@ -71,6 +83,37 @@
   <section class="card" id="planCard">
     <div class="toolbar"><h3 style="margin:0">🔍 Plan preview</h3><span class="chip" id="planCount"></span></div>
     <div id="planOut"><p class="sub">Click <b>▶ Run</b> above to plan (no writes) and preview what the contract would tag — it appears right here.</p></div>
+  </section>
+
+  <section class="card" id="release">
+    <div class="toolbar"><div><h3 style="margin:0">🐾 Release the Hounds — keep the pack ready</h3>
+      <p class="sub" style="margin:2px 0 0">Refresh navi.db, optimize it, then release the hounds — so every page is already populated when someone logs in. Runs in this order, one step at a time: the <b>navi updates</b> you pick → <span class="mono">navi config optimize</span> → <b>⚡ Optimize for the Hounds</b> → <b>Release the Hounds</b>. It writes navi.db and the page cache only — never to Tenable.</p></div>
+      <span class="chip" id="rpChip" style="margin-left:auto">…</span></div>
+    <label class="sub" style="display:flex;gap:6px;align-items:center;margin:8px 0 4px;font-weight:600"><input type="checkbox" id="rpEnabled"> Schedule is on</label>
+    <div class="rpgrid">
+      <div class="rpbox"><div class="rph">When</div>
+        <label class="sub rpl"><input type="checkbox" id="rpDaily"> Daily — ready by <input id="rpReady" type="time" class="fld" style="width:120px"> on
+          <select id="rpDays" class="fld"><option value="every">every day</option><option value="weekdays">weekdays</option></select></label>
+        <div class="sub rpnote" id="rpStartNote"></div>
+        <label class="sub rpl"><input type="checkbox" id="rpAfter"> After each contract cycle that tags — wait <input id="rpWait" type="number" min="0" max="720" class="fld" style="width:64px"> min first, so Tenable has applied the new tags</label>
+      </div>
+      <div class="rpbox"><div class="rph">navi updates</div><div id="rpUpdates" class="rpchecks"></div></div>
+      <div class="rpbox"><div class="rph">Then</div>
+        <label class="sub rpl"><input type="checkbox" id="rpNaviOpt"> <span class="mono">navi config optimize</span> — navi's own indexes</label>
+        <label class="sub rpl"><input type="checkbox" id="rpHxOpt"> ⚡ Optimize for the Hounds — the Hounds' indexes + summary tables (<a href="/web/settings.html">Settings</a>)</label>
+        <label class="sub rpl"><input type="checkbox" id="rpRelease"> Release the Hounds — every hound that can run; hounds whose navi.db data is missing are skipped</label>
+        <label class="sub rpl" style="margin-left:22px"><input type="checkbox" id="rpDl"> approve the MITRE ATT&amp;CK + CISA KEV catalog downloads</label>
+        <label class="sub rpl" style="margin-left:22px"><input type="checkbox" id="rpSkipMine"> leave out the hounds I unticked in the <a href="/">Release dialog</a> <span id="rpSkipList"></span></label>
+      </div>
+    </div>
+    <div class="toolbar" style="margin-top:8px">
+      <button class="btn run sm" id="rpSave" disabled>💾 Save schedule</button>
+      <button class="btn sm" id="rpRun" disabled>▶ Run now</button>
+      <button class="btn ghost sm" id="rpCancel" style="display:none">✕ Cancel</button>
+      <span class="sub" id="rpMsg"></span>
+    </div>
+    <div id="rpProg"></div>
+    <div id="rpHist"></div>
   </section>
 
   <section class="card">
@@ -342,5 +385,79 @@ if(new URLSearchParams(location.search).get('plan')){
 // Settings → Test run: categories typed here are used EXACTLY — say what a Hound-created tag is now called
 testRunStatus().then(t=>{ if(!t||!t.enabled) return; document.querySelectorAll('.trhint').forEach(el=>{ el.style.display='';
   el.innerHTML='🧪 Test run is on — the Hounds now create <span class="mono">'+esc(t.prefix)+'&lt;category&gt;</span> tags (e.g. <span class="mono">'+esc(t.prefix)+'Lifecycle</span>). A category typed here is used exactly as typed.'; }); });
+</script>
+<script>
+/* ── 🐾 Release the Hounds pipeline (core/release_pipeline.py) ─────────────────────────── */
+(function(){
+const $=id=>document.getElementById(id);
+let RP=null, RP_T=null;
+const fmtD=s=>{ s=Math.max(0,Math.round(s||0)); if(s<60) return s+' s'; const m=Math.floor(s/60); if(m<60) return m+' min'; return Math.floor(m/60)+' h '+(m%60?(m%60)+' min':''); };
+const when=t=>t?new Date(t*1000).toLocaleString([], {weekday:'short',hour:'2-digit',minute:'2-digit'}):'—';
+function relOff(){ try{ return JSON.parse(localStorage.getItem('houndsRelOff')||'[]').map(String); }catch(e){ return []; } }
+const ICON={done:'✓',running:'⟳',error:'✗',cancelled:'⊘',pending:'·'};
+function cfgFromForm(){
+  return {enabled:$('rpEnabled').checked, daily:$('rpDaily').checked, ready_by:$('rpReady').value||'07:00', days:$('rpDays').value,
+    after_tagging:$('rpAfter').checked, wait_minutes:+($('rpWait').value||0),
+    updates:[...document.querySelectorAll('#rpUpdates input:checked')].map(x=>x.value),
+    navi_optimize:$('rpNaviOpt').checked, hx_optimize:$('rpHxOpt').checked, release:$('rpRelease').checked,
+    approve_downloads:$('rpDl').checked, skip:$('rpSkipMine').checked?relOff():[]};
+}
+function fillForm(o){ const c=o.config;
+  $('rpEnabled').checked=c.enabled; $('rpDaily').checked=c.daily; $('rpReady').value=c.ready_by; $('rpDays').value=c.days;
+  $('rpAfter').checked=c.after_tagging; $('rpWait').value=c.wait_minutes;
+  $('rpUpdates').innerHTML=(o.update_kinds||[]).map(k=>'<label class="sub rpl" style="margin:1px 0"><input type="checkbox" value="'+esc(k.key)+'"'+(c.updates.includes(k.key)?' checked':'')+'> '+esc(k.label)+'</label>').join('');
+  $('rpNaviOpt').checked=c.navi_optimize; $('rpHxOpt').checked=c.hx_optimize; $('rpRelease').checked=c.release; $('rpDl').checked=c.approve_downloads;
+  $('rpSkipMine').checked=(c.skip||[]).length>0; paintSkip(c.skip||[]);
+}
+function paintSkip(saved){ const off=relOff(); const show=$('rpSkipMine').checked?(saved&&saved.length&&!off.length?saved:off):off;
+  $('rpSkipList').textContent=show.length?'('+show.length+': '+show.join(', ')+')':'(none unticked)'; }
+function paintStatus(o){ RP=o; const c=o.config, st=o.state||{}, running=st.status==='running';
+  let chip;
+  if(running){ const steps=st.steps||[], i=steps.findIndex(x=>x.status==='running'); chip='⟳ running — step '+(i+1)+' of '+steps.length; }
+  else if(!c.enabled) chip='○ off';
+  else if(c.daily&&o.next_start) chip='● scheduled — starts '+when(o.next_start)+' · ready by '+c.ready_by;
+  else if(c.after_tagging) chip='● after each tagging cycle';
+  else chip='● on — no trigger picked';
+  $('rpChip').textContent=chip;
+  $('rpStartNote').innerHTML=c.daily?('Starts about <b>'+(o.next_start?when(o.next_start):'—')+'</b> — '+esc(fmtD(o.estimate_s))+' ahead of '+esc(c.ready_by)+' ('+esc(o.estimate_basis)+'). Server clock'+(o.tz?' ('+esc(o.tz)+')':'')+'.'
+      +(c.enabled?'':' <i>Turn the schedule on and save.</i>')):'';
+  $('rpCancel').style.display=running?'':'none'; $('rpRun').disabled=running;
+  const steps=st.steps||[];
+  $('rpProg').innerHTML=steps.length?('<div class="sub" style="margin-top:8px"><b>'+(running?'Running':'Last run')+'</b> · '+esc(st.trigger||'')+' · started '+esc(new Date((st.started||0)*1000).toLocaleString())
+      +(st.total_s?' · '+esc(fmtD(st.total_s)):'')+(!running&&st.status?' · <span class="badge '+(st.status==='done'?'b-ready':'b-err')+'">'+esc(st.status)+'</span>':'')+'</div>'
+      +'<div class="rpsteps">'+steps.map(x=>'<div class="rpstep '+esc(x.status)+'"><span>'+(ICON[x.status]||'·')+'</span><span class="lbl">'+esc(x.label)+(x.note?' <span class="sub">— '+esc(x.note)+'</span>':'')+'</span><span class="n">'+(x.sec!=null?esc(fmtD(x.sec)):(x.status==='running'?'…':''))+'</span></div>').join('')+'</div>'):'';
+  const h=(o.history||[]).filter(x=>x.id!==st.id).slice(0,8);
+  $('rpHist').innerHTML=h.length?('<details style="margin-top:6px"><summary class="sub">Earlier runs ('+h.length+')</summary><table style="margin-top:6px"><thead><tr><th>Started</th><th>Trigger</th><th>Took</th><th>Result</th><th>Steps</th></tr></thead><tbody>'
+      +h.map(x=>'<tr><td class="sub">'+esc(new Date((x.started||0)*1000).toLocaleString())+'</td><td>'+esc(x.trigger||'')+'</td><td>'+esc(fmtD(x.total_s))+'</td><td><span class="badge '+(x.status==='done'?'b-ready':'b-err')+'">'+esc(x.status)+'</span></td><td class="sub">'
+        +esc((x.steps||[]).filter(s=>s.status!=='done').map(s=>s.label+' '+s.status).join(' · ')||'all done')+'</td></tr>').join('')+'</tbody></table></details>'):'';
+  clearTimeout(RP_T); RP_T=setTimeout(load, running?3000:60000);
+}
+async function load(first){ let o; try{ o=await jpost('/api/contract/release_get',{}); }catch(e){ o=null; }
+  if(!o||!o.ok){ $('rpChip').textContent='status unavailable'; clearTimeout(RP_T); RP_T=setTimeout(()=>load(first||!RP),15000); return; }
+  if(first||!RP){ fillForm(o); $('rpSave').disabled=false; } paintStatus(o); }
+function msg(t,cls){ $('rpMsg').innerHTML=t; $('rpMsg').style.color=cls==='crit'?'var(--crit)':''; }
+$('rpSkipMine').onchange=()=>paintSkip([]);
+$('rpSave').onclick=async function(){ const cfg=cfgFromForm();
+  if(cfg.enabled){
+    const parts=[]; if(cfg.daily) parts.push('every '+(cfg.days==='weekdays'?'weekday':'day')+', ready by '+cfg.ready_by); if(cfg.after_tagging) parts.push('after each tagging cycle (wait '+cfg.wait_minutes+' min)');
+    if(!parts.length){ msg('Pick “Daily” and/or “After each contract cycle”.','crit'); return; }
+    if(!confirm('Turn on the Release-the-Hounds schedule — '+parts.join(' and ')+'?\n\nEach run: '+(cfg.updates.length?'navi update '+cfg.updates.join(', ')+' → ':'')+(cfg.navi_optimize?'navi config optimize → ':'')+(cfg.hx_optimize?'⚡ Optimize (writes indexes into navi.db) → ':'')+(cfg.release?'Release the Hounds':'')+'.\nNothing is written to Tenable.')) return;
+  }
+  this.disabled=true; msg('<span class="spin"></span> saving…');
+  let o; try{ o=await jpost('/api/contract/release_save',{config:cfg, confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+  this.disabled=false;
+  if(!o||!o.ok){ msg('✗ '+esc((o&&o.error)||'save failed'),'crit'); return; }
+  msg(o.config.enabled?'✓ Saved — '+(o.config.daily&&o.next_start?'next start '+esc(when(o.next_start)):'on'):'✓ Saved — schedule is off');
+  fillForm(o); paintStatus(o); };
+$('rpRun').onclick=async function(){ const cfg=cfgFromForm();
+  if(!confirm('Run the pipeline now? '+(cfg.updates.length?'navi update '+cfg.updates.join(', ')+' → ':'')+(cfg.navi_optimize?'navi config optimize → ':'')+(cfg.hx_optimize?'⚡ Optimize → ':'')+(cfg.release?'Release the Hounds':'')+'.\nIt runs in the background (it can take hours on a big navi.db); nothing is written to Tenable.')) return;
+  this.disabled=true; msg('<span class="spin"></span> starting…');
+  let o; try{ o=await jpost('/api/contract/release_run',{config:cfg, confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
+  if(!o||!o.ok){ this.disabled=false; msg('✗ '+esc((o&&o.error)||'could not start'),'crit'); return; }
+  msg(o.already_running?'Already running — showing its progress.':'✓ Started.'); load(); };
+$('rpCancel').onclick=async function(){ this.disabled=true; try{ await jpost('/api/contract/release_cancel',{}); }catch(e){} this.disabled=false; msg('Cancelling — a navi command already running finishes first.'); load(); };
+load(true);
+if(location.hash==='#release') setTimeout(()=>$('release').scrollIntoView({behavior:'smooth'}),300);
+})();
 </script>
 </body></html>

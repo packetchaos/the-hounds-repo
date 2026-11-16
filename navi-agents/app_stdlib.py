@@ -10,6 +10,7 @@ import os
 import select
 import socket
 import threading
+import time
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -230,6 +231,18 @@ def _print_write_status():
         pass
 
 
+def _resume_schedules():
+    """Bring back the AI Contract ▸ Release the Hounds daily schedule after a restart."""
+    try:
+        from core import release_pipeline
+        if release_pipeline.resume().get("running"):
+            t, _r = release_pipeline.next_run()
+            print("  🐾 Release the Hounds is scheduled — next start %s (AI Contract)" % (
+                time.strftime("%a %H:%M", time.localtime(t)) if t else "—"))
+    except Exception as e:                              # never block the server from starting
+        print("  (release schedule not resumed: %s)" % e)
+
+
 def main():
     want = int(os.environ.get("PORT", "8000"))
     # Bind the requested port; if it's taken, walk up to the next free one so a busy
@@ -267,6 +280,7 @@ def main():
     print(f"  (open the URL — do NOT double-click web/index.html)")
     print("=" * 60 + "\n")
     _print_write_status()
+    _resume_schedules()
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

@@ -1308,9 +1308,10 @@ def _navi_update_bg(kinds=("assets", "vulns")):
 
     def _chain():
         for i, k in enumerate(kinds):
+            held = cli_jobs.CHAIN_LOCK.acquire(timeout=3 * 3600)   # the Release pipeline's syncs
             try:
-                t_w = time.time()                         # ⚡ Optimize holds navi.db's write lock:
-                while cli_jobs.hx_busy() and time.time() - t_w < 3 * 3600:   # wait, don't skip
+                t_w = time.time()                         # ⚡ Optimize / another navi job holds
+                while (cli_jobs.hx_busy() or cli_jobs.running()) and time.time() - t_w < 3 * 3600:   # navi.db: wait, don't skip
                     time.sleep(5)
                 r = cli_jobs.start_update(k, refresh_summaries=(i == len(kinds) - 1))
                 jid = (r.get("job") or {}).get("id")
@@ -1324,6 +1325,9 @@ def _navi_update_bg(kinds=("assets", "vulns")):
                     time.sleep(5)
             except Exception:
                 pass
+            finally:
+                if held:
+                    cli_jobs.CHAIN_LOCK.release()
     threading.Thread(target=_chain, daemon=True, name="contract-navi-update").start()
     return {"started": list(kinds), "commands": ["navi " + " ".join(cli_jobs.COMMANDS[k]) for k in kinds]}
 
@@ -1460,6 +1464,14 @@ def run_cycle(contract=None, enforce_pause=True, apply=False) -> dict:
              "acr_protected": ex.get("acr_protected", 0),
              "skipped": ex.get("skipped"), "qa": qa,
              "plan_counts": {b["agent"]: b.get("selected", 0) for b in ex.get("plan", {}).get("agents", [])}}
+    # ── Release the Hounds after tagging (AI Contract ▸ Release the Hounds) ──────────────────
+    # wait (Tenable applies the tags) → navi updates → optimize → release, on its own thread
+    try:
+        from core import release_pipeline
+        wrote = bool(ex.get("queued_tags") or ex.get("acr_applied") or removal_info.get("removed_jobs"))
+        entry["release_pipeline"] = release_pipeline.after_cycle(applied=live and wrote)
+    except Exception as e:
+        entry["release_pipeline"] = {"error": str(e)}
     entry["notify"] = _notify_run(c, entry)     # Gabriel run-summary email (on by default, toggleable)
     with _LOCK:
         _LOOP_LOG.append(entry)

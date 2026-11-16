@@ -75,7 +75,10 @@ _JOBS = {}
 _ORDER = []
 _IDS = itertools.count(1)
 _LOCK = threading.Lock()
-MAX_LINES = 5000        # cap the buffer so a chatty sync can't balloon memory
+# held by a background chain of navi jobs (the AI Contract's navi update, the Release pipeline)
+# from just before it starts a job until that job ends — so two chains never run syncs at once
+CHAIN_LOCK = threading.Lock()
+MAX_LINES = 5000       # cap the buffer so a chatty sync can't balloon memory
 KEEP_JOBS = 30          # retain the most recent N jobs
 
 
