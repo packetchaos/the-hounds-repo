@@ -64,15 +64,30 @@ def parse_software(s: str):
     return parse_nvr(s)
 
 
+_EMBEDDED = re.compile(r"^\d+(\.\d+)*$")
+
+
+def _nvr_index(parts):
+    """Index of the version segment in a dash-split name-version-release, or -1. The first
+    segment that starts with a digit — unless it is a bare number (17, 1.8.0) sitting INSIDE
+    the name, i.e. a word segment follows it and a dotted version comes after that:
+    java-17-openjdk-headless-17.0.9.0.9-2.el8 → java-17-openjdk-headless / 17.0.9.0.9 and
+    java-1.8.0-openjdk-1.8.0.392.b08-4.el8 → java-1.8.0-openjdk / 1.8.0.392.b08 (build 480)."""
+    digit = [i for i in range(1, len(parts)) if _VER.match(parts[i])]
+    for n, i in enumerate(digit):
+        later = digit[n + 1:]
+        if (_EMBEDDED.match(parts[i]) and later and "." in parts[later[0]]
+                and any(not _VER.match(parts[j]) for j in range(i + 1, later[0]))):
+            continue
+        return i
+    return -1
+
+
 def parse_nvr(s: str):
-    """name-version-release -> (name, version). Name is everything before the
-    first hyphen-delimited segment that starts with a digit."""
+    """name-version-release -> (name, version). Name is everything before the version
+    segment (see _nvr_index)."""
     parts = str(s or "").split("-")
-    vi = -1
-    for i in range(1, len(parts)):
-        if _VER.match(parts[i]):
-            vi = i
-            break
+    vi = _nvr_index(parts)
     if vi < 0:
         return str(s or ""), ""
     return "-".join(parts[:vi]), parts[vi]
@@ -211,9 +226,9 @@ def parse_nvr_js(s):
             name = re.sub(r"[\s\-]+$", "", name[: -len(ver)])
         return (name or s), ver
     parts = s.split("-")
-    for i in range(1, len(parts)):
-        if parts[i][:1] in "0123456789" and parts[i][:1]:
-            return "-".join(parts[:i]), parts[i]
+    i = _nvr_index(parts)
+    if i > 0:
+        return "-".join(parts[:i]), parts[i]
     return s, ""
 
 

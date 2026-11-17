@@ -6,4 +6,7 @@ takes **free-form natural language** ("drop all IoT and lab gear by 5 …") via 
 LLM, validated and previewed before any gated write.
 
 - **UI:** `page.html` · **API:** `/api/acr/run`, `apply`, `bulk_apply`, `interpret`
-- **Config:** `ANTHROPIC_API_KEY` enables NL bulk (else deterministic fallback).
+- **Config:** a configured model (any provider in [BYO_MODEL.md](../../BYO_MODEL.md)) enables NL
+  bulk; without one, per-tag set / +N / −N still works.
+- **Writes:** gated `navi enrich acr` (`NAVI_ALLOW_WRITES=1` + `confirm: true`); assets tagged
+  exactly `NO : UPDATE` are skipped, and every change lands in the ACR log.

@@ -1501,6 +1501,7 @@ def _sched_loop():
 
 def scheduler_start() -> dict:
     if _SCHED["thread"] and _SCHED["thread"].is_alive():
+        _SCHED["stop"] = False      # a stop not yet seen by the loop (disarm → re-arm) is undone
         return {"ok": True, "running": True, "next_run": _SCHED["next_run"]}
     _SCHED["stop"] = False
     t = threading.Thread(target=_sched_loop, name="contract-scheduler", daemon=True)

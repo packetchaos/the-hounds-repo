@@ -43,10 +43,13 @@ notified, when).
 | `recipients` | `{domain?}` | owner-routing table from Atlas `Owner:` tags |
 | `preview` | `{report, template, domain?, days?, to?, owner?, payload?}` | composed emails (no send) |
 | `send` | `{confirm:true, messages:[…]}` | per-recipient send results |
+| `dashboard` | `{confirm:true, …}` | gated send of a Custom Dashboard as an email-safe HTML body |
+| `widget` / `data` | `{confirm:true, …}` | gated send of one chart widget (picture + list), or one widget's query result (inline under 100 rows, else a CSV attachment) |
+| `graph` | `{confirm:true, …}` | gated send of a rendered graph (Sankey / threads) |
 
 ### Report types (`report`)
 `owner_remediation` · `vuln_detail` · `kev_alarm` · `cert_countdown` · `briefing` ·
-`contract_plan` · `contract_result` · `agent_findings`
+`contract_plan` · `contract_result` · `contract_summary` · `agent_findings` · `sphinx_digest`
 
 ## Hand-off contract (for other agents)
 

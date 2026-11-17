@@ -1,10 +1,14 @@
-# Custom App Name Agent
+# Custom App Name Agent (Cavall Hound)
 Finds software the inventory misses by mining vuln **routes** and filesystem
 **paths**, comparing against the `software` table. Also a natural-language flow:
 "Tag my custom app navi" → searches `vuln_paths` for the keyword, shows the
 matched paths/assets, then gated-tags `Custom App:<name>` after you confirm.
 
-- **UI:** `page.html` · **API:** `/api/customapp/run`, `interpret`, `search`, `tag`
+- **UI:** `page.html` · **API:** `/api/customapp/run`, `interpret`, `search`, `tag`, and the ignore
+  list (`ignore_list`, `ignore_add`, `ignore_remove`, `ignore_import`)
+- **Config:** the plain-English flow uses a configured model ([BYO_MODEL.md](../../BYO_MODEL.md))
+  to pull the app name and keywords; without one it falls back to the last quoted term (or
+  last word) of the instruction.
 
 ## Page
 

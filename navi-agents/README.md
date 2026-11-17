@@ -1,6 +1,6 @@
 # The Hounds — Navi Agent Command Center
 
-A modular suite of **41 exposure-management agents** for Tenable Vulnerability
+A modular suite of **43 exposure-management agents** for Tenable Vulnerability
 Management / Tenable One, built on top of the open-source **navi** CLI. Each
 agent is a drop-in module (Python + one HTML page) that discovers something in
 your environment and **tags it**, calibrates risk, or answers a plain-English
@@ -38,8 +38,11 @@ gives you a **blank page**, because the browser can't load the app's `/static`
 assets or reach the `/api` backend. Always use `http://localhost:8000`.
 
 `run.py` needs nothing but **Python 3.10+**. It builds a sample dataset on first
-run, uses FastAPI/uvicorn if they're installed, and otherwise falls back to a
+run, uses FastAPI/uvicorn if they're installed, else Flask, and otherwise falls back to a
 zero-dependency stdlib server.
+
+The header shows the version, e.g. **v1.43.483** — `1.<hounds>.<build>`, where the middle
+number is the count of hounds the server discovered (`core/version.py`).
 
 **Point at your real tenant** (live data + tagging):
 
@@ -136,7 +139,7 @@ real call with an actionable failure reason.
 | `NAVI_TAG_TIMEOUT` | `900` | Per-invocation timeout (seconds) for a navi tag/ACR call. |
 | `NAVI_TAGLOG_DB` | `tag_jobs.db` (repo root) | Durable, shared **Tagging log** sidecar — survives restarts and is visible across processes. |
 | `NAVI_UUID_CAP` | `1999` | Tenable per-call asset-UUID cap; navi loops past it (the app prefers server-side selectors over the cap). |
-| `NAVI_JOB_WORKERS` | `3` | Background agent-run workers (1–16). |
+| `NAVI_JOB_WORKERS` | `4` | Background agent-run workers (1–16). |
 | `NAVI_JOB_LOG_MAX` | `200` | Job-log entries retained in memory. |
 | `NAVI_PUSH_TIMEOUT` | `300` | Per-host timeout (seconds) for a Command & Control push. |
 
@@ -148,20 +151,23 @@ real call with an actionable failure reason.
 | `ALERT_DIR` | `alerts/` | Alert Raven's definitions and fired-state. |
 | `NAVI_HISTORY_DIR` | `data/` | Daily snapshots for SLA / trend history. |
 | `HOUNDS_CONFIG` | `hounds.config.json` | Settings config-store file path, or `off` to disable it. |
+| `NAVI_CACHE_DIR` | `data/cache/` | Snapshot caches, the server-side page cache (`pages/`) and the Release the Hounds schedule. |
 | `NAVI_AGENT_CACHE_TTL_S` | `300` | Agent-result cache lifetime. |
-
-Every tagging agent (manifest category Tagging or Discovery) opens with a **📋 Done so far** strip — last run, runs recorded, tag values applied, how many assets carry them in navi.db now, what's awaiting a sync, failures, emails/pushes/ACR changes, and tags already in navi.db that weren't applied from this install (`core/activity.py`; run history is kept in `tag_jobs.db`, table `runs`, capped by `NAVI_RUN_LOG_MAX`, default 20000).
-
-Each agent page also remembers its last run (24 h) — kept on the server (`data/cache/pages/`), so it's shared across browsers — and restores it when you come back; use **↻ Re-run** on the restore strip for fresh numbers. **🐾 Release the Hounds** on the hub runs every hound in the sidebar's order in the background (reads only, with an estimate first and a Cancel) so every page is already populated when you open it. Per-browser tunables in `localStorage`: `houndsCacheTTLh` (hours) and `houndsCacheOff=1` to disable.
 | `NAVI_HEALTH_TTL_S` | `30` | Health-chip cache lifetime. |
 | `NAVI_ASSET_COUNT_TTL_S` | `300` | Asset-count cache lifetime. |
 | `NAVI_QUERY_BUDGET_MS` | off | Abort a `navi.db` query that exceeds this budget. |
+| `NAVI_AUTO_APPROVE_DOWNLOADS` | off | Skip the approval card for the catalog downloads (MITRE ATT&CK→CVE, CISA KEV). Never covers Harrier's zero-day lookup — every site it reads is approved on the page. |
+| `NAVI_TAG_TEST_RUN` / `NAVI_TAG_PREFIX` | off / `Hounds` | Settings → Test run: write every tag category as `<prefix>-<category>`. |
 | `SAMPLE_ASSETS` | auto | Asset count when building the sample fixture (`make_sample_db.py`). |
 | `HOUNDS_MCP_HTTP` / `HOUNDS_MCP_HOST` / `HOUNDS_MCP_PORT` | stdio / `127.0.0.1` / `8790` | Run the MCP server over HTTP instead of stdio — see [HOUNDS-MCP.md](HOUNDS-MCP.md). |
 
+Every tagging agent (manifest category Tagging or Discovery) opens with a **📋 Done so far** strip — last run, runs recorded, tag values applied, how many assets carry them in navi.db now, what's awaiting a sync, failures, emails/pushes/ACR changes, and tags already in navi.db that weren't applied from this install (`core/activity.py`; run history is kept in `tag_jobs.db`, table `runs`, capped by `NAVI_RUN_LOG_MAX`, default 20000).
+
+Each agent page also remembers its last run (24 h) — kept on the server (`data/cache/pages/`), so it's shared across browsers — and restores it when you come back; use **↻ Re-run** on the restore strip for fresh numbers. **🐾 Release the Hounds** on the hub runs every hound in the sidebar's order in the background (reads only, with an estimate first and a Cancel) so every page is already populated when you open it. To have that done before anyone logs in, **AI Contract ▸ Release the Hounds** schedules the whole pipeline — a daily "ready by" time and/or after each tagging cycle: the navi updates you pick → `navi config optimize` → ⚡ Optimize → release (`core/release_pipeline.py`; it writes navi.db and the caches, never Tenable). Per-browser tunables in `localStorage`: `houndsCacheTTLh` (hours) and `houndsCacheOff=1` to disable.
+
 ---
 
-## What's inside — the 41 agents
+## What's inside — the 43 agents
 
 Naming: the **detection hounds are literal dogs/wolves** (Cerberus, Laelaps, Fenrir,
 Sköll, Garmr, Orthrus, Argos, Cavall, Amarok) and the **explorers are dog breeds**; the
@@ -170,16 +176,20 @@ ferries EOL to retirement, Anubis weighs criticality, Atlas bears the routes, Ga
 carries the mail, Daedalus builds, Terminus marks boundaries). Only actual canines keep
 the "Hound" suffix.
 
+Every hound also has a printable **Meet the Hound** one-pager — its hub card's *Info ↗*, at
+`/web/hounds/<id>.html` — generated by `tools/hound_pages.py` from `tools/hound_pages/<id>.json`
+(the same text feeds the intro panel under each hound's header).
+
 ### Signal & analysis (15)
 
 | Agent | Codename | What it does |
 |---|---|---|
 | **MITRE ATT&CK Tagging** | Orthrus Hound | Maps CVEs to ATT&CK techniques and tags the affected assets |
-| **CISA KEV Tagging** | Laelaps Hound | Tags Known-Exploited vulns off the CISA-KNOWN-EXPLOITED xref, all or by catalog date |
+| **CISA KEV Tagging** | Laelaps Hound | CISA KEV findings joined to CISA's catalog (due dates, ransomware use); tags off the CISA-KNOWN-EXPLOITED xref — all, by catalog date, by due date, or ransomware |
 | **EOL / Unsupported** | Charon | Tags end-of-life / unsupported software by plugin lifecycle text |
 | **Certificate Agent** | Certania | Tags assets with expired certs (by month, last 12 months + older) and certs failing in 12 months; expiry timeline, crown-jewel / weak-crypto metrics, Cert Issue tagging |
 | **IoT Discovery Squad** | Cerberus Hound | Detect → expand → cross-reference → QA; tags IoT / embedded / OT devices |
-| **Post-Quantum Cipher Analysis** | Heimdall | Tags assets in Tenable's PQ-cipher plugins (277650 / 277652 / 277653); crown-jewel migration roadmap |
+| **Post-Quantum Cipher Analysis** | Heimdall | Certificate crypto, TLS/SSH key exchange, OpenSSH/OpenSSL versions and Tenable's PQ plugins (277650 / 277652 / 277653); tags the assets behind each signal; crown-jewel migration roadmap |
 | **AI Inventory** | Pythia | Finds AI / ML software; labels EOL + ATT&CK/ATLAS exposure; tags by role |
 | **Identity Inventory** | Janus | Human + non-human identities; tags the hosting assets |
 | **Software Analyzer** | Mimir | Version sprawl, most-deployed, and a risk leaderboard (package × its vulns) |
@@ -187,7 +197,7 @@ the "Hound" suffix.
 | **WAS · Web Apps** | Arachne | Consolidated Tenable WAS — severity, OWASP profile, tech inventory, scan coverage; tag web apps |
 | **Attack Path Analysis** | Fenrir Hound | Surfaces attack paths and choke points across the estate |
 | **Scan Evaluations** | Chronos | Scan-time analysis + credential-failure coverage |
-| **Asset Classification** | Linnaeus | Classifies assets (class / subnet / OS) and tags by OS from plain English |
+| **Asset Classification** | Linnaeus | Classifies every asset by what it is — Windows / Linux / macOS, IoT and network gear by device type, OT, virtual, cloud — suggests tags for the unclassified from OS / device-type signals, and tags by OS from plain English |
 | **Compliance** | Minos | Consolidated audit compliance — pass/fail/warn, top failing controls, framework rollup, per-asset scorecards; assign an Audit Owner |
 
 ### Organize (5)
@@ -209,7 +219,7 @@ the "Hound" suffix.
 | **Alerting** | Alert Raven | Baseline + threshold alerts; crafts, tests, and emails the change |
 | **Tag Removal** | Garmr Hound | Lists every tag and removes the chosen ones; feeds the contract's removal phase |
 | **Command & Control** | Amarok Hound | Remediation executor — `navi action push` (SSH RCE) to **one** Linux host: run a command, ship a file, or apply a vuln-derived patch. Triple-gated (writes + RCE opt-in + per-host confirm), canary-first campaigns with stop-on-failure + abort, Route→Tag→Push→Verify |
-| **AI Navi Contract** | Covenant | Orchestrator — capture a policy once; it plans, then tags / sets-ACR on a loop when armed |
+| **AI Navi Contract** | Covenant | Orchestrator — capture a policy once; it plans, then tags / sets-ACR on a loop when armed. Also schedules **Release the Hounds** (navi updates → optimize → release) so the pack is ready at log-in |
 
 ### Views & deep-dives (7)
 
@@ -223,9 +233,10 @@ the "Hound" suffix.
 | **Web App Recon** | Beagle | Per-web-app recon — sitemap, target, screenshot, plugin output |
 | **MCP Compare** | — | Tenable MCP vs navi MCP — capability & routing matrix, the limits that force a handoff (rule-tag cap, OS/app/device detection, ACR/AES, dashboards), and a navi-side connection check |
 
-### Explorers (8)
+### Explorers (10)
 
-Read-only drill-downs over the estate.
+Read-only drill-downs over the estate. Every one except Harrier has a **✨ Ask** box that turns a plain-English
+question into one read-only SQL query on that table (needs a model — see [BYO_MODEL.md](BYO_MODEL.md)).
 
 | Agent | Codename | What it searches |
 |---|---|---|
@@ -237,6 +248,8 @@ Read-only drill-downs over the estate.
 | **Tag Explorer** | Basset | `tags` — category/value, asset counts per tag, drill-down to the assets carrying each |
 | **WAS Apps Explorer** | Vizsla | `apps` — name/target/tech, severity presence, scan recency |
 | **Fixed Explorer** | Plott | `fixed` — remediation history + Pass/Fail SLA verdicts |
+| **Compliance Explorer** | Saluki | `compliance` — every audit result by check, audit file, framework, status, or asset; failed first, with actual vs expected and the fix |
+| **Software Explorer** | Harrier | `software` — where a product is installed, at which versions, and which assets fall in an affected version range; **✨ zero-day lookup** reads a CVE's affected products from NVD / CVE.org / OSV or an advisory page — only the sites you approve |
 
 > Four more manifests exist but are marked `hidden` and don't get a card:
 > `_template` (the scaffold you copy), `explore` (backs the drill-down pages),
@@ -268,13 +281,17 @@ Read-only drill-downs over the estate.
 │   ├── alerts.py           Alert Raven's definitions, evaluation, and fired-state
 │   ├── llm.py              optional reasoning layer — 4 providers (see BYO_MODEL.md)
 │   ├── discovery.py        scans agents/*/manifest.json → registry
+│   ├── release_pipeline.py AI Contract ▸ Release the Hounds schedule (navi updates → optimize → release)
+│   ├── security.py / gates.py  request policy + strict confirm
 │   └── launcher.py         generic /api/<id>/<action> dispatch
 ├── agents/                 ONE folder per agent (manifest.json · agent.py · api.py · page.html)
 │   └── _template/          copy this to add your own agent
 ├── artifacts/              persona artifacts that render the MCP tools
 ├── contracts/              AI Contract policy + state       (CONTRACT_DIR)
 ├── alerts/                 Alert Raven definitions + state  (ALERT_DIR)
-├── data/                   daily snapshots for SLA/trend history (NAVI_HISTORY_DIR)
+├── data/                   daily snapshots for SLA/trend history (NAVI_HISTORY_DIR); cache/ (NAVI_CACHE_DIR)
+├── tests/                  regression tests — plain scripts (see tests/README.md)
+├── tools/                  hound_pages.py → the "Meet the Hound" one-pagers; scale_bench.py
 └── web/                    hub (index.html) + the shared dashboards
     ├── hounds/             "Meet the Hound" one-pagers
     └── assets/             shared console.css / console.js
@@ -284,8 +301,9 @@ Read-only drill-downs over the estate.
 ## Add your own agent
 
 Copy `agents/_template/` to `agents/<your-id>/`, fill in `manifest.json`,
-`agent.py`, `api.py`, and `page.html`. The hub discovers it automatically on the
-next start. See [CONTRIBUTING.md](CONTRIBUTING.md).
+`agent.py`, `api.py`, and `page.html`. Discovery registers its API and page automatically on
+the next start; adding a hub card / sidebar entry is a one-line change each. See
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Security model
 
@@ -298,8 +316,8 @@ server (stdlib, Flask, FastAPI) applies to every request:
 | **Host allowlist** (every request, GET too) | `localhost`, `127.0.0.1`, `[::1]` on any port; anything else → `403`. This is what defeats DNS rebinding | `HOUNDS_ALLOWED_HOSTS=hounds.lan,10.0.0.5` adds names/IPs. With a non-loopback `HOUNDS_BIND` the bound IP and this machine's hostname/IPs are added |
 | **Access token** | not needed on loopback | With a non-loopback bind every `/api` call needs this launch's token. It is printed **once**, in the startup URL (`http://host:port/?token=…`); opening that URL swaps it for an `HttpOnly; SameSite=Strict` cookie. Scripts send `X-Hounds-Token: <token>`. A new token is generated on every start. `HOUNDS_REQUIRE_TOKEN=1` demands it on loopback too (shared jump boxes, where other local users can reach 127.0.0.1) |
 | **POST guard** | JSON `Content-Type` required; a present `Origin` must be same-origin with an allowed host; `Origin: null` and `Sec-Fetch-Site: cross-site` refused | — |
-| **Response headers** | `X-Frame-Options: DENY`, `Content-Security-Policy: frame-ancestors 'none'`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` | — |
-| **Static files** | only page assets (`.html .css .js .json .md` images, fonts) under `/agents/`, `/web/`, `/static/` — never `.py` source, `__pycache__` or dotfiles | — |
+| **Response headers** | `X-Frame-Options: SAMEORIGIN`, `Content-Security-Policy: frame-ancestors 'self'` (the console embeds its own pages, never anyone else's), `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` | — |
+| **Static files** | only page assets (`.html .css .js .json .md .csv .txt .pdf`, images, fonts) under `/agents/`, `/web/`, `/static/` — never `.py` source, `__pycache__` or dotfiles | — |
 | **Limits** | request bodies capped at 80 MB (above the 64 MB page-cache entry) → `413`; socket timeout 120 s | `HOUNDS_MAX_BODY`, `HOUNDS_SOCKET_TIMEOUT` |
 | **File modes** | the servers and the MCP server run with `umask 077`; caches, logs, alert state, contracts, C2 uploads are written `0600` (dirs `0700`) | — |
 
@@ -307,15 +325,15 @@ server (stdlib, Flask, FastAPI) applies to every request:
 `NAVI_BIN` or `NAVI_CWD` at all — a browser-settable binary path or working directory is
 remote code execution. Set them in the shell, `.env` or `hounds.config.json` and restart.
 Turning **on** the write / email / remote-execution gates (`NAVI_ALLOW_WRITES`,
-`NAVI_EMAIL`, `NAVI_REMOTE_CODE_EXECUTION`) or changing `NAVI_DB_PATH` needs a browser on
-**this machine** (loopback) plus an explicit confirmation; turning a gate **off** never
-needs one. `NAVI_DB_PATH` must name an existing SQLite file. Changing the model endpoint
-(`NAVI_LLM_BASE_URL`, http/https only) or provider **clears the stored model keys** unless
+`NAVI_EMAIL`, `NAVI_REMOTE_CODE_EXECUTION`) or changing `NAVI_DB_PATH` or the model endpoint
+(`NAVI_LLM_BASE_URL`) needs a browser on **this machine** (loopback) plus an explicit
+confirmation; turning a gate **off** never needs one. `NAVI_DB_PATH` must name an existing
+SQLite file. Changing the model endpoint (http/https only) or provider **clears the stored model keys** unless
 you enter the new key in the same save, so a changed URL can't receive the old key; the
 page only ever shows the endpoint as `scheme://host[:port]/path` (no `user:pass@`, no query).
 
-**SQL a person or the model writes** (Advanced search, Mimir, Alert Raven metrics, the
-Dashboard builder) runs under a SQLite authorizer (`core.db.user_query`) that refuses to read
+**SQL a person or the model writes** (Advanced search, the explorers' ✨ Ask, Mimir, Alert
+Raven metrics, the Dashboard builder) runs under a SQLite authorizer (`core.db.user_query`) that refuses to read
 navi's credential tables — `keys`, `smtp`, `ssh`, `resend` — whatever the SQL looks like;
 those values are also on the response scrub list.
 
@@ -357,8 +375,9 @@ Homebrew `python@3.12`, or your package manager) and re-run.
 needs deps. Just use `python3 run.py` (it falls back to the built-in server), or
 force it: `python3 run.py stdlib`.
 
-**Port 8000 already in use.** `PORT=8010 python3 run.py`, then open
-`http://localhost:8010`.
+**Port 8000 already in use.** The built-in server walks up to the next free port by
+itself — open the URL it prints. For FastAPI / Flask (or a fixed port) use
+`PORT=8010 python3 run.py`, then open `http://localhost:8010`.
 
 **"No agents / discovering agents…" forever.** You're not on the served URL, or
 you started `run.py` from the wrong folder. Run it from the repo root (the folder
@@ -373,7 +392,8 @@ resolved and the navi binary it found.
 
 **"⚠ Claude: no API key" chip / natural-language features greyed out.** The model
 is **optional** — the whole app works without it. It only powers the NL extras
-("ask which agent can help", NL→SQL, NL ACR rules, cert reasoning). Run
+("ask which agent can help", NL→SQL and the explorers' ✨ Ask, NL ACR rules, ownership
+mapping, contract policy). Run
 `python3 check_llm.py` to see the resolved provider and the exact failure reason,
 and see [BYO_MODEL.md](BYO_MODEL.md) to point it at Anthropic, an OpenAI-compatible
 endpoint, a local Ollama model, or Bedrock.

@@ -109,6 +109,27 @@ _OPS = ("<=", ">=", "==", "<", ">", "=")
 _CONSTRAINT = re.compile(r"(<=|>=|==|<|>|=)?\s*([0-9vV][^\s,;|<>=]*)")
 
 
+_VSEP = ".-+_~:"
+
+
+def version_match(ver, want, exact=False) -> bool:
+    """The Version box. "=3.0.2" → that version only (2.0 == 2.0.0). A bare version is that
+    version AND its sub-versions, on a component boundary: 17 matches 17, 17.0.9, 17.0.9+8
+    and 17_0_9 but not 170 or 1.17; 3.0.2 matches 3.0.2.1 but not 3.0.2k (build 480 — a bare
+    "17" used to find only a version recorded as exactly "17")."""
+    ver, want = str(ver or "").strip(), str(want or "").strip()
+    if not ver or not want:
+        return False
+    if vcmp(ver, want) == 0:
+        return True
+    if exact:
+        return False
+    v = re.sub(r"^\d+:", "", ver)                 # ignore an RPM / DEB epoch, as vcmp does
+    v = re.sub(r"^[vV](?=\d)", "", v)
+    w = re.sub(r"^[vV](?=\d)", "", want)
+    return len(v) > len(w) and v[:len(w)].lower() == w.lower() and v[len(w)] in _VSEP
+
+
 def parse_ranges(text):
     """'>=2.0 <2.17.1; >=2.18 <2.18.2' → [[('>=','2.0'),('<','2.17.1')],[...]].
     Raises ValueError on text that isn't a range (so the page can say so)."""
@@ -206,7 +227,8 @@ def _name_ok(name, q, product, exact):
 
 def search(q="", product="", version="", ranges=None, exact=False, path=None):
     """The whole selection for a term (substring of the product name) or one exact product,
-    optionally narrowed by `version` (exact; 'x*' = prefix) and/or `ranges` (parse_ranges).
+    optionally narrowed by `version` (version_match: '17' = 17 and its sub-versions, '=17' exactly,
+    'x*' = text prefix) and/or `ranges` (parse_ranges).
     Returns {products, kpi, breakdowns, rows, ranges} — rows is every matched asset, sorted
     affected → check → unknown → others, then ACR high → low (the caller pages it)."""
     q = str(q or "").strip().lower()
@@ -217,14 +239,15 @@ def search(q="", product="", version="", ranges=None, exact=False, path=None):
     if len(term) < 2:
         raise ValueError("type at least 2 characters of a product name")
     vprefix = version.endswith("*")
-    vwant = version.rstrip("*").strip()
+    vexact = version.startswith("=")
+    vwant = version.rstrip("*").lstrip("=").strip()
 
     prods = {}         # lower name → {name, versions{v: set(uuid)}, assets set, src set}
     per_asset = {}     # uuid → {versions: {(product, ver)}, status}
     records = 0
 
     def add(uuid, name, ver, raw, src):
-        if vwant and not (ver.startswith(vwant) if vprefix else vcmp(ver, vwant) == 0 and ver):
+        if vwant and not (ver.startswith(vwant) if vprefix else version_match(ver, vwant, vexact)):
             return
         st = _status(ver, raw, ranges)
         k = name.lower()

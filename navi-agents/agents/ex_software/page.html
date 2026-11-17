@@ -68,7 +68,7 @@
 
     <div class="toolbar">
       <input id="q" class="fin" style="flex:1;min-width:200px" placeholder="product or part of its name — openssl, log4j, httpd, chrome…">
-      <input id="ver" class="fin" style="width:150px" placeholder="version (3.0.2 or 3.0*)" title="One version exactly, or a prefix ending in *">
+      <input id="ver" class="fin" style="width:150px" placeholder="version (17, =3.0.2, 3.0*)" title="17 = version 17 and its sub-versions (17.0.9, 17.0.9+8 …, not 170) · =3.0.2 = exactly that version · 3.0* = any version whose text starts with 3.0">
       <input id="rng" class="fin" style="width:230px" placeholder="affected range, e.g. <2.4.60" title="Affected versions. Clauses separated by ; are OR'd, constraints inside a clause are AND'd: >=2.0 <2.17.1; >=2.18 <2.18.2">
       <label class="sub" style="display:flex;gap:4px;align-items:center" title="Match the product name exactly, not as part of a longer name"><input type="checkbox" id="exact"> exact name</label>
       <button class="btn run sm" id="go" data-run>▶ Search</button>
@@ -136,7 +136,7 @@ function render(){ const r=LAST.res, k=r.kpi||{}, ranged=!!k.ranged, off=LAST.of
       +(more?'<div class="sub" style="font-size:11.5px;margin-top:4px">+ '+fnum(more)+' more versions</div>':'')+'</div>'; };
   $('where').innerHTML=box('By version',B.versions,true,B.versions_more)+box('By operating system',B.os)+box('By network',B.network)+box('By asset criticality',B.acr);
   $('where').querySelectorAll('[data-v]').forEach(el=>el.onclick=()=>{ const x=B.versions[+el.dataset.v]; if(!x.label||x.label==='(no version)')return;
-    $('ver').value=x.label; if(k.products>1){ $('q').value=x.product; $('exact').checked=true; } STF=''; go(0); });
+    $('ver').value='='+x.label; if(k.products>1){ $('q').value=x.product; $('exact').checked=true; } STF=''; go(0); });
   const ps=r.products||[];
   $('prods').innerHTML=ps.length>1?('<div class="sub" style="font-size:12px;margin-bottom:2px">'+fnum(r.nproducts)+' products match “'+esc(LAST.req.q)+'” — click one to search it alone:</div>'
     +ps.slice(0,40).map((p,i)=>'<span class="chip" data-p="'+i+'" title="'+esc(p.name+' · '+p.nver+' version(s) · newest '+(p.newest||'—')+' · source '+p.src)+'">'+esc(p.name)+' · '+fnum(p.assets)

@@ -57,4 +57,5 @@ tags the exact assets behind it by uuid (`navi enrich tag --query`), never by `-
 
 - `run` → `{metrics, assets[], scanners[], policies[], scans[], slowest[], credential{…}}`
   (`credential` is kept for Alerts and the Contract).
+- `drill` → page / filter / search the run's lists (read-only); `export` → CSV.
 - `tag {key, name?, confirm}`

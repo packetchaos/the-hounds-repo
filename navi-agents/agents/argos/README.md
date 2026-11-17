@@ -22,5 +22,7 @@ CLI on demand — needs `navi` on the server (`NAVI_BIN`).
 | `run` | — | readiness stub (hub Execute) |
 | `lookup` | `{target}` (UUID or IP) | the full dossier |
 | `live` | `{target, view}` | `navi explore uuid <target> [view]` output |
+| `output` | `{target, plugin_id}` | one finding's stored plugin output from navi.db |
+| `webpages` | `{target}` | web pages captured in HTTP plugin output (rendered in a locked sandbox) |
 
 Deep-link: `page.html?target=<uuid|ip>` auto-runs the lookup.

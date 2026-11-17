@@ -14,8 +14,8 @@
     <div class="toolbar" style="align-items:flex-start;gap:10px;flex-wrap:wrap"><div style="flex:1;min-width:260px">
       <h2 style="margin:0" id="evTitle">🧾 Evidence</h2>
       <p class="sub" style="margin:3px 0 0" id="evWhy"></p></div>
-      <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn ghost sm" id="evCsv" type="button" disabled>⬇ CSV (all)</button>
-        <a class="btn ghost sm" id="evHound" href="#">Open the hound →</a><a class="btn ghost sm" href="/agents/insights/page.html">← On the Scent</a></div></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap"><button class="btn ghost sm" id="evCsv" type="button" disabled title="Every asset in this list (and its search), not just the page on screen">⬇ CSV (all)</button>
+        <a class="btn ghost sm" id="evHound" href="#">Open the hound →</a><a class="btn ghost sm" id="evBack" href="/agents/insights/page.html">← On the Scent</a></div></div>
     <div id="evFlash" class="flash"></div>
     <div class="toolbar" style="margin:8px 0"><input id="evQ" class="fld" placeholder="Search these assets — host, IP, OS" style="flex:1;min-width:220px"><span class="chip" id="evCount"></span></div>
     <table id="evTbl" style="table-layout:fixed;width:100%"><colgroup><col><col style="width:130px"><col style="width:230px"><col style="width:52px"><col style="width:96px"><col style="width:78px"></colgroup>
@@ -56,6 +56,39 @@ document.getElementById('q').addEventListener('keydown',e=>{if(e.key==='Enter')g
 /* ---- evidence (build 467) ---- */
 let EV=null, TEV=null;
 const _evKey=(()=>{ try{ return new URLSearchParams(location.search).get('evidence')||''; }catch(e){ return ''; } })();
+/* software list (build 480/481): ?software=<Mimir product>[&version=<v>]. Every relevant asset is a
+   server-side run; the browser pulls it 500 rows at a time and shows 20 per page. */
+let SWL=null;
+function swList(run, first){
+  const SHOW=20, st={run, q:'', toks:[null], ci:0, rows:[], next:null, start:0, total:0, pg:0, seq:0, err:null};
+  const tb=()=>document.querySelector('#evTbl tbody');
+  function take(o){ if(!o||o.ok===false){ st.rows=[]; st.next=null; st.err=(o&&o.expired)?'This list is no longer on the server — reopen it from Mimir.':'✗ '+((o&&o.error)||'could not load'); return; }
+    st.err=null; st.rows=o.top||[]; st.next=(o.page||{}).next||null; st.start=+((o.page||{}).start)||0; st.total=+((o.total||{}).value)||0; }
+  async function chunk(ci, lastPage){ const my=++st.seq; tb().innerHTML='<tr><td colspan="6" class="sub"><span class="spin"></span> loading…</td></tr>';
+    let o; try{ o=await API.post('software_page',{run:st.run, q:st.q, next:st.toks[ci]||undefined}); }catch(e){ o={ok:false,error:e.message}; }
+    if(my!==st.seq) return; take(o); st.ci=ci; if(st.next) st.toks[ci+1]=st.next;
+    st.pg=lastPage?Math.max(0,Math.ceil(st.rows.length/SHOW)-1):0; draw(); }
+  function draw(){
+    const a=st.pg*SHOW, rows=st.rows.slice(a,a+SHOW), from=st.start+a;
+    tb().innerHTML=st.err?'<tr><td colspan="6" class="sub">'+esc(st.err)+'</td></tr>'
+      :(rows.length?rows.map(evRow).join(''):'<tr><td colspan="6" class="sub">'+(st.q?'Nothing matches the search.':'No assets.')+'</td></tr>');
+    const more=st.pg<Math.ceil(st.rows.length/SHOW)-1||!!st.next, less=st.pg>0||st.ci>0;
+    let p=document.getElementById('evPager'); if(!p){ p=document.createElement('div'); p.id='evPager'; p.className='toolbar'; document.getElementById('evTbl').after(p); }
+    p.innerHTML=(st.total>SHOW?'<button class="btn ghost sm" id="evPrev" '+(less?'':'disabled')+'>‹ Prev</button><span class="sub" style="margin:0 10px">'
+      +(rows.length?Number(from+1).toLocaleString()+'–'+Number(from+rows.length).toLocaleString():'0')+' of '+Number(st.total).toLocaleString()+'</span>'
+      +'<button class="btn ghost sm" id="evNext" '+(more?'':'disabled')+'>Next ›</button>':'')
+      +'<span class="sub" style="margin-left:auto;font-size:11.5px">20 per page · loaded '+Number(st.rows.length).toLocaleString()+' at a time</span>';
+    const pv=document.getElementById('evPrev'), nx=document.getElementById('evNext');
+    if(pv) pv.onclick=()=>{ if(st.pg>0){ st.pg--; draw(); } else if(st.ci>0) chunk(st.ci-1,true); };
+    if(nx) nx.onclick=()=>{ if(st.pg<Math.ceil(st.rows.length/SHOW)-1){ st.pg++; draw(); } else if(st.next) chunk(st.ci+1,false); };
+    document.getElementById('evCount').textContent=(st.q?Number(st.total).toLocaleString()+' of ':'')+Number(EV.count||0).toLocaleString()+' assets';
+  }
+  let tmr=null; const qi=document.getElementById('evQ');
+  qi.oninput=()=>{ clearTimeout(tmr); tmr=setTimeout(()=>{ st.q=qi.value.trim(); st.toks=[null]; chunk(0,false); },300); };
+  take(first); if(st.next) st.toks[1]=st.next; draw();
+  return st;
+}
+const _swq=(()=>{ try{ const u=new URLSearchParams(location.search), p=u.get('software'); return p?{product:p, version:u.has('version')?u.get('version'):null}:null; }catch(e){ return null; } })();
 function evRow(r){ const h=(r.hostname||'').trim()||r.ip_address||'(none)';
   return `<tr><td title="${esc(h)}"><a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(r.uuid)}" title="Open the Argos asset deep-dive">${esc(h)}</a></td>`+
     `<td class="mono">${esc(r.ip_address||'')}</td><td title="${esc(r.operating_system||'')}">${esc(r.operating_system||'')}</td>`+
@@ -65,7 +98,8 @@ async function loadEvidence(key){
   const card=document.getElementById('evCard'); card.style.display='';
   document.getElementById('evTitle').textContent='🧾 Evidence — '+key;
   // the card click asked for this list: a run, not a page-open read (may take minutes on a big navi.db)
-  let o; try{ o=await API.post('evidence',{key, _run:true}); }catch(e){ o={ok:false,error:e.message}; }
+  let o; try{ o=_swq?await API.post('software',Object.assign({_run:true},_swq.version==null?{product:_swq.product}:_swq))
+                    :await API.post('evidence',{key, _run:true}); }catch(e){ o={ok:false,error:e.message}; }
   if(!o||!o.ok){ document.querySelector('#evTbl tbody').innerHTML='<tr><td colspan="6" class="sub">✗ '+esc((o&&o.error)||'could not build the list')+'</td></tr>'; return; }
   EV=o.evidence||o.summary||{};
   document.title=(EV.label||'Evidence')+' · Asset Explorer';
@@ -73,19 +107,27 @@ async function loadEvidence(key){
   document.getElementById('evWhy').innerHTML=esc(EV.why||'')+' · counted by <b>'+esc(EV.hound||'')+'</b> · computed '+esc(EV.computed_at||'')+(EV.seconds!=null?' in '+esc(EV.seconds)+' s':'');
   const hl=document.getElementById('evHound'); hl.href='/agents/'+encodeURIComponent(EV.agent||'')+'/page.html'; hl.textContent='Open '+(EV.hound||'the hound')+' →';
   const run=(o.drill||{}).run;
-  document.getElementById('evCsv').disabled=!run;
+  if(_swq){ document.getElementById('evBack').href='/agents/software/page.html'; document.getElementById('evBack').textContent='← Mimir';
+    document.getElementById('evQ').placeholder='Search these assets — host, IP, OS';
+    document.getElementById('evCsv').disabled=!run; SWL=swList(run,o); }
+  else { document.getElementById('evCsv').disabled=!run;
   TEV=hDrill({api:API, table:'evTbl', run, section:'assets', cols:6, row:evRow, search:'evQ', first:o,
     empty:'<tr><td colspan="6" class="sub">'+(EV.count?'Nothing matches the search.':'No assets — nothing to act on here right now.')+'</td></tr>',
-    onRender:T=>{ const k=T.total?+T.total.value||0:0; document.getElementById('evCount').textContent=(k===EV.count?'':Number(k).toLocaleString()+' of ')+Number(EV.count||0).toLocaleString()+' assets'; }});
+    onRender:T=>{ const k=T.total?+T.total.value||0:0;
+      document.getElementById('evCount').textContent=(k===EV.count?'':Number(k).toLocaleString()+' of ')+Number(EV.count||0).toLocaleString()+' assets'; }}); }
   setTimeout(()=>card.scrollIntoView({behavior:'smooth',block:'start'}),50);
 }
-document.getElementById('evCsv').onclick=async function(){ if(!TEV||!TEV.state||!TEV.state.run) return;
+document.getElementById('evCsv').onclick=async function(){
+  if(_swq?!SWL:(!TEV||!TEV.state||!TEV.state.run)) return;
   const b=this, l=b.textContent; b.disabled=true; b.textContent='⏳ CSV…';
-  let o; try{ o=await API.post('export',{run:TEV.state.run, q:(document.getElementById('evQ').value||'').trim()}); }catch(e){ o={ok:false,error:e.message}; }
+  const q=(document.getElementById('evQ').value||'').trim();
+  const req=_swq?Object.assign({run:SWL.run, q},_swq.version==null?{product:_swq.product}:_swq):{run:TEV.state.run, q};
+  let o; try{ o=await API.post(_swq?'software_export':'export',req); }catch(e){ o={ok:false,error:e.message}; }
   b.disabled=false; b.textContent=l;
   if(!o||!o.ok){ flash('evFlash','✗ '+esc((o&&o.error)||'export failed'),'crit'); return; }
-  downloadText(_safeName('evidence-'+_evKey)+'.csv', o.csv); };
-if(_evKey) loadEvidence(_evKey);
+  downloadText(_safeName(_swq?('software-'+_swq.product+(_swq.version?'-'+_swq.version:'')):('evidence-'+_evKey))+'.csv', o.csv);
+  if(_swq) flash('evFlash','⬇ exported '+Number(o.rows||0).toLocaleString()+' asset(s) — every one in this list'+(o.q?' matching “'+esc(o.q)+'”':''),'ok'); };
+if(_swq) loadEvidence('software'); else if(_evKey) loadEvidence(_evKey);
 mountAgentHeader({icon:'🔎',name:'Asset Explorer',sub:'navi.db search · 500/page'});
 try{ hMailAuto(); }catch(e){}
 wireNlBox('assets');

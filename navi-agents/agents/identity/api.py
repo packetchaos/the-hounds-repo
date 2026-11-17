@@ -29,7 +29,8 @@ def _agent():
 
 CROWN_ACR = 7
 RISK = ("privileged", "non-expiring pw", "ssh password auth", "weak pw policy", "guest enabled",
-        "default/blank cred", "AD attack path", "default secret", "write (private)")
+        "default/blank cred", "AD attack path", "default secret", "write (private)",
+        "never changed pw", "never logged in")
 
 
 def _enrich(res):
@@ -60,7 +61,7 @@ def _enrich(res):
         a["crown_hosts"] = sum(1 for v in vals if v >= CROWN_ACR)
         a["reused"] = max([int(re.search(r"×(\d+)", f).group(1)) for f in a.get("flags", [])
                            if f.startswith("account reuse ×")] or [0])
-        a["risky"] = [f for f in a.get("flags", []) if f != "scan credential"]
+        a["risky"] = [f for f in a.get("flags", []) if f not in identity.INFO_FLAGS]
     has = lambda a, f: f in (a.get("flags") or [])
     people = [a for a in accts if a.get("klass") != "machine"]
     c = res.get("counts") or {}
@@ -152,7 +153,8 @@ def _slim(a, rk):
             "hosts_n": len(hosts), "assets_n": len(a.get("asset_uuids") or []), "max_acr": a.get("max_acr"),
             "crown_hosts": a.get("crown_hosts") or 0, "reused": a.get("reused") or 0,
             "reuse_n": len(a.get("reuse_uuids") or []), "plugins": a.get("plugins") or [], "url": a.get("url"),
-            "scan_credential": a.get("scan_credential")}
+            "scan_credential": a.get("scan_credential"), "privilege": (a.get("privilege") or [])[:6],
+            "privileged_hosts": a.get("privileged_hosts") or 0, "groups": (a.get("groups") or [])[:12]}
 
 
 def _publish(res):

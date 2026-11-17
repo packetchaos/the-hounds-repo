@@ -205,7 +205,7 @@ def _read_only(sql):
     low = s.lower()
     if not (low.startswith("select") or low.startswith("with")):
         return None
-    if re.search(r"\b(insert|update|delete|drop|alter|create|attach|pragma|replace|vacuum)\b", low):
+    if re.search(r"\b(insert|update|delete|drop|alter|create|attach|pragma|replace(?!\s*\()|vacuum)\b", low):
         return None
     return s
 

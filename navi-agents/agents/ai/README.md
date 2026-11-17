@@ -27,7 +27,8 @@ shows the navi.db evidence, with false-positive suppression.
     ATT&CK agent's matrix. Tag the listed set from there.
 
 ## Tagging (gated, `confirm=true` + `NAVI_ALLOW_WRITES=1`)
-Tags **assets** by explicit UUID set via navi tag-by-query (never removes tags):
+Tags **assets** by an exact UUID set (rebuilt on the server from the stored run) via navi
+tag-by-query (never removes tags):
 
 | Category | Values |
 |---|---|
@@ -38,20 +39,26 @@ Tags **assets** by explicit UUID set via navi tag-by-query (never removes tags):
 | `AI Priority` | `KEV-exposed` |
 | `AI Egress` | `Shadow` or `<destination>` |
 | `AI ATLAS` | `<technique id>` or `Tactic : <tactic>` (from the ATLAS drill-down) |
+| `AI ACR Raise` | `<role>` — the role's assets whose ACR is below the suggestion (step 1 of the ACR fix) |
 
-**ACR:** `acr_roles` sets ACR by the `AI Role : <role>` tag to the role's suggested
-value: Model Serving 9; Vector DB, Training and MLOps 8; Notebook 7; Dev tools and
-API clients 6. It only takes effect once the AI Role tag is in Tenable.
+**ACR** (two steps): `tag_underrated` tags the role's assets whose current ACR is below the
+role's suggested value `AI ACR Raise : <role>`; then `acr_roles` sets ACR by that tag to the
+suggestion — so it only ever raises a score. Suggested values: Model Serving 9; Vector DB,
+Training and MLOps 8; Notebook 7; Dev tools and API clients 6. It only takes effect once the
+`AI ACR Raise` tag is in Tenable.
 
 Each write is recorded in the Tagging log.
 
 ## Actions
 - `run {fp, allow}` → discovery + metrics (read-only)
-- `tag {category, value, uuids, confirm}` → gated tag-by-query (any AI category except `AI ATLAS`)
+- `drill` / `counts` → page / filter the run's AI assets, and the numbers on the tag buttons (read-only)
+- `tag {run, key, category, value, confirm}` → gated tag-by-query (any AI category except `AI ATLAS`);
+  the page sends a KEY and the server rebuilds the asset set from the stored run (a `uuids` list is
+  still accepted from server-side callers)
 - `tag_atlas {key, fp, allow, confirm}` → gated ATLAS tag. `key` is `tech:<AML id>` or
   `tactic:<tactic>`; the server re-runs the scan (with the page's suppressions and egress
   allowlist) and tags exactly that technique's / tactic's asset set → `AI ATLAS`. No uuids
   are taken from the page; unknown keys are refused.
-- `acr_roles {roles, confirm}` → gated ACR by AI Role tag
-- `tag_underrated {role, uuids, confirm}` → gated: the role's assets below its suggested ACR → `AI ACR Raise : <role>`
+- `tag_underrated {role, run, confirm}` → gated: the role's assets below its suggested ACR (re-read from navi.db) → `AI ACR Raise : <role>`
+- `acr_roles {roles, confirm}` → gated ACR set by the `AI ACR Raise : <role>` tag
 - `apply {confirm}` → gated legacy shortcut: whole AI plugin family → `AI : Present`

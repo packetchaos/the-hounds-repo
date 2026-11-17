@@ -63,7 +63,8 @@ python3 run.py flask      # Flask (pip-installs it if missing)
 | FastAPI | `8000` | `fastapi`, `uvicorn[standard]` |
 | Flask | `8001` | `flask` |
 
-Override with `PORT=8010 python3 run.py`.
+Override with `PORT=8010 python3 run.py`. If the port is busy, the stdlib server walks up to
+the next free one and prints the URL it actually bound.
 
 ### Who can connect (security model)
 
@@ -132,8 +133,10 @@ export NAVI_BIN=/full/path/to/navi
 ```
 
 `navi.db` is a **point-in-time snapshot** — freshness matters. Re-run
-`navi config update assets` / `navi config update vulns` on your normal cadence, or use the
-one-click **Refresh navi.db** button in the UI.
+`navi config update assets` / `navi config update vulns` on your normal cadence, use the
+one-click **Refresh navi.db** button in the UI, or schedule it on **AI Contract ▸ Release the
+Hounds** (the navi updates you pick → `navi config optimize` → ⚡ Optimize → every hound
+pre-run, ready by a time you set).
 
 > **Never commit `navi.db`.** It's a snapshot of your tenant. It's already in
 > `.gitignore`, along with sqlite journals, `.env` and `hounds.config.json`.
@@ -221,8 +224,9 @@ export NAVI_REMOTE_CODE_EXECUTION=1
 
 Or an empty `ALLOW_REMOTE_EXEC` file. Aliases:
 `NAVI_MCP_ALLOW_REMOTE_CODE_EXECUTION`, `NAVI_RCE`. On top of the flags: Linux-only,
-a destructive-command denylist, canary-first campaigns with stop-on-failure and an
-abort switch, and a per-host confirm. SSH credentials come from `navi config ssh`.
+an advisory destructive-command warning (it forces an extra confirm — a warning, not a
+guard), canary-first campaigns with stop-on-failure and an abort switch, and a per-host
+confirm. SSH credentials come from `navi config ssh`.
 
 > Enabling writes alone never enables email or push. Each is a deliberate,
 > separate decision.
@@ -240,8 +244,9 @@ enable-file it found, and the navi binary it resolved.
 
 ## Optional: the reasoning layer
 
-The pack uses a model for its "propose" steps — cert triage, ACR planning, ownership
-mapping, NL→SQL, contract policy. **The model only proposes**; the UI previews and a
+The pack uses a model for its "propose" steps — ACR planning, ownership mapping, NL→SQL
+(including the explorers' ✨ Ask), contract policy, Harrier's zero-day lookup of non-JSON
+advisory pages. **The model only proposes**; the UI previews and a
 human approves before any gated write. With nothing configured, every agent falls
 back to a deterministic path and the whole app still runs.
 
@@ -292,9 +297,10 @@ python3 run.py                    # server starts, prints a URL
 
 Then in the browser at `http://localhost:8000`:
 
-1. The hub (**Release the Hounds**) lists **41 agents**. If it says
-   "discovering agents…" forever, you're not on the served URL or you started
-   `run.py` from the wrong folder.
+1. The hub (**Release the Hounds**) shows the pack's cards, and the header shows the
+   version — **v1.43.483** in this release; the middle number is the count of hounds the
+   server discovered (43). If the hub says "discovering agents…" forever, you're not on the
+   served URL or you started `run.py` from the wrong folder.
 2. The header shows your asset count, and **doesn't** say "SAMPLE data" once
    `NAVI_DB_PATH` points at a real database.
 3. Open any explorer (e.g. **Asset Explorer / Bloodhound**) and search — read-only
@@ -350,7 +356,8 @@ package manager) and re-run.
 **`ModuleNotFoundError: No module named 'fastapi'`.** Use `python3 run.py` (it falls
 back to the built-in server) or force it: `python3 run.py stdlib`.
 
-**Port already in use.** `PORT=8010 python3 run.py`.
+**Port already in use.** The stdlib server moves to the next free port and prints it;
+for FastAPI / Flask, `PORT=8010 python3 run.py`.
 
 **"No agents / discovering agents…" forever.** Wrong URL, or `run.py` was started
 from the wrong folder. It must be the folder containing `run.py`, `agents/`, `web/`.
@@ -375,8 +382,8 @@ the Tenable side. Check the **Tagging log** first — if the job succeeded there
 write landed and you're waiting on Tenable.
 
 **Tagging is slow, or you're hitting rate limits.** Tune `NAVI_TAG_WORKERS` (1–32,
-default 4) and `NAVI_TAG_GAP_MS` (default 1500). Both are adjustable live from the
-Tagging log.
+default 4) and `NAVI_TAG_GAP_MS` (default 1500). The worker count is also adjustable
+live from the Tagging log; the gap is read at startup.
 
 **"⚠ Claude: no API key" chip.** Optional — the app works without it. Run
 `python3 check_llm.py` for the exact reason, and see [BYO_MODEL.md](BYO_MODEL.md).

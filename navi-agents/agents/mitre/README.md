@@ -17,6 +17,10 @@ this agent only fetches the live CSV and orchestrates navi's write path.
   `attack_techniques.json`, extracted from mitre/cti). Default scope is the
   CVEs actually present in your navi.db (`vulns.cves`); `scope="all"` returns the
   full mapping (thousands of CVEs — a CLI bulk job per the skill).
+- `source` — describes the external download for the page's approval card (with a short
+  assessment from the model, if one is configured). The live CSV is fetched only after you
+  approve it (or with Settings → Auto-approve downloads); otherwise, or when the fetch fails,
+  `run` uses the bundled snapshot `attack_to_cve.csv` — no network.
 - `apply` — gated; tags the assets behind each approved CVE via `navi enrich tag --cve` (needs
   `NAVI_ALLOW_WRITES=1` and `navi` on PATH).
 

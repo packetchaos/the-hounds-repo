@@ -14,14 +14,70 @@ from core import db, hx_summary
 
 # local-user / identity enumeration plugins (local-user enumeration plugins)
 ENUM_PLUGINS = [
-    ("95928", "Linux User List Enumeration"),
-    ("83303", "Local Users — Passwords Never Expire"),
-    ("10860", "SMB Enumerate Local Users"),
+    ("95928", "Linux User List Enumeration (users + groups)"),
+    ("95929", "macOS and Mac OS X User List Enumeration (users + groups)"),
+    ("83303", "Unix / Linux Local Users — Passwords Never Expire"),
+    ("10860", "SMB Use Host SID to Enumerate Local Users"),
+    ("56211", "SMB Use Host SID to Enumerate Local Users Without Credentials"),
+    ("10399", "SMB Use Domain SID to Enumerate Users"),
+    ("72684", "Enumerate Users via WMI"),
+    ("71246", "Enumerate Local Group Memberships"),
     ("10785", "SMB NativeLanManager Disclosure"),
+    ("10911", "Local Users — Automatically Disabled Accounts"),
+    ("10912", "Local Users — Can't Change Password"),
+    ("10913", "Local Users — Disabled Accounts"),
     ("10914", "Local Users — Never Changed Password"),
     ("10915", "Local Users — Never Logged In"),
+    ("10916", "Local Users — Passwords Never Expire"),
+    ("10895", "Domain Users — Automatically Disabled Accounts"),
+    ("10896", "Domain Users — Can't Change Password"),
+    ("10897", "Domain Users — Disabled Accounts"),
+    ("10898", "Domain Users — Never Changed Password"),
+    ("10899", "Domain Users — Never Logged In"),
+    ("10900", "Domain Users — Passwords Never Expire"),
+    ("10902", "Windows 'Administrators' Group User List"),
+    ("10908", "Windows 'Domain Administrators' Group User List"),
+    ("10901", "Windows 'Account Operators' Group User List"),
+    ("10903", "Windows 'Server Operators' Group User List"),
+    ("10904", "Windows 'Backup Operators' Group User List"),
+    ("10905", "Windows 'Print Operators' Group User List"),
+    ("60019", "Mac OS X Admin Group User List"),
 ]
-PARSE_PLUGINS = ("95928", "10860")
+PARSE_PLUGINS = ("95928", "95929", "10860")
+_USER_LIST = ("95928", "95929")          # structured user lists: [ User / System Accounts ] + Groups
+
+# ---------------------------------------------------------------------------
+# PRIVILEGE — inferred from EVIDENCE, never from a name like "admin" (build 482):
+#   * membership of an administrative group, from Tenable's group-member plugins
+#     (Windows Administrators / Domain Admins, macOS Admin) or the Linux / macOS user lists'
+#     Groups (sudo / wheel / admin) or Enumerate Local Group Memberships (71246);
+#   * membership of a Microsoft protected operator group (Account / Server / Backup / Print
+#     Operators — they can sign in to DCs, back up the NTDS database or load drivers);
+#   * the built-in Administrator by its well-known RID 500 (renamed or not);
+#   * UID 0 — and `root`, the POSIX superuser, when a Linux / macOS user list enumerates it.
+# Each privileged account carries `privilege`: the reasons, so the page can show WHY.
+# ---------------------------------------------------------------------------
+GROUP_PLUGINS = {          # plugin → (group, level)  level: admin | operator
+    "10902": ("Administrators", "admin"),
+    "10908": ("Domain Admins", "admin"),
+    "60019": ("macOS admin", "admin"),
+    "10901": ("Account Operators", "operator"),
+    "10903": ("Server Operators", "operator"),
+    "10904": ("Backup Operators", "operator"),
+    "10905": ("Print Operators", "operator"),
+}
+ADMIN_GROUPS = {"administrators", "domain admins", "enterprise admins", "schema admins", "admins",
+                "sudo", "wheel", "admin"}
+OPERATOR_GROUPS = {"account operators", "server operators", "backup operators", "print operators"}
+ADMIN_SIDS = {"S-1-5-32-544": "Administrators"}     # BUILTIN\Administrators (well-known SID)
+# Windows account-status plugins → the flag they set ("  - <login>" lists)
+STATUS_PLUGINS = {
+    "10916": "non-expiring pw", "10900": "non-expiring pw",
+    "10913": "disabled", "10897": "disabled", "10911": "disabled", "10895": "disabled",
+    "10914": "never changed pw", "10898": "never changed pw",
+    "10915": "never logged in", "10899": "never logged in",
+}
+INFO_FLAGS = {"scan credential", "disabled"}      # flags that are context, not risk
 
 NHI = {"jenkins", "dockerroot", "pihole", "lighttpd", "www-data", "lxd",
        "cockpit-ws", "gitlab-runner", "prometheus", "grafana", "nginx", "apache"}
@@ -169,6 +225,8 @@ _PASSWD_RE = re.compile(r"^([a-z_][a-z0-9_.\-]{1,31}):[^:]*:(\d+):\d+:[^:]*:([^:
 
 
 _CHECK_EVERY = 200     # rows between db.checkpoint() calls in the Python parsing loops
+# "  - WIN-HOST\\jdoe (User)" / "  - jdoe" — a group-member / account-status list line
+_MEMBER_RE = re.compile(r"^\s*-\s+(.+?)(?:\s+\(([A-Za-z ]+)\))?\s*$")
 
 
 def _cols(table, path=None):
@@ -358,24 +416,39 @@ def scan(db_path=None):
     # account's Home folder + Start script (shell), the strongest human-vs-service signal.
     # Env-var dumps (92364) and /etc/group membership blocks are NOT identity sources, so
     # we no longer scrape them (that was the source of the bogus "human" rows).
-    def _block_parse(output, info, au):
-        section, cur = "", None
+    def _block_parse(output, info, au, pid="95928"):
+        section, cur, in_groups = "", None, False
         for raw in (output or "").splitlines():
             line = raw.rstrip()
             low = line.lower()
             if "user accounts" in low and "[" in line:
-                section = "user"; cur = None; continue
+                section = "user"; cur = None; in_groups = False; continue
             if "system accounts" in low and "[" in line:
-                section = "system"; cur = None; continue
-            m = re.match(r"\s*User(?:name)?\s*[:=]\s*([A-Za-z_][A-Za-z0-9_.\-\$]{1,31})", line)
+                section = "system"; cur = None; in_groups = False; continue
+            if "domain accounts" in low and "[" in line:     # directory (AD / LDAP / SSSD) users
+                section = "domain"; cur = None; in_groups = False; continue
+            if "[" in line and "accounts" in low and "]" in line:   # any other section: don't inherit
+                section = ""; cur = None; in_groups = False; continue
+            m = re.match(r"\s*User(?:name)?\s*[:=]\s*([A-Za-z_][A-Za-z0-9_.\-\$]{1,31}(?:@[A-Za-z0-9_.\-]{1,64})?)", line)
             if m:
-                u = m.group(1)
-                cur = _touch(u, info, au, "95928") if _valid_account(u) else None
+                u = m.group(1)                       # a domain account keeps its realm (jdoe@corp.example)
+                cur = _touch(u, info, au, pid) if _valid_account(u.split("@")[0]) else None
+                in_groups = False
                 if cur:
                     cur["section"] = cur["section"] or section
                 continue
             if cur is None:
                 continue
+            gm = re.match(r"\s*Groups?\s*[:=]\s*(.*)$", line)
+            if gm:                                   # "Groups : wheel" — more names may follow,
+                in_groups = True                     # one per indented line, or comma-separated
+                _add_groups(cur, gm.group(1), au)
+                continue
+            if in_groups:
+                if line.strip() and ":" not in line and line[:1] in (" ", "\t"):
+                    _add_groups(cur, line, au)
+                    continue
+                in_groups = False
             hm = re.match(r"\s*Home(?:\s*folder)?\s*[:=]\s*(\S+)", line)
             if hm and not cur["home"]:
                 cur["home"] = hm.group(1)
@@ -389,22 +462,31 @@ def scan(db_path=None):
                 except ValueError:
                     pass
 
+    def _add_groups(a, text, au):
+        gs = a.setdefault("groups", {})
+        for g in re.split(r"[,\s]+", (text or "").strip()):
+            g = g.strip().strip(",")
+            if g and re.match(r"^[A-Za-z_][A-Za-z0-9_.\-]{0,63}$", g):
+                gs.setdefault(g.lower(), set()).add(au)
+
     try:
-        rows95928 = db.query("SELECT asset_uuid, output FROM vulns WHERE plugin_id='95928' "
-                             "AND output IS NOT NULL AND output<>''", path=db_path)
+        rows_ul = db.query("SELECT asset_uuid, plugin_id, output FROM vulns WHERE plugin_id IN ('95928','95929') "
+                           "AND output IS NOT NULL AND output<>''", path=db_path)
     except (db.QueryTimeout, db.TooManyRows):
         raise
     except Exception:
-        rows95928 = []
+        rows_ul = []
     # Python parsing of already-fetched rows: the SQL budget can't stop it, checkpoint() does
-    for i, r in enumerate(rows95928):
+    for i, r in enumerate(rows_ul):
         if not i % _CHECK_EVERY:
-            db.checkpoint("identity: 95928 parse")
-        _block_parse(r.get("output"), amap.get(r["asset_uuid"], {}), r.get("asset_uuid"))
+            db.checkpoint("identity: 95928 / 95929 user-list parse")
+        _block_parse(r.get("output"), amap.get(r["asset_uuid"], {}), r.get("asset_uuid"),
+                     str(r.get("plugin_id") or "95928"))
 
     # Other enumerators (Windows local users, passwd, etc.) — strict markers only, and
     # NEVER plugin 92364 (env vars). Parse /etc/passwd lines for shell/home/uid too.
     known = ("10860", "83303", "10399", "56211", "72684", "130614", "110385", "10785")
+    _own = set(_USER_LIST) | set(GROUP_PLUGINS) | set(STATUS_PLUGINS) | {"71246"}   # parsed below
     ph = ",".join("?" * len(known))
     disc_sql = (
         "SELECT asset_uuid, plugin_id, output FROM vulns WHERE plugin_id<>'95928' "
@@ -422,7 +504,7 @@ def scan(db_path=None):
             # read); the output arm comes from the single shared output pass; merged in rowid
             # (= table-scan) order so first-seen evidence wins exactly as before
             pids = set(_hx_plugins(_lname_any(_DISC_NAME), db_path)) | set(known)
-            pids -= {"95928", "92364"}
+            pids -= {"95928", "92364"} | _own
             got = {}
             pl = sorted(pids)
             for i in range(0, len(pl), 500):
@@ -442,9 +524,11 @@ def scan(db_path=None):
     for i, r in enumerate(rows):
         if not i % _CHECK_EVERY:
             db.checkpoint("identity: enumerator parse")
+        pid = str(r.get("plugin_id") or "")
+        if pid in _own:                  # its own parser below (the name sweep also finds them)
+            continue
         info = amap.get(r["asset_uuid"], {})
         au = r.get("asset_uuid")
-        pid = str(r.get("plugin_id") or "")
         cur = None                       # last account touched — to attach a trailing SID
         for line in (r.get("output") or "").splitlines():
             pm = _PASSWD_RE.match(line.strip())
@@ -470,6 +554,85 @@ def scan(db_path=None):
             sm = _SID_RE.search(line)
             if sm and cur is not None and not cur["sid"]:
                 cur["sid"] = sm.group(0)
+
+    # Windows / macOS group-member lists, account-status lists and local group memberships.
+    # Their member lines are "  - DOMAIN\\name (User)" / "  - name"; a nested group
+    # ("(Group)" / "(Alias)") is not an account. Every member listed IS an identity on that host.
+    def _member(line):
+        m = _MEMBER_RE.match(line)
+        if not m:
+            return None, None
+        name, typ = m.group(1).strip(), (m.group(2) or "").strip().lower()
+        name = name.split("\\")[-1].strip()
+        return name, typ
+
+    def _priv(a, au, reason):
+        pr = a.setdefault("privilege", [])
+        if reason not in pr:
+            pr.append(reason)
+        a.setdefault("_priv_uu", set()).add(au)
+
+    def _parse_71246(out, info, au):
+        """Enumerate Local Group Memberships: a group header (Group Name : X / Group : X /
+        [ X ]) followed by its members (Name : x / Member : x / "  - x"). Members of an
+        administrative or operator group are privileged on that host."""
+        grp, gsid = "", ""
+        for raw in out.splitlines():
+            line = raw.strip()
+            if not line:
+                continue
+            hm = re.match(r"^(?:Group(?:\s*Name)?)\s*[:=]\s*(.+)$", line, re.I) or re.match(r"^\[\s*(.+?)\s*\]$", line)
+            if hm:
+                grp, gsid = hm.group(1).strip().split("\\")[-1].lower(), ""
+                continue
+            sm = re.match(r"^(?:Group\s*)?SID\s*[:=]\s*(S-1-5-32-\d+)$", line, re.I)
+            if sm and grp:
+                gsid = sm.group(1).upper()
+                continue
+            mm = re.match(r"^(?:Name|Member|User)\s*[:=]\s*(.+)$", line, re.I)
+            name = mm.group(1).strip().split("\\")[-1].strip() if mm else _member(raw)[0]
+            if not name or not grp or not _valid_account(name) or name.lower() == grp:
+                continue
+            admin = grp in ADMIN_GROUPS or gsid in ADMIN_SIDS
+            oper = grp in OPERATOR_GROUPS
+            if not (admin or oper):
+                continue
+            a = _touch(name, info, au, "71246")
+            _priv(a, au, "member of " + (ADMIN_SIDS.get(gsid) or grp.title())
+                  + ("" if admin else " (protected operator group)"))
+
+    status_hits = {}                     # flag -> {lower user}
+    try:
+        ids_ = sorted(set(GROUP_PLUGINS) | set(STATUS_PLUGINS) | {"71246"})
+        grow = db.query("SELECT asset_uuid, plugin_id, output FROM vulns WHERE plugin_id IN (" + _sqlit(ids_)
+                        + ") AND output IS NOT NULL AND output<>''", path=db_path)
+    except (db.QueryTimeout, db.TooManyRows):
+        raise
+    except Exception:
+        grow = []
+    nested = {}                          # group name -> nested groups seen in it
+    for i, r in enumerate(grow):
+        if not i % _CHECK_EVERY:
+            db.checkpoint("identity: group parse")
+        pid, au = str(r.get("plugin_id") or ""), r.get("asset_uuid")
+        info = amap.get(au, {})
+        if pid == "71246":
+            _parse_71246(r.get("output") or "", info, au)
+            continue
+        for line in (r.get("output") or "").splitlines():
+            name, typ = _member(line)
+            if not name or not _valid_account(name):
+                continue
+            if typ in ("group", "alias", "wellknowngroup", "well known group", "domain group"):
+                if pid in GROUP_PLUGINS:
+                    nested.setdefault(GROUP_PLUGINS[pid][0], set()).add(name)
+                continue
+            a = _touch(name, info, au, pid)
+            if pid in GROUP_PLUGINS:
+                grp, lvl = GROUP_PLUGINS[pid]
+                _priv(a, au, ("member of " + grp) if lvl == "admin" else ("member of " + grp + " (protected operator group)"))
+            if pid in STATUS_PLUGINS:
+                status_hits.setdefault(STATUS_PLUGINS[pid], set()).add(name.lower())
 
     # classify — evidence first (shell + section + home/uid), then known sets. The DEFAULT
     # for an unrecognized enumerated account is SERVICE (non-human): a person must be
@@ -506,8 +669,8 @@ def scan(db_path=None):
             a["klass"] = "service"                          # no interactive shell → service
         elif interactive and (human_home or real_uid):
             a["klass"] = "human"                            # positive human evidence
-        elif sect == "user" and not nologin:
-            a["klass"] = "human"                            # plugin put it under User Accounts
+        elif sect in ("user", "domain") and not nologin:
+            a["klass"] = "human"                            # plugin put it under User / Domain Accounts
         elif sect == "system":
             a["klass"] = "service"
         elif human_home or real_uid:
@@ -534,10 +697,33 @@ def scan(db_path=None):
         raise
     except Exception:
         pass
-    # privileged names
+    # privileged — by EVIDENCE (see the PRIVILEGE note at the top), never by a name like "admin"
     for a in acct.values():
-        if a["user"].lower() in ("root", "administrator", "admin"):
+        for g, uu in (a.get("groups") or {}).items():
+            if g in ADMIN_GROUPS:
+                for au in uu:
+                    _priv(a, au, "in the %s group" % g)
+        uid, sid = a.get("uid"), (a.get("sid") or "").upper()
+        if uid == 0:
+            for au in a["asset_uuids"]:
+                _priv(a, au, "UID 0 (superuser)")
+        elif a["user"] == "root" and uid is None and any(p in _USER_LIST for p in a["plugins"]):
+            for au in a["asset_uuids"]:
+                _priv(a, au, "root — the POSIX superuser (UID 0); the user list didn't print the UID")
+        if sid and sid.rsplit("-", 1)[-1] == "500" and sid.startswith("S-1-5-21-"):
+            for au in a["asset_uuids"]:
+                _priv(a, au, "built-in Administrator (well-known RID 500)")
+        if a.get("privilege"):
             _flag(a, "privileged")
+            a["privileged_hosts"] = len(a.pop("_priv_uu", ()) or ())
+        a.pop("_priv_uu", None)
+        a["groups"] = sorted(a.get("groups") or {})
+    # Windows account-status lists (10911–10916 local, 10895–10900 domain)
+    for fl, users in status_hits.items():
+        for a in acct.values():
+            if a["user"].lower() in users:
+                _flag(a, fl)
+    nested_groups = {g: sorted(v) for g, v in nested.items()}
     # guest enabled (10860)
     if _scalar0("SELECT COUNT(*) FROM vulns WHERE plugin_id='10860' AND lower(output) LIKE '%guest%' "
                 "AND lower(output) NOT LIKE '%disabled%'", db_path) and "guest" in acct:
@@ -678,8 +864,8 @@ def scan(db_path=None):
 
     order = {"machine": 0, "nhi": 1, "human": 2, "service": 3}
     accounts = sorted(acct.values(), key=lambda x: (order.get(x["klass"], 9), x["user"]))
-    def _risky(a):   # flags that actually indicate risk — a bare scan credential is expected
-        return [f for f in a["flags"] if f != "scan credential"]
+    def _risky(a):   # flags that actually indicate risk — a scan credential / disabled is context
+        return [f for f in a["flags"] if f not in INFO_FLAGS]
 
     def _is_reused(a):   # account reuse across ≥5 hosts (scanner footprint subtracted)
         return any(f.startswith("account reuse") for f in a["flags"])
@@ -697,7 +883,7 @@ def scan(db_path=None):
             "sshHosts": sshHosts, "weakHosts": weakHosts, "kevHostN": kevHostN,
             "critHostN": critHostN, "dcHosts": dcHosts, "adHosts": adHosts,
             "scan_creds": scan_creds, "host_sets": host_sets,
-            "credentialed": len(cred_set - blind_set),
+            "credentialed": len(cred_set - blind_set), "nested_admin_groups": nested_groups,
             "identity_hosts": len({u for a in accounts for u in a["asset_uuids"]})}
 
 
@@ -733,9 +919,10 @@ def host_identities(uuid, db_path=None):
     if not uuid:
         return []
     try:
-        rows = db.query("SELECT plugin_id, output FROM vulns WHERE asset_uuid=? "
-                        "AND plugin_id IN ('95928','10860','10785','83303','10914','10915') "
-                        "AND output IS NOT NULL AND output<>''", (uuid,), path=db_path)
+        ids_ = ("95928", "95929", "10860", "56211", "10399", "72684", "10785", "83303") + tuple(STATUS_PLUGINS) \
+            + tuple(GROUP_PLUGINS)
+        rows = db.query("SELECT plugin_id, output FROM vulns WHERE asset_uuid=? AND plugin_id IN (" + _sqlit(ids_)
+                        + ") AND output IS NOT NULL AND output<>''", (uuid,), path=db_path)
     except Exception:
         return []
     found = {}
@@ -749,14 +936,21 @@ def host_identities(uuid, db_path=None):
                 section = "user"; last = None; continue
             if "[" in line and "system accounts" in low:
                 section = "system"; last = None; continue
+            if "[" in line and "accounts" in low:            # Domain Accounts (or any other section)
+                section = "domain" if "domain" in low else ""; last = None; continue
             m = _HI_USER.match(line)
             # dash-list plugins: 10860/10785 (SMB enum) AND 10914/10915 (Windows
             # local users: never-changed-password / never-logged-in) — all emit
             # "  - <account>" lines, no User:/Username: prefix.
-            if not m and pid in ("10860", "10785", "10914", "10915"):
-                m = _HI_DASH.match(line)
+            u = None
             if m:
                 u = m.group(1)
+            elif pid in ("10860", "56211", "10399", "10785") or pid in STATUS_PLUGINS or pid in GROUP_PLUGINS:
+                nm = _MEMBER_RE.match(raw)
+                if nm and (nm.group(2) or "").strip().lower() not in ("group", "alias", "wellknowngroup",
+                                                                      "well known group", "domain group"):
+                    u = nm.group(1).strip().split("\\")[-1].strip()
+            if u:
                 if not _valid_account(u):
                     last = None; continue
                 k = u.lower()

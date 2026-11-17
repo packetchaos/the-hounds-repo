@@ -40,7 +40,9 @@ once; every surface updates. `hounds_mcp_selftest.py` asserts this on every run.
 | `hounds_mcp.py` | The MCP server. Read-only tools over the core engines. |
 | `hounds_mcp_selftest.py` | Parity + shape guardrail (tool output == core output; required keys present). |
 | `requirements-mcp.txt` | One optional dependency (`fastmcp`). The base app doesn't need it. |
-| `artifacts/hounds-exec-brief.html` | The Executive persona artifact (read-only estate brief). |
+| `artifacts/hounds-exec-brief.html` | The Executive persona artifact (read-only estate brief) — reads the `hounds` tools above. |
+| `artifacts/hounds-platform.html` | The shared artifact shell (Platform / Operations) — reads the **navi** MCP (`mcp__navi__*`), not this server; writes go through navi's gated `navi_enrich_tag` / `navi_enrich_acr` behind a confirm. |
+| `artifacts/hounds-enrich.html` | The Data Enrichment artifact on the same shell — navi MCP reads, gated tag / ACR writes. |
 
 ### Tools (current)
 
@@ -153,6 +155,9 @@ Then make that URL reachable by Claude's cloud and add it under
   http://127.0.0.1:8790`, and register the tunnel's HTTPS URL.
 - **Real use:** host it inside your network/VPC **behind authentication** — it
   reads your `navi.db`, so never expose it publicly unprotected.
+- The HTTP transport has no authentication of its own, so `hounds_mcp.py` **refuses** a
+  non-loopback `HOUNDS_MCP_HOST` unless you also set `HOUNDS_MCP_ALLOW_REMOTE=1` (and then
+  prints a warning). Keep it on `127.0.0.1` behind the tunnel / an authenticating proxy.
 
 > Rule of thumb: **stdio for Desktop/Code, HTTP for Cowork/web.** Same server, same
 > tools — only the transport and how it's registered differ.
@@ -197,8 +202,9 @@ disagree, the repo wins and the artifact is fixed.
 ## Security notes
 
 - **Read-only.** No tool here writes to `navi.db` or your tenant.
-- **Local.** The server is a local stdio process reading *your* `navi.db` from
-  *your* machine.
+- **Local.** By default the server is a local stdio process reading *your* `navi.db`
+  from *your* machine; the HTTP mode binds `127.0.0.1` unless you opt in with
+  `HOUNDS_MCP_ALLOW_REMOTE=1`.
 - **Gated writes stay gated.** Tagging, ACR, and remediation still go through the
   navi MCP's own double-gates and per-action confirms — this shim never bypasses
   them.

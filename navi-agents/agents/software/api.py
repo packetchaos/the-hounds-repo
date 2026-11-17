@@ -40,7 +40,7 @@ downloads.register("endoflife", "endoflife.date lifecycle API", ["https://endofl
                    fallback="none — products without data show n/a")
 
 _SQL_BANNED = re.compile(
-    r"\b(insert|update|delete|drop|alter|create|attach|detach|pragma|replace|"
+    r"\b(insert|update|delete|drop|alter|create|attach|detach|pragma|replace(?!\s*\()|"
     r"vacuum|reindex|truncate|grant|revoke|load_extension|readfile|writefile)\b", re.I)
 
 

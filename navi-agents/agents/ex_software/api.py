@@ -3,7 +3,7 @@ inventory (`software`, and `cpes` when navi has it). Read-only: it writes no tag
 
   status        — is there a software table, how big, is a model configured (for ✨ lookup).
   search        — where a product is installed: by search term (part of the product name) or one
-                  exact product, optionally narrowed to one version (or "3.0*") and/or an
+                  exact product, optionally narrowed to a version ("17" = 17.x, "=3.0.2" exactly, "3.0*") and/or an
                   affected version RANGE. Headline KPIs + where-installed breakdowns (version,
                   OS, network, ACR) are computed over the WHOLE selection; asset rows are paged.
   export        — that selection as CSV, one row per install (capped at EXPORT_MAX).

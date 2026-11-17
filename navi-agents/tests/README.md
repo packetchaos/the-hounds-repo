@@ -1,7 +1,9 @@
 # Tests
 
 Regression tests for The Hounds that run against a generated fixture navi.db. They need no
-real Tenable data, no server and no network, and they clean up after themselves.
+real Tenable data and no network, you don't start a server for them (a few start their own on
+loopback), and they clean up after themselves. Every `test_*.py` is a **plain script**: run it
+with `python3` from `navi-agents/`; exit code 0 = pass.
 
 ```
 python3 tests/test_attackpath.py      # PASS/FAIL per check, non-zero exit on failure
@@ -23,7 +25,19 @@ python3 tests/test_write_confirms.py  # every browser write asks first (one conf
 python3 tests/test_glance.py         # shared 📊 At a glance template: escaping, safeHref, no inline handlers, zero dimming, filter clicks; migrated pages
 python3 tests/test_acr_protect.py     # ACR protection: preview == navi's selection, NO : UPDATE exact, ACR log rows, business case, contract option
 python3 tests/test_c2.py              # Command & Control: targets, read-only catalog + quoting, gates, cred-test statuses, C2 log (no output, masked, hash chain), hand-offs, AI-plan validator, canary/threshold/abort (fake navi: tests/c2_fakenavi.py; navi's real command handling: tests/c2_realnavi.py)
-python3 -m pytest tests/              # every suite under pytest
+```
+
+The `test_*_4NN.py` files are the per-build regression suites (e.g. `test_ex_compliance_471.py`
+Compliance Explorer, `test_explorer_nl_472.py` the explorers' ✨ Ask, `test_classify_473.py` device
+types + cloud, `test_ex_software_475.py` Software Explorer + zero-day lookup,
+`test_release_pipeline_477.py` AI Contract ▸ Release the Hounds, `test_software_shape_478.py`
+navi's one-row-per-software-string shape); `test_review_*.py`, `test_security_*.py`, `test_hx_*.py`
+and the rest cover the review fixes, the server security model and the ⚡ Optimize summary tables.
+
+Run everything:
+
+```
+for t in tests/test_*.py; do python3 "$t" > /dev/null 2>&1 || echo "FAILED $t"; done
 ```
 
 ## Attack paths (Fenrir)

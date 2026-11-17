@@ -1,7 +1,8 @@
 # Bring Your Own Model
 
-The Hounds use a model for their **propose** steps — cert triage, ACR planning,
-ownership mapping, NL→SQL, contract policy, correlation narration. Every one of
+The Hounds use a model for their **propose** steps — ACR planning, ownership mapping,
+NL→SQL (Dashboard Builder, the explorers' ✨ Ask, Advanced search), contract policy,
+alert crafting, C2 remediation plans, and reading advisory pages for Harrier's zero-day lookup. Every one of
 those calls funnels through a single function in `core/llm.py`, so swapping
 providers is a matter of environment variables. No code changes, no adapters.
 
@@ -185,10 +186,11 @@ breaks, and no agent disappears from the hub.
 | Feature | Without a model |
 |---|---|
 | "Ask which agent can help" (the hub search box) | Unavailable |
-| NL → SQL (Dashboard Builder / Daedalus, KEV hunt) | Unavailable; hand-written queries still run |
+| NL → SQL (Dashboard Builder / Daedalus, the explorers' ✨ Ask, KEV hunt) | Unavailable; search boxes, Daedalus's ready-made views and hand-written queries still run |
 | NL ACR rules (Anubis) | Unavailable; per-tag set / +N / −N still works |
-| NL tagging (Linnaeus, Cavall, Janus, Sirius) | Unavailable; widget + list selection still works |
-| Certificate triage narration (Certania) | Deterministic ranking, no reasoning text |
+| NL tagging (Janus; Cavall) | Janus: unavailable — widget + list selection still works. Cavall falls back to the last quoted term / word of the instruction. Linnaeus's "tag by OS" prompt and Sirius's list of group names are parsed locally and need no model |
+| Zero-day lookup (Harrier) | NVD / CVE.org / OSV records still parse; other advisory pages can't be read |
+| C2 remediation plans (Amarok) | Deterministic templates; the page says so |
 | Ownership plans (Atlas, Terminus) | Deterministic mapping from routes/paths |
 | Custom Audit authoring (Draco) | Guided field-by-field builder still works; the "describe it" path doesn't |
 | Alert crafting (Alert Raven) | Threshold alerts still work; NL alert authoring doesn't |

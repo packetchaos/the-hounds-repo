@@ -12,8 +12,8 @@ the people who own them, in plain English.
   `Owner:<group-or-user>` via the gated navi tag path (route → `--route_id`,
   path → `--query`). Writes need `NAVI_ALLOW_WRITES=1` and `navi` on PATH.
 
-The natural-language step needs `ANTHROPIC_API_KEY` on the server; without it the
-NL box is hidden (the rest of the page still loads owners, routes, and paths).
+The natural-language step needs a configured model on the server (any provider in
+[BYO_MODEL.md](../../BYO_MODEL.md)); without it the NL box is hidden (the rest of the page still loads owners, routes, and paths).
 
 ## One run, cached
 
@@ -22,7 +22,7 @@ server-side pass**, cached on disk (`data/cache/exproute_<db>.json.gz`, gzipped)
 keyed by navi.db's signature (size + mtime of the db and its `-wal`).
 
 - navi.db unchanged → the cached snapshot renders at once (a Run or reopening the page).
-- navi.db changed (e.g. after `navi update assets`) → the build runs on the **job queue**. You
+- navi.db changed (e.g. after `navi config update assets`) → the build runs on the **job queue**. You
   can leave the page; it keeps running (Runs log), and reopening the page re-attaches to it.
 - Opening the page only *peeks*: it shows a cached snapshot or follows a running build, and
   never starts a computation.
@@ -72,4 +72,4 @@ The jump panel links the Ask box, coverage, the Sankey, the Ownership Map and Ow
 Actions: `snapshot` (`peek` / `force` / `refresh_owners`), `load` (owners + routes + paths),
 `coverage`, `map` (routes/paths ↔ owners, gaps, workload, reduction funnel), `interpret`
 (NL → mappings), `apply` (gated Owner tag), `retag` (gated), `refresh` (background
-`navi update assets`), `path_detail`.
+`navi config update assets`), `path_detail`.

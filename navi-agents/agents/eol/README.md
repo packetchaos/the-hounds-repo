@@ -12,5 +12,10 @@ ships new end-of-life / unsupported detection plugins — nothing to maintain.
 - `run` — scan navi.db; returns each lifecycle group with its matching plugins
   and distinct affected-asset counts. (Optional `groups` override:
   `[["Label",["pattern","pattern"]]]`.)
-- `apply` — gated; for each approved group, runs `navi enrich tag --name` once
-  per pattern. Needs `NAVI_ALLOW_WRITES=1` and `navi` on PATH.
+- `apply` — gated; for each approved group (the built-in groups only — the page names a
+  group and any plugin ids it opted out of), runs `navi enrich tag --name` once per
+  pattern (a `--query` that excludes the opted-out plugins when there are any). Needs
+  `NAVI_ALLOW_WRITES=1` and `navi` on PATH.
+- `tag_eol_date` — gated; tags the assets running software that reached end of life on
+  each chosen date `Lifecycle EOL : <YYYY-MM-DD>`, by the exact assets whose plugin output
+  states that date.

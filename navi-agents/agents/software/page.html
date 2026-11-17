@@ -3,7 +3,7 @@
 <meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>Software Analyzer · Navi Agents</title>
 <link rel="stylesheet" href="/static/console.css"/>
-<style>.card{overflow-x:auto}.swl{color:var(--accent);cursor:pointer}
+<style>.card{overflow-x:auto}.swl{color:var(--accent);cursor:pointer}.swal{color:var(--accent);text-decoration:none;font-weight:600;white-space:nowrap}.swal:hover{text-decoration:underline}
 .filterbtns{display:flex;gap:5px;flex-wrap:wrap}
 .filterbtns button{cursor:pointer;padding:5px 12px;border-radius:999px;border:1px solid var(--line);background:var(--bg-2);color:var(--mut);font-size:12.5px}
 .filterbtns button.on{background:var(--amber);color:#eef1fb;border-color:var(--amber);font-weight:700}
@@ -66,6 +66,9 @@ const API=agentApi('software'); let WRITES=false; jget('/api/health').then(h=>{W
    parsers that used to run here). ▶ Run returns the KPIs + page 1 of products and a drill handle;
    the table pages / filters / searches on the server (hDrill), and every tag sends a KEY
    (product / version / role) — the server rebuilds the asset set from navi.db. */
+/* asset count → the Asset Explorer list of those assets (build 481: sent 500 at a time, shown 20 per page, CSV has all) */
+function swAL(name,ver,n){ const u='/agents/ex_assets/page.html?software='+encodeURIComponent(name)+(ver==null?'':'&version='+encodeURIComponent(ver));
+  return '<a class="swal" href="'+esc(u)+'" title="Open the '+esc(fmtN(n))+' asset(s) running '+esc(name+(ver==null?'':' '+(ver||'(no version)')))+' — 20 per page, ⬇ CSV has every one">'+esc(fmtN(n))+' →</a>'; }
 function verCmp(a,b){ const pa=String(a).split(/[._\-]/),pb=String(b).split(/[._\-]/); for(let i=0;i<Math.max(pa.length,pb.length);i++){ const na=parseInt(pa[i],10),nb=parseInt(pb[i],10); const va=isNaN(na)?(pa[i]||''):na, vb=isNaN(nb)?(pb[i]||''):nb; if(va<vb)return -1; if(va>vb)return 1; } return 0; }
 function _srcBadge(p){ return p.src==='both'?'<span class="chip" title="software + cpes">both</span>':(p.src==='cpe'?'<span class="chip" style="color:var(--accent);border-color:var(--accent)" title="only in the cpes inventory">cpes</span>':'<span class="chip" title="only in the software inventory">software</span>'); }
 
@@ -113,7 +116,7 @@ async function runSoftware(){
   document.getElementById('swDrill').innerHTML=''; SWT=null; renderSoftware(true);
 }
 function _swRow(p,idx){ const vb=p.nver>1?`<span class="badge b-appr" style="color:#ffd28a">${fmtN(p.nver)}</span>`:`<span class="sub">${fmtN(p.nver)}</span>`;
-  return `<tr><td><a class="swl" data-n="${esc(p.name)}">${esc(p.name)}</a></td><td>${vb}</td><td>${fmtN(p.nasset)}</td><td>${fmtN(p.installs)}</td><td class="mono" style="font-size:12.5px">${esc(p.newest||'')}</td><td>${_eolCell(p)}</td><td>${_srcBadge(p)}</td><td><button class="btn sm" data-tag="${esc(p.name)}" data-n="${esc(p.nasset)}">🏷️ Tag product</button></td></tr>`; }
+  return `<tr><td><a class="swl" data-n="${esc(p.name)}">${esc(p.name)}</a></td><td>${vb}</td><td>${swAL(p.name,null,p.nasset)}</td><td>${fmtN(p.installs)}</td><td class="mono" style="font-size:12.5px">${esc(p.newest||'')}</td><td>${_eolCell(p)}</td><td>${_srcBadge(p)}</td><td><button class="btn sm" data-tag="${esc(p.name)}" data-n="${esc(p.nasset)}">🏷️ Tag product</button></td></tr>`; }
 function renderSoftware(first){
   if(!SW)return;
   const hints={sprawl:'Products running more than one version across the estate — your biggest version-consolidation opportunities first.',common:'Most-deployed software by asset count — your de-facto enterprise-standard set.',single:'Software found on only one asset — rare / shadow / one-off installs worth a look.',eol:'Products with end-of-life / unsupported versions in the estate (via endoflife.date) — patch or isolate first.',all:'Every product, alphabetical.',delta:'Products seen by only ONE inventory source — cpes-only first (apps the RPM view misses), then software-only.'};
@@ -147,7 +150,7 @@ async function swDrill(name){ const d=document.getElementById('swDrill'); if(!SW
     +'<p class="sub" style="margin:0 0 8px">Newest version first. Tag assets stuck on an older/EOL version to drive consolidation &amp; upgrades.</p>'
     +'<div style="overflow-x:auto"><table id="swdTbl"><thead><tr><th>Version</th><th>Assets</th><th>Share</th><th>Lifecycle</th><th></th></tr></thead><tbody>'
     +(p.vers||[]).map(function(v,vi){ var pct=p.nasset?Math.round(v.assets/p.nasset*100):0; var l2=eolSet.has(v.v)?'<span class="badge b-appr" style="color:#ffb4c6;border-color:rgba(255,80,120,.5)">⛔ EOL</span>':((_lat&&v.v&&verCmp(v.v,_lat)<0)?'<span class="badge b-appr" style="color:#ffd28a">behind</span>':((_lat&&v.v===_lat)?'<span style="color:var(--ok)">latest</span>':(vi===0?'<span style="color:var(--ok)">newest here</span>':'<span class="sub">—</span>')));
-        return '<tr><td class="mono">'+esc(v.v||'(none)')+'</td><td>'+esc(fmtN(v.assets))+'</td><td>'+pct+'%</td><td>'+l2+'</td><td><button class="btn sm" data-sv="'+vi+'">🏷️ Tag this version</button></td></tr>'; }).join('')
+        return '<tr><td class="mono">'+esc(v.v||'(none)')+'</td><td>'+swAL(p.name,v.v||'',v.assets)+'</td><td>'+pct+'%</td><td>'+l2+'</td><td><button class="btn sm" data-sv="'+vi+'">🏷️ Tag this version</button></td></tr>'; }).join('')
     +'</tbody></table></div></div>';
   document.getElementById('swdClose').onclick=function(){d.innerHTML='';};
   d.querySelectorAll('button[data-sv]').forEach(function(b){ b.onclick=function(){ var v=p.vers[+b.dataset.sv]; tagByKey('Software',p.name+' '+v.v,{product:p.name,version:v.v},v.assets,'',b); }; });
@@ -249,7 +252,7 @@ async function runSwRisk(){
     +'<p class="sub" style="margin:0 0 8px">Ranked by risk that <b>combines the package with its vulnerabilities</b>: findings whose plugin <b>names the product</b> (package-level) weigh heaviest, then KEV / critical exposure on the hosts that run it, then EOL. A product with its own CVEs outranks one that merely shares a host. <b>Gated.</b></p>'
     +'<div style="overflow-x:auto"><table><thead><tr><th>Product</th><th title="combined risk: package-named findings + host KEV/critical + EOL">Risk</th><th title="findings whose plugin names this product">Named KEV / crit</th><th title="count of package-named findings">Named finds</th><th>Assets</th><th>KEV assets</th><th>Critical</th><th>Max VPR</th><th>EOL</th><th></th></tr></thead><tbody>'
     +top.map(function(x,i){ var named=((x.pk?'<span style="color:#ffb4c6;font-weight:700">'+esc(x.pk)+' KEV</span>':'')+((x.pk&&x.pc)?' · ':'')+(x.pc?'<span style="color:#ffd28a">'+esc(x.pc)+' crit</span>':''))||'<span class="sub">—</span>';
-       return '<tr><td><b>'+esc(x.name)+'</b></td><td class="mono"'+(x.pf?' style="color:var(--accent);font-weight:700"':'')+'>'+esc(Math.round(x.risk))+'</td><td>'+named+'</td><td'+(x.pf?'':' class="sub"')+'>'+esc(x.pf||'—')+'</td><td>'+esc(fmtN(x.nasset))+'</td><td'+(x.kev?' style="color:#ffb4c6;font-weight:700"':' class="sub"')+'>'+esc(x.kev)+'</td><td'+(x.crit?' style="color:#ffd28a"':' class="sub"')+'>'+esc(x.crit)+'</td><td class="mono">'+(x.vpr?esc((+x.vpr).toFixed(1)):'—')+'</td><td>'+(x.eol?'<span class="badge b-appr" style="color:#ffb4c6;border-color:rgba(255,80,120,.5)">⛔ '+esc(x.eol)+'</span>':'<span class="sub">—</span>')+'</td><td><button class="btn sm" data-swr="'+i+'">🏷️ Tag</button></td></tr>'; }).join('')
+       return '<tr><td><b>'+esc(x.name)+'</b></td><td class="mono"'+(x.pf?' style="color:var(--accent);font-weight:700"':'')+'>'+esc(Math.round(x.risk))+'</td><td>'+named+'</td><td'+(x.pf?'':' class="sub"')+'>'+esc(x.pf||'—')+'</td><td>'+swAL(x.name,null,x.nasset)+'</td><td'+(x.kev?' style="color:#ffb4c6;font-weight:700"':' class="sub"')+'>'+esc(x.kev)+'</td><td'+(x.crit?' style="color:#ffd28a"':' class="sub"')+'>'+esc(x.crit)+'</td><td class="mono">'+(x.vpr?esc((+x.vpr).toFixed(1)):'—')+'</td><td>'+(x.eol?'<span class="badge b-appr" style="color:#ffb4c6;border-color:rgba(255,80,120,.5)">⛔ '+esc(x.eol)+'</span>':'<span class="sub">—</span>')+'</td><td><button class="btn sm" data-swr="'+i+'">🏷️ Tag</button></td></tr>'; }).join('')
     +'</tbody></table></div></div>';
   out.querySelectorAll('button[data-swr]').forEach(function(b){ b.onclick=function(){ var x=top[+b.dataset.swr]; tagByKey('Software Risk',x.name,{product:x.name},x.nasset,x.name,b); }; });
   out.scrollIntoView({behavior:'smooth',block:'nearest'});

@@ -1,7 +1,7 @@
 # Contributing
 
 Thanks for helping grow the pack. Adding an agent is intentionally small: **one
-folder, four files**. The hub auto-discovers it on the next start — no core
+folder, four files**. Discovery picks it up on the next start — no core
 changes needed.
 
 ## Add an agent
@@ -19,14 +19,19 @@ Then edit the four files:
 | `api.py` | HTTP actions: `ACTIONS = {"run": ..., ...}`; each returns `(payload, status)` |
 | `page.html` | the agent's UI; loads `/static/console.js` and calls `agentApi('<your-id>')` — follow the [page conventions](#page-conventions) |
 
-Restart (`python3 run.py`) and your agent appears in **Release the Hounds**.
+Restart (`python3 run.py`): discovery registers it — its `/api/<your-id>/<action>` routes, its
+page at `/agents/<your-id>/page.html`, and the version's middle number (`core/version.py`).
+The hub's cards and the left sidebar are curated lists, so to show it there add its id to
+`PACK` in `web/index.html` and an entry to `_SIDE_GROUPS` in `web/assets/console.js` (and a
+recipe — see [Release the Hounds](#release-the-hounds) — if it should be pre-run).
 
 ## Ground rules
 
 - **Reads** go through `core.db` (read-only sqlite over `navi.db`). Never open the
   DB read-write.
 - **Writes** go through `core.navi_cli` and must be gated (`NAVI_ALLOW_WRITES=1`)
-  **and** confirmed. Only the Tag Removal agent may remove tags.
+  **and** confirmed. Only the Tag Removal agent (and the AI Contract's removal phase, which
+  takes its list from Tag Removal) may remove tags; every other agent tags with `remove=False`.
 - **Be honest about coverage** — surface blind/uncredentialed hosts, don't hide them.
 - Prefer navi **built-in selectors** (`--plugin/--output`, `--cve`, `--cpe`,
   `--xrefs`, `--group`) over raw `--query` where one exists.
@@ -278,6 +283,8 @@ Settings lists it:
 
 A source the page only fetches on its own explicit `▶` button with no approval card (Mimir's
 endoflife.date lookup) registers with `approval=False`, so it is listed but not affected.
+Harrier's zero-day lookup (`core/advisory.py`) also registers with `approval=False`, because
+the user approves every site it reads on the page, every time — auto-approve never covers it.
 
 ## Test run (tag prefix)
 
@@ -395,7 +402,8 @@ creates as `<phrase>-<category>` (**Prefix phrase**, `NAVI_TAG_PREFIX`, default 
 no real Tenable data and leave nothing behind.
 
 - `python3 tests/test_attackpath.py` — prints PASS/FAIL per check and exits non-zero on any
-  failure. `python3 -m pytest tests/` runs every suite.
+  failure. Every `tests/test_*.py` is a plain script (exit 0 = pass); run them all with
+  `for t in tests/test_*.py; do python3 "$t" || echo "FAILED $t"; done`.
 - `python3 tests/test_agents.py` — regression checks for the other agents (EOL dates per asset,
   OS vs application, MITRE ICS ids, the cross-site POST guard, per-agent tag categories,
   Certificate on Feb 29).

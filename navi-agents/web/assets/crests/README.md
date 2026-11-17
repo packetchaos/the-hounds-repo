@@ -1,9 +1,9 @@
 # Agent crest images
 
-Drop a square PNG per agent here, named by the agent id. The codename banner on
-each agent page shows the crest automatically; if a file is missing it falls back
-to the 🐾 glyph. Recommended: 256×256 (or larger square), transparent or charcoal
-background to match the app.
+One square PNG per agent, named by the agent id (served as `/static/crests/<id>.png`). The
+codename banner on each agent page and its hub card show the crest automatically; if a file
+is missing the banner falls back to the 🐾 glyph (the hub card to the agent's icon).
+Recommended: 256×256 (or larger square), transparent or charcoal background to match the app.
 
 | File | Agent / codename |
 |---|---|
@@ -17,7 +17,7 @@ background to match the app.
 | `ai.png` | AI Inventory — Pythia |
 | `identity.png` | Identity Inventory — Janus |
 | `scan_eval.png` | Scan Evaluations — Chronos |
-| `insights.png` | Unknown Unknowns — Sphinx |
+| `insights.png` | On the Scent — Sphinx |
 | `exproute.png` | Exposure Routes — Atlas |
 | `software.png` | Software Analyzer — Mimir |
 | `ex_assets.png` | Asset Explorer — Bloodhound |
@@ -40,3 +40,17 @@ background to match the app.
 | `sla.png` | SLA Adherence — Sköll |
 | `was.png` | WAS · Web Apps — Arachne |
 | `was_asset.png` | Web App Recon — Beagle |
+| `agentgroup.png` | Agent Group Tagging — Sirius Hound |
+| `alert.png` | Alerting — Alert Raven |
+| `argos.png` | Asset Deep-Dive — Argos Hound |
+| `attackpath.png` | Attack Path Analysis — Fenrir Hound |
+| `cisakev.png` | CISA KEV Tagging — Laelaps Hound |
+| `classify.png` | Asset Classification — Linnaeus |
+| `contract.png` | AI Navi Contract — Covenant |
+| `email.png` | Email & Reports — Gabriel |
+| `postquantum.png` | Post-Quantum Cipher Analysis — Heimdall |
+| `tagremoval.png` | Tag Removal — Garmr Hound |
+
+`hounds.png` is the pack's own crest — the app logo and the Release the Hounds heading
+(`.hcrest` in `console.css`). The same crests are embedded in the "Meet the Hound" one-pagers
+(`tools/hound_pages.py`).

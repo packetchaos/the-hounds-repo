@@ -2,8 +2,9 @@
 
 Turns the `software` table into an enterprise software-version picture.
 
-Parses each `software_string` (RPM/NVR style: `name-version-release`) into a
-product + version, then aggregates across the estate to surface:
+Parses each `software_string` (RPM/NVR `name-version-release`, or Windows-style
+`Name - 1.2.3 [version 1.2.3]`) into a product + version — reconciled with the `cpes`
+inventory — then aggregates across the estate to surface:
 
 - **Version sprawl** — products running more than one version, fragmentation first.
 - **Most deployed** — software by asset count (your de-facto enterprise standard).
@@ -12,6 +13,11 @@ product + version, then aggregates across the estate to surface:
   older versions (upgrade/consolidation targets).
 - KPIs: unique products, product+version pairs, assets with software,
   multi-version count, single-install count.
+
+navi stores **one row per software string**, with `asset_uuid` holding every asset that has it
+as list text (`"['uuid-1', 'uuid-2']"`). `core/software.py` (`sw_assets_sql()`,
+`inventory_assets()`) expands that list, so installs and coverage are counted per asset; older
+one-uuid-per-row databases give the same answers.
 
 Tagging (gated): tag every asset running a product as `Software:<product>`, or the
 assets on a specific version as `Software:<product> <version>` — applied by

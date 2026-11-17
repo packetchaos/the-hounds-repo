@@ -78,7 +78,7 @@ def schema_text(db_path: str = None) -> str:
 _SELECT_RE = re.compile(r"^\s*(select|with)\b", re.I)
 # write/DDL/schema verbs + functions that could touch the host or other databases
 _FORBID_RE = re.compile(
-    r"\b(insert|update|delete|drop|alter|create|attach|detach|pragma|replace|"
+    r"\b(insert|update|delete|drop|alter|create|attach|detach|pragma|replace(?!\s*\()|"
     r"vacuum|reindex|truncate|grant|revoke|load_extension|readfile|writefile|"
     r"edit|fts3_tokenizer|zipfile|sqlite_dbpage|dbstat)\b", re.I)
 _LIMIT_RE = re.compile(r"\blimit\b", re.I)

@@ -21,7 +21,7 @@ from core import db, llm, navi_cli
 # tables the NL→SQL explorer boxes are allowed to query
 _NL_TABLES = {"assets", "vulns", "vuln_route", "vuln_paths", "tags", "apps", "fixed", "compliance"}
 _SQL_BANNED = re.compile(
-    r"\b(insert|update|delete|drop|alter|create|attach|detach|pragma|replace|"
+    r"\b(insert|update|delete|drop|alter|create|attach|detach|pragma|replace(?!\s*\()|"
     r"vacuum|reindex|truncate|grant|revoke|load_extension|readfile|writefile)\b", re.I)
 
 
@@ -30,7 +30,8 @@ _RUN_MAX = 500          # rows run_sql returns, whatever LIMIT the SQL carries
 
 # one left-to-right pass: a quote inside a "quoted identifier" or a comment can't start a fake
 # string literal and hide a ';' or a keyword from the checks below
-_SQL_LEX = re.compile(r"'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"|`(?:[^`]|``)*`|\[[^\]]*\]|--[^\n]*|/\*.*?(?:\*/|$)", re.S)
+# (an unclosed [ runs to the end, like an unclosed /* — else each '[' rescans the rest: O(n²) under the GIL)
+_SQL_LEX = re.compile(r"'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"|`(?:[^`]|``)*`|\[[^\]]*(?:\]|$)|--[^\n]*|/\*.*?(?:\*/|$)", re.S)
 
 
 def _bare(s):
