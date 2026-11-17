@@ -257,8 +257,18 @@ def _prune():
                         os.remove(fp)
                 except OSError:
                     pass
+        # build 484: a hound's own page (/agents/<id>/page.html, no query string) is NEVER pruned —
+        # its last run stays until a newer run replaces it or someone presses ✕ Clear. Only
+        # per-target variants (?target=… / ?q=…) are capped at MAX_PAGES, oldest first.
+        def _variant(fp):
+            try:
+                with open(fp[:-len(".json.gz")] + ".meta.json", encoding="utf-8") as fh:
+                    return "?" in str(json.load(fh).get("key") or "")
+            except Exception:
+                return False                       # unknown → keep it
         fs = sorted((os.path.join(d, n) for n in names if n.endswith(".json.gz")),
                     key=os.path.getmtime, reverse=True)
+        fs = [fp for fp in fs if _variant(fp)]
         for fp in fs[MAX_PAGES:]:
             for x in (fp, fp[:-len(".json.gz")] + ".meta.json"):
                 try:

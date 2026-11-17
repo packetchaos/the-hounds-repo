@@ -120,6 +120,36 @@ def release_status(p):
     return {"ok": True, "state": release.state()}, 200
 
 
+def bg_status(p):
+    """Is this hound being worked on in the background right now? (build 484) — by Release the
+    Hounds (a ▶ release from the home page, or its daily schedule in the AI Contract), or by an
+    AI Contract cycle running its discovery. Read-only; the hound pages poll it."""
+    from core import contract, release
+    agent = p.get("agent") if isinstance(p.get("agent"), str) else ""
+    out = {"ok": True, "agent": agent, "release": None, "contract": None}
+    st = release.state()
+    items = st.get("items") or []
+    for i, it in enumerate(items):
+        if it.get("agent") != agent:
+            continue
+        # this hound in the current (or last) release: the page compares ids to see it finish
+        out["item"] = {"id": st.get("id"), "status": it.get("status"), "finished": it.get("finished"),
+                       "error": it.get("error") or it.get("message") or ""}
+        if st.get("status") == "running" and it.get("status") in ("pending", "running"):
+            ahead = sum(1 for x in items[:i] if x.get("status") in ("pending", "running"))
+            now_ = [x.get("label") or x.get("agent") for x in items if x.get("status") == "running"]
+            out["release"] = {"id": st.get("id"), "status": it.get("status"), "label": it.get("label") or agent,
+                              "started": it.get("started") or None, "release_started": st.get("started"),
+                              "ahead": ahead, "now": now_[:1]}
+        break
+    a = contract.active()
+    if a and a.get("agent") == agent:
+        out["contract"] = {"started": a.get("started")}
+    import time as _t
+    out["now"] = _t.time()
+    return out, 200
+
+
 def release_cancel(p):
     from core import release
     return {"ok": True, "cancelled": release.cancel(), "state": release.state()}, 200
@@ -173,6 +203,6 @@ def config_status(p):
 
 
 ACTIONS = {"roster": roster, "run_all": run_all, "trust": trust, "config_status": config_status,
-           "pc_get": pc_get, "pc_put": pc_put, "pc_patch": pc_patch, "pc_del": pc_del, "pc_list": pc_list,
+           "bg_status": bg_status, "pc_get": pc_get, "pc_put": pc_put, "pc_patch": pc_patch, "pc_del": pc_del, "pc_list": pc_list,
            "release_plan": release_plan, "release_start": release_start,
            "release_status": release_status, "release_cancel": release_cancel}

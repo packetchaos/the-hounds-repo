@@ -963,18 +963,35 @@ _ADAPTERS = {
 }
 
 
+_ACTIVE = {}          # the hound whose discovery a cycle / plan is running now (build 484)
+_ACTIVE_LOCK = threading.Lock()
+
+
+def active() -> dict:
+    """{agent, started} while a cycle or plan runs one hound's discovery, else {}."""
+    with _ACTIVE_LOCK:
+        return dict(_ACTIVE)
+
+
 def _candidates_ex(aid, db_path=None, cfg=None):
     """(items, error, note) for an agent. items = [{label, rank, spec, unit}] where spec is
     navi_cli.tag kwargs (category, value, ONE selector, remove=False)."""
     fn = _ADAPTERS.get(aid)
     if fn is None:
         return [], f"no contract adapter for '{aid}'", None
+    with _ACTIVE_LOCK:
+        _ACTIVE.clear()
+        _ACTIVE.update({"agent": aid, "started": time.time()})
     try:
         out = fn(dict(cfg or (_CURRENT.get("agents", {}).get(aid)) or agent_default(aid)))
     except NeedsInput as e:
         return [], None, str(e)
     except Exception as e:
         return [], f"discovery failed: {e}", None
+    finally:
+        with _ACTIVE_LOCK:
+            if _ACTIVE.get("agent") == aid:
+                _ACTIVE.clear()
     out = _enforce_size([it for it in out if it.get("spec")])
     for it in out:
         it["spec"]["remove"] = False        # adapters never remove — only the Garmr phase does

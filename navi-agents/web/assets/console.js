@@ -273,7 +273,9 @@ const HC = (function(){
                   !(document.body && document.body.dataset.pageCache==='off') &&   // live-list pages opt out
                   !(function(){ try{ return localStorage.getItem('houndsCacheOff')==='1'; }catch(e){ return false; } })();
   const KEY = location.pathname + location.search;
-  const TTL_MS = (function(){ let h=24; try{ const v=parseFloat(localStorage.getItem('houndsCacheTTLh')); if(v>0) h=v; }catch(e){} return h*3600e3; })();
+  // build 484: no age cutoff — the last run is always shown (with its age) until a newer run or
+  // ✕ Clear replaces it. A browser can still opt into one with localStorage houndsCacheTTLh.
+  const TTL_MS = (function(){ try{ const v=parseFloat(localStorage.getItem('houndsCacheTTLh')); if(v>0) return v*3600e3; }catch(e){} return Infinity; })();
   const MAX_PAGES = 80;
   // never cached: writes + live state. Mirrors core/launcher._MUTATING and widens it.
   const WRITE_RE = H_WRITE_RE;   // shared with HB (request budgets)
@@ -490,8 +492,14 @@ const HC = (function(){
     hideBanner();
     const d=document.createElement('div'); d.id='hcBanner'; d.className='hc-banner';
     const rel=!!(e.released&&e.released.by==='release');
+    const when=new Date(e.at||0), old=(Date.now()-(e.at||0))>86400e3;
+    const stamp=when.toLocaleDateString(undefined,{month:'short',day:'numeric'})+' '+when.toLocaleTimeString(undefined,{hour:'2-digit',minute:'2-digit'});
+    if(old) d.style.borderLeftColor='var(--warn,#d9a400)';
+    d.title='Run saved '+when.toLocaleString();
     d.innerHTML='<span>'+(rel?'🐾 Released by <a href="/">Release the Hounds</a> · <b>':'↺ Restored your last run · <b>')+ago(e.at)+'</b>'+
-      ' <span class="sub">— saved '+(S.src==='browser'?'in this browser':'on the server')+(misses?' ('+misses+' read'+(misses>1?'s':'')+' fetched live)':'')+'</span></span>'+
+      ' <span class="mono" style="font-size:12px">('+esc(stamp)+')</span>'+
+      ' <span class="sub">— saved '+(S.src==='browser'?'in this browser':'on the server')+(misses?' ('+misses+' read'+(misses>1?'s':'')+' fetched live)':'')+
+      (old?' · <b style="color:var(--warn,#d9a400)">over a day old</b>':'')+'</span></span>'+
       '<span class="sp"></span><button class="btn sm" type="button" id="hcRerun" title="Run again with fresh data (bypasses every cache)">↻ Re-run</button>'+
       '<button class="btn sm" type="button" id="hcClear" title="Forget this page\'s saved run">✕ Clear</button>';
     // sits under the codename strip and the Done so far panel, right above the page's own cards
@@ -528,8 +536,8 @@ const HC = (function(){
     if(!ENABLED) return;
     let fresh=false; try{ fresh=sessionStorage.getItem('hcFresh:'+KEY)==='1'; sessionStorage.removeItem('hcFresh:'+KEY); }catch(e){}
     const e = await cacheGet(KEY);
-    // expired for THIS browser's TTL → just don't replay it (the shared server copy stays
-    // for other browsers; the server prunes)
+    // past a TTL this browser opted into → don't replay it (the shared server copy stays; the
+    // server never prunes a hound's own page)
     if(!e || !Array.isArray(e.steps) || !e.resp || (Date.now()-(e.at||0)) > TTL_MS) return;
     S.entry = e; S.onServer = S.src==='server';
     if(fresh){ e.resp={}; S.mode='fresh'; } else S.mode='replay';
@@ -580,6 +588,104 @@ const HC = (function(){
   return { state:S, rerun, clear, runAll,
            clearAll: async()=>{ try{ await srv('pc_del',{all:true}); }catch(e){} try{ const all=await tx('readonly', st=>st.getAllKeys()); (all||[]).forEach(idbDel); }catch(e){} },
            replaying: ()=>S.mode!=='live' };
+})();
+
+
+/* ===== Background activity on a hound's page (build 484) =====================================
+   A hound can be run by something other than this page: Release the Hounds (the home page's
+   ▶, or its daily schedule in the AI Contract) or an AI Contract cycle running its discovery.
+   /api/hub/bg_status says so; this bar shows it with the elapsed time. While a Release is
+   working on THIS hound its ▶ Run buttons are held (a second run would duplicate the work),
+   and when it finishes the page reloads to show the result the Release saved. */
+const BG = (function(){
+  const m=location.pathname.match(/^\/agents\/([a-z0-9_]+)\//), agent=m&&m[1];
+  if(!agent || ['hub','settings','jobs','profile','explore'].indexOf(agent)>=0 || !window.fetch) return {};
+  const st={rel:null, con:null, item0:undefined, held:false, skew:0, label:'', seq:0};
+  const fmt=s=>{ s=Math.max(0,Math.round(s)); const h=Math.floor(s/3600), mi=Math.floor(s%3600/60), se=s%60;
+    return (h?h+':'+String(mi).padStart(2,'0'):mi)+':'+String(se).padStart(2,'0'); };
+  const now=()=>Date.now()/1000+st.skew;
+  async function poll(){ try{ const r=await fetch('/api/hub/bg_status',{method:'POST',headers:{'Content-Type':'application/json','X-Hounds-Budget':'open'},body:JSON.stringify({agent})});
+    return r.ok ? await r.json() : null; }catch(e){ return null; } }
+  function bar(){ let d=document.getElementById('bgActivity'); if(d||!document.body) return d;
+    if(!document.getElementById('hbStyle')){ const s2=document.createElement('style'); s2.id='hbStyle';
+      s2.textContent='.hb-banner{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px;padding:8px 12px;border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:var(--radius-sm,8px);background:var(--panel-2);font-size:13px;color:var(--ink-2,var(--ink));overflow-wrap:anywhere}.hb-banner b{color:var(--ink)}.hb-banner .hb-msg{flex:1 1 260px;min-width:0}';
+      (document.head||document.documentElement).appendChild(s2); }
+    d=document.createElement('div'); d.id='bgActivity'; d.className='hb-banner'; d.setAttribute('role','status'); d.setAttribute('aria-live','polite');
+    d.innerHTML='<span class="hb-msg"></span>';
+    const wrap=document.querySelector('.wrap')||document.body;
+    const first=[...wrap.children].find(e=>e.classList && e.classList.contains('card') && ['actv','hcBanner','hbBanner','hbRuns'].indexOf(e.id)<0);
+    if(first) wrap.insertBefore(d, first); else wrap.prepend(d);
+    return d; }
+  function drop(){ const d=document.getElementById('bgActivity'); if(d) d.remove(); }
+  function runBtns(){ return document.querySelectorAll('button[data-run], button[data-run-all], #hcRerun'); }
+  function hold(on){ st.held=on;
+    runBtns().forEach(b=>{ if(on){ if(!b.disabled || b.dataset.bgHeld){ b.disabled=true; b.dataset.bgHeld='1'; } }
+                           else if(b.dataset.bgHeld){ b.disabled=false; delete b.dataset.bgHeld; } }); }
+  // a ▶ the page re-enabled itself, or one it drew later, is caught here while held
+  document.addEventListener('click', ev=>{ if(!st.held) return;
+    const b=ev.target && ev.target.closest && ev.target.closest('button[data-run],button[data-run-all],#hcRerun');
+    if(b){ ev.preventDefault(); ev.stopImmediatePropagation(); paint(); } }, true);
+  function paint(){
+    const r=st.rel, c=st.con;
+    if(!r && !c){ drop(); return; }
+    const d=bar(); if(!d) return;
+    let h='';
+    if(r){
+      const name=esc(r.label||agent);
+      h = r.status==='running'
+        ? '<span class="spin"></span> <b>Release the Hounds is running '+name+' now</b> · <b class="mono">'+fmt(now()-(r.started||now()))+'</b>'
+        : '⏳ <b>'+name+' is queued in Release the Hounds</b>'+(r.ahead?' · '+r.ahead+' hound'+(r.ahead>1?'s':'')+' ahead':'')+
+          ((r.now&&r.now.length)?' · running now: '+esc(r.now[0]):'');
+      h += ' · release running <span class="mono">'+fmt(now()-(r.release_started||now()))+'</span>'+
+           ' — ▶ Run is held until it finishes; this page then loads the result · <a href="/">Release the Hounds</a>';
+      d.style.borderLeftColor='var(--accent)';
+    } else {
+      h='<span class="spin"></span> <b>The AI Contract is running this hound\'s discovery</b> for its tagging plan · <b class="mono">'+
+        fmt(now()-(c.started||now()))+'</b> — it doesn\'t change this page; ▶ Run still works · <a href="/agents/contract/page.html">AI Contract</a>';
+      d.style.borderLeftColor='var(--warn,#d9a400)';
+    }
+    d.querySelector('.hb-msg').innerHTML=h;
+    if(r) hold(true);
+  }
+  function finished(item){
+    hold(false);
+    const d=bar(); if(!d) return;
+    const ok=item && item.status==='done';
+    d.querySelector('.hb-msg').innerHTML=ok
+      ? '✓ <b>Release the Hounds finished '+esc(st.label||agent)+'</b> — loading the result…'
+      : '✗ <b>Release the Hounds did not finish '+esc(st.label||agent)+'</b>'+(item&&item.status?' ('+esc(item.status)+')':'')+
+        (item&&item.error?' · '+esc(item.error):'')+' — ▶ Run is free again.';
+    d.style.borderLeftColor=ok?'var(--ok)':'var(--warn,#d9a400)';
+    if(ok) setTimeout(()=>location.reload(), 1200);
+  }
+  async function tick(){
+    const my=++st.seq, o=await poll(); if(my!==st.seq || !o || !o.ok) return;
+    if(o.now) st.skew=o.now-Date.now()/1000;
+    const was=st.rel;
+    st.rel=o.release||null; st.con=o.contract||null;
+    if(st.rel) st.label=st.rel.label||st.label;
+    if(was && !st.rel){                      // the release stopped working on this hound
+      const it=o.item||null;
+      if(it && it.id===was.id){ finished(it); return 'done'; }
+      finished({status:'stopped'}); return 'done';
+    }
+    paint();
+  }
+  let busy=false;
+  async function loop(){
+    if(busy) return; busy=true;
+    try{
+      for(;;){
+        if(await tick()==='done') return;
+        const active=!!(st.rel||st.con);
+        await new Promise(r=>setTimeout(r, active?3000:20000));
+        if(document.hidden && !active) await new Promise(r=>setTimeout(r, 20000));
+      }
+    } finally { busy=false; }
+  }
+  setInterval(()=>{ if(st.rel||st.con) paint(); }, 1000);   // the clock between polls
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded', loop); else loop();
+  return { state:st };
 })();
 
 
