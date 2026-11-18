@@ -165,14 +165,11 @@ function card(a){
   const crestImg=`<img src="${esc(crestSrc(a.id))}" alt="${esc(cn.name||a.name||'')}" data-fb="${esc(glyph)}">`;
   const tagsHtml=tags.map(t=>`<span class="atag">${esc(t)}</span>`).join('');
   const search=((cn.name||'')+' '+(a.name||'')+' '+(a.summary||'')+' '+tags.join(' ')).toLowerCase();
-  const dd=(typeof deepDive==='function')?deepDive(a.id):null;
-  const yr=dd&&dd.year?`📖 Origin story · ${dd.year}`:'';
   return `<div class="agent agentcard ${a.deployed?'':'dim'}" data-cat="${esc(tags.join(' '))}" data-search="${esc(search)}" data-id="${esc(a.id)}">
     <div class="ah">
       <div class="ico">${a.deployed&&a.page?`<a href="${esc(safeHref(a.page))}" title="Open ${esc(a.name||'')}" style="display:block;line-height:0;width:100%;height:100%">${crestImg}</a>`:crestImg}</div>
       <div style="min-width:0;flex:1">
         <div class="nm">${esc(a.name||a.id)}</div>
-        ${yr?`<div class="ameta">${yr}</div>`:''}
         <div class="adep"><span data-badge>${badge(a)}</span><span class="alast">· last run <span data-lastrun>never</span></span><span class="alast" data-metric></span></div>
       </div>
     </div>

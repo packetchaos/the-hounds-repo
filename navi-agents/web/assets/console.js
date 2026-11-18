@@ -1066,7 +1066,7 @@ const CODENAMES = {
  email:{name:'Gabriel',lore:'<b>Gabriel</b>, the messenger — the one who carries the word to those who need it. The email agent closes the loop: it takes what the pack found and delivers it to the humans who own it, with deep-links back into Tenable.'},
  alert:{name:'Alert Raven',lore:'In the wild, <b>ravens ride with the wolf pack</b> — scouting ahead, then calling out where the kill (and the danger) is; the wolves hunt, the raven watches the sky. <b>Alert Raven</b> rides with the Hounds the same way: it keeps watch over navi.db and calls out — an email digest — the moment a tracked condition turns dangerous.'},
 };
-/* ---- "Deep dive" — the origin article + code behind each agent (script → agent) ----
+/* ---- "Deep dive" (→ the hound one-pager) + code behind each agent (script → agent) ----
    Each idea started as a Medium article by Casey Reid (packetchaos), became a navi
    command, and is now an agent. Fill in article/code per agent id; where present a
    "Deep dive" link appears on the agent's header and its Release-the-Hounds card. */
@@ -1134,24 +1134,24 @@ const DEEP_DIVE = {
   // ↓ still open for their own dedicated article (fall back to the general one for now):
   // certificate, iot_squad, exproute, postquantum, contract, tagremoval, dashboard
 };
-/* search / explorer agents have no origin article — no deep dive for them.
-   postquantum + attackpath were built on THIS project (not from the navi origin), so no origin story. */
+/* search / explorer agents get no deep dive.
+   postquantum + attackpath were built on THIS project, so they carry no deep-dive link either. */
 const _DD_SKIP = new Set(['ex_compliance','ex_software','ex_assets','ex_vulns','ex_plugins','ex_routes','ex_paths','ex_tags','postquantum','attackpath',
-  'advsearch','advanced','explore','dash','dashboard','mcpcmp','customdash','tags','tagdetail','taglog','tags-log','asset','vuln']);  /* search / explorer / generic tools — no hound origin story */
+  'advsearch','advanced','explore','dash','dashboard','mcpcmp','customdash','tags','tagdetail','taglog','tags-log','asset','vuln']);  /* search / explorer / generic tools — no deep-dive link */
 function deepDive(id){ if(_DD_SKIP.has(id)) return null; return (typeof DEEP_DIVE!=='undefined') && (DEEP_DIVE[id] || DEEP_DIVE._fallback) || null; }
+/* Deep dive → the hound's local one-pager (web/hounds/<id>.html — same page as the card's Info button) */
+function houndPageUrl(id){ return '/web/hounds/'+((typeof HOUNDS_REPO_ALIAS!=='undefined'&&HOUNDS_REPO_ALIAS[id])||id)+'.html'; }
 function deepDiveChips(id){
   const d = deepDive(id); if(!d) return '';
   let h='';
-  if(d.year) h+='<span class="sub" style="font-size:11px;color:var(--ink-3);align-self:center;white-space:nowrap">📖 Origin story · '+d.year+'</span>';
-  if(d.article&&d.article.url) h+='<a class="btn ghost sm" href="'+esc(safeUrl(d.article.url))+'" target="_blank" rel="noopener noreferrer" title="'+esc(d.article.title||'Read the origin article')+'">Deep dive ↗</a>';
+  h+='<a class="btn ghost sm" href="'+esc(safeHref(houndPageUrl(id)))+'" target="_blank" rel="noopener" title="What it does and why it matters — the hound\'s one-pager">Deep dive ↗</a>';
   if(d.code&&d.code.url) h+='<a class="btn ghost sm" href="'+esc(safeUrl(d.code.url))+'" target="_blank" rel="noopener noreferrer" title="'+esc(d.code.label||'Source code')+'">‹ › Code</a>';
   return h;
 }
-/* just the origin-story date + article link (shown under the agent name on cards) */
+/* just the deep-dive link to the hound's one-pager (shown under the agent name on cards) */
 function deepDiveMeta(id){ const d=deepDive(id); if(!d) return '';
   let h='';
-  if(d.year) h+='<span class="sub" style="font-size:11px;color:var(--ink-3)">📖 Origin story · '+d.year+'</span>';
-  if(d.article&&d.article.url) h+='<a href="'+esc(safeUrl(d.article.url))+'" target="_blank" rel="noopener noreferrer" title="'+esc(d.article.title||'')+'" style="font-size:12px;color:var(--accent);font-weight:600;text-decoration:none">Deep dive ↗</a>';
+  h+='<a href="'+esc(safeHref(houndPageUrl(id)))+'" target="_blank" rel="noopener" title="What it does and why it matters" style="font-size:12px;color:var(--accent);font-weight:600;text-decoration:none">Deep dive ↗</a>';
   return h?('<div class="ddmeta" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:2px 0 0">'+h+'</div>'):''; }
 /* just the code link (shown with Execute / Open in the actions row) */
 // The ‹ › Code link points at the agent's own folder in the-hounds-repo on GitHub.
@@ -1502,7 +1502,7 @@ function _introStyle(){
   +'.introLore{font-size:13px;line-height:1.55;color:var(--ink-2)}';
   document.head.appendChild(st);
 }
-/* Search / explorer agents are plain tools — no hound codename, crest, or origin story.
+/* Search / explorer agents are plain tools — no hound codename, crest, or deep dive.
    They're too simple for the "agent" persona, so the whole codename block is skipped
    and only the plain page header (mountAgentHeader) shows. */
 const _NO_CODENAME=new Set(['ex_assets','ex_vulns','ex_plugins','ex_routes','ex_paths','ex_tags','explore','advanced','advsearch']);
