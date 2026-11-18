@@ -298,7 +298,7 @@ python3 run.py                    # server starts, prints a URL
 Then in the browser at `http://localhost:8000`:
 
 1. The hub (**Release the Hounds**) shows the pack's cards, and the header shows the
-   version — **v1.43.484** in this release; the middle number is the count of hounds the
+   version — **v1.43.487** in this release; the middle number is the count of hounds the
    server discovered (43). If the hub says "discovering agents…" forever, you're not on the
    served URL or you started `run.py` from the wrong folder.
 2. The header shows your asset count, and **doesn't** say "SAMPLE data" once

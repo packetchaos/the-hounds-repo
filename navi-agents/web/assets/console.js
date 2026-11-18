@@ -1129,13 +1129,13 @@ const AGENT_INTRO = {
    "<b>Interactive attack map<\/b> — attacker → crown jewels, with diverse routes per target; click any host or step for its evidence.",
    "<b>Fix first<\/b> — choke points and a remediation bundle ranked by how much crown-jewel exposure each fix removes, recalculated as fixes are applied.",
    "<b>Gated tags and CSV<\/b> — Attack Path : Entry Point, Pivot, Target or Choke Point on the exact assets; paths export to CSV."]},
- c2:{does:"Amarok runs read-only diagnostics, credential tests and \"does this path exist?\" checks on Linux hosts, and turns Tenable's own solution text into a remediation plan you review, then deploys it canary-first with a check after each step and a rollback. Every command on every host is recorded in a tamper-evident (hash-chained) log.",caps:[
-   "<b>Quick diagnostics<\/b> — a catalog of read-only checks — OS and kernel, disk, memory, listening ports, DNS, public egress IP, Tenable cloud reachability, Nessus agent status, pending updates, failed services, SELinux / AppArmor, firewall.",
-   "<b>Credential test<\/b> — login and sudo without a password on each host — and the reason when it fails: auth, unreachable, port closed, DNS, timeout or a changed host key.",
-   "<b>Does this path exist?<\/b> — type, size, owner, permissions, modified time and SHA-256 for a path on one or many hosts.",
-   "<b>Remediation plan from Tenable's text<\/b> — the plugin's solution and output become a structured plan (an AI model if configured, package-manager templates if not), checked by a deterministic validator that blocks anything outside an allow-list.",
-   "<b>Canary-first deploy<\/b> — one host first, verify each step, stop on failure, roll back per host; then re-check navi.db to confirm the finding is gone after the next sync.",
-   "<b>Free-form commands and files<\/b> — for the operator who needs them — with a destructive-command check, armed batches and an abort switch."]},
+ c2:{does:"Amarok checks Linux hosts read-only — health, login, \"does this path exist?\" and a strict pre-flight — and turns Tenable's own solution text into a remediation plan you review, then deploys it to one canary host and, after a separate click, rolls it out to the rest. Every button acts on one Target set and shows what will happen before you confirm. Every command on every host lands in a hash-chained log.",caps:[
+   "<b>One Target set<\/b> — every action uses the same host list shown in a bar at the top; a preview built from the exact request lists the hosts, the policy and the undo story.",
+   "<b>Inspect (read-only)<\/b> — one-confirm pre-flight with strict host keys — login, sudo, live OS group, package-manager lock and holds, installed → candidate vs fixed for every package, reboot state and whether a downgrade is still possible — plus health checks with a health verdict, login test and path check.",
+   "<b>Remediation plan from Tenable's text<\/b> — the plugin's solution and output (rpm and dpkg package pairs, kernels, upstream versions) become one plan per OS group — every affected package in one transaction — checked by a deterministic allow-list validator.",
+   "<b>Canary, then roll out<\/b> — two confirmed clicks: one non-crown canary first; roll out unlocks only when the canary reads Fixed. Crown jewels always run last.",
+   "<b>Plain verdicts<\/b> — Fixed only when every package reaches its distro fixed build; otherwise Upgraded (fix not proven or still vulnerable), No change, Already fixed, Not installed, Held, Package manager busy, Step failed or Unknown state — with reboot and service-restart flags.",
+   "<b>Commands and files<\/b> — free-form commands and file copies on the Target set, with a typed host count for any multi-host run and an abort switch."]},
  certificate:{does:"Certania finds every certificate that has already expired — month by month over the last 12 months, plus everything older that is still deployed — and every certificate expiring in the next 12 months, maps each to its assets, and lays them out on one timeline. Certania tags the assets with their exact expiry date so the renewal becomes routable work.",caps:[
    "<b>Expired and expiring inventory<\/b> — expired by month for the last 12 months and older, plus everything failing in the next 12 months, each with its assets.",
    "<b>One expiry timeline<\/b> — older, the last 12 months and the next 12 months on one axis, so renewals are planned by month, not found by outage.",
@@ -2421,11 +2421,17 @@ document.addEventListener('click', e=>{ const b=e.target&&e.target.closest&&e.ta
    the section and NEVER runs anything by itself (the operator clicks, then confirms).
    c2Link(intent, payload, label) returns a small link for a table row: the payload is kept in a
    page-local registry and the link carries only an opaque key (data-c2h) — no inline JS from data. */
+/* build 485 (sec R3): a hand-off carries single hosts only — an `ip` with a CIDR, whitespace or a comma could
+   widen the set on the C2 page, so it is dropped here (and again on the C2 page) and counted as `ignored`. */
+function _c2Single(s){ s=String(s==null?'':s); if(!s||s!==s.trim()||s.charAt(0)==='-'||/[\s,\/;'"`$&|<>(){}\[\]\\*?!#=~^%]/.test(s)) return false;
+  return s.indexOf(':')>=0 ? /^[0-9a-fA-F:.]+$/.test(s)
+    : /^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*\.?$/.test(s); }
 function c2Handoff(req){
   const r=req||{}; const intent=['validate_path','diagnose','remediate'].includes(r.intent)?r.intent:'diagnose';
-  const t=(Array.isArray(r.targets)?r.targets:[]).filter(x=>x&&x.ip).slice(0,256)
-    .map(x=>({ip:String(x.ip),uuid:String(x.uuid||''),hostname:String(x.hostname||'')}));
-  const out={intent, targets:t, source:String(r.source||document.title||'another hound').slice(0,60)};
+  const all=(Array.isArray(r.targets)?r.targets:[]).filter(x=>x&&x.ip).slice(0,256);
+  const t=all.filter(x=>_c2Single(String(x.ip).trim()))
+    .map(x=>({ip:String(x.ip).trim(),uuid:String(x.uuid||''),hostname:String(x.hostname||'')}));
+  const out={intent, targets:t, ignored:all.length-t.length, source:String(r.source||document.title||'another hound').slice(0,60)};
   if(r.path) out.path=String(r.path).slice(0,1024);
   if(r.plugin_id!=null&&r.plugin_id!=='') out.plugin_id=String(r.plugin_id);
   if(r.cve) out.cve=String(r.cve);

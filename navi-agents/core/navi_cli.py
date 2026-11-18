@@ -1479,7 +1479,20 @@ def push(target: str, command: str = "", file: str = "", agent: str = "c2",
         res["asset"] = {k: asset.get(k) for k in ("uuid", "hostname", "os")}
     try:
         from core import c2log
-        logged_cmd = command if command else ("scp " + os.path.basename(file or ""))
+        # build 485 fix round (sec F3): a file push is logged with the sha256 of the file's CONTENT, so the
+        # hash-chained row proves which payload was shipped (it used to hash the server path string)
+        fsha = ""
+        if file and not command:
+            try:
+                import hashlib as _hl
+                _h = _hl.sha256()
+                with open(file, "rb") as _f:
+                    for _c in iter(lambda: _f.read(1 << 20), b""):
+                        _h.update(_c)
+                fsha = _h.hexdigest()
+            except OSError:
+                fsha = ""
+        logged_cmd = command if command else ("scp " + os.path.basename(file or "") + (" sha256=" + fsha if fsha else ""))
         res["c2_log"] = c2log.record(
             target, logged_cmd, res.get("status") or ("ok" if res.get("ok") else "failed"),
             exit_code=res.get("exit_code"), duration_ms=res.get("duration_ms"), run_id=run_id,
@@ -1487,7 +1500,7 @@ def push(target: str, command: str = "", file: str = "", agent: str = "c2",
             catalog_id=catalog_id or ("file" if file else "free-form"), plan_sha256=plan_sha256,
             hostkey_policy=("strict" if strict_host_keys else "accept-new"), attempts=res.get("attempts") or 1,
             in_inventory=bool(asset), asset_uuid=asset.get("uuid") or "", hostname=asset.get("hostname") or "",
-            sent_bytes=(command if command else file))
+            sent_bytes=(command if command else (fsha or file)))
     except Exception as e:  # pragma: no cover — logging never breaks a push
         res["c2_log"] = {"error": str(e)}
     try:

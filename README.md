@@ -6,7 +6,7 @@ and surface the results in a local console. Each "hound" is a specialist that hu
 kind of exposure and then tags it, calibrates its risk, or answers a question — grounded
 in real navi queries, with every write gated and confirmed by a human.
 
-Version `1.43.484` — the scheme is `MAJOR.<hounds>.<build>`, where the middle number is
+Version `1.43.487` — the scheme is `MAJOR.<hounds>.<build>`, where the middle number is
 the count of hounds the server discovers (43 in this release; `navi-agents/core/version.py`).
 
 ## Quick start

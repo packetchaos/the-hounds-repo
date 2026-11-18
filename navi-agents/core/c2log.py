@@ -34,7 +34,7 @@ from . import tagq
 
 STATUSES = ("ok", "changed", "failed", "unreachable", "auth_failed", "hostkey_mismatch", "hostkey_unknown",
             "port_closed", "dns_failed", "timeout", "skipped", "not_applicable", "cancelled", "blocked",
-            "refused", "no_credentials")
+            "refused", "no_credentials", "ack")
 _LOCK = threading.Lock()
 _READY = None
 FIELDS = ("ts", "run_id", "source", "agent", "operator", "target", "in_inventory", "asset_uuid", "hostname",
@@ -65,6 +65,7 @@ def _ensure():
             con.execute("CREATE INDEX IF NOT EXISTS c2_log_ts ON c2_log(ts)")
             con.execute("CREATE INDEX IF NOT EXISTS c2_log_target ON c2_log(target)")
             con.execute("CREATE INDEX IF NOT EXISTS c2_log_run ON c2_log(run_id)")
+            con.execute("CREATE INDEX IF NOT EXISTS c2_log_uuid ON c2_log(asset_uuid)")
             con.execute("CREATE TRIGGER IF NOT EXISTS c2_log_no_update BEFORE UPDATE ON c2_log "
                         "BEGIN SELECT RAISE(ABORT, 'c2_log is append-only'); END")
             con.execute("CREATE TRIGGER IF NOT EXISTS c2_log_no_delete BEFORE DELETE ON c2_log "
@@ -348,13 +349,14 @@ def stats() -> dict:
     last = _q("SELECT ts, target, status, catalog_id, source FROM c2_log WHERE status NOT IN ('blocked','refused') "
               "ORDER BY id DESC LIMIT 1")
     plans = {r["status"]: r["n"] for r in _q("SELECT status, COUNT(*) n FROM c2_plans GROUP BY status")}
-    RAN = " AND status NOT IN ('blocked','refused')"      # attempts that never reached a host
+    # attempts that never reached a host, and operator acknowledgements (mode 'ack', build 485), are not commands
+    RAN = " AND status NOT IN ('blocked','refused','ack')"
     return {"today": n("SELECT COUNT(*) n FROM c2_log WHERE ts>=?" + RAN, (day0,)),
             "week": n("SELECT COUNT(*) n FROM c2_log WHERE ts>=?" + RAN, (wk,)),
             "total": n("SELECT COUNT(*) n FROM c2_log"),
             "hosts_week": n("SELECT COUNT(DISTINCT target) n FROM c2_log WHERE ts>=?" + RAN, (wk,)),
             "failures_week": n("SELECT COUNT(*) n FROM c2_log WHERE ts>=? AND status NOT IN "
-                               "('ok','changed','skipped','not_applicable','cancelled','blocked','refused')", (wk,)),
+                               "('ok','changed','skipped','not_applicable','cancelled','blocked','refused','ack')", (wk,)),
             "not_run_week": n("SELECT COUNT(*) n FROM c2_log WHERE ts>=? AND status IN ('blocked','refused')", (wk,)),
             "auth_failed_week": n("SELECT COUNT(*) n FROM c2_log WHERE ts>=? AND status='auth_failed'", (wk,)),
             "hostkey_changed": n("SELECT COUNT(*) n FROM c2_log WHERE status='hostkey_mismatch'"),
@@ -362,7 +364,9 @@ def stats() -> dict:
             "off_inventory_week": n("SELECT COUNT(*) n FROM c2_log WHERE ts>=? AND in_inventory=0" + RAN, (wk,)),
             "last": last[0] if last else None,
             "plans_pending": sum(v for k, v in plans.items() if k in ("generated", "approved")),
-            "plans_deployed": plans.get("deployed", 0), "plans_failed": plans.get("failed", 0),
+            # per-run statuses (build 485): "deployed (canary)", "failed (3 host(s))", …
+            "plans_deployed": sum(v for k, v in plans.items() if str(k).startswith("deployed")),
+            "plans_failed": sum(v for k, v in plans.items() if str(k).startswith("failed")),
             "since_utc_midnight": day0}
 
 
@@ -427,3 +431,104 @@ def plan_upsert(plan_id, status, *, source="", selector="", generator="", genera
 
 def plans(limit=50) -> list:
     return _q("SELECT * FROM c2_plans ORDER BY id DESC LIMIT ?", (int(limit),))
+
+
+# ---- per-host safety state, read back from the log (build 485 — sec C6 / C7) -----------------------
+# A host's state must survive a page reload, so it is derived from the log rows, never page memory:
+#   key CHANGED   the latest host-key outcome is hostkey_mismatch, and no STRICT login has succeeded since
+#   unknown state the latest remediation / rollback step row timed out, and no clean pre-flight (run_id
+#                 "pre-…") has succeeded since
+#   key NEW (TOFU) the host's FIRST connected row ran under accept-new: its key was trusted on first use
+_CONNECTED = "('ok','changed','failed','not_applicable')"
+
+
+_AGG = ("MAX(CASE WHEN status='hostkey_mismatch' THEN id END) mm, "
+        "MAX(CASE WHEN hostkey_policy='strict' AND status IN " + _CONNECTED + " THEN id END) so, "
+        "MAX(CASE WHEN catalog_id LIKE 'remediation step %' OR catalog_id LIKE 'rollback step %' THEN id END) st, "
+        "MAX(CASE WHEN run_id LIKE 'pre-%' AND status='ok' THEN id END) pre, "
+        "MIN(CASE WHEN status IN " + _CONNECTED + " THEN id END) fo, "
+        "MAX(CASE WHEN mode='ack' THEN id END) ak ")
+
+
+def _agg_by(col, values):
+    vals = sorted({str(v) for v in values if str(v or "").strip()})[:2048]
+    if not vals:
+        return {}
+    return {r["k"]: r for r in _q("SELECT " + col + " AS k, " + _AGG + "FROM c2_log WHERE " + col +
+                                  " IN (SELECT value FROM json_each(?)) GROUP BY " + col, (json.dumps(vals),))}
+
+
+def _merge(rows):
+    out = {}
+    for r in rows:
+        for k in ("mm", "so", "st", "pre", "ak"):
+            if r.get(k) and (not out.get(k) or r[k] > out[k]):
+                out[k] = r[k]
+        if r.get("fo") and (not out.get("fo") or r["fo"] < out["fo"]):
+            out["fo"] = r["fo"]
+    return out
+
+
+def host_states(targets, aliases=None) -> dict:
+    """{target: {key, key_ts, key_by, acked, unknown_state, unknown_ts, tofu, tofu_ts, tofu_by}} for the given
+    targets (≤ the 256 CIDR cap). build 485 fix round (sec F1): a host is ONE host whatever it is called — its
+    rows are read under the target string AND its aliases (navi.db ip / hostname) AND its asset uuid, merged
+    as one row set, so a CHANGED key recorded on 10.9.0.3 also excludes "web03". aliases = {target: {"names":
+    [...], "uuid": "..."}}."""
+    ts_ = [str(t) for t in (targets or []) if str(t or "").strip()][:512]
+    if not ts_:
+        return {}
+    aliases = aliases or {}
+    names = {t: {t} | {str(n) for n in (aliases.get(t) or {}).get("names") or [] if n} for t in ts_}
+    uuids = {t: str((aliases.get(t) or {}).get("uuid") or "") for t in ts_}
+    by_t = _agg_by("target", [n for v in names.values() for n in v])
+    by_u = _agg_by("asset_uuid", [u for u in uuids.values() if u])
+    aggs = {t: _merge([by_t[n] for n in names[t] if n in by_t] + ([by_u[uuids[t]]] if uuids[t] in by_u else []))
+            for t in ts_}
+    ids = sorted({a[k] for a in aggs.values() for k in ("mm", "st", "fo") if a.get(k)})
+    by = {r["id"]: r for r in _q("SELECT id, ts, status, hostkey_policy, catalog_id, mode, run_id, target FROM c2_log "
+                                 "WHERE id IN (SELECT value FROM json_each(?))", (json.dumps(ids),))} if ids else {}
+    out = {}
+    for t, r in aggs.items():
+        d = {}
+        mm, so = r.get("mm"), r.get("so")
+        if mm and (not so or so < mm):
+            row = by.get(mm) or {}
+            d.update(key="changed", key_ts=row.get("ts"), key_by=row.get("catalog_id") or row.get("mode") or "",
+                     key_as=row.get("target") or "", acked=bool(r.get("ak") and r["ak"] > mm))
+        elif so:
+            d["key"] = "known"
+        st = by.get(r.get("st")) if r.get("st") else None
+        if st and st.get("status") == "timeout" and not (r.get("pre") and r["pre"] > r["st"]):
+            d.update(unknown_state=True, unknown_ts=st.get("ts"), unknown_step=st.get("catalog_id"))
+        fo = by.get(r.get("fo")) if r.get("fo") else None
+        if fo and fo.get("hostkey_policy") == "accept-new":
+            d.update(tofu=True, tofu_ts=fo.get("ts"), tofu_by=fo.get("catalog_id") or fo.get("mode") or "",
+                     tofu_read_only=fo.get("mode") in ("read_only", "cred_test"))
+            d.setdefault("key", "new")
+        if d:
+            out[t] = d
+    return out
+
+
+def key_changed_hosts(limit=50) -> list:
+    """Every host whose CURRENT host-key state is CHANGED (latest mismatch, no strict login since) — for the
+    page-level security banner, which must survive a reload. Newest first."""
+    rows = _q("SELECT target, MAX(CASE WHEN status='hostkey_mismatch' THEN id END) mm, "
+              "MAX(CASE WHEN hostkey_policy='strict' AND status IN " + _CONNECTED + " THEN id END) so, "
+              "MAX(CASE WHEN mode='ack' THEN id END) ak FROM c2_log "
+              "WHERE target IN (SELECT DISTINCT target FROM c2_log WHERE status='hostkey_mismatch') GROUP BY target")
+    hit = [r for r in rows if r.get("mm") and (not r.get("so") or r["so"] < r["mm"])]
+    hit.sort(key=lambda r: -r["mm"])
+    hit = hit[:max(1, int(limit))]
+    by = {r["id"]: r for r in _q("SELECT id, ts, run_id, catalog_id, hostname FROM c2_log WHERE id IN "
+                                 "(SELECT value FROM json_each(?))", (json.dumps([r["mm"] for r in hit]),))} if hit else {}
+    return [{"target": r["target"], "ts": (by.get(r["mm"]) or {}).get("ts"), "run_id": (by.get(r["mm"]) or {}).get("run_id"),
+             "by": (by.get(r["mm"]) or {}).get("catalog_id"), "hostname": (by.get(r["mm"]) or {}).get("hostname") or "",
+             "acked": bool(r.get("ak") and r["ak"] > r["mm"])} for r in hit]
+
+
+def ack(target, what) -> dict:
+    """An operator acknowledgement (mode 'ack', status 'ack') — chained like every row; no command was sent."""
+    return record(target, "ack: " + str(what or "")[:200], "ack", mode="ack", catalog_id="ack", source="c2",
+                  agent="c2", sent_bytes="")

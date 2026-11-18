@@ -7,6 +7,7 @@ workflow — Linux-only host discovery, the destructive-command force step, arme
 canary-first batches with an abort switch, and vuln→host patch derivation.
 """
 import base64
+import hashlib
 import json
 import os
 import re
@@ -14,7 +15,7 @@ import threading
 import time
 import uuid
 
-from core import db, navi_cli, c2_catalog, c2_targets, c2log, c2_remediate, hx_summary
+from core import db, navi_cli, c2_catalog, c2_targets, c2log, c2_remediate, hx_summary, c2_verdict, c2_hostkeys
 from .agent import C2Agent
 from core.gates import confirmed, flag
 
@@ -32,6 +33,9 @@ _MAX_UPLOAD_TOTAL = int(os.environ.get("NAVI_C2_MAX_UPLOAD_TOTAL", str(200 * 102
 # in-flight batch can be halted (tagq has no native cancel).
 _ABORT = set()
 _ABORT_LOCK = threading.Lock()
+# fix round (linux F8 / sec 5): any multi-host run stops new SSH attempts after this many failed logins — one
+# failure per host across 200 hosts can lock a directory-backed (AD / LDAP / FreeIPA) service account
+MAX_AUTH_FAILURES = 3
 
 
 # --------------------------------------------------------------------------- #
@@ -338,7 +342,8 @@ def load(p):
 
 
 def status(p):
-    return {"ok": True, **navi_cli.push_status(), "ssh": db.ssh_status()}, 200
+    return {"ok": True, **navi_cli.push_status(), "ssh": dict(db.ssh_status(), user=_ssh_user()),
+            "known_hosts": c2_hostkeys.locate()}, 200
 
 
 def hosts(p):
@@ -368,10 +373,12 @@ def precheck(p):
     dangers = navi_cli.scan_command(cmd) if cmd else []
     host = None
     if target:
+        # build 485: the same lookup the push choke point uses (IP OR hostname, case-insensitive) — a
+        # hostname that IS in navi.db is no longer reported as "not found" (sec MUST 6, API change 6)
         try:
             _sel, ip, _os, _ok = _asset_sql()
             hs = _hosts_where(f"TRIM(COALESCE({ip},''),{_WS}) = ? OR uuid = ?", (target, target))
-            host = hs[0] if hs else None
+            host = hs[0] if hs else c2_targets.lookup(target)
         except Exception:
             host = None
     warnings = []
@@ -386,7 +393,8 @@ def precheck(p):
         warnings.append("target not found in navi.db — confirm it's a real, Linux, in-scope host "
                         "before pushing")
     secret = bool(re.search(r"(?i)(password|passwd|token|secret|api[_-]?key|--pass\b|BEGIN [A-Z ]*PRIVATE KEY)", cmd))
-    return {"ok": True, "dangers": dangers, "danger": bool(dangers), "host": host,
+    kind = c2_targets.classify(target)["kind"] if target else ""
+    return {"ok": True, "dangers": dangers, "danger": bool(dangers), "host": host, "kind": kind,
             "warnings": warnings, "secret_risk": secret}, 200
 
 
@@ -466,7 +474,10 @@ def plan(p):
         return {"ok": False, "error": f"query failed: {e}"}, 200
     sols = _solutions(pids)                 # Tenable's OWN remediation text, from the plugins table
     pkg = _guess_pkg(sel, names, sols)
-    return {"ok": True, "selector": sel, "matched_assets": n_uuids, "plugin_names": names,
+    # build 485: the package the pre-flight checks (the fixed version comes from the generated plan — plan()
+    # itself never reads vulns.output, the scale rule)
+    fixed = {"package": pkg, "fixed_version": "", "compare": ""}
+    return {"ok": True, "selector": sel, "matched_assets": n_uuids, "plugin_names": names, "fixed": fixed,
             "linux_hosts": linux, "linux_count": n_lin, "excluded": excluded, "excluded_count": n_exc,
             "truncated": n_lin > len(linux) or n_exc > len(excluded),
             "package_guess": pkg, "templates": _remediation_templates(pkg),
@@ -488,7 +499,8 @@ def _solutions(plugin_ids):
                 "note": "Tenable's Solution text isn't available — the plugins table isn't populated. "
                         "Run `navi config update plugins --size 10000` to ground remediation in "
                         "Tenable's stated fix; falling back to OS templates + a package guess."}
-    fields = "plugin_id, solution" + (", plugin_name" if "plugin_name" in cols else "") \
+    # build 486 (linux §5 data issue): navi's real plugins table calls the title `name`
+    fields = "plugin_id, solution" + (", plugin_name" if "plugin_name" in cols else (", name AS plugin_name" if "name" in cols else "")) \
              + (", description" if "description" in cols else "")
     inl = ",".join("?" * len(pids))
     try:
@@ -534,14 +546,16 @@ def _guess_pkg(sel, names, sols=None):
 
 
 def _remediation_templates(pkg):
+    """Static suggestions — build 486 (linux review rec. 10): the SAME validated per-family forms the template plan
+    uses (one command each, no `&&` / `||` chains, non-interactive dpkg options and bounded lock waits)."""
     p = pkg or "<package>"
     return [
         {"os": "Debian / Ubuntu",
-         "cmd": f"sudo DEBIAN_FRONTEND=noninteractive apt-get update && "
-                f"sudo DEBIAN_FRONTEND=noninteractive apt-get install --only-upgrade -y {p}"},
-        {"os": "RHEL / CentOS / Rocky / Alma", "cmd": f"sudo dnf -y update {p} || sudo yum -y update {p}"},
-        {"os": "SUSE", "cmd": f"sudo zypper --non-interactive update {p}"},
-        {"os": "Amazon Linux", "cmd": f"sudo yum -y update {p}"},
+         "cmd": "sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=l apt-get install --only-upgrade -y "
+                f"{c2_remediate.APT_OPTS} {p}"},
+        {"os": "RHEL / CentOS / Rocky / Alma 8+ · Amazon Linux 2023", "cmd": f"sudo dnf -y upgrade {p}"},
+        {"os": "RHEL / CentOS 7 · Amazon Linux 1 / 2", "cmd": f"sudo yum {c2_remediate.YUM_LOCK_OPT} -y update {p}"},
+        {"os": "SUSE", "cmd": f"sudo ZYPP_LOCK_TIMEOUT={c2_remediate.LOCK_WAIT} zypper --non-interactive update {p}"},
     ]
 
 
@@ -655,7 +669,40 @@ def upload(p):
     fd = os.open(dest, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     with os.fdopen(fd, "wb") as f:
         f.write(raw)
-    return {"ok": True, "path": dest, "name": name, "bytes": len(raw), "pruned": pruned}, 200
+    return {"ok": True, "path": dest, "name": name, "bytes": len(raw), "pruned": pruned,
+            "sha256": hashlib.sha256(raw).hexdigest(), "remote_name": os.path.basename(dest)}, 200
+
+
+def _file_sha256(path):
+    h = hashlib.sha256()
+    try:
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                h.update(chunk)
+    except OSError:
+        return ""
+    return h.hexdigest()
+
+
+def _single_run(kind, label, target, fn):
+    """Register a one-host synchronous action (command / file push) in the runs registry, so Activity,
+    receipts and the C2-log link are uniform with the background runs (API change 4)."""
+    rid = c2log.new_run("cmd" if kind == "command" else "file")
+    _run_new(rid, kind, label, [target])
+    _run_set(rid, status="running", started=time.time())
+    res = {}
+    try:
+        res = fn(rid) or {}
+    finally:
+        st = res.get("status") or ("ok" if res.get("ok") else "failed")
+        _run_host(rid, 0, {"target": target, "status": st, "exit_code": res.get("exit_code"),
+                           "message": (res.get("message") or "")[:300], "output": _cap(res.get("output")),
+                           "c2_log": res.get("c2_log"), "in_inventory": res.get("in_inventory"),
+                           "asset": res.get("asset")})
+        _run_set(rid, status="done", done=1, errors=(0 if st in OK_STATES else 1), finished=time.time(),
+                 hostkey_changed=(1 if st == "hostkey_mismatch" else 0), c2_log=res.get("c2_log"),
+                 message=f"{kind} on {target}: {st}" + (f" (exit {res.get('exit_code')})" if res.get("exit_code") is not None else ""))
+    return rid, res
 
 
 def _uploaded(path):
@@ -665,9 +712,41 @@ def _uploaded(path):
 
 
 def _src(p, default="c2"):
-    """Who asked: 'c2', or 'handoff:<hound>' for a request another hound handed over."""
+    """Who asked: 'c2', 'handoff:<hound>' for an action a hand-off proposed (its hosts, its intent,
+    its payload — the page decides, sec C5), or 'c2 (after handoff:<hound>)' when the operator acts
+    after a hand-off on hosts / intent it did not propose (source_kind:"after_handoff"). The source is
+    as reported by the page (a single-operator loopback console)."""
     h = re.sub(r"[^A-Za-z0-9 ._:/()-]", "", str(p.get("source") or ""))[:60].strip()
-    return ("handoff:" + h) if h else default
+    if not h:
+        return default
+    if str(p.get("source_kind") or "") == "after_handoff":
+        return f"c2 (after handoff:{h})"
+    return "handoff:" + h
+
+
+def targets_sha256(targets):
+    """sha256 of the ORDERED target list ('\\n'-joined) — what the page's frozen action carries as
+    expect_targets_sha256 (sec C4)."""
+    return hashlib.sha256("\n".join(str(t) for t in targets).encode("utf-8")).hexdigest()
+
+
+def _expect(p, targets):
+    """Sec C4(b): the page's frozen {api, body} carries expect_count + expect_targets_sha256. When either is
+    present and the list the server resolved differs (count, members or order), refuse with 409 — nothing
+    runs. Absent → ignored (backward compatible)."""
+    has_n = p.get("expect_count") not in (None, "")
+    has_h = p.get("expect_targets_sha256") not in (None, "")
+    if not (has_n or has_h):
+        return None
+    lst = [str(t) for t in targets]
+    got = targets_sha256(lst)
+    bad = (has_n and _int(p.get("expect_count"), -1, -1, 10 ** 9) != len(lst)) or \
+          (has_h and str(p.get("expect_targets_sha256")).strip().lower() != got)
+    if not bad:
+        return None
+    return ({"ok": False, "mismatch": True, "resolved_count": len(lst), "resolved_sha256": got,
+             "error": f"the host list changed: you confirmed {p.get('expect_count', '?')} host(s), the server resolved "
+                      f"{len(lst)} — nothing ran. Review 'What will happen' again."}, 409)
 
 
 def _strict(p, default=True):
@@ -688,6 +767,9 @@ def command(p):
         return {"ok": False, "error": "target host and command required"}, 400
     if not c2_targets.valid_target(target):
         return {"ok": False, "error": "target must be a plain IP address or hostname"}, 400
+    mm = _expect(p, [target])
+    if mm:
+        return mm
     if not navi_cli.rce_enabled():
         return {"ok": False, "blocked": True, "status": "blocked", "reason": navi_cli.rce_gate_reason(),
                 "message": navi_cli.rce_gate_reason(), **navi_cli.push_status()}, 200
@@ -695,9 +777,10 @@ def command(p):
     if dangers and not flag(p, "force"):
         return {"ok": False, "needs_force": True, "dangers": dangers,
                 "error": "destructive command — resend with force=true to run: " + "; ".join(dangers)}, 200
-    res = navi_cli.push(target=target, command=cmd, agent="c2", detail=cmd, source=_src(p),
-                        run_id=c2log.new_run("cmd"), strict_host_keys=_strict(p), timeout=_int(p.get("timeout"), None, 5, 3600))
-    return {"ok": bool(res.get("ok")), **res, **navi_cli.push_status()}, 200
+    src, strict, tmo = _src(p), _strict(p), _int(p.get("timeout"), None, 5, 3600)
+    rid, res = _single_run("command", c2log.mask(cmd)[:120], target, lambda r_: navi_cli.push(
+        target=target, command=cmd, agent="c2", detail=cmd, source=src, run_id=r_, strict_host_keys=strict, timeout=tmo))
+    return {"ok": bool(res.get("ok")), **res, "run_id": rid, **navi_cli.push_status()}, 200
 
 
 def push_file(p):
@@ -713,13 +796,19 @@ def push_file(p):
         return {"ok": False, "error": "target must be a plain IP address or hostname"}, 400
     if not _uploaded(path):
         return {"ok": False, "error": "file must be one previously uploaded via this agent"}, 400
+    mm = _expect(p, [target])
+    if mm:
+        return mm
     if not navi_cli.rce_enabled():
         return {"ok": False, "blocked": True, "status": "blocked", "reason": navi_cli.rce_gate_reason(),
                 "message": navi_cli.rce_gate_reason(), **navi_cli.push_status()}, 200
-    res = navi_cli.push(target=target, file=path, agent="c2", detail="scp " + os.path.basename(path),
-                        source=_src(p), run_id=c2log.new_run("file"), strict_host_keys=_strict(p),
-                        timeout=_int(p.get("timeout"), 600, 5, 3600))
-    return {"ok": bool(res.get("ok")), **res, **navi_cli.push_status()}, 200
+    sha = _file_sha256(path)
+    src, strict, tmo = _src(p), _strict(p), _int(p.get("timeout"), 600, 5, 3600)
+    rid, res = _single_run("file", "scp " + os.path.basename(path), target, lambda r_: navi_cli.push(
+        target=target, file=path, agent="c2", detail="scp " + os.path.basename(path) + " sha256=" + sha,
+        source=src, run_id=r_, strict_host_keys=strict, timeout=tmo))
+    return {"ok": bool(res.get("ok")), **res, "run_id": rid, "sha256": sha,
+            "remote_path": "~/" + os.path.basename(path), **navi_cli.push_status()}, 200
 
 
 def campaign(p):
@@ -727,7 +816,7 @@ def campaign(p):
     ONE background job: canary-first, stop-on-failure (or an error threshold), blast-radius
     cap, abortable, progress in run_status."""
     if not flag(p, "armed"):
-        return {"ok": False, "error": "campaign is not armed — flip ARM, then confirm, to run"}, 400
+        return {"ok": False, "error": "campaign is not armed — the typed host count was not confirmed (armed:true)"}, 400
     if not confirmed(p):
         return {"ok": False, "error": "confirm=true required — batch remote code execution"}, 400
     targets = [str(x).strip() for x in (p.get("hosts") or []) if str(x).strip()]
@@ -755,19 +844,34 @@ def campaign(p):
     canary = p.get("canary", True) is not False
     stop = p.get("stop_on_failure", True) is not False
     cap = _int(p.get("max_hosts"), 200, 1, 5000)
-    batch = targets[:cap]
+    # build 485 (sec MUST 4 / R4, ui P1-3): over the cap is REFUSED — never silently truncated. A caller
+    # that really wants the first `cap` hosts says so (allow_truncate:true — the page never sends it) and
+    # gets {truncated, dropped} back, also kept on the run record.
+    if len(targets) > cap and not flag(p, "allow_truncate"):
+        return {"ok": False, "over_cap": True, "hosts": len(targets), "max_hosts": cap,
+                "error": f"{len(targets)} hosts but max hosts is {cap} — narrow the Target set or raise max hosts "
+                         "(nothing ran)"}, 400
+    targets = _crown_last_names(targets)                                  # sec F2: crown jewels last
+    batch, dropped = targets[:cap], targets[cap:]
+    mm = _expect(p, targets)
+    if mm:
+        return mm
     busy = _busy()
     if busy:
         return busy
     cid = c2log.new_run("camp")
     _run_new(cid, "campaign", c2log.mask(cmd or ("scp " + os.path.basename(path)))[:120], batch,
              {"canary": canary, "stop": stop, "max_errors": (0 if stop else None)})
+    if dropped:
+        _run_set(cid, truncated=True, dropped=dropped[:500], dropped_count=len(dropped))
     from core import tagq
     # the command itself never goes into the Tagging log's job spec (it may hold a secret) —
     # the job carries only the run id; the work waits in _PENDING
     kw = {"hosts": batch, "command": cmd, "file": path, "canary": canary, "stop": stop, "campaign_id": cid,
           "source": _src(p), "strict": _strict(p), "timeout": _int(p.get("timeout"), 900, 5, 3600),
-          "max_errors": (_int(p.get("max_errors"), None, 0, 5000) if not stop else 0)}
+          "max_errors": (_int(p.get("max_errors"), None, 0, 5000) if not stop else 0),
+          "max_errors_pct": (None if stop or p.get("max_errors_pct") in (None, "") else _int(p.get("max_errors_pct"), None, 0, 100)),
+          "max_auth_failures": _int(p.get("max_auth_failures"), MAX_AUTH_FAILURES, 0, 5000)}
     _PENDING[cid] = (None, None, {"campaign": kw, "client": _client()})
     job = tagq.submit(
         _job, {"run_id": cid},
@@ -776,7 +880,7 @@ def campaign(p):
          "detail": c2log.mask(cmd or ("scp " + os.path.basename(path)))[:200], "op": "push"})
     _run_set(cid, job_id=job["id"])
     return {"ok": True, "queued": True, "job_id": job["id"], "campaign_id": cid, "run_id": cid, "hosts": len(batch),
-            "canary": canary, "stop_on_failure": stop,
+            "canary": canary, "stop_on_failure": stop, "truncated": bool(dropped), "dropped": dropped[:500],
             "message": f"campaign #{job['id']} armed & running in the background "
                        f"({len(batch)} host(s){' · canary first' if canary else ''}). "
                        "Track it under Runs (and the C2 log); use Abort to halt.",
@@ -784,7 +888,8 @@ def campaign(p):
 
 
 def _bulk_push(hosts=None, command="", file="", canary=True, stop=True, campaign_id="", agent="c2",
-               source="c2", strict=True, max_errors=None, timeout=900):
+               source="c2", strict=True, max_errors=None, timeout=900, max_errors_pct=None,
+               max_auth_failures=MAX_AUTH_FAILURES):
     """Executed on a tagq worker. Loops per host, honoring canary-first, stop-on-failure /
     error threshold, and the abort switch. Each host is pushed via navi_cli.push (its own
     C2-log row + Tagging-log line)."""
@@ -796,7 +901,8 @@ def _bulk_push(hosts=None, command="", file="", canary=True, stop=True, campaign
                 "exit_code": r.get("exit_code"), "message": (r.get("message") or "")[:300],
                 "output": _cap(r.get("output"))}
     return _loop(campaign_id, hosts or [], one, canary=canary,
-                 max_errors=(0 if stop else max_errors))
+                 max_errors=(0 if stop else max_errors), max_errors_pct=(None if stop else max_errors_pct),
+                 max_auth_failures=max_auth_failures)
 
 
 def abort(p):
@@ -893,35 +999,70 @@ def _aborted(run_id):
         return run_id in _ABORT
 
 
-def _loop(run_id, hosts, fn, canary=True, max_errors=None, max_errors_pct=None):
+def _loop(run_id, hosts, fn, canary=True, max_errors=None, max_errors_pct=None, max_auth_failures=MAX_AUTH_FAILURES,
+          canary_policy=""):
     """Sequential per-host loop (navi push drives one pexpect session at a time) with
     canary-first, an error threshold (count and/or % of hosts), and abort between hosts.
     Hosts never reached are marked skipped (threshold) or cancelled (abort) — and, since
     nothing ran on them, they get no C2-log row."""
     _run_set(run_id, status="running", started=time.time())
-    errors, done, halted, why = 0, 0, False, ""
+    errors, done, halted, why, hk, in_flight, af = 0, 0, False, "", 0, [], 0
     n = len(hosts)
+    # build 486 (design spec §3.2 / sec R5): canary_policy "first_changing" — in a one-run deploy the canary is the
+    # first host that actually CHANGES; hosts before it that had nothing to do (already fixed / not installed) don't
+    # count, and a failure before any host changed halts the run like a canary failure
+    first_changing = canary and canary_policy == "first_changing"
+    changed_seen = False
+    with _RUNS_LOCK:
+        kind = (_RUNS.get(run_id) or {}).get("kind")
     for i, ip in enumerate(hosts):
         if _aborted(run_id):
             for k in range(i, n):
-                _run_host(run_id, k, {"target": hosts[k], "status": "cancelled", "message": "aborted before this host"})
+                _run_host(run_id, k, {"target": hosts[k], "status": "cancelled", "message": "aborted before this host — not touched"})
             with _ABORT_LOCK:
                 _ABORT.discard(run_id)
-            msg = f"aborted after {done} host(s); {n - done} not touched"
-            _run_set(run_id, status="aborted", done=done, errors=errors, finished=time.time(), message=msg)
+            msg = (f"aborted: completed {done} · in flight when aborted {len(in_flight)}"
+                   + (f" ({', '.join(in_flight)})" if in_flight else "") + f" · not touched {n - done}")
+            _run_set(run_id, status="aborted", done=done, errors=errors, finished=time.time(), message=msg,
+                     abort_summary={"completed": done, "in_flight": in_flight, "not_touched": n - done})
             return {"ok": False, "aborted": True, "message": msg, "run_id": run_id}
         _run_host(run_id, i, {"target": ip, "status": "running"})
         try:
             res = fn(ip)
         except Exception as e:  # pragma: no cover
             res = {"target": ip, "status": "failed", "message": str(e)[:300]}
-        if canary and i == 0:
+        if first_changing:
+            if not changed_seen and res.get("status") not in ("not_applicable", "skipped"):
+                res["canary"] = True
+            changed_seen = changed_seen or res.get("status") == "changed"
+        elif canary and i == 0:
             res["canary"] = True
+        if _aborted(run_id):
+            # the abort arrived while this host's command was running: it finished (maybe half-applied)
+            res["in_flight_at_abort"] = True
+            in_flight.append(ip)
         _run_host(run_id, i, res)
         done += 1
+        if res.get("status") == "hostkey_mismatch":
+            hk += 1
+            _run_set(run_id, hostkey_changed=hk)
+        if res.get("status") == "auth_failed":
+            af += 1
+            _run_set(run_id, auth_failed=af)
         if res.get("status") not in OK_STATES:
             errors += 1
-            if canary and i == 0 and n > 1:
+            if res.get("status") == "auth_failed" and max_auth_failures and af >= max_auth_failures and i < n - 1:
+                # one failed login on each of 200 hosts can lock a directory-backed (AD / LDAP / FreeIPA) service
+                # account across the whole domain — stop new SSH attempts, whatever the stop rule says
+                halted, why = True, (f"stopped after {af} failed logins (account-lockout protection) — check the "
+                                     "navi SSH credentials before retrying")
+            elif res.get("status") == "hostkey_mismatch" and kind in ("remediate", "rollback", "campaign") and i < n - 1:
+                # sec MUST 8 / API change 3: one intercepted host can mean an intercepted segment — a
+                # state-changing run halts on a CHANGED host key, whatever its stop rule says
+                halted, why = True, f"HOST KEY CHANGED on {ip} — a state-changing run halts on a changed host key"
+            elif first_changing and res.get("canary") and i < n - 1:
+                halted, why = True, f"CANARY host {ip} came back '{res.get('status')}' — {n - 1 - i} host(s) untouched"
+            elif canary and not first_changing and i == 0 and n > 1:
                 halted, why = True, f"CANARY host {ip} came back '{res.get('status')}' — {n - 1} host(s) untouched"
             elif max_errors is not None and errors > max_errors:
                 halted, why = True, f"error threshold reached ({errors} error(s) > {max_errors} allowed)"
@@ -932,11 +1073,16 @@ def _loop(run_id, hosts, fn, canary=True, max_errors=None, max_errors_pct=None):
             for k in range(i + 1, n):
                 _run_host(run_id, k, {"target": hosts[k], "status": "skipped", "message": "not run — " + why})
             msg = why + f" — halted after {done} of {n}"
+            if in_flight:
+                _run_set(run_id, abort_summary={"completed": done, "in_flight": in_flight, "not_touched": n - done})
             _run_set(run_id, status="halted", finished=time.time(), message=msg)
             return {"ok": False, "halted": True, "message": msg, "run_id": run_id}
     with _ABORT_LOCK:
         _ABORT.discard(run_id)
-    msg = f"ran on {done} host(s); {errors} with errors"
+    msg = f"ran on {done} host(s); {errors} with errors" + (f"; {hk} host key(s) CHANGED" if hk else "")
+    if in_flight:
+        msg += f" — the abort arrived while the last host was running; it finished ({', '.join(in_flight)})"
+        _run_set(run_id, abort_summary={"completed": done, "in_flight": in_flight, "not_touched": 0})
     _run_set(run_id, status="done", finished=time.time(), message=msg)
     return {"ok": errors == 0, "message": msg, "run_id": run_id}
 
@@ -967,7 +1113,37 @@ def targets(p):
     raw = p.get("targets")
     if raw in (None, "", []):
         return {"ok": False, "error": "enter at least one IP, hostname or CIDR"}, 400
-    return {"ok": True, **c2_targets.expand(raw, cap=_int(p.get("cap"), c2_targets.CIDR_CAP, 1, c2_targets.CIDR_CAP))}, 200
+    ex = c2_targets.expand(raw, cap=_int(p.get("cap"), c2_targets.CIDR_CAP, 1, c2_targets.CIDR_CAP))
+    # build 485 (sec C6/C7): each host's safety state comes from the C2 log, not page memory — key CHANGED,
+    # unknown state after a timed-out change step, first-use key trust — so it survives a reload
+    states = c2log.host_states([t["target"] for t in ex["targets"]], _aliases(ex["targets"]))
+    for t in ex["targets"]:
+        t["log_state"] = states.get(t["target"]) or {}
+    return {"ok": True, **ex}, 200
+
+
+def _aliases(tlist):
+    """{target: {names:[navi.db ip, hostname], uuid}} — the other names of each in-inventory host (sec F1)."""
+    out = {}
+    for t in tlist:
+        a = t.get("asset") or {}
+        if a:
+            out[t["target"]] = {"names": [x for x in (a.get("ip"), a.get("hostname")) if x], "uuid": a.get("uuid") or ""}
+    return out
+
+
+def _ssh_user():
+    """The navi SSH user name, read locally from navi.db's `ssh` table (the same read as db.ssh_status — no
+    remote call). Only the user name: the password / key path are never read here."""
+    try:
+        if "username" not in _cols("ssh"):
+            return ""
+        rows = db.query("SELECT username FROM ssh", budget=0)
+    except Exception:
+        return ""
+    users = [str(r.get("username") or "").strip() for r in rows if str(r.get("username") or "").strip()]
+    u = re.sub(r"[^A-Za-z0-9._@-]", "", users[0])[:64] if users else ""
+    return u + (f" (1 of {len(users)} accounts)" if len(users) > 1 else "")
 
 
 def glance(p):
@@ -979,8 +1155,31 @@ def glance(p):
         nlin = _os_stats()["linux"]
     except Exception:
         nlin = 0
+    try:
+        mtime = os.path.getmtime(db.db_path())
+    except Exception:
+        mtime = None
+    # sec C6: hosts whose latest host-key outcome in the C2 log is a CHANGED key (survives a reload; cleared
+    # only by a later strict login) — the page's security banner reads this on open (a read; nothing runs)
     return {"ok": True, **st, "chain": ch, "active_runs": active, "linux_hosts": nlin,
-            "ssh": db.ssh_status(), **navi_cli.push_status()}, 200
+            "hostkey_changed_hosts": c2log.key_changed_hosts(), "navi_db_mtime": mtime,
+            "ssh": dict(db.ssh_status(), user=_ssh_user()), "known_hosts": c2_hostkeys.locate(),
+            **navi_cli.push_status()}, 200
+
+
+def ack(p):
+    """'I have seen this' on a CHANGED-host-key banner (sec C6): appends an `ack` row (mode ack, no command
+    sent anywhere) to the hash-chained C2 log, so the acknowledgement is part of the audit trail. It only
+    collapses the banner — the host stays excluded from every change until a strict login succeeds."""
+    if not confirmed(p):
+        return {"ok": False, "error": "confirm=true required — recording an acknowledgement in the C2 log"}, 400
+    target = str(p.get("target") or "").strip()
+    if not c2_targets.valid_target(target):
+        return {"ok": False, "error": "target must be a plain IP address or hostname"}, 400
+    r = c2log.ack(target, "host key CHANGED banner seen by the operator")
+    if r.get("error"):
+        return {"ok": False, "error": r["error"]}, 200
+    return {"ok": True, "target": target, "c2_log": r}, 200
 
 
 # --------------------------------------------------------------------------- #
@@ -1016,15 +1215,60 @@ def _checks_from(p):
     return [str(i) for i in ids][:30], ""
 
 
-def _diag_host(run_id, built, source, retries, kind):
-    """One host: push each bundle chunk (one SSH session each), parse per-check results."""
+def _installed_ver(inst, name, compare):
+    """The bare version from a pkgver fact: dpkg 'ver' as is; rpm 'name-ver-rel.arch' → 'ver-rel'."""
+    v = str(inst or "").strip()
+    if compare == "rpm":
+        v = re.sub(r"\.(x86_64|i[3-6]86|noarch|aarch64|ppc64le|s390x)$", "", v)
+        if name and v.startswith(name + "-"):
+            v = v[len(name) + 1:]
+    return v
+
+
+# build 486: the LIVE facts the last strict pre-flight read per host (os-release family + group, package state,
+# locks, holds, candidates, downgrade availability). In memory, like the plan store and the runs registry; deploy
+# refuses a host whose live family / plan group differs from the plan's (linux M3, second half), and plan_ai groups
+# the Target set by it (linux P1-1). Never output — parsed facts only.
+_PF = {}
+_PF_LOCK = threading.Lock()
+_PF_KEEP = 5000
+
+
+def _pf_put(target, cred=None, checks=None):
+    with _PF_LOCK:
+        cur = _PF.get(target) or {}
+        rec = {"ts": time.time(), "cred": cred if cred is not None else cur.get("cred"),
+               "checks": checks if checks is not None else cur.get("checks")}
+        _PF[target] = rec
+        if len(_PF) > _PF_KEEP:
+            for k in sorted(_PF, key=lambda k: _PF[k]["ts"])[:len(_PF) - _PF_KEEP]:
+                _PF.pop(k, None)
+    return rec
+
+
+def _pf_get(target, aliases=None):
+    """The latest pre-flight record for a host, under its own name or any alias (navi.db ip / hostname)."""
+    names = [target] + list(((aliases or {}).get(target) or {}).get("names") or [])
+    with _PF_LOCK:
+        recs = [_PF[n] for n in names if n in _PF]
+    return max(recs, key=lambda r: r["ts"]) if recs else None
+
+
+def _diag_host(run_id, built, source, retries, kind, strict=False, fixed=None, pkg=""):
+    """One host: push each bundle chunk (one SSH session each), parse per-check results. strict=True is the
+    pre-flight's strict host-key policy (no trust on first use). fixed={fixed_version, compare} adds a
+    server-side version compare to the pkgver fact (vs_fixed: older | at_least)."""
     def one(ip):
         checks, status, msg, attempts = {}, "ok", "", 1
+        # build 486 (sec L-1 / C7): navi's known_hosts is read LOCALLY before and after an accept-new contact — a host
+        # with no entry before and one after had its key recorded NOW (trust on first use), with its fingerprint
+        kh = c2_hostkeys.locate()
+        fp_before = c2_hostkeys.lookup(ip) if kh["located"] else None
         for ch in built["chunks"]:
             r = navi_cli.push(target=ip, command=ch["command"], agent="c2",
                               detail=f"C2 {kind}: " + ",".join(ch["ids"]), source=source, run_id=run_id,
                               catalog_id=",".join(ch["ids"]), timeout=ch["timeout"] + 10, retries=retries,
-                              strict_host_keys=False)
+                              strict_host_keys=bool(strict))
             attempts = max(attempts, r.get("attempts") or 1)
             st = r.get("status") or "failed"
             parsed = c2_catalog.parse(r.get("output") or "")
@@ -1038,7 +1282,33 @@ def _diag_host(run_id, built, source, retries, kind):
                 status, msg = st, (r.get("message") or "")[:300]
                 if st not in ("timeout", "failed"):
                     break              # transport problem — the next chunk would fail the same way
-        return {"target": ip, "status": status, "message": msg, "checks": checks, "attempts": attempts}
+        hk = None
+        if kh["located"] and status not in ("hostkey_mismatch",):
+            fp_after = c2_hostkeys.lookup(ip)
+            hk = {"fingerprints": fp_after, "recorded_now": bool(fp_after) and not fp_before and not strict,
+                  "file": kh["file"]}
+        pv = (checks.get("pkgver") or {}).get("facts")
+        fam = ((checks.get("osrel") or {}).get("facts") or {}).get("family") or \
+            ((checks.get("os") or {}).get("facts") or {}).get("family") or ""
+        cmp_ = "rpm" if (fixed or {}).get("compare") == "rpm" else "dpkg"
+        if fixed and isinstance(pv, dict) and pv.get("installed") and fam and fam != "unknown" and \
+                (cmp_ == "dpkg") != (fam == "apt"):
+            # fix round (linux F5): a fixed build of another family is not comparable (rpm vs a dpkg version)
+            pv["vs_fixed"] = "n/a"
+        elif fixed and isinstance(pv, dict) and pv.get("installed") and fixed.get("fixed_version"):
+            v = _installed_ver(pv["installed"], pkg, cmp_)
+            try:
+                pv["vs_fixed"] = "at_least" if c2_remediate.version_ok(
+                    v, {"fixed_version": fixed["fixed_version"], "compare": cmp_, "want": "at_least"}) else "older"
+                pv["fixed_version"] = fixed["fixed_version"]
+            except Exception:
+                pv["vs_fixed"] = "unknown"
+        res = {"target": ip, "status": status, "message": msg, "checks": checks, "attempts": attempts}
+        if hk:
+            res["hostkey"] = hk
+        if strict and kind == "pre-flight" and status == "ok":
+            _pf_put(ip, checks={"status": status, "checks": checks})
+        return res
     return one
 
 
@@ -1066,9 +1336,20 @@ def _job(run_id=""):
 def _after(run_id, out):
     with _RUNS_LOCK:
         r = _RUNS.get(run_id) or {}
-        plan_id, kind, status = r.get("plan_id"), r.get("kind"), r.get("status")
+        plan_id, kind, status, stage, n = r.get("plan_id"), r.get("kind"), r.get("status"), r.get("stage"), r.get("total")
     if plan_id and kind == "remediate":
-        c2log.plan_upsert(plan_id, "deployed" if (out.get("ok") and status == "done") else "failed")
+        # API change 8: per-run plan status — a canary run and a roll-out run of the same plan_id each record
+        # their own outcome ("deployed (canary)", "failed (3 hosts)"), so the last run doesn't hide the first
+        ok = bool(out.get("ok") and status == "done")
+        word = "deployed" if ok else "failed"
+        lab = {"canary": "canary", "rollout": f"{n} host(s)", "all": f"canary + {max(0, (n or 1) - 1)} host(s)"}.get(stage)
+        st = f"{word} ({lab})" if lab else word
+        with _PLANS_LOCK:
+            rec = _PLANS.get(plan_id)
+            if rec is not None:
+                rec["runs"][run_id] = {"run_id": run_id, "stage": stage or "", "status": st, "hosts": n,
+                                       "finished": time.time()}
+        c2log.plan_upsert(plan_id, st)
     if plan_id and kind == "rollback" and status == "done":
         c2log.plan_upsert(plan_id, "rolled_back")
 
@@ -1079,7 +1360,9 @@ def _start(kind, label, ex, make_fn, p, sync_max=2, units=1, default_max_errors=
     if busy:
         return busy
     hosts = [t["target"] for t in ex["targets"]]
-    run_id = c2log.new_run(kind)
+    # a pre-flight run is recognisable in the C2 log by its run_id prefix ("pre-"): a clean one clears a
+    # host's "unknown state" (sec C6)
+    run_id = c2log.new_run("pre" if flag(p, "preflight") else kind)
     fn = make_fn(run_id)
     canary = p.get("canary", True) is not False
     max_errors = _int(p.get("max_errors"), default_max_errors, 0, 5000) if p.get("max_errors") not in (None, "") \
@@ -1090,7 +1373,10 @@ def _start(kind, label, ex, make_fn, p, sync_max=2, units=1, default_max_errors=
             pct = max(0.0, min(100.0, float(p.get("max_errors_pct"))))
         except (TypeError, ValueError):
             pct = None
-    _run_new(run_id, kind, label, hosts, {"canary": canary, "max_errors": max_errors, "max_errors_pct": pct})
+    maf = _int(p.get("max_auth_failures"), MAX_AUTH_FAILURES, 0, 5000) if p.get("max_auth_failures") not in (None, "") \
+        else MAX_AUTH_FAILURES
+    _run_new(run_id, kind, label, hosts, {"canary": canary, "max_errors": max_errors, "max_errors_pct": pct,
+                                          "max_auth_failures": maf})
     if extra:
         _run_set(run_id, **extra)
     inv = {t["target"]: t for t in ex["targets"]}
@@ -1099,8 +1385,10 @@ def _start(kind, label, ex, make_fn, p, sync_max=2, units=1, default_max_errors=
             t = inv.get(h["target"]) or {}
             h["in_inventory"] = t.get("in_inventory")
             h["asset"] = t.get("asset")
+    cpol = "first_changing" if str(p.get("canary_policy") or "") == "first_changing" else ""
     if len(hosts) * units <= sync_max and not flag(p, "queue"):
-        out = _loop(run_id, hosts, fn, canary=canary, max_errors=max_errors, max_errors_pct=pct)
+        out = _loop(run_id, hosts, fn, canary=canary, max_errors=max_errors, max_errors_pct=pct, max_auth_failures=maf,
+                    canary_policy=cpol)
         _after(run_id, out)
         with _RUNS_LOCK:
             run = json.loads(json.dumps(_RUNS.get(run_id), default=str))
@@ -1108,7 +1396,7 @@ def _start(kind, label, ex, make_fn, p, sync_max=2, units=1, default_max_errors=
                 **navi_cli.push_status()}, 200
     from core import tagq
     _PENDING[run_id] = (hosts, fn, {"canary": canary, "max_errors": max_errors, "max_errors_pct": pct,
-                                    "client": _client()})
+                                    "max_auth_failures": maf, "canary_policy": cpol, "client": _client()})
     job = tagq.submit(_job, {"run_id": run_id},
                       {"agent": "c2", "category": "C2 · " + kind, "value": f"{len(hosts)} host(s)",
                        "selector": kind, "detail": label[:200], "op": "c2_run"})
@@ -1119,7 +1407,7 @@ def _start(kind, label, ex, make_fn, p, sync_max=2, units=1, default_max_errors=
             **navi_cli.push_status()}, 200
 
 
-def _dry(kind, ex, built, extra=None):
+def _dry(kind, ex, built, extra=None, strict=False):
     """Exactly what WOULD run where — nothing is sent, nothing is logged."""
     return {"ok": True, "dry_run": True, "kind": kind,
             "targets": ex["targets"], "warnings": ex["warnings"],
@@ -1127,7 +1415,8 @@ def _dry(kind, ex, built, extra=None):
                                                              "navi_timeout": ch["timeout"] + 10}
                                                             for ch in built["chunks"]]}
                        for t in ex["targets"]],
-            "hostkey_policy": "accept-new (navi default: record a NEW key, refuse a CHANGED one)",
+            "hostkey_policy": ("strict (--strict-host-keys: a host whose key is not yet known is refused)" if strict else
+                               "accept-new (navi default: record a NEW key, refuse a CHANGED one)"),
             "message": f"dry run — {len(ex['targets'])} host(s) × {len(built['chunks'])} push(es); nothing was sent",
             **(extra or {}), **navi_cli.push_status()}, 200
 
@@ -1145,16 +1434,25 @@ def run_checks(p):
     built = c2_catalog.build(ids, p.get("params") or {}, p.get("timeout"))
     if built["errors"]:
         return {"ok": False, "error": "; ".join(built["errors"])}, 400
+    strict = flag(p, "strict")
     if flag(p, "dry_run"):
-        return _dry("diagnostics", ex, built)
+        return _dry("diagnostics", ex, built, strict=strict)
+    mm = _expect(p, [t["target"] for t in ex["targets"]])
+    if mm:
+        return mm
     if not confirmed(p):
         return {"ok": False, "error": "confirm=true required — the checks run on remote hosts over SSH"}, 400
     if not navi_cli.rce_enabled():
         return {"ok": False, "blocked": True, "reason": navi_cli.rce_gate_reason(), **navi_cli.push_status()}, 200
     retries = _int(p.get("retries"), 1, 0, 3)
     src = _src(p)
-    return _start("diag", "checks: " + ",".join(built["checks"]), ex,
-                  lambda rid: _diag_host(rid, built, src, retries, "diagnostics"), p, units=len(built["chunks"]))
+    fx = p.get("fixed") if isinstance(p.get("fixed"), dict) else None
+    fixed = ({"fixed_version": str(fx.get("fixed_version") or "")[:80], "compare": str(fx.get("compare") or "")}
+             if fx and fx.get("fixed_version") else None)
+    pkg = str(((p.get("params") or {}).get("name")) or "") if isinstance(p.get("params"), dict) else ""
+    return _start("preflight-checks" if flag(p, "preflight") else "diag", "checks: " + ",".join(built["checks"]), ex,
+                  lambda rid: _diag_host(rid, built, src, retries, "pre-flight" if flag(p, "preflight") else "diagnostics",
+                                         strict=strict, fixed=fixed, pkg=pkg), p, units=len(built["chunks"]))
 
 
 def cred_test(p):
@@ -1165,8 +1463,12 @@ def cred_test(p):
     if err:
         return err
     built = c2_catalog.build(["cred"], {}, 15)
+    strict = flag(p, "strict")
     if flag(p, "dry_run"):
-        return _dry("cred_test", ex, built)
+        return _dry("cred_test", ex, built, strict=strict)
+    mm = _expect(p, [t["target"] for t in ex["targets"]])
+    if mm:
+        return mm
     if not confirmed(p):
         return {"ok": False, "error": "confirm=true required — the credential test logs in to remote hosts"}, 400
     if not navi_cli.rce_enabled():
@@ -1174,7 +1476,8 @@ def cred_test(p):
     src = _src(p)
 
     def make(rid):
-        base = _diag_host(rid, built, src, 0, "credential test")
+        base = _diag_host(rid, built, src, 0, "pre-flight login" if flag(p, "preflight") else "credential test",
+                          strict=strict)
 
         def one(ip):
             r = base(ip)
@@ -1184,9 +1487,153 @@ def cred_test(p):
                          if f.get("sudo") == "needs_password" else "")
             r["user"] = f.get("user") or ""
             r["security_event"] = r["status"] == "hostkey_mismatch"
+            if strict and flag(p, "preflight"):
+                _pf_put(ip, cred={"status": r["status"], "sudo": r["sudo"], "user": r["user"]}, checks={})
             return r
         return one
-    return _start("cred", "credential test", ex, make, p, sync_max=2)
+    return _start("preflight-cred" if flag(p, "preflight") else "cred",
+                  ("pre-flight login (strict host keys)" if flag(p, "preflight") else
+                   "credential test" + (" (strict host keys)" if strict else "")), ex, make, p, sync_max=2)
+
+
+# build 486 (design spec §5, linux P1-6 / C4 / C9 / C10): the Phase 2 pre-flight bundle. Mandatory: identity + sudo
+# rights, live os-release family, disk, package-manager lock / auto-updaters / half-configured, holds, reboot state;
+# with the plan's packages: status-aware installed versions, repo candidates, downgrade availability (probed BEFORE
+# the change). Optional: changelog CVE evidence (auto-on for an upstream-only fixed version), entitlement (off by
+# default), Tenable agent, services using old libraries.
+PREFLIGHT_BASE = ["ident", "osrel", "disk", "pkglock", "holds", "rebootreq"]
+PREFLIGHT_PKGS = ["pkgstate", "pkgcand", "rbavail"]
+PREFLIGHT_OPTIONAL = ("chlog", "entitle", "agent", "needrestart", "pkgver", "updates", "time", "mac", "inode", "pkgsim")
+
+
+def _first_cve(src, sel):
+    if re.fullmatch(r"(?i)CVE-\d{4}-\d{4,7}", sel or ""):
+        return sel.upper()
+    for pl in (src or {}).get("plugins") or []:
+        m = re.search(r"CVE-\d{4}-\d{4,7}", pl.get("cves") or "")
+        if m:
+            return m.group(0)
+    return ""
+
+
+def _plan_ctx(rec, crown=False, include_sudo=False):
+    """The eligibility context of a server-side plan record (never page data): family, plan group, packages, the
+    fixed build of each and its source, compare type, kernel."""
+    if not rec:
+        return {"crown": crown, "include_sudo": include_sudo}
+    m = rec.get("meta") or {}
+    g = rec.get("group") or {}
+    return {"family": rec.get("family") or "", "group_key": g.get("key") if g.get("live") else None,
+            "group_label": g.get("label") or "", "packages": m.get("packages") or [], "fixed": m.get("fixed") or {},
+            "compare": m.get("compare") or "", "kernel": bool(m.get("kernel")), "crown": crown, "cve": rec.get("cve") or "",
+            "include_sudo": include_sudo}
+
+
+def preflight(p):
+    """ONE confirmed read-only run per host: a strict login (`id; sudo -n true`, strict host keys — no trust on first
+    use), then — on the hosts that logged in — the pre-flight bundle, and a per-host eligibility computed here from
+    the parsed facts (core/c2_verdict.eligibility) against the plan's server-side record when plan_id is given.
+    Nothing changes on the hosts; every command is in the C2 log under a `pre-…` run id."""
+    ex, err = _resolve_targets(p)
+    if err:
+        return err
+    pid, rec = _plan_get(p) if p.get("plan_id") else ("", None)
+    # several OS groups → several plans: read the UNION of their packages, judge each host against its own group's plan
+    recs = []
+    for x in (p.get("plan_ids") or [])[:MAX_GROUPS] if isinstance(p.get("plan_ids"), list) else []:
+        _i, r_ = _plan_get({"plan_id": x})
+        if r_:
+            recs.append(r_)
+    if rec and rec not in recs:
+        recs.insert(0, rec)
+    rec = rec or (recs[0] if recs else None)
+    prm = p.get("params") if isinstance(p.get("params"), dict) else {}
+    union = list(dict.fromkeys(n for r_ in recs for n in ((r_.get("meta") or {}).get("packages") or [])))
+    names = prm.get("names") or union or ([prm["name"]] if prm.get("name") else [])
+    if recs and prm.get("names"):
+        names = list(dict.fromkeys(list(prm["names"]) + union))[:c2_catalog.MAX_PKGS]
+    cve = str(prm.get("cve") or (rec or {}).get("cve") or "").strip().upper()
+    opt = [x for x in (p.get("optional") or []) if x in PREFLIGHT_OPTIONAL]
+    ctx_up = any((v or {}).get("source") == "upstream" for v in (((rec or {}).get("meta") or {}).get("fixed") or {}).values())
+    ids = list(PREFLIGHT_BASE) + (list(PREFLIGHT_PKGS) if names else [])
+    if names and cve and ("chlog" in opt or ctx_up):
+        ids.append("chlog")                       # auto-on when the fixed version is upstream-only (spec §5)
+    ids += [x for x in opt if x not in ids and x != "chlog" and (x != "pkgver" or prm.get("name"))
+            and (x != "pkgsim" or names)]
+    params = {"names": names} if names else {}
+    if cve and "chlog" in ids:
+        params["cve"] = cve
+    if prm.get("name") and "pkgver" in ids:
+        params["name"] = prm["name"]
+    built = c2_catalog.build(ids, params, None)
+    if built["errors"]:
+        return {"ok": False, "error": "; ".join(built["errors"])}, 400
+    built_cred = c2_catalog.build(["cred"], {}, 15)
+    if flag(p, "dry_run"):
+        r_, code = _dry("preflight", ex, built, strict=True)
+        r_["login"] = [{"ids": ch["ids"], "command": ch["command"], "navi_timeout": ch["timeout"] + 10} for ch in built_cred["chunks"]]
+        r_["checks"] = built["checks"]
+        r_["message"] = (f"dry run — {len(ex['targets'])} host(s): 1 strict login + {len(built['chunks'])} read-only push(es) "
+                         "on the hosts that log in; nothing was sent")
+        return r_, code
+    mm = _expect(p, [t["target"] for t in ex["targets"]])
+    if mm:
+        return mm
+    if not confirmed(p):
+        return {"ok": False, "error": "confirm=true required — pre-flight logs in to remote hosts and runs read-only checks"}, 400
+    if not navi_cli.rce_enabled():
+        return {"ok": False, "blocked": True, "reason": navi_cli.rce_gate_reason(), **navi_cli.push_status()}, 200
+    src = _src(p)
+    fx = p.get("fixed") if isinstance(p.get("fixed"), dict) else None
+    fixed = ({"fixed_version": str(fx.get("fixed_version") or "")[:80], "compare": str(fx.get("compare") or "")}
+             if fx and fx.get("fixed_version") else None)
+    crown = {t["target"]: bool((t.get("asset") or {}).get("crown")) for t in ex["targets"]}
+    inc = set(str(x) for x in (p.get("include_sudo") or []))
+
+    def make(rid):
+        cred_fn = _diag_host(rid, built_cred, src, 0, "pre-flight login", strict=True)
+        bundle_fn = _diag_host(rid, built, src, 0, "pre-flight", strict=True, fixed=fixed, pkg=str(prm.get("name") or ""))
+
+        def one(ip):
+            r = cred_fn(ip)
+            f = (((r.get("checks") or {}).get("cred") or {}).get("facts") or {})
+            cred = {"status": r["status"], "sudo": ("sudo_ok" if f.get("sudo") == "ok" else "sudo_needs_password"
+                                                    if f.get("sudo") == "needs_password" else ""), "user": f.get("user") or ""}
+            _pf_put(ip, cred=cred, checks={})
+            out = {"target": ip, "status": r["status"], "message": r.get("message") or "", "cred": cred,
+                   "sudo": cred["sudo"], "user": cred["user"], "attempts": r.get("attempts") or 1,
+                   "security_event": r["status"] == "hostkey_mismatch"}
+            if r.get("hostkey"):
+                out["hostkey"] = r["hostkey"]
+            if r["status"] == "ok":
+                b = bundle_fn(ip)
+                out["checks"] = {"status": b["status"], "checks": b["checks"], "message": b.get("message") or ""}
+                if b.get("hostkey"):
+                    out["hostkey"] = b["hostkey"]
+                if b["status"] != "ok":
+                    out["status"], out["message"] = b["status"], b.get("message") or ""
+            out["group"] = (c2_verdict.live_os({"checks": out.get("checks")}) or {}).get("group")
+            gk = (out["group"] or {}).get("key")
+            mine = next((r_ for r_ in recs if ((r_.get("group") or {}).get("key") == gk and (r_.get("group") or {}).get("live"))),
+                        None) or next((r_ for r_ in recs if r_.get("family") == (out["group"] or {}).get("family")), None) or rec
+            if len(recs) > 1 and gk and not any((r_.get("group") or {}).get("key") == gk for r_ in recs):
+                mine = None                        # its OS group has no plan (more than MAX_GROUPS groups) — say so
+            out["plan_id"] = (mine or {}).get("plan_id", "")
+            out["elig"] = c2_verdict.eligibility({"cred": cred, "checks": out.get("checks")},
+                                                 _plan_ctx(mine, crown.get(ip), ip in inc) if mine else
+                                                 {"packages": names, "crown": crown.get(ip), "include_sudo": ip in inc,
+                                                  "cve": cve})
+            if len(recs) > 1 and not mine and out["elig"].get("ok"):
+                out["elig"].update(ok=False, reason=f"no plan for this host's OS group ({(out['group'] or {}).get('label')}) "
+                                                     f"— ④ plans at most {MAX_GROUPS} groups; narrow the Target set")
+            return out
+        return one
+    pp = dict(p, preflight=True, canary=False, retries=0)
+    res, code = _start("preflight", "pre-flight (strict host keys): " + ",".join(built["checks"]), ex, make, pp,
+                       sync_max=2, units=1 + len(built["chunks"]), extra={"plan_id": pid} if pid else None)
+    if isinstance(res, dict):
+        res["checks"] = built["checks"]
+    return res, code
 
 
 def path_check(p):
@@ -1201,6 +1648,9 @@ def path_check(p):
     built = c2_catalog.build(["pathx"], {"path": val}, p.get("timeout") or 30)
     if flag(p, "dry_run"):
         return _dry("path_check", ex, built, {"path": val})
+    mm = _expect(p, [t["target"] for t in ex["targets"]])
+    if mm:
+        return mm
     if not confirmed(p):
         return {"ok": False, "error": "confirm=true required — the path check runs on remote hosts over SSH"}, 400
     if not navi_cli.rce_enabled():
@@ -1268,37 +1718,130 @@ def _diff(a, b):
     return out
 
 
+MAX_GROUPS = 8
+
+
+def _groups(tg, fam_override=None):
+    """linux P1-1: the Target set split by its LIVE (family, ID, major VERSION_ID) from the latest strict pre-flight;
+    a host never pre-flighted falls back to navi.db's OS string, labelled unconfirmed. Largest group first."""
+    al = _aliases(tg)
+    gs = {}
+    for t in tg:
+        if fam_override:
+            g = {"key": "chosen|" + fam_override, "label": fam_override + " (chosen by you)", "family": fam_override,
+                 "os_id": "", "major": "", "live": False}
+        else:
+            rec = _pf_get(t["target"], al)
+            los = c2_verdict.live_os(rec) if rec else {}
+            if los.get("group") and los.get("family") not in (None, "", "unknown"):
+                g = dict(los["group"], live=True)
+            else:
+                f_, _ = c2_remediate.distro_of((t.get("asset") or {}).get("os"))
+                g = {"key": "navi|" + f_, "label": f"{f_} (navi.db — unconfirmed until pre-flight)", "family": f_,
+                     "os_id": "", "major": "", "live": False}
+        gs.setdefault(g["key"], dict(g, hosts=[]))["hosts"].append(t)
+    out = sorted(gs.values(), key=lambda g: (-len(g["hosts"]), g["key"]))
+    return out[:MAX_GROUPS], out[MAX_GROUPS:]
+
+
 def plan_ai(p):
-    """Tenable's text (navi.db) → a STRICT JSON plan via the configured model (or the
-    deterministic templates) → the deterministic validator. Nothing runs here."""
+    """Tenable's text (navi.db) → ONE plan per OS group (live os-release family + distro + major release, linux
+    P1-1) via the configured model (or the deterministic templates) → the deterministic validator. Nothing runs here.
+    The answer's top level is the FIRST (largest) group's plan (backward compatible); `groups[]` lists every group
+    with its own plan_id, plan, hash, packages, fixed builds and — for hosts a pre-flight already read — the per-host
+    eligibility against that plan (no SSH)."""
     sel = str(p.get("selector") or "").strip()
     if not sel:
         return {"ok": False, "error": "enter a plugin id or CVE"}, 400
     ex = _rem_targets(p)
     if ex["refused"]:
         return {"ok": False, "error": "refused target(s): " + ", ".join(r["input"] for r in ex["refused"][:5])}, 400
-    src = c2_remediate.sources(sel, ex["targets"])
-    if not src["plugin_ids"]:
-        return {"ok": False, "error": "no plugin found for that selector in navi.db"}, 200
-    fam = str(p.get("family") or "").strip() or None
-    gen = c2_remediate.generate(src, family=fam, use_llm=p.get("use_llm", True) is not False)
-    v = c2_remediate.validate(gen["plan"], src)
-    plan_id = c2log.new_run("plan")
-    with _PLANS_LOCK:
-        _PLANS[plan_id] = {"selector": sel, "generator": gen["generator"], "generated_plan": v["plan"],
-                           "generated_hash": v["hash"], "plan": v["plan"], "hash": v["hash"],
-                           "deployable": v["deployable"], "deployed_hashes": set(), "runs": {}}
-        if len(_PLANS) > 200:
-            for k in list(_PLANS)[:len(_PLANS) - 200]:
-                _PLANS.pop(k, None)
-    c2log.plan_upsert(plan_id, "generated", source=_src(p), selector=sel, generator=gen["generator"],
-                      generated_sha256=v["hash"], hosts=len(ex["targets"]))
-    return {"ok": True, "plan_id": plan_id, "generator": gen["generator"], "note": gen.get("note"),
-            "model": gen.get("model", ""), "source": {k: src[k] for k in ("plugin_ids", "plugins", "families")},
-            "affected_packages": c2_remediate.affected(src)["packages"],
-            "hosts": [{k: h[k] for k in ("ip", "hostname", "os", "family")} | {"outputs": h["outputs"]}
-                      for h in src["hosts"]],
-            "generated_hash": v["hash"], **v}, 200
+    fam_override = str(p.get("family") or "").strip() or None
+    tg = ex["targets"]
+    groups, dropped = _groups(tg, fam_override) if tg else ([{"key": "none", "label": fam_override or "unknown",
+                                                               "family": fam_override or "", "os_id": "", "major": "",
+                                                               "live": False, "hosts": []}], [])
+    al = _aliases(tg)
+    inst = p.get("installed") if isinstance(p.get("installed"), dict) else {}
+    out_groups = []
+    for g in groups:
+        live = {t["target"]: {"family": g["family"]} for t in g["hosts"]} if g.get("live") else None
+        src = c2_remediate.sources(sel, g["hosts"], live=live)
+        if not src["plugin_ids"]:
+            return {"ok": False, "error": "no plugin found for that selector in navi.db"}, 200
+        fam = fam_override or (g["family"] if g.get("family") not in ("", "unknown") else None)
+        gen = c2_remediate.generate(src, family=fam, use_llm=p.get("use_llm", True) is not False)
+        v = c2_remediate.validate(gen["plan"], src)
+        fam_used = fam or (src.get("families") or ["unknown"])[0]
+        meta = c2_remediate.plan_meta(src, fam_used)
+        plan_id = c2log.new_run("plan")
+        grp = {k: g.get(k) for k in ("key", "label", "family", "os_id", "major", "live")}
+        rec = {"selector": sel, "generator": gen["generator"], "generated_plan": v["plan"], "generated_hash": v["hash"],
+               "plan": v["plan"], "hash": v["hash"], "deployable": v["deployable"], "deployed_hashes": set(), "runs": {},
+               "family": fam_used, "group": grp, "meta": meta, "cve": _first_cve(src, sel), "plan_id": plan_id,
+               "hosts": [t["target"] for t in g["hosts"]],
+               # sec F1 (verify round): the plan-time source (≤ 5 sampled hosts) — the coarse authority for the plan's
+               # names; at run time every host is narrowed to its OWN finding (never a name added)
+               "src": {k: src.get(k) for k in ("plugin_ids", "plugins", "families", "hosts")}}
+        with _PLANS_LOCK:
+            _PLANS[plan_id] = rec
+            if len(_PLANS) > 200:
+                for k in list(_PLANS)[:len(_PLANS) - 200]:
+                    _PLANS.pop(k, None)
+        c2log.plan_upsert(plan_id, "generated", source=_src(p), selector=sel, generator=gen["generator"],
+                          generated_sha256=v["hash"], hosts=len(g["hosts"]))
+        # per-host eligibility against THIS plan, from facts a pre-flight already read (no SSH — linux M3)
+        evals = {}
+        for t in g["hosts"]:
+            pr = _pf_get(t["target"], al)
+            if pr and pr.get("cred"):
+                evals[t["target"]] = c2_verdict.eligibility(pr, _plan_ctx(rec, bool((t.get("asset") or {}).get("crown"))))
+        vs = {}
+        pc = v["plan"].get("precheck") or {}
+        if pc.get("fixed_version") and inst:
+            # fix round (linux M3): compare the versions the pre-flight already read against the plan's fixed build —
+            # a server-side compare, no SSH (so a pre-flight run before the plan needs no second run)
+            pkgn = c2_remediate.guess_package(src)
+            gh = {t["target"] for t in g["hosts"]}
+            for t, row in list(inst.items())[:512]:
+                if g is not groups[0] and t not in gh:
+                    continue
+                row = row if isinstance(row, dict) else {}
+                fam_, ver_ = str(row.get("family") or ""), str(row.get("version") or "")[:120]
+                if not ver_:
+                    continue
+                if fam_ and fam_ != "unknown" and (pc.get("compare") == "dpkg") != (fam_ == "apt"):
+                    vs[str(t)[:255]] = "n/a"
+                    continue
+                try:
+                    vv = _installed_ver(ver_, pkgn, pc.get("compare"))
+                    vs[str(t)[:255]] = "at_least" if c2_remediate.version_ok(
+                        vv, {"fixed_version": pc["fixed_version"], "compare": pc.get("compare"), "want": "at_least"}) else "older"
+                except Exception:
+                    pass
+        out_groups.append({"plan_id": plan_id, "generator": gen["generator"], "note": gen.get("note"), "vs_fixed": vs,
+                           "model": gen.get("model", ""), "source": {k: src[k] for k in ("plugin_ids", "plugins", "families")},
+                           "affected_packages": c2_remediate.affected(src)["packages"],
+                           "package_guess": c2_remediate.guess_package(src), "family": fam_used, "group": grp,
+                           "group_hosts": [t["target"] for t in g["hosts"]], "meta": meta, "cve": rec["cve"],
+                           "hosts_eval": evals,
+                           "hosts": [{k: h[k] for k in ("ip", "hostname", "os", "family")} | {"outputs": h["outputs"]}
+                                     for h in src["hosts"]],
+                           "generated_hash": v["hash"], **v})
+    top = dict(out_groups[0])
+    top["groups"] = out_groups
+    top["groups_dropped"] = [{"label": g["label"], "hosts": [t["target"] for t in g["hosts"]]} for g in dropped]
+    return {"ok": True, **top}, 200
+
+
+def _with_plan_src(src, rec):
+    """The deploy targets' current source plus the plan-time sampled hosts (sec F1: a canary whose own output lacks
+    one of the group's names is validated, then narrowed to its own names at run time — not refused)."""
+    ps = (rec or {}).get("src") or {}
+    if not ps:
+        return src
+    have = {h.get("ip") for h in src.get("hosts") or []}
+    return dict(src, hosts=list(src.get("hosts") or []) + [h for h in ps.get("hosts") or [] if h.get("ip") not in have])
 
 
 def plan_validate(p):
@@ -1349,9 +1892,61 @@ def _check_ok(r, chk):
         return False
 
 
-def _remediate_host(plan, run_id, source, plan_sha, rollback_upto=None, rollback=False, selector="", observed=None):
+def _remediate_host(plan, run_id, source, plan_sha, rollback_upto=None, rollback=False, selector="", observed=None,
+                    meta=None):
+    plan_pkgs = list((meta or {}).get("packages") or [])
+
     def one(ip):
         log = []
+        reads = {}
+        pkgs = plan_pkgs
+        keep = None
+        if not rollback and selector:
+            # sec F1 (verify round): the package scope is PER HOST — this host's own finding output (or, without
+            # package lines, Tenable's text) decides which of the plan's names may touch THIS host. Never adds a name.
+            haff = c2_remediate.affected(c2_remediate.sources(selector, [ip]))
+            keep = {k for k in haff["packages"]}
+            pkgs = [n for n in plan_pkgs if n in keep]
+            if plan_pkgs and not pkgs:
+                return {"target": ip, "status": "not_applicable", "steps": log, "ran_upto": 0, "verdict": "not_in_scope",
+                        "message": "— Not in this host's finding — its own plugin output lists none of "
+                                   + ", ".join(plan_pkgs) + ". Nothing changed (package scope is per host)."}
+
+        def read(ids, when):
+            """build 486: a read-only catalog read of the plan's packages (status-aware installed versions; after the
+            change also reboot state and services on old libraries) — logged like every command (mode remediation,
+            the plan's sha256), never part of the plan, never output in the log."""
+            if not pkgs:
+                return None
+            b = c2_catalog.build(ids, {"names": pkgs}, None)
+            if b["errors"]:
+                return None
+            got = {}
+            for ch in b["chunks"]:
+                r = navi_cli.push(target=ip, command=ch["command"], agent="c2", run_id=run_id, source=source,
+                                  detail=f"C2 remediation read ({when}): " + ",".join(ch["ids"]),
+                                  catalog_id="remediation read: " + ",".join(ch["ids"]), plan_sha256=plan_sha,
+                                  timeout=ch["timeout"] + 10, strict_host_keys=True)
+                if r.get("status") != "ok":
+                    return None
+                for cid, x in c2_catalog.parse(r.get("output") or "").items():
+                    got[cid] = x.get("facts") or {}
+            pk = (got.get("pkgstate") or {}).get("pkgs")
+            reads[when] = bool(pk)
+            return got if pk else None
+
+        def verdict_after(proven=None, before_f=None):
+            """The Phase 2 verdict from the before / after package reads, or None (→ the plan's own checks)."""
+            if before_f is None:
+                return None
+            after_f = read(["pkgstate", "rebootreq", "needrestart"], "after")
+            if after_f is None:
+                return None
+            return c2_verdict.host_verdict(dict(meta or {}, packages=pkgs), (before_f.get("pkgstate") or {}).get("pkgs"),
+                                           (after_f.get("pkgstate") or {}).get("pkgs"),
+                                           reboot=after_f.get("rebootreq"),
+                                           services=(after_f.get("needrestart") or {}).get("services"),
+                                           krun=(after_f.get("pkgstate") or {}).get("krun"))
 
         def push(cmd, cid, timeout=900):
             r = navi_cli.push(target=ip, command=c2_remediate.wrap(cmd), agent="c2", detail=f"C2 {cid}", source=source,
@@ -1370,9 +1965,15 @@ def _remediate_host(plan, run_id, source, plan_sha, rollback_upto=None, rollback
             # output, re-validated against that host alone, and cross-checked with what the deploy's precheck
             # actually read on the host. No fact → the host is skipped (never an unpinned install).
             haff = c2_remediate.affected(c2_remediate.sources(selector, [ip]))
+            hkeep = set(haff["packages"])
             resolved = []
             for st in sorted(steps, key=lambda s: -s["n"]):
-                cmd, why = c2_remediate.resolve_rollback(st["rollback"], haff)
+                # verify round 2 (sec "should"): the downgrade covers only THIS host's own names — another host's names
+                # never leave this host without an undo; a step with none of this host's names is skipped here
+                rcmd, kept_, dropped_ = c2_remediate.narrow_step(st["rollback"], hkeep)
+                if dropped_ and not kept_:
+                    continue
+                cmd, why = c2_remediate.resolve_rollback(rcmd, haff)
                 if not why:
                     rs = c2_remediate.check_command(cmd, "step", haff, rollback=True,
                                                    step_pkgs=c2_remediate.step_packages(st["command"]))
@@ -1386,6 +1987,9 @@ def _remediate_host(plan, run_id, source, plan_sha, rollback_upto=None, rollback
                     return {"target": ip, "status": "not_applicable", "steps": log,
                             "message": f"rollback skipped on this host — {why}"}
                 resolved.append((st, cmd))
+            if not resolved:
+                return {"target": ip, "status": "not_applicable", "steps": log,
+                        "message": "nothing to undo here — this host's own finding lists none of the rolled-back packages"}
             for st, cmd in resolved:
                 r = push(cmd, f"rollback step {st['n']}")
                 if r.get("status") != "ok":
@@ -1394,35 +1998,267 @@ def _remediate_host(plan, run_id, source, plan_sha, rollback_upto=None, rollback
             return {"target": ip, "status": "changed", "steps": log,
                     "message": f"rolled back step(s) {', '.join(str(s['n']) for s in sorted(steps, key=lambda s: -s['n']))}"}
         pc = plan.get("precheck")
+        before = ""
         if pc:
             r = push(pc["command"], "remediation precheck", timeout=120)
+            if r.get("status") == "timeout":
+                # fix round (linux F7): the host WAS reached; the read-only precheck timed out
+                return {"target": ip, "status": "timeout", "steps": log, "ran_upto": 0, "verdict": "precheck_timeout",
+                        "message": "✗ Precheck timed out — nothing changed (read-only); retry or run pre-flight."}
             if r.get("status") not in ("ok", "failed"):
                 return {"target": ip, "status": r.get("status"), "steps": log, "ran_upto": 0,
-                        "message": r.get("message", "")[:300]}
-            if not _check_ok(r, pc):
-                return {"target": ip, "status": "not_applicable", "steps": log, "ran_upto": 0,
-                        "message": "precheck says this host is not affected (or already fixed) — nothing changed"}
+                        "verdict": "not_reached", "message": "✗ Not reached — " + str(r.get("status") or "").replace("_", " ")
+                                                           + ". Nothing ran. " + (r.get("message") or "")[:200]}
+            out = c2_remediate.unwrap(r.get("output"))
+            before = (out.strip().splitlines() or [""])[0].strip()[:80]
+            if r.get("exit_code") in (126, 127):
+                # linux C1: "command not found / not executable" is never "not affected" — it is a check that
+                # could not run (wrong distro family?), an error
+                return {"target": ip, "status": "failed", "steps": log, "ran_upto": 0, "verdict": "check_failed",
+                        "message": f"✗ Check could not run (rc {r.get('exit_code')}: the precheck command is missing or "
+                                   "not executable — wrong distro family?). Nothing changed."}
+            pc_bad = not _check_ok(r, pc)
+        else:
+            pc_bad, r = False, None
+        # build 486: the plan's packages as the host has them NOW (C7: per package, status-aware) — the "before".
+        # linux M2 / F1 / F6 (verify round): when this multi-package read works IT decides (not installed / held /
+        # already fixed / fixed on disk); the single-package precheck above decides only when the read failed.
+        before_f = read(["pkgstate"], "before")
+        if before_f is not None:
+            bp = before_f["pkgstate"]["pkgs"]
+            pre = c2_verdict.before_state(dict(meta or {}, packages=pkgs), bp, before_f["pkgstate"].get("krun") or "")
+            if pre:
+                return dict(pre, target=ip, steps=log, ran_upto=0, reads=reads)
+        elif pc and pc_bad:
+            if pc.get("fixed_version") and before and r.get("exit_code") in (pc.get("expect_exit") or [0]):
+                verdict, msg = "already_fixed", (f"— Already fixed — installed {before} ≥ fixed {pc['fixed_version']} "
+                                                  "(version compare). Nothing changed.")
+            elif r.get("exit_code") == 1 and re.match(r"^\s*(dpkg-query|rpm)\b", pc.get("command") or ""):
+                verdict, msg = "not_installed", "— Not installed — the package query found no such package (exit 1). Nothing changed."
+            else:
+                verdict, msg = "not_affected", (f"— Precheck says not affected (exit {r.get('exit_code')}). Nothing changed.")
+            return {"target": ip, "status": "not_applicable", "steps": log, "ran_upto": 0, "verdict": verdict,
+                    "before": before, "message": msg}
+        proven = None                     # the fixed-version compare that passed after the change, if any
         for st in plan["steps"]:
-            r = push(st["command"], f"remediation step {st['n']}")
+            cmd = st["command"]
+            if keep is not None:
+                # sec F1: narrow this step's package names to THIS host's scope; re-validate against this host alone
+                cmd, kept, dropped = c2_remediate.narrow_step(cmd, keep)
+                if dropped and not kept:
+                    return {"target": ip, "status": "not_applicable", "steps": log, "ran_upto": st["n"] - 1,
+                            "verdict": "not_in_scope", "reads": reads,
+                            "message": f"— Step {st['n']} names only packages this host's finding does not list "
+                                       f"({', '.join(dropped)}) — nothing changed here."}
+                if dropped:
+                    bad = c2_remediate.check_command(cmd, "step", haff)
+                    if bad:
+                        return {"target": ip, "status": "failed", "steps": log, "ran_upto": st["n"] - 1,
+                                "verdict": "step_failed", "reads": reads,
+                                "message": f"✗ Step {st['n']} narrowed to this host's packages is not valid here "
+                                           f"({bad[0]}) — nothing ran."}
+            r = push(cmd, f"remediation step {st['n']}")
+            if r.get("status") == "timeout":
+                # linux P1-7 (Phase 1 page part): a change step that timed out leaves the host in an UNKNOWN state
+                return {"target": ip, "status": "timeout", "failed_step": st["n"], "ran_upto": st["n"], "steps": log,
+                        "verdict": "unknown_state", "unknown_state": True,
+                        "message": f"⚠ Unknown state — step {st['n']} timed out; the command may still be running on the host. "
+                                   "Do not re-run or roll back yet. Next: run pre-flight on this host."}
             if not _exit_ok(r, st.get("expect_exit")) or r.get("status") not in ("ok", "failed"):
-                return {"target": ip, "status": (r.get("status") if r.get("status") != "ok" else "failed"),
-                        "failed_step": st["n"], "ran_upto": st["n"], "steps": log,
-                        "message": f"step {st['n']} failed ({r.get('status')}, exit {r.get('exit_code')}) — stopped here; "
-                                   "rollback is offered separately"}
-            if st.get("verify"):
+                nr = r.get("status") not in ("ok", "failed")
+                kind_, words = ("", "") if nr else c2_verdict.classify_step_failure(
+                    c2_remediate.unwrap(r.get("output")) or r.get("output") or "", r.get("exit_code"), cmd)
+                if kind_ == "pm_busy":
+                    # fix round 487 (V3-F1): "nothing changed" only after the package versions are re-read and none moved
+                    aft = read(["pkgstate"], "after_busy") if before_f is not None else None
+                    if aft is None:
+                        words = ("✗ Package manager busy — the package versions could not be re-read; check with "
+                                 "pre-flight before retrying.")
+                    else:
+                        cmpk = (meta or {}).get("compare") or "dpkg"
+                        bp_, ap_ = before_f["pkgstate"]["pkgs"], aft["pkgstate"]["pkgs"]
+                        moved = [f"{n} {c2_verdict.installed_of(bp_, n, cmpk)[1] or '—'} → {c2_verdict.installed_of(ap_, n, cmpk)[1] or '—'}"
+                                 for n in pkgs if c2_verdict.installed_of(bp_, n, cmpk)[1] != c2_verdict.installed_of(ap_, n, cmpk)[1]]
+                        if moved:
+                            kind_ = "lock_wait"
+                            words = ("✗ The step failed after waiting for the package lock; the host may be partly changed ("
+                                     + ", ".join(moved[:4]) + "). Run pre-flight before retrying.")
+                return {"target": ip, "status": (r.get("status") if r.get("status") != "ok" else
+                                                 ("not_applicable" if kind_ == "held" else "failed")),
+                        "failed_step": st["n"], "ran_upto": (st["n"] - 1 if nr else st["n"]), "steps": log,
+                        "verdict": "not_reached" if nr else ({"lock_wait": "step_failed"}.get(kind_, kind_) or "step_failed"),
+                        "partly_changed": kind_ == "lock_wait", "reads": reads,
+                        "message": (f"✗ Not reached at step {st['n']} — {r.get('status')}." if nr else
+                                    (words.replace("✗ ", f"✗ Step {st['n']}: ", 1) if kind_ in ("pm_busy", "lock_wait") else words)
+                                    if kind_ else f"✗ Step {st['n']} failed (exit {r.get('exit_code')}) — stopped here.")}
+            if st.get("verify") and before_f is None:
                 v = push(st["verify"]["command"], f"remediation verify {st['n']}", timeout=120)
                 if not _check_ok(v, st["verify"]):
+                    # build 486 (linux C6): a failed version compare after the change is a precise verdict — no change,
+                    # or upgraded but still below the fixed build — when the package reads can tell which
+                    hv = verdict_after(before_f=before_f) if st["verify"].get("fixed_version") else None
+                    if hv and hv["verdict"] in ("no_change", "still_vulnerable", "changed_unexpectedly"):
+                        return dict(hv, target=ip, failed_step=st["n"], ran_upto=st["n"], steps=log, reads=reads,
+                                    status="failed")
                     return {"target": ip, "status": "failed", "failed_step": st["n"], "ran_upto": st["n"], "steps": log,
-                            "message": f"step {st['n']} ran but its verify did not pass — stopped here"}
-        pv = plan.get("post_verify")
+                            "verdict": "step_failed", "reads": reads,
+                            "message": f"✗ Step {st['n']} ran but its verify did not pass — stopped here."}
+                if st["verify"].get("fixed_version"):
+                    proven = (st["verify"], (c2_remediate.unwrap(v.get("output")).strip().splitlines() or [""])[0].strip())
+        pv = plan.get("post_verify") if before_f is None else None   # linux M2: the after-read decides when it works
         if pv:
             v = push(pv["command"], "remediation post_verify", timeout=120)
             if not _check_ok(v, pv):
+                hv = verdict_after(before_f=before_f) if pv.get("fixed_version") else None
+                if hv and hv["verdict"] in ("no_change", "still_vulnerable", "changed_unexpectedly"):
+                    return dict(hv, target=ip, ran_upto=len(plan["steps"]), steps=log, reads=reads, status="failed")
                 return {"target": ip, "status": "failed", "steps": log, "ran_upto": len(plan["steps"]),
-                        "message": "post_verify did not pass"}
-        return {"target": ip, "status": "changed", "steps": log, "ran_upto": len(plan["steps"]),
-                "message": "all steps ran and verified — rescan to confirm Tenable sees it fixed"}
+                        "verdict": "step_failed", "reads": reads,
+                        "message": "✗ Post-verify did not pass — the change did not take."}
+            if pv.get("fixed_version"):
+                proven = (pv, (c2_remediate.unwrap(v.get("output")).strip().splitlines() or [""])[0].strip())
+        # build 486 (linux P1-4 / P1-5 / C6 / C7): the verdict from what the host has AFTER the change — every package
+        # vs its own fixed build, the worst one decides; reboot required and services still on the old library
+        hv = verdict_after(proven, before_f=before_f)
+        if hv:
+            return dict(hv, target=ip, ran_upto=len(plan["steps"]), steps=log, reads=reads)
+        if before_f is not None:
+            return {"target": ip, "status": "changed", "steps": log, "ran_upto": len(plan["steps"]), "verdict": "unproven",
+                    "reads": reads, "message": "◐ Steps ran — fix not proven (the after-change package read failed; "
+                                               "rescan or re-run pre-flight)."}
+        if proven:
+            chk, after = proven
+            return {"target": ip, "status": "changed", "steps": log, "ran_upto": len(plan["steps"]), "verdict": "fixed",
+                    "before": before, "after": after[:80], "fixed": chk["fixed_version"],
+                    "message": f"✓ Fixed — {before or '?'} → {after or '?'} (≥ fixed {chk['fixed_version']}, version compare). "
+                               "Rescan so Tenable sees it."}
+        # linux C3 / U6: nothing says "verified" without a fixed-version compare
+        return {"target": ip, "status": "changed", "steps": log, "ran_upto": len(plan["steps"]), "verdict": "unproven",
+                "before": before,
+                "message": "◐ Steps ran — fix not proven (no fixed version in plugin output; rescan)."}
     return one
+
+
+PF_VALID = 30 * 60
+
+# verify round 2 (sec M7): the ONE override of a server-side eligibility exclusion — a per-host sudo-password include
+# named in the confirmed body (owner decision 1). Every other code is a hard exclusion.
+OVERRIDABLE = {"sudo_password"}
+
+
+def _include_sudo(p):
+    v = p.get("include_sudo")
+    return {str(x) for x in v if isinstance(x, str)} if isinstance(v, list) else set()
+
+
+def _not_eligible(rec, tg, p, packages=True):
+    """[{target, code, reason}] — hosts whose stored pre-flight (≤ PF_VALID, see sec F3) makes them ineligible for this
+    plan: c2_verdict.eligibility(), the same function and plan context the page shows. ok or 'nothing to do' (none)
+    passes; code sudo_password passes only for a host named in include_sudo; everything else is refused.
+    packages=False (rollback): only the host's operational state (login, sudo, family, disk, package-manager lock)."""
+    al = _aliases(tg)
+    inc = _include_sudo(p)
+    out = []
+    for t in tg:
+        pr = _pf_get(t["target"], al)
+        if not pr:
+            continue                                  # (deploy refuses it as no_preflight first)
+        crown = bool((t.get("asset") or {}).get("crown"))
+        ctx = _plan_ctx(rec, crown, t["target"] in inc)
+        if not packages:
+            ctx = dict(ctx, packages=[], fixed={}, kernel=False, group_key=None)
+        e = c2_verdict.eligibility(pr, ctx)
+        if e.get("ok") or e.get("none"):
+            continue
+        out.append({"target": t["target"], "code": e.get("code") or "other", "reason": e.get("reason") or ""})
+    return out          # a pre-flight older than this no longer vouches for a host's live OS (sec F3)
+
+
+def _crown_last(tg):
+    """sec F2 (verify round): crown jewels go LAST in every host-changing stage, server-side, whatever order the
+    request gave (stable — the relative order of the others is kept)."""
+    c = lambda t: bool(((t.get("asset") or {}) if isinstance(t, dict) else {}).get("crown"))    # noqa: E731
+    return [t for t in tg if not c(t)] + [t for t in tg if c(t)]
+
+
+def _crown_last_names(names):
+    try:
+        ex = c2_targets.expand(list(names))["targets"]
+    except Exception:
+        return list(names)
+    crown = {t["target"] for t in ex if (t.get("asset") or {}).get("crown")}
+    return [n for n in names if n not in crown] + [n for n in names if n in crown]
+
+
+def _family_refusals(rec, tg):
+    """Hosts deploy must refuse: {target, why, code} — code no_preflight (FAILS CLOSED, sec F3: no pre-flight record,
+    one older than PF_VALID, no parsed live OS, or a live family 'unknown') or family (another family / release
+    group / an immutable OS)."""
+    fam = (rec or {}).get("family") or ""
+    grp = (rec or {}).get("group") or {}
+    al = _aliases(tg)
+    out = []
+    now = time.time()
+    for t in tg:
+        pr = _pf_get(t["target"], al)
+        los = c2_verdict.live_os(pr) if pr else {}
+        if not pr or now - (pr.get("ts") or 0) > PF_VALID:
+            out.append({"target": t["target"], "code": "no_preflight",
+                        "why": "no pre-flight in the last 30 min — run ③ Pre-flight on this host first"})
+            continue
+        if not los or los.get("family") in (None, "", "unknown"):
+            out.append({"target": t["target"], "code": "no_preflight",
+                        "why": "pre-flight could not read this host's live OS family (unknown) — fix and re-run pre-flight"})
+            continue
+        if los.get("immutable"):
+            out.append({"target": t["target"], "code": "family",
+                        "why": f"immutable OS ({los.get('immutable_kind')}) — not supported by this plan"})
+        elif fam and fam != "unknown" and los["family"] != fam:
+            out.append({"target": t["target"], "code": "family", "why": f"family {los['family']} ≠ plan {fam}"})
+        elif grp.get("live") and (los.get("group") or {}).get("key") and los["group"]["key"] != grp.get("key"):
+            out.append({"target": t["target"], "code": "family",
+                        "why": f"{los['group']['label']} ≠ plan group {grp.get('label')}"})
+    return out
+
+
+def _rb_avail(rec, plan, tg):
+    """linux C9 / spec §4.4: per host, is each step's downgrade pin still available in that host's repos or cache?
+    From the rbavail probe the last pre-flight ran BEFORE the change (after an upgrade the old build is gone from
+    dpkg status). {target: [{package, version, available: cache | repos | false | null, kernel}]}"""
+    m = (rec or {}).get("meta") or {}
+    cmp_ = m.get("compare") or "dpkg"
+    al = _aliases(tg)
+    has_rb = any(s.get("rollback") for s in (plan or {}).get("steps") or [])
+    out = {}
+    for t in tg:
+        pr = _pf_get(t["target"], al)
+        rbf = c2_verdict._f(pr, "rbavail") if pr else {}
+        pst = c2_verdict._f(pr, "pkgstate").get("pkgs") if pr else {}
+        rows = []
+        for n in m.get("packages") or []:
+            _s, inst, _a, _h = c2_verdict.installed_of(pst or {}, n, cmp_)
+            k = c2_remediate.is_kernel_pkg(n)
+            if k:
+                av = False                                   # kernels: boot the previous kernel instead
+            elif not has_rb or not (pr and rbf):
+                av = None                                    # no downgrade step, or never probed
+            else:
+                av = c2_verdict.rollback_available(rbf, n, inst, cmp_)
+            rows.append({"package": n, "version": inst, "kernel": k, "available": av})
+        out[t["target"]] = rows
+    return out
+
+
+def _simulation(rec, plan):
+    """spec §2.3 ⑤: the package manager's own simulation per family — shown in Review, run only as a read-only check
+    (never a plan step; owner decision 6). The text only: the page offers it as a check, nothing runs here."""
+    m = (rec or {}).get("meta") or {}
+    pk = " ".join(c2_catalog.qword(x) for x in m.get("packages") or [])
+    if not pk:
+        return ""
+    return {"apt": f"apt-get -s install --only-upgrade {pk}", "dnf": f"sudo -n dnf --assumeno upgrade {pk}",
+            "yum": f"sudo -n yum --assumeno update {pk}",
+            "zypper": f"sudo -n zypper --non-interactive update --dry-run {pk}"}.get((rec or {}).get("family") or "", "")
 
 
 def deploy(p):
@@ -1439,7 +2275,36 @@ def deploy(p):
     if p.get("selector") not in (None, "", rec["selector"]):
         return {"ok": False, "error": "plan_id belongs to a different selector"}, 400
     sel = rec["selector"]
-    src = c2_remediate.sources(sel, ex["targets"])
+    # build 486: the OS-group refusal comes FIRST — with the 486 package scope a wrong-family host's own output names
+    # other packages, and the operator must be told "wrong OS group", not "rejected step"
+    # (checked first: the most specific pre-contact refusal)
+    if not flag(p, "dry_run"):
+        _st = c2log.host_states([t["target"] for t in ex["targets"]], _aliases(ex["targets"]))
+        unk = [t for t, d in _st.items() if d.get("unknown_state")]
+        if unk:
+            # fix round (linux M3): never re-deploy onto a host whose last change step timed out
+            return {"ok": False, "unknown_state": unk,
+                    "error": "unknown state after a timeout on " + ", ".join(unk[:5]) + " — run pre-flight first"}, 409
+    mis = _family_refusals(rec, ex["targets"])
+    nop = [m for m in mis if m["code"] == "no_preflight"]
+    if nop and not flag(p, "dry_run"):
+        # sec F3 (verify round): FAIL CLOSED — no contact, no C2-log row, before anything else
+        return {"ok": False, "no_preflight": nop,
+                "error": "no usable pre-flight for: " + "; ".join(f"{m['target']} — {m['why']}" for m in nop[:5])
+                         + " — nothing ran."}, 409
+    fmis = [m for m in mis if m["code"] != "no_preflight"]
+    if fmis and not flag(p, "dry_run"):
+        return {"ok": False, "family_mismatch": fmis,
+                "error": "not this plan's OS group: " + "; ".join(f"{m['target']} — {m['why']}" for m in fmis[:5])
+                         + " — nothing ran. Deploy each group's own plan."}, 409
+    # verify round 2 (sec M7): eligibility is enforced HERE, from each host's stored pre-flight — before re-validation,
+    # the crown check, the typed count, confirm, the gates, any contact or any log row
+    inel = _not_eligible(rec, ex["targets"], p)
+    if inel and not flag(p, "dry_run"):
+        return {"ok": False, "not_eligible": inel,
+                "error": "not eligible: " + "; ".join(f"{m['target']} — {m['reason']}" for m in inel[:5])
+                         + " — nothing ran. Fix the host and re-run pre-flight, or remove it from the Target set."}, 409
+    src = _with_plan_src(c2_remediate.sources(sel, ex["targets"]), rec)
     v = c2_remediate.validate(rec["plan"], src)          # re-validate the STORED plan (source may have changed)
     if p.get("plan") is not None and c2_remediate.plan_hash(c2_remediate.normalize(p.get("plan"))) != rec["hash"]:
         return {"ok": False, "error": "the plan on the page differs from the last validated version — ↻ Re-validate "
@@ -1451,13 +2316,46 @@ def deploy(p):
         if rec["deployed_hashes"] and v["hash"] not in rec["deployed_hashes"]:
             return {"ok": False, "error": "this plan id was deployed with a different plan — generate a new plan"}, 409
     plan = v["plan"]
+    stage = str(p.get("stage") or "")
+    stage = stage if stage in ("canary", "rollout", "all") else ""
+    if stage == "canary":
+        # owner decision 3, enforced here too (the page already disables it): the canary is ONE host and never a
+        # crown jewel — a request built outside the page can't make a production-critical host the first one changed
+        tg = ex["targets"]
+        crown = [t.get("target") for t in tg if ((t.get("asset") or {}).get("crown"))]
+        if len(tg) != 1 or crown:
+            return {"ok": False, "error": ("a crown jewel is never the canary: " + ", ".join(crown[:3])) if crown
+                    else "the canary stage takes exactly one host"}, 400
+    else:
+        # sec F2 (verify round): one-run ("all"), roll-out and an unstaged deploy — crown jewels LAST, server-side.
+        # Sorted BEFORE the typed-count / sha check, so a request whose confirmed order put a crown first is refused
+        # (409, the list changed) and the page's own crown-last order passes unchanged.
+        ex = dict(ex, targets=_crown_last(ex["targets"]))
+    mm = _expect(p, [t["target"] for t in ex["targets"]])
+    if mm and not flag(p, "dry_run"):
+        return mm
+    # (the OS-group refusal ran above, before re-validation — build 486, linux M3 / P1-1)
     if flag(p, "dry_run"):
         seq = ([("precheck", plan["precheck"]["command"])] if plan.get("precheck") else []) + \
               [x for st in plan["steps"] for x in ([(f"step {st['n']}", st["command"])] +
                                                     ([(f"verify {st['n']}", st["verify"]["command"])] if st.get("verify") else []))] + \
               ([("post_verify", plan["post_verify"]["command"])] if plan.get("post_verify") else [])
-        return {"ok": True, "dry_run": True, "targets": ex["targets"], "warnings": ex["warnings"] + v["warnings"],
+        scope_w, scope = [], {}
+        mp = list((rec.get("meta") or {}).get("packages") or [])
+        for t in ex["targets"][:50]:
+            hk = set(c2_remediate.affected(c2_remediate.sources(sel, [t["target"]]))["packages"])
+            keep_, drop_ = [n for n in mp if n in hk], [n for n in mp if n not in hk]
+            scope[t["target"]] = {"packages": keep_, "not_listed": drop_}
+            if drop_:
+                scope_w.append(f"{t['target']}: upgrades only {', '.join(keep_) or 'nothing'} — its own finding does not list "
+                               f"{', '.join(drop_)} (package scope is per host)")
+        return {"ok": True, "dry_run": True, "targets": ex["targets"], "warnings": ex["warnings"] + v["warnings"]
+                + [f"{m['target']}: {m['why']} — deploy would refuse it" for m in mis]
+                + [f"{m['target']}: not eligible ({m['code']}) — {m['reason']} — deploy would refuse it" for m in inel]
+                + scope_w, "scope": scope, "not_eligible": inel,
                 "sequence": [{"what": a, "command": b} for a, b in seq], "approved_hash": v["hash"],
+                "rollback_available": _rb_avail(rec, plan, ex["targets"]),
+                "simulation": _simulation(rec, plan),
                 "hostkey_policy": "strict (--strict-host-keys)",
                 "message": f"dry run — {len(seq)} command(s) per host on {len(ex['targets'])} host(s); nothing was sent"}, 200
     if not confirmed(p):
@@ -1469,12 +2367,18 @@ def deploy(p):
     c2log.plan_upsert(pid, "approved", source=_src(p), selector=sel, generator=rec["generator"],
                       generated_sha256=rec["generated_hash"], approved_sha256=v["hash"], hosts=len(ex["targets"]))
     src_tag = "remediation:" + pid + ((" via " + _src(p)) if p.get("source") else "")
-    res, code = _start("remediate", f"plan {pid} · {sel}", ex,
-                       lambda rid: _remediate_host(plan, rid, src_tag, v["hash"]), p, sync_max=1,
-                       default_max_errors=0, extra={"plan_id": pid, "plan": plan, "selector": sel})
+    stage = str(p.get("stage") or "")
+    stage = stage if stage in ("canary", "rollout", "all") else ""
+    res, code = _start("remediate", f"plan {pid} · {sel}" + (f" · {stage}" if stage else ""), ex,
+                       lambda rid: _remediate_host(plan, rid, src_tag, v["hash"], meta=rec.get("meta"), selector=sel),
+                       p, sync_max=1,
+                       default_max_errors=0, extra={"plan_id": pid, "plan": plan, "selector": sel, "stage": stage,
+                                                    "plan_hash": v["hash"]})
     if res.get("run_id"):
         with _PLANS_LOCK:
-            rec["runs"][res["run_id"]] = True
+            if not isinstance(rec["runs"].get(res["run_id"]), dict):
+                rec["runs"][res["run_id"]] = {"run_id": res["run_id"], "stage": stage, "status": "running",
+                                              "hosts": len(ex["targets"])}
     res["plan_id"], res["approved_hash"] = pid, v["hash"]
     return res, code
 
@@ -1503,20 +2407,45 @@ def rollback(p):
             observed[h["target"]] = line[0].strip()
     plan = (_RUNS.get(rid) or {}).get("plan") or rec["plan"]
     want = [t for t in c2_targets.parse(p.get("targets") or list(upto))]
-    hosts = [h for h in want if upto.get(h)]
+    hosts = _crown_last_names([h for h in want if upto.get(h)])          # sec F2: crown jewels last
     if not hosts:
         return {"ok": False, "error": "no selected host ran any step of this deployment — nothing to undo"}, 400
     if not any(s.get("rollback") for s in plan["steps"]):
         return {"ok": False, "error": "this plan has no (valid) rollback steps"}, 400
+    # fix round (linux F1): the C2 log decides (the same source as targets.log_state) — a clean pre-flight after
+    # the timeout clears it, so the downgrade the error message points to becomes possible again
+    _st = c2log.host_states(hosts, _aliases(c2_targets.expand(hosts)["targets"]))
+    unknown = [h for h in hosts if (_st.get(h) or {}).get("unknown_state")]
+    if unknown and not flag(p, "dry_run"):
+        # linux SEC-6 / L-7 (the page hides it in Phase 1; refuse here too): a timed-out change step means the
+        # command may still be running — a downgrade now could race it
+        return {"ok": False, "unknown_state": unknown,
+                "error": "unknown state after a timeout on " + ", ".join(unknown[:5]) + " — run pre-flight first"}, 409
+    # verify round 2 (sec M7, where it applies): a downgrade needs the same OPERATIONAL eligibility from the host's
+    # latest pre-flight (login, sudo, family, disk, package-manager lock / half-configured); the package rows don't
+    # apply — the fix is installed by now. No pre-flight record → the run-bound checks above decide (as before).
+    inel = _not_eligible(rec, c2_targets.expand(hosts)["targets"], p, packages=False)
+    if inel and not flag(p, "dry_run"):
+        return {"ok": False, "not_eligible": inel,
+                "error": "not eligible: " + "; ".join(f"{m['target']} — {m['reason']}" for m in inel[:5]) + " — nothing ran."}, 409
+    mm = _expect(p, hosts)
+    if mm and not flag(p, "dry_run"):
+        return mm
     if flag(p, "dry_run"):
         seq = []
         for h in hosts:
             haff = c2_remediate.affected(c2_remediate.sources(rec["selector"], [h]))
             for s_ in sorted(plan["steps"], key=lambda s: -s["n"]):
                 if s_.get("rollback") and s_["n"] <= upto[h]:
-                    cmd, why = c2_remediate.resolve_rollback(s_["rollback"], haff)
+                    rcmd, kept_, dropped_ = c2_remediate.narrow_step(s_["rollback"], set(haff["packages"]))
+                    if dropped_ and not kept_:
+                        seq.append({"what": f"{h}: undo step {s_['n']}",
+                                    "command": "(skipped — this host's finding lists none of " + ", ".join(dropped_) + ")"})
+                        continue
+                    cmd, why = c2_remediate.resolve_rollback(rcmd, haff)
                     seq.append({"what": f"{h}: undo step {s_['n']}", "command": cmd or ("(skipped — " + why + ")")})
-        return {"ok": True, "dry_run": True, "sequence": seq,
+        av = _rb_avail(rec, plan, c2_targets.expand(hosts)["targets"])
+        return {"ok": True, "dry_run": True, "sequence": seq, "available": av,
                 "message": f"dry run — rollback on {len(hosts)} host(s); nothing was sent"}, 200
     if not confirmed(p):
         return {"ok": False, "error": "confirm=true required — rollback changes remote hosts"}, 400
@@ -1535,7 +2464,13 @@ def rollback(p):
 
 
 def plans(p):
-    return {"ok": True, "plans": c2log.plans(_int(p.get("limit"), 50, 1, 500))}, 200
+    out = c2log.plans(_int(p.get("limit"), 50, 1, 500))
+    with _PLANS_LOCK:
+        for r in out:
+            rec = _PLANS.get(r.get("plan_id"))
+            if rec:
+                r["runs"] = [x for x in rec["runs"].values() if isinstance(x, dict)]
+    return {"ok": True, "plans": out}, 200
 
 
 # --------------------------------------------------------------------------- #
@@ -1562,4 +2497,8 @@ ACTIONS = {"run": run, "load": load, "status": status, "hosts": hosts, "precheck
            "catalog": catalog, "targets": targets, "glance": glance, "run_checks": run_checks,
            "cred_test": cred_test, "path_check": path_check, "run_status": run_status,
            "plan_ai": plan_ai, "plan_validate": plan_validate, "deploy": deploy, "rollback": rollback,
-           "plans": plans, "c2log": c2log_rows, "c2log_export": c2log_export}
+           "plans": plans, "c2log": c2log_rows, "c2log_export": c2log_export,
+           # build 485: acknowledge a CHANGED-host-key banner (an `ack` row in the C2 log; sec C6)
+           "ack": ack,
+           # build 486: the Phase 2 pre-flight (strict login + bundle + per-host eligibility, one confirm)
+           "preflight": preflight}

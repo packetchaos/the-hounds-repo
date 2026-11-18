@@ -51,7 +51,7 @@ SYSTEM = (
     "no prose, exactly this shape: " + SCHEMA + " Rules: every command is ONE simple command — no ; && "
     "|| | > < $( ) backticks, globs or variables. Use the distro's package manager on the SPECIFIC "
     "package(s) the data names (pin the fixed version when the data states one): apt-get update · "
-    "apt-get install --only-upgrade -y <pkg> · dnf -y upgrade <pkg> · yum -y update <pkg> · zypper "
+    "apt-get install --only-upgrade -y <pkg> · dnf -y upgrade <pkg> · yum --setopt=exit_on_lock=1 -y update <pkg> · zypper "
     "--non-interactive update <pkg>; you may also use systemctl restart|reload <unit>, and rm -f / chmod "
     "/ chown on a file path the data names. Prefix sudo when root is needed. NEVER: curl or wget, "
     "scripts, eval, base64, editing users, keys or sudoers, stopping/disabling services or security "
@@ -76,12 +76,16 @@ def _cols(table):
 
 
 def distro_of(os_str):
-    """(family, label): family ∈ apt | dnf | yum | zypper | unknown."""
+    """(family, label): family ∈ apt | dnf | yum | zypper | unknown. navi.db's OS string is only a hint —
+    Phase 2 plans group by the LIVE os-release a pre-flight read (linux P1-1)."""
     s = (os_str or "").lower()
     if any(k in s for k in ("ubuntu", "debian", "kali", "mint", "raspbian")):
         return "apt", os_str
     if "suse" in s or "sles" in s:
         return "zypper", os_str
+    # build 486 (linux P1-1 / F4): Amazon Linux AMI 2018.03 (AL1) is yum-only, like AL2; only AL2023 is dnf
+    if "amazon linux ami" in s or re.search(r"amazon linux[^0-9]*(1|2018|2017)\b", s):
+        return "yum", os_str
     if re.search(r"(centos|red hat|redhat|rhel|oracle linux)[^0-9]*\b[67]\b", s) or "amazon linux 2" in s \
             and "2023" not in s:
         return "yum", os_str
@@ -91,7 +95,7 @@ def distro_of(os_str):
     return "unknown", os_str
 
 
-def sources(selector, targets=None, max_hosts=5):
+def sources(selector, targets=None, max_hosts=5, live=None):
     """{selector, plugin_ids, plugins:[{plugin_id, plugin_name, solution, synopsis, description, cves}],
         hosts:[{ip, uuid, hostname, os, family, outputs:{plugin_id: text}}], families, text}"""
     sel = str(selector or "").strip()
@@ -127,37 +131,63 @@ def sources(selector, targets=None, max_hosts=5):
     out["plugin_ids"] = pids
     pcols = _cols("plugins")
     if pids and "plugin_id" in pcols:
-        want = [c for c in ("plugin_name", "solution", "synopsis", "description", "cves", "see_also") if c in pcols]
+        # build 486 (linux §5 data issue): navi's real `plugins` table names the title `name` (and the family
+        # `family`), not plugin_name — read whichever exists, so Tenable's title reaches the authority text
+        nm = "plugin_name" if "plugin_name" in pcols else ("name" if "name" in pcols else "")
+        fm = "plugin_family" if "plugin_family" in pcols else ("family" if "family" in pcols else "")
+        want = [c for c in ("solution", "synopsis", "description", "cves", "see_also") if c in pcols]
+        sel = "plugin_id" + (f", {nm} AS plugin_name" if nm else "") + (f", {fm} AS plugin_family" if fm else "") \
+            + "".join(", " + c for c in want)
         try:
-            rows = db.query(f"SELECT plugin_id{''.join(', ' + c for c in want)} FROM plugins WHERE plugin_id IN "
-                            f"({','.join('?' * len(pids))})", tuple(pids))
+            rows = db.query(f"SELECT {sel} FROM plugins WHERE plugin_id IN ({','.join('?' * len(pids))})", tuple(pids))
         except Exception:
             rows = []
         for r in rows:
             out["plugins"].append({"plugin_id": str(r.get("plugin_id")), "plugin_name": (r.get("plugin_name") or "")[:300],
+                                   "plugin_family": (r.get("plugin_family") or "")[:120],
                                    "solution": (r.get("solution") or "")[:2000], "synopsis": (r.get("synopsis") or "")[:600],
                                    "description": (r.get("description") or "")[:1200], "cves": (r.get("cves") or "")[:400],
                                    "see_also": (r.get("see_also") or "")[:600]})
-    if pids and not out["plugins"] and "plugin_name" in vcols:
-        try:
-            for r in db.query(f"SELECT DISTINCT plugin_id, plugin_name FROM vulns WHERE plugin_id IN "
-                              f"({','.join('?' * len(pids))}) LIMIT 10", tuple(pids)):
-                out["plugins"].append({"plugin_id": str(r.get("plugin_id")), "plugin_name": r.get("plugin_name") or "",
+    if pids and "plugin_name" in vcols:
+        # the title / family as the finding carries it, for a plugin navi's plugins table lacks (or names without a
+        # title / family): ONE row per plugin (LIMIT 1 seek), never a DISTINCT over every finding of the plugin
+        fam_col = ", plugin_family" if "plugin_family" in vcols else ""
+        have = {p["plugin_id"]: p for p in out["plugins"]}
+        for pid in pids:
+            h_ = have.get(pid)
+            if h_ and h_["plugin_name"] and (h_.get("plugin_family") or not fam_col):
+                continue
+            try:
+                r = (db.query(f"SELECT plugin_name{fam_col} FROM vulns WHERE plugin_id=? LIMIT 1", (pid,)) or [None])[0]
+            except Exception:
+                r = None
+            if not r:
+                continue
+            if h_:
+                h_["plugin_name"] = h_["plugin_name"] or (r.get("plugin_name") or "")[:300]
+                h_["plugin_family"] = h_.get("plugin_family") or (r.get("plugin_family") or "")[:120]
+            else:
+                out["plugins"].append({"plugin_id": pid, "plugin_name": (r.get("plugin_name") or "")[:300],
+                                       "plugin_family": (r.get("plugin_family") or "")[:120],
                                        "solution": "", "synopsis": "", "description": "", "cves": "", "see_also": ""})
-        except Exception:
-            pass
+                have[pid] = out["plugins"][-1]
     from core import c2_targets
+    live = live or {}
     for t in (targets or [])[:max_hosts]:
         ip = (t.get("ip") or t.get("target")) if isinstance(t, dict) else str(t)
         a = c2_targets.lookup(ip) or {}
         fam, _ = distro_of(a.get("os"))
+        lv = live.get(ip) or {}
         h = {"ip": ip, "uuid": a.get("uuid") or "", "hostname": a.get("hostname") or "", "os": a.get("os") or "",
-             "family": fam, "outputs": {}}
+             "family": lv.get("family") or fam, "family_source": "live os-release" if lv.get("family") else "navi.db",
+             "outputs": {}}
+        # scale rule: plugin output is read ONLY for the plan's selected hosts × the matched plugins (≤ 5 hosts,
+        # ≤ 5 rows each, one indexed seek per host) — never estate-wide
         if a.get("uuid") and pids and "output" in vcols:
             try:
                 for r in db.query(f"SELECT plugin_id, output FROM vulns WHERE asset_uuid=? AND plugin_id IN "
                                   f"({','.join('?' * len(pids))}) LIMIT 5", (a["uuid"],) + tuple(pids)):
-                    h["outputs"][str(r.get("plugin_id"))] = (r.get("output") or "")[:1500]
+                    h["outputs"][str(r.get("plugin_id"))] = (r.get("output") or "")[:4000]
             except Exception:
                 pass
         out["hosts"].append(h)
@@ -195,17 +225,211 @@ def _user_prompt(src, family):
 _PKG_HINTS = ("openssl", "openssh", "nginx", "apache2", "httpd", "log4j", "bash", "glibc", "curl", "sudo", "kernel",
               "python3", "java", "tomcat", "mysql", "postgresql", "samba", "polkit", "libssl", "git", "vim", "zlib")
 _ARCH = re.compile(r"\.(x86_64|i[3-6]86|noarch|aarch64|ppc64le|s390x|amd64|arm64)$")
-_PKGNAME = re.compile(r"^[a-z0-9][a-z0-9.+_-]{0,99}$")
+# rpm package names are CASE-SENSITIVE ('NetworkManager', real sample B) — the name keeps Tenable's case; lookups in
+# host facts (keyed lower-case by the catalog parsers) go through ci_get(). Plugin-TEXT words are still lower-cased.
+_PKGNAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9.+_-]{0,99}$")
+
+
+MAX_SCOPE = 20                     # package names one finding may put in a plan (real sample B has 5)
+_NOT_PKG = {"and", "or", "the", "package", "packages", "affected", "relevant", "vulnerable", "following", "these",
+            "all", "any", "other", "remaining", "appropriate", "latest"}
+
+
+class CIDict(dict):
+    """A dict whose string keys keep their case but match case-insensitively (rpm names vs lower-cased facts)."""
+    def _k(self, k):
+        if dict.__contains__(self, k) or not isinstance(k, str):
+            return k
+        kl = k.lower()
+        for x in self:
+            if isinstance(x, str) and x.lower() == kl:
+                return x
+        return k
+
+    def __contains__(self, k):
+        return dict.__contains__(self, self._k(k))
+
+    def __getitem__(self, k):
+        return dict.__getitem__(self, self._k(k))
+
+    def get(self, k, d=None):
+        return dict.get(self, self._k(k), d)
+
+
+def ci_get(d, k, default=None):
+    """d[k], else the entry whose key equals k ignoring case."""
+    if not d:
+        return default
+    if k in d:
+        return d[k]
+    if isinstance(k, str):
+        kl = k.lower()
+        for x, v in d.items():
+            if isinstance(x, str) and x.lower() == kl:
+                return v
+    return default
+
+
+def ci_has(d, k):
+    return ci_get(d, k, _MISSING) is not _MISSING
+
+
+_MISSING = object()
+
+
+def _split_rpm(tok):
+    """rpm NEVRA 'openssl-libs-1:1.1.1k-9.el8_7.x86_64' → ('openssl-libs', '1:1.1.1k-9.el8_7'). Split from the
+    RIGHT (release, then version), so names with digits or underscores survive: 'java-1.8.0-openjdk-1.8.0.392-4.el8',
+    SUSE 'openssl-1_1-1.1.1l-150400.7.25.1'."""
+    tok = _ARCH.sub("", tok.strip().strip(",;"))
+    parts = tok.rsplit("-", 2)
+    if len(parts) == 3 and parts[0] and re.match(r"^(\d+:)?\d", parts[1]) and re.match(r"^[0-9A-Za-z]", parts[2]):
+        return parts[0], parts[1] + "-" + parts[2]
+    m = re.match(r"^(.+?)-(\d.*)$", tok)
+    return (m.group(1), m.group(2)) if m else (tok, "")
+
+
+def _rpm_looking(s):
+    p = s.rsplit("-", 2)
+    return len(p) == 3 and bool(re.match(r"^(\d+:)?\d", p[1])) and bool(re.match(r"^\d", p[2]))
 
 
 def _split_pkg(tok):
-    """'openssl_1.1.1f-1ubuntu2.16' (deb) / 'openssl-1.0.2k-19.el7.x86_64' (rpm) → (name, version)."""
+    """'openssl_1.1.1f-1ubuntu2.16' (deb) / 'openssl-1.0.2k-19.el7.x86_64' (rpm) → (name, version).
+    An rpm release may hold an underscore ('…-25.el7_9'), so the deb reading 'name_version' is taken only when the
+    part before '_' is not itself an rpm name-version-release."""
     tok = _ARCH.sub("", tok.strip().strip(",;"))
     if "_" in tok:
         n, v = tok.split("_", 1)
-        return n.lower(), v
-    m = re.match(r"^(.+?)-(\d.*)$", tok)
-    return (m.group(1).lower(), m.group(2)) if m else (tok.lower(), "")
+        if re.match(r"^(\d+:)?\d", v) and not _rpm_looking(n):
+            return n, v
+    return _split_rpm(tok)
+
+
+# --------------------------------------------------------------------------------------------- #
+#  Tenable plugin-output formats (linux P1-2). TABLE-DRIVEN: each row is one output shape Tenable writes; a
+#  real sample from a navi.db drops in as a fixture under tests/fixtures/c2_plugin_output/ and must parse.
+#    side      installed | fixed | kernel (running vs minimum) | path
+#    split     how the token after the label splits into (name, version): deb | rpm | auto | none
+#    authority distro = a distro BUILD (Debian revision / rpm release) Tenable compared package-to-package;
+#              upstream = an upstream version from a binary / banner check — backport-unaware (linux P1-3)
+# --------------------------------------------------------------------------------------------- #
+OUTPUT_FORMATS = [
+    {"id": "rpm_pair", "family": "rpm", "side": "installed", "split": "rpm", "authority": "distro",
+     "rx": r"^[ \t]*Remote package installed\s*:\s*(\S+)"},
+    {"id": "rpm_pair", "family": "rpm", "side": "fixed", "split": "rpm", "authority": "distro",
+     "rx": r"^[ \t]*Should be\s*:\s*(\S+)"},
+    {"id": "deb_pair", "family": "deb", "side": "installed", "split": "auto", "authority": "distro",
+     "rx": r"^[ \t]*(?:-[ \t]+)?Installed package\s*:\s*(\S+)"},
+    {"id": "deb_pair", "family": "deb", "side": "fixed", "split": "auto", "authority": "distro",
+     "rx": r"^[ \t]*(?:-[ \t]+)?Fixed package\s*:\s*(\S+)"},
+    {"id": "kernel_running", "family": "deb", "side": "kernel", "split": "none", "authority": "distro",
+     "rx": r"Running [Kk]ernel level of (\S+) does not meet the minimum fixed level of (\S+?)(?: for this advisory)?\.?\s*$"},
+    {"id": "upstream", "family": "any", "side": "installed", "split": "none", "authority": "upstream",
+     "rx": r"^[ \t]*(?:-[ \t]+)?Installed version\s*:\s*(\S+)"},
+    {"id": "upstream", "family": "any", "side": "fixed", "split": "none", "authority": "upstream",
+     "rx": r"^[ \t]*(?:-[ \t]+)?Fixed version\s*:\s*(\S+)"},
+    {"id": "upstream", "family": "any", "side": "path", "split": "none", "authority": "upstream",
+     "rx": r"^[ \t]*(?:-[ \t]+)?Path\s*:\s*(\S+)"},
+]
+_FMT_RX = [(f, re.compile(f["rx"], re.M | re.I)) for f in OUTPUT_FORMATS]
+
+
+def _is_nvr(tok):
+    t = _ARCH.sub("", tok)
+    p = t.rsplit("-", 2)
+    return len(p) == 3 and bool(re.match(r"^(\d+:)?\d[\w.+~^]*$", p[1])) and bool(re.match(r"^\d[\w.+~^]*$", p[2]))
+
+
+def _split_label_rpm(tok):
+    """The 'Remote package installed / Should be' labels carry an rpm NEVRA on RHEL-likes and SUSE, but a deb
+    'name_version' token on Debian (deb_report_get): an rpm name-version-release wins, else the deb reading."""
+    return _split_rpm(tok) if _is_nvr(tok) else _split_pkg(tok)
+
+
+def _tok_is_deb(tok, split):
+    """Did this token split as a Debian 'name_version' (→ dpkg compare) rather than an rpm NVR?"""
+    t = _ARCH.sub("", tok.strip().strip(",;"))
+    if split == "rpm" and _is_nvr(t):
+        return False
+    if "_" in t:
+        n, v = t.split("_", 1)
+        return bool(re.match(r"^(\d+:)?\d", v)) and not _rpm_looking(n)
+    return False
+
+
+def _distro_build(v):
+    """A distro build carries a Debian revision or an rpm release ('1.1.1f-1ubuntu2.19', '1.0.2k-25.el7_9');
+    a bare upstream number ('1.1.1w') does not."""
+    v = str(v or "")
+    v = v.split(":", 1)[1] if re.match(r"^\d+:", v) else v
+    if "-" in v and re.search(r"-\S*\d", v):
+        return True
+    # a NATIVE Debian/Ubuntu package has no revision but still names its distro build ('37.2ubuntu~22.04.1',
+    # real sample H); an rpm release always has the dash
+    return bool(re.search(r"(ubuntu|deb\d|~\d|\+deb|\+b\d|\.el\d|amzn|\.fc\d|\.sles|\.suse)", v, re.I))
+
+
+def parse_output(text):
+    """One plugin output → {pairs:[{name, installed, fixed, format, authority}], kernel:{running, fixed}|None,
+    upstream:[{path, installed, fixed}], formats:[ids]}. Labels count only at the START of a line (host output is
+    untrusted — a label mid-line is prose); pairs are matched by package name, in order."""
+    t = text or ""
+    events = []
+    for f, rx in _FMT_RX:
+        for m in rx.finditer(t):
+            events.append((m.start(), f, m))
+    events.sort(key=lambda e: e[0])
+    pairs, upstream, formats, kernel = [], [], [], None
+    open_inst = {}                       # name → index in pairs still waiting for its fixed line
+    cur_up = None
+    for _pos, f, m in events:
+        if f["id"] not in formats:
+            formats.append(f["id"])
+        if f["side"] == "kernel":
+            kernel = {"running": m.group(1), "fixed": m.group(2), "format": f["id"]}
+            continue
+        if f["id"] == "upstream":
+            if f["side"] == "path":
+                cur_up = {"path": m.group(1), "installed": "", "fixed": ""}
+                upstream.append(cur_up)
+            else:
+                if cur_up is None or cur_up.get(f["side"]):
+                    cur_up = {"path": "", "installed": "", "fixed": ""}
+                    upstream.append(cur_up)
+                cur_up[f["side"]] = m.group(1)
+            continue
+        tok = m.group(1)
+        n, v = (_split_label_rpm(tok) if f["split"] == "rpm" else _split_pkg(tok))
+        if not _PKGNAME.match(n) or not v:
+            continue
+        kind = "dpkg" if _tok_is_deb(tok, f["split"]) else "rpm"
+        if f["side"] == "installed":
+            pairs.append({"name": n, "installed": v, "fixed": "", "format": f["id"], "authority": f["authority"],
+                          "compare": kind})
+            open_inst[n] = len(pairs) - 1
+        else:
+            i = open_inst.pop(n, None)
+            if i is None:
+                pairs.append({"name": n, "installed": "", "fixed": v, "format": f["id"], "authority": f["authority"]})
+            else:
+                pairs[i]["fixed"] = v
+    for p in pairs:
+        if p["fixed"] and not _distro_build(p["fixed"]):
+            p["authority"] = "upstream"         # a package line whose fixed value is a bare upstream number
+    ups = [u for u in upstream if u["installed"] or u["fixed"]]
+    # real samples I: a version Tenable read REMOTELY (a service banner / HTTP header), not from the package database —
+    # never an OS-package fix
+    remote = bool(_BANNER_RX.search(t)) or any(_BANNER_PATH_RX.search(m.group(0)) for m in _PATH_LINE_RX.finditer(t))
+    esm = bool(_ESM_RX.search(t))
+    return {"pairs": pairs, "kernel": kernel, "upstream": ups, "formats": formats,
+            "remote_banner": remote and not pairs, "esm": esm}
+
+
+_BANNER_RX = re.compile(r"^[ \t]*(?:-[ \t]+)?(?:Version source|Banner|Source|URL|Port)\s*:", re.M | re.I)
+_PATH_LINE_RX = re.compile(r"^[ \t]*(?:-[ \t]+)?Path\s*:.*$", re.M | re.I)
+_BANNER_PATH_RX = re.compile(r"\bunder\s+Server:|X-Powered-By:|Server:\s*\S", re.I)
+_ESM_RX = re.compile(r"Ubuntu ESM|ESM repositories|Ubuntu Pro subscription|Ubuntu Advantage|Extended Security Maintenance", re.I)
 
 
 def _src_parts(src):
@@ -232,48 +456,192 @@ def affected(src):
     pt, outs = _src_parts(src)
     plain = not isinstance(src, dict)
     ptl = pt.lower()
-    named = set()
+    named = {}                                   # ordered (text order) — the plan's package order is deterministic
     for m in re.finditer(r"(?i)\b(?:update|upgrade|install)?\s*the\s+affected\s+(.{1,200}?)\s+packages?\b", pt):
-        for w in re.split(r"[,\s]+|\band\b", m.group(1)):
+        for w in re.split(r"[,\s]+|\band\b|/", m.group(1)):
             w = w.strip().lower()
-            if _PKGNAME.match(w) and w not in ("and", "or", "the", "package", "packages"):
-                named.add(w)
-    for m in re.finditer(r"(?i)\b(?:upgrade|update)\s+(?:the\s+)?([a-z0-9][a-z0-9.+_-]{1,60})\s+package\b", pt):
-        named.add(m.group(1).lower())
+            if _PKGNAME.match(w) and w not in _NOT_PKG:
+                named.setdefault(w, None)
+    for m in re.finditer(r"(?i)\b(?:upgrade|update)\s+(?:the\s+)?([a-z0-9][a-z0-9.+_-]{1,60})\s+packages?\b", pt):
+        if m.group(1).lower() not in _NOT_PKG:
+            named.setdefault(m.group(1).lower(), None)
     facts = {}
     seen_inst = {}
     anon = {}
+    kernel = None
+    formats = []
+    remote = esm = False
     for o in outs:
-        for m in re.finditer(r"(?im)^[ \t]*(installed|fixed|remote)\s+(package|version)\s*:\s*(\S+)", o or ""):
-            kind = "fixed" if m.group(1).lower() == "fixed" else "installed"
-            if m.group(2).lower() == "package":
-                n, v = _split_pkg(m.group(3))
-                if _PKGNAME.match(n) and v:
-                    facts.setdefault(n, {}).setdefault(kind, v)
-                    if kind == "installed":
-                        seen_inst.setdefault(n, set()).add(v)
-            else:
-                anon.setdefault(kind, m.group(3))
-    pk = {}
-    for n in named:
-        pk[n] = dict(facts.get(n) or {})
+        po = parse_output(o)
+        remote = remote or po.get("remote_banner")
+        esm = esm or po.get("esm")
+        formats += [f for f in po["formats"] if f not in formats]
+        for p in po["pairs"]:
+            d = facts.setdefault(p["name"], {})
+            if p["installed"]:
+                d.setdefault("installed", p["installed"])
+                seen_inst.setdefault(p["name"], set()).add(p["installed"])
+            if p["fixed"]:
+                d.setdefault("fixed", p["fixed"])
+                d.setdefault("fixed_source", p["authority"])
+                d.setdefault("format", p["format"])
+            if p["installed"] and p["fixed"] and p.get("compare"):
+                k = vcmp(p["installed"], p["fixed"], p["compare"])
+                d["pair_ok"] = d.get("pair_ok", True) and k == -1    # a real finding: installed < fixed, every time
+        for u in po["upstream"]:
+            if u.get("installed"):
+                anon.setdefault("installed", u["installed"])
+            if u.get("fixed"):
+                anon.setdefault("fixed", u["fixed"])
+            if u.get("path"):
+                anon.setdefault("path", u["path"])
+        if po["kernel"] and not kernel:
+            kernel = po["kernel"]
+    pk = CIDict()
+    unauth = []
+    # PACKAGE SCOPE (build 486, owner decision after the real Solution texts — 6 of 8 say only "Update the affected
+    # packages."): when the finding's own output has package lines, the plan's package set is EXACTLY the names on
+    # its line-leading "Remote package installed / Should be" and "Installed package / Fixed package" PAIRS, in
+    # output order and Tenable's case. A pair counts only with both lines and installed < fixed (family-native
+    # compare); at most MAX_SCOPE names. Solution text never adds, removes or renames one (solution_note shows a
+    # mismatch). Install-only lines, mid-line labels and downgrade "pairs" authorise nothing.
+    scope = [n for n, d in facts.items() if d.get("installed") and d.get("fixed") and d.get("pair_ok")]
     for n, d in facts.items():
-        # authority comes ONLY from Tenable's plugin text; host output never authorises a package,
-        # it only adds version facts for packages the text already names
-        if n in pk:
-            continue
-        if re.search(r"(?<![a-z0-9.+_-])" + re.escape(n) + r"(?![a-z0-9+_-])", ptl):
-            pk[n] = dict(d)
+        if n not in scope and d.get("fixed"):
+            unauth.append(n)                       # a line we cannot treat as a real pair: shown, never planned
+    if len(scope) > MAX_SCOPE:
+        unauth = scope[MAX_SCOPE:] + unauth
+        scope = scope[:MAX_SCOPE]
+    sol_note = ""
+    if scope:
+        for n in scope:
+            pk[n] = dict(facts[n])
+        low = {n.lower() for n in scope}
+        extra = [w for w in named if w not in low]
+        if extra:
+            sol_note = f"Solution names {', '.join(extra)}; the finding lists {', '.join(scope)}"
+    else:
+        # no package pairs in the output (upstream / banner / text-only): the earlier rule — Tenable's TEXT names it
+        lowmap = {k.lower(): k for k in facts}
+        for n in named:
+            o = lowmap.get(n, n)
+            if o not in pk:
+                pk[o] = dict(facts.get(o) or {})
+        for n, d in facts.items():
+            if n not in pk and re.search(r"(?<![a-z0-9.+_-])" + re.escape(n.lower()) + r"(?![a-z0-9+_-])", ptl):
+                pk[n] = dict(d)
     for n in pk:
         pk[n]["installed_all"] = sorted(seen_inst.get(n, ()))
     if anon and len(pk) == 1:                      # "Installed version :" lines with no package name
         only = next(iter(pk.values()))
-        for k, v in anon.items():
-            only.setdefault(k, v)
+        for k in ("installed", "fixed"):
+            if anon.get(k):
+                only.setdefault(k, anon[k])
+        if anon.get("fixed") and only.get("fixed") == anon["fixed"]:
+            only.setdefault("fixed_source", "upstream")     # backport-unaware upstream compare (linux P1-3)
+            if anon.get("path"):
+                only.setdefault("path", anon["path"])
+    for d in pk.values():
+        if d.get("fixed") and not d.get("fixed_source"):
+            d["fixed_source"] = "distro" if _distro_build(d["fixed"]) else "upstream"
     text = pt if not plain else pt              # a plain string IS the plugin text (tests / callers)
     paths = set(re.findall(r"(?<![\w/.~-])(/(?:[A-Za-z0-9._+@:-]+/)*[A-Za-z0-9._+@:-]+)", text))
     words = set(w.lower() for w in re.findall(r"[A-Za-z0-9@_-]+(?:\.[A-Za-z0-9@_-]+)*", text))
-    return {"packages": pk, "paths": paths, "words": words}
+    return {"packages": pk, "paths": paths, "words": words, "kernel": kernel, "formats": formats,
+            "unauthorised": sorted(unauth), "remote_banner": bool(remote) and not facts, "esm": bool(esm),
+            "scope": "output" if scope else "text", "solution_note": sol_note}
+
+
+FIXED_SOURCE_LABEL = {"distro": "distro package check", "upstream": "upstream version, not authoritative here"}
+_KERNEL_RX = re.compile(r"^(kernel|kernel-(core|modules|modules-core|modules-extra|default|rt|rt-core|uek)|"
+                        r"linux-image(-.*)?|linux-generic|linux-modules(-.*)?)$")
+_REBOOT_PKGS = re.compile(r"^(kernel.*|linux-image.*|linux-generic|glibc|glibc-common|libc6|libc-bin|systemd|"
+                          r"systemd-libs|libsystemd0|dbus|dbus-libs|dbus-daemon|intel-microcode|amd64-microcode|"
+                          r"microcode_ctl|linux-firmware|ucode-intel|udev|libudev1|openssl-libs|gnutls)$")
+# (verify round 2, linux R1: needs-restarting -r's own reboot list — kernel, glibc, linux-firmware, systemd, udev,
+#  openssl-libs, gnutls, dbus — so the fallback can say "reboot state unknown" for exactly those)
+
+
+def needs_reboot_pkg(name):
+    return bool(_REBOOT_PKGS.match(str(name or "")))
+
+
+def is_kernel_pkg(name):
+    return bool(_KERNEL_RX.match(str(name or "")))
+
+
+def package_set(src, aff=None):
+    """linux P1-5 / C7: EVERY package Tenable's text authorises that has a fixed build in the output — upgraded in
+    ONE transaction (apt-get install --only-upgrade libssl1.1 openssl). Text order. Falls back to the single best
+    guess when no package carries a fixed version."""
+    aff = aff or affected(src)
+    pk = aff["packages"]
+    with_fix = [n for n, d in pk.items() if d.get("fixed")]
+    if with_fix:
+        return with_fix
+    g = guess_package(src) if isinstance(src, dict) else ""
+    return [g] if g else []
+
+
+def plan_meta(src, family=None):
+    """What the page shows next to a plan (never part of the hashed plan): the packages, their fixed builds and the
+    source of each fixed version, the kernel shape, and what Tenable listed that its text did not name."""
+    aff = affected(src)
+    pkgs = package_set(src, aff)
+    if aff.get("remote_banner"):
+        pkgs = []                            # a remote banner / application version: no OS package to plan
+    fixed = {n: {"version": (aff["packages"].get(n) or {}).get("fixed") or "",
+                 "source": (aff["packages"].get(n) or {}).get("fixed_source") or "",
+                 "installed": (aff["packages"].get(n) or {}).get("installed") or "",
+                 "path": (aff["packages"].get(n) or {}).get("path") or ""} for n in pkgs}
+    srcs = {v["source"] for v in fixed.values() if v["version"]}
+    fs = "distro" if srcs == {"distro"} else ("upstream" if srcs == {"upstream"} else ("mixed" if srcs else ""))
+    kernel = any(is_kernel_pkg(n) for n in pkgs) or bool(aff.get("kernel"))
+    fam = family or ""
+    deb_kernel = kernel and (fam == "apt" or bool(aff.get("kernel")))
+    if deb_kernel and not any(fixed[n]["version"] for n in pkgs):
+        pkgs, fixed = [], {}                 # an ABI kernel ("Running Kernel level …"): nothing to read or upgrade here
+    return {"packages": pkgs, "fixed": fixed, "fixed_source": fs,
+            "fixed_source_label": FIXED_SOURCE_LABEL.get(fs, "mixed — see each package" if fs == "mixed" else ""),
+            "kernel": kernel, "kernel_workflow": deb_kernel, "running_kernel_check": aff.get("kernel"),
+            "requires_reboot": any(_REBOOT_PKGS.match(n) for n in pkgs) or kernel,
+            "formats": aff.get("formats") or [], "unauthorised": aff.get("unauthorised") or [],
+            "not_os_package": bool(aff.get("remote_banner")), "esm": bool(aff.get("esm")),
+            "scope": aff.get("scope") or "", "solution_note": aff.get("solution_note") or "",
+            "listed_by": _listed_by(src, pkgs),
+            "host_count": len(src.get("hosts") or []) if isinstance(src, dict) else 0,
+            "warnings": _meta_warnings(aff),
+            "compare": "dpkg" if fam == "apt" else ("rpm" if fam in ("dnf", "yum", "zypper") else "")}
+
+
+ESM_WARNING = ("The fix is only in Ubuntu ESM repositories (Ubuntu Pro subscription): hosts without ESM / Pro "
+               "attached will show 'No change' or 'Upgraded, still vulnerable' — check `entitle` in pre-flight.")
+BANNER_REFUSAL = ("Not an OS-package fix: Tenable read this version REMOTELY (a service banner / HTTP header), not "
+                  "from the package database — no package plan. Fix the application (or its vendor package) and rescan.")
+
+
+def _meta_warnings(aff):
+    w = []
+    if aff.get("remote_banner"):
+        w.append(BANNER_REFUSAL)
+    if aff.get("esm"):
+        w.append(ESM_WARNING)
+    return w
+
+
+def _listed_by(src, pkgs):
+    """sec F1 (verify round): {package: [hosts whose OWN finding output lists it]} over the plan's sampled hosts — the
+    page marks a name that is not on every host ("listed by 1 of 3 hosts (10.9.1.10)"); at run time each host is
+    narrowed to its own list anyway."""
+    if not isinstance(src, dict) or not pkgs:
+        return {}
+    out = {n: [] for n in pkgs}
+    for h in src.get("hosts") or []:
+        ha = affected({"plugins": src.get("plugins") or [], "hosts": [h]})
+        for n in pkgs:
+            if dict.__contains__(ha["packages"], n):
+                out[n].append(str(h.get("ip") or h.get("target") or h.get("hostname") or "?"))
+    return out
 
 
 def guess_package(src):
@@ -296,11 +664,42 @@ def _q(name):
     return qword(name)
 
 
+# build 486 (linux P1-7 / C5 / C8 / C10, owner decision 6): the unattended-dpkg options and bounded lock waits the
+# validator now allows as EXACT tokens. DPkg::Lock::Timeout is honoured by apt ≥ 1.9.11 (Ubuntu ≥ 20.04, Debian ≥ 11);
+# older apt ignores it, which is why pre-flight excludes a BUSY host there (linux C4).
+LOCK_WAIT = 300
+APT_OPTS = ("-o Dpkg::Options::=--force-confdef -o Dpkg::Options::=--force-confold "
+            f"-o DPkg::Lock::Timeout={LOCK_WAIT}")
+
+
 def template_plan(src, family=None):
-    """Deterministic fallback — Tenable's Solution applied through the distro's package manager,
-    with a version-compare precheck / verify built from the plugin output's Fixed package line."""
+    """See _template_plan. Adds the real-sample guards: a remote-banner finding is REFUSED as a package plan (no
+    steps, `refused: not_os_package`); an Ubuntu ESM note is carried into the summary and `warnings`."""
+    meta = plan_meta(src, family or (src.get("families") or ["unknown"])[0])
+    if meta.get("not_os_package"):
+        return {"summary": BANNER_REFUSAL, "distro": family or (src.get("families") or ["unknown"])[0], "precheck": None,
+                "steps": [], "post_verify": None, "references": [], "generator": "template", "refused": "not_os_package",
+                "warnings": meta["warnings"]}
+    plan = _template_plan(src, family)
+    if meta.get("esm"):
+        plan["summary"] = "⚠ " + ESM_WARNING + " " + (plan.get("summary") or "")   # first: normalize() caps at 800
+        plan["warnings"] = meta["warnings"]
+    return plan
+
+
+def _template_plan(src, family=None):
+    """Deterministic fallback — Tenable's Solution applied through the distro's package manager: EVERY package the
+    text authorises with a fixed build, in ONE transaction; a version-compare precheck / verify only against a DISTRO
+    build (an upstream-only fixed version is backport-unaware — linux P1-3); the non-interactive dpkg options and a
+    bounded lock wait; a pinned downgrade per package when the output states one installed build; kernels: rpm
+    install-only upgrade + reboot flag, Debian/Ubuntu ABI kernels → a kernel workflow (no steps)."""
     fam = family or (src.get("families") or ["unknown"])[0]
+    aff = affected(src)
+    meta = plan_meta(src, fam)
+    pkgs = meta["packages"]
     pkg = guess_package(src)
+    if pkgs and pkg not in pkgs:
+        pkg = pkgs[0]
     sol = " ".join(p.get("solution") or "" for p in src.get("plugins") or [])[:400]
     plan = {"summary": "", "distro": fam, "precheck": None, "steps": [], "post_verify": None,
             "references": [], "generator": "template"}
@@ -308,37 +707,89 @@ def template_plan(src, family=None):
         plan["summary"] = ("Could not tell which package to upgrade from the plugin text — add a step by hand "
                            "(Tenable says: " + (sol or "no solution text stored") + ").")
         return plan
-    fixed = (affected(src)["packages"].get(pkg) or {}).get("fixed") or ""
+    pd = aff["packages"].get(pkg) or {}
+    fixed = pd.get("fixed") or ""
+    distro_fix = bool(fixed) and pd.get("fixed_source", "distro") == "distro"
     if fam == "apt":
         q, cmp_ = "dpkg-query -W -f='${Version}\\n' " + _q(pkg), "dpkg"
     elif fam in ("dnf", "yum", "zypper"):
         q, cmp_ = "rpm -q --qf '%{EPOCH}:%{VERSION}-%{RELEASE}\\n' " + _q(pkg), "rpm"
     else:
-        plan["summary"] = (f"Package guess: {pkg}. The hosts' distribution is unknown — run the OS check in Quick "
-                           "diagnostics, or pick a distro, then regenerate.")
+        plan["summary"] = (f"Package guess: {pkg}. The hosts' distribution is unknown — run pre-flight (it reads each "
+                           "host's os-release), or pick a distro, then regenerate.")
         return plan
-    vc = ({"fixed_version": fixed, "compare": cmp_} if fixed else {})
-    plan["precheck"] = dict({"command": q, "expect_exit": [0]}, **({"want": "older", **vc} if fixed else {}))
-    verify = dict({"command": q, "expect_regex": ""}, **({"want": "at_least", **vc} if fixed else {}))
+    if meta["kernel_workflow"] and fam == "apt":
+        rk = meta.get("running_kernel_check") or {}
+        plan["summary"] = ("Debian / Ubuntu kernel fix" + (f" (running {rk.get('running')}, minimum fixed "
+                                                            f"{rk.get('fixed')})" if rk else "") +
+                           ": a new kernel is a NEW package (new ABI), so `--only-upgrade` of the running kernel's "
+                           "package does nothing. This needs a kernel workflow (the linux-image metapackage or your "
+                           "kernel process) and a reboot — Amarok does not plan it. No steps.")
+        return plan
+    vc = ({"fixed_version": fixed, "compare": cmp_} if distro_fix else {})
+    plan["precheck"] = dict({"command": q, "expect_exit": [0]}, **({"want": "older", **vc} if distro_fix else {}))
+    verify = dict({"command": q, "expect_regex": ""}, **({"want": "at_least", **vc} if distro_fix else {}))
+    qp = " ".join(_q(p) for p in pkgs)
+    label = ", ".join(pkgs)
+    reboot = bool(meta["requires_reboot"])
+
+    def pins(sep):
+        # downgrade pins: one installed build per package, from the plugin output (re-pinned per host at run time)
+        out = []
+        for p in pkgs:
+            ins = (aff["packages"].get(p) or {}).get("installed_all") or []
+            if len(ins) != 1 or is_kernel_pkg(p):
+                return ""
+            out.append(_q(p + sep + ins[0]))
+        return " ".join(out)
     if fam == "apt":
+        pin = pins("=")
         plan["steps"] = [
-            {"n": 1, "purpose": "refresh package lists", "command": "sudo apt-get update", "expect_exit": [0],
+            {"n": 1, "purpose": "refresh package lists (downloads repo metadata; no package changes) — waits up to "
+                                f"{LOCK_WAIT} s for the apt lists lock",
+             "command": f"sudo apt-get update -o DPkg::Lock::Timeout={LOCK_WAIT}", "expect_exit": [0],
              "verify": None, "rollback": "", "requires_reboot": False, "risk": "low"},
-            {"n": 2, "purpose": f"upgrade {pkg}" + (f" to ≥ {fixed}" if fixed else ""), "expect_exit": [0],
-             "command": f"sudo DEBIAN_FRONTEND=noninteractive apt-get install --only-upgrade -y {_q(pkg)}",
-             "verify": verify, "rollback": "", "requires_reboot": pkg.startswith("linux-") or pkg == "kernel",
-             "risk": "medium"}]
+            {"n": 2, "purpose": f"upgrade {label}" + (f" to ≥ {fixed}" if fixed else "") + " in one transaction "
+                                "(keeps changed config files; services restart only as explicit steps)",
+             "expect_exit": [0],
+             "command": f"sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=l apt-get install --only-upgrade -y "
+                        f"{APT_OPTS} {qp}",
+             "verify": verify,
+             "rollback": (f"sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --allow-downgrades {APT_OPTS} {pin}"
+                          if pin else ""),
+             "requires_reboot": reboot, "risk": "medium"}]
     else:
-        verb = {"dnf": "dnf -y upgrade", "yum": "yum -y update", "zypper": "zypper --non-interactive update"}[fam]
-        plan["steps"] = [{"n": 1, "purpose": f"upgrade {pkg}" + (f" to ≥ {fixed}" if fixed else ""),
-                          "command": f"sudo {verb} {_q(pkg)}", "expect_exit": [0], "verify": verify, "rollback": "",
-                          "requires_reboot": pkg == "kernel", "risk": "medium"}]
+        # build 487 (owner decision 7b): yum (EL7 / AL1 / AL2) exits at once on a held lock instead of waiting forever
+        verb = {"dnf": "dnf -y upgrade", "yum": f"yum {YUM_LOCK_OPT} -y update",
+                "zypper": f"ZYPP_LOCK_TIMEOUT={LOCK_WAIT} zypper --non-interactive update"}[fam]
+        if fam == "zypper":
+            pin = pins("=")
+            rb = (f"sudo ZYPP_LOCK_TIMEOUT={LOCK_WAIT} zypper --non-interactive install -y --oldpackage {pin}"
+                  if pin else "")
+        else:
+            pin = pins("-")
+            rb = (f"sudo {fam}{' ' + YUM_LOCK_OPT if fam == 'yum' else ''} -y downgrade {pin}") if pin else ""
+        plan["steps"] = [{"n": 1, "purpose": f"upgrade {label}" + (f" to ≥ {fixed}" if fixed else "")
+                                             + (" (kernels install alongside the running one)" if meta["kernel"] else ""),
+                          # linux M4: zypper 102 (reboot needed) / 103 (zypper updated itself) / 106 (a repo skipped)
+                          # are not failures — the version compare after the change decides
+                          "command": f"sudo {verb} {qp}", "expect_exit": [0, 102, 103, 106] if fam == "zypper" else [0],
+                          "verify": verify, "rollback": rb,
+                          "requires_reboot": reboot, "risk": "medium"}]
     plan["post_verify"] = dict(verify)
-    plan["summary"] = (f"Template plan ({fam}): upgrade {pkg} with the package manager, as Tenable's Solution says"
+    up_note = ""
+    if fixed and not distro_fix:
+        up_note = (f" Tenable compared the UPSTREAM version ({fixed}, backport-unaware) — your distro may already ship "
+                   "the fix under an older-looking number, so no version compare is made; use the changelog check "
+                   "(pre-flight, with the CVE) as evidence.")
+    plan["summary"] = (f"Template plan ({fam}): upgrade {label} with the package manager, as Tenable's Solution says"
                        + (f" ({sol[:160]})" if sol else "") + "."
-                       + (f" Applies only where the installed version is older than {fixed}; verified by version compare."
-                          if fixed else " No fixed version is stated in the plugin output — verification is MANUAL "
-                                        "(the checks only prove the package is installed; rescan to confirm)."))
+                       + (f" Applies only where the installed version is older than {fixed}; verified by version compare "
+                          "(distro package check)." if distro_fix else
+                          (up_note or " No fixed version is stated in the plugin output — verification is MANUAL "
+                                      "(the checks only prove the package is installed; rescan to confirm)."))
+                       + (" Kernels: rpm keeps the old kernel installed; the new one is effective only after a reboot "
+                          "(Amarok never reboots)." if meta["kernel"] else ""))
     return plan
 
 
@@ -473,13 +924,47 @@ def rpm_cmp(a, b):
     return c
 
 
+def vcmp(a, b, compare):
+    return (dpkg_cmp if compare == "dpkg" else rpm_cmp)(a, b)
+
+
+_EPOCH = re.compile(r"^(?:\d+|\(none\)):")
+
+
+def vs_fixed(host_v, fixed_v, compare):
+    """Compare a version READ ON THE HOST with Tenable's fixed build (linux F1, verify round).
+    THE RULE: Tenable's rpm checks print the fixed build WITHOUT an epoch ('NetworkManager-1.12.0-8.el7_6') while the
+    host's own read carries it ('1:1.12.0-6.el7'). When the fixed build has no 'N:' prefix, the host value is compared
+    with its epoch removed — version-release against version-release. When the fixed build states an epoch, both are
+    compared in full. dpkg: Tenable's Debian/Ubuntu output carries the epoch itself (real sample A), so nothing is
+    stripped. → -1 / 0 / 1 like vcmp."""
+    h, fx = str(host_v or "").strip(), str(fixed_v or "").strip()
+    if compare != "dpkg" and not re.match(r"^\d+:", fx):
+        h = _EPOCH.sub("", h)
+    elif compare != "dpkg":
+        h = re.sub(r"^\(none\):", "", h)
+    return vcmp(h, fx, compare)
+
+
+def max_version(versions, compare):
+    """The newest of several builds (rpm keeps every installed kernel: `rpm -q kernel` prints one line per kernel,
+    oldest first — linux P1-5)."""
+    best = ""
+    for v in versions or []:
+        v = str(v or "").strip()
+        if v and (not best or vcmp(v, best, compare) > 0):
+            best = v
+    return best
+
+
 def version_ok(installed, chk):
-    """True when `installed` satisfies chk {fixed_version, compare: dpkg|rpm, want: older|at_least}."""
-    inst = (installed or "").strip().splitlines()
-    inst = inst[0].strip() if inst else ""
-    if not inst or not chk.get("fixed_version"):
+    """True when `installed` satisfies chk {fixed_version, compare: dpkg|rpm, want: older|at_least}. Several lines
+    (install-only kernels, multilib) → the NEWEST installed build is compared."""
+    lines = [ln.strip() for ln in (installed or "").strip().splitlines() if ln.strip()]
+    if not lines or not chk.get("fixed_version"):
         return False
-    c = (dpkg_cmp if chk.get("compare") == "dpkg" else rpm_cmp)(inst, chk["fixed_version"])
+    inst = lines[0] if len(lines) == 1 else max_version(lines, chk.get("compare"))
+    c = vs_fixed(inst, chk["fixed_version"], chk.get("compare"))       # linux F1: Tenable omits the rpm epoch
     return c < 0 if chk.get("want") == "older" else c >= 0
 
 
@@ -509,6 +994,10 @@ def generate(src, family=None, use_llm=True):
     fam = family or (src.get("families") or ["unknown"])
     fam = fam if isinstance(fam, str) else (fam[0] if fam else "unknown")
     from core import llm
+    if plan_meta(src, fam).get("not_os_package"):
+        # real samples I: never ask a model to invent a package fix for a remotely-read banner version
+        return {"ok": True, "plan": normalize(template_plan(src, fam)), "generator": "template", "refused": "not_os_package",
+                "note": "Refused — not an OS-package finding: no plan generated and no model asked."}
     if use_llm and llm.available():
         try:
             raw = llm._messages(SYSTEM, _user_prompt(src, fam), max_tokens=1600, timeout=60)
@@ -621,7 +1110,63 @@ _DENY = [
     (r"\b(dist-upgrade|full-upgrade|autoremove|purge)\b", "full-system upgrade / package removal"),
     (r"%\(|--define\b|--eval\b|--macros\b|--rcfile\b|--setopt\b|(^|\s)-o\S*|--option\b|--config\b|-c\s*/", "package-manager option / macro injection"),
 ]
-_ENV_OK = {"DEBIAN_FRONTEND": {"noninteractive"}, "NEEDRESTART_MODE": {"a", "l"}, "APT_LISTCHANGES_FRONTEND": {"none"}}
+_ENV_OK = {"DEBIAN_FRONTEND": {"noninteractive"}, "NEEDRESTART_MODE": {"l"},   # linux M3: never 'a' (auto-restart)
+            "APT_LISTCHANGES_FRONTEND": {"none"},
+           # build 486 (owner decision 6 / linux C10): a bounded zypper lock wait, 1–900 s, ONLY in front of zypper.
+           # 0 and -1 (-1 = wait forever) are refused.
+           "ZYPP_LOCK_TIMEOUT": re.compile(r"^[1-9][0-9]{0,2}$")}
+# build 486 (owner decision 6 / linux C10): the ONLY `-o` options a change command may carry — each a separate `-o`
+# token followed by exactly this value, only after apt-get install / update. Matched on tokenised argv (never
+# substrings); stripped before the deny-list and before package names are read. Everything else stays denied
+# (--force-confnew / confmiss / all / overwrite / depends, joined -oX, --option, -o on any other command or verb).
+APT_O_EXACT = ("Dpkg::Options::=--force-confdef", "Dpkg::Options::=--force-confold")
+_APT_LOCK = re.compile(r"^DPkg::Lock::Timeout=([1-9][0-9]{0,2})$")
+_MAX_WAIT = 900
+
+
+def _wait_ok(v):
+    return bool(re.fullmatch(r"[1-9][0-9]{0,2}", str(v or ""))) and int(v) <= _MAX_WAIT
+
+
+def _apt_o_value_ok(v):
+    if v in APT_O_EXACT:
+        return True
+    m = _APT_LOCK.match(v or "")
+    return bool(m) and _wait_ok(m.group(1))
+
+
+def _strip_apt_o(toks):
+    """(toks without the allowed `-o <value>` pairs, n_stripped) — only for `[sudo] [ENV=…] apt-get install|update`.
+    A value is accepted at most once; any other `-o` is left in place for the deny-list to refuse."""
+    i = 0
+    head = []
+    rest = list(toks)
+    if rest and rest[0] == "sudo":
+        head.append(rest.pop(0))
+        while rest and rest[0] in ("-n", "--non-interactive"):
+            head.append(rest.pop(0))
+    while rest and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", rest[0]):
+        head.append(rest.pop(0))
+    if not rest or rest[0] != "apt-get":
+        return list(toks), 0
+    pos = [a for k, a in enumerate(rest[1:], 1) if not a.startswith("-") and rest[k - 1] != "-o"]
+    if not pos or pos[0] not in ("install", "update"):
+        return list(toks), 0
+    out, seen, n = [rest[0]], set(), 0
+    i = 1
+    while i < len(rest):
+        a = rest[i]
+        if a == "-o" and i + 1 < len(rest):
+            v = rest[i + 1]
+            key = "lock" if _APT_LOCK.match(v) else v
+            if _apt_o_value_ok(v) and key not in seen:
+                seen.add(key)
+                n += 1
+                i += 2
+                continue
+        out.append(a)
+        i += 1
+    return head + out, n
 _UNIT = re.compile(r"^[A-Za-z0-9@_.:-]+$")
 _PATH = re.compile(r"^/[A-Za-z0-9._+@:/-]+$")
 _BIN_DIRS = {"/usr/bin", "/bin", "/usr/sbin", "/sbin"}
@@ -683,11 +1228,19 @@ def _argv(cmd, kind):
             toks = toks[1:]
         if toks and toks[0].startswith("-"):
             reasons.append("sudo option '" + toks[0] + "' not allowed")
+    zypp = False
     while toks and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", toks[0]):
         name, val = toks[0].split("=", 1)
-        if val not in _ENV_OK.get(name, set()):
+        ok = _ENV_OK.get(name, set())
+        if hasattr(ok, "match"):
+            if not (ok.match(val) and _wait_ok(val)):
+                reasons.append(f"environment {name}={val} not allowed (1–{_MAX_WAIT} seconds)")
+            zypp = zypp or name == "ZYPP_LOCK_TIMEOUT"
+        elif val not in ok:
             reasons.append(f"environment {name}={val} not allowed")
         toks = toks[1:]
+    if zypp and (not toks or os.path.basename(toks[0]) != "zypper"):
+        reasons.append("ZYPP_LOCK_TIMEOUT is allowed only in front of zypper")
     if toks and "/" in toks[0]:
         if kind == "read":
             reasons.append(f"'{toks[0]}': read checks use a bare command name")
@@ -703,9 +1256,10 @@ def _src_obj(src):
     return src if isinstance(src, dict) and "packages" in src and "paths" in src else affected(src)
 
 
-def _pkg_base(p):
+def _pkg_base(p, keep_case=False):
     p = _ARCH.sub("", p.split(":", 1)[0] if ":" in p and not p.split(":", 1)[1][:1].isdigit() else p)
-    return re.split(r"=", p, 1)[0].lower()
+    b = re.split(r"=", p, 1)[0]
+    return b if keep_case else b.lower()
 
 
 def _norm_ver(v, rpm_style=False):
@@ -713,8 +1267,8 @@ def _norm_ver(v, rpm_style=False):
     return re.sub(r"^0:", "", v)
 
 
-def _pkg_name(p, rpm_style=False):
-    base = _pkg_base(p)
+def _pkg_name(p, rpm_style=False, keep_case=False):
+    base = _pkg_base(p, keep_case)
     if rpm_style and re.search(r"-\d", base):
         base = re.match(r"^(.+?)-\d", base).group(1)
     return base
@@ -740,6 +1294,9 @@ def _check_pkgs(pk, aff, rollback, rpm_style=False, step_pkgs=None):
     r = []
     if not pk:
         return ["explicit package names required (a bare command would update the whole system)"]
+    if aff.get("remote_banner"):
+        # real samples I: Tenable read the version remotely (banner / header), not from the package database
+        return ["not an OS-package finding (a remote banner / application version) — no package step"]
     for p in pk:
         if p.endswith((".rpm", ".deb")) or "/" in p:
             r.append(f"'{p}' is a local package file — only repository packages")
@@ -751,8 +1308,12 @@ def _check_pkgs(pk, aff, rollback, rpm_style=False, step_pkgs=None):
         if pinned and not rollback:
             r.append(f"'{p}': version pins belong in rollback, not in a step")
         base = _pkg_name(p, rpm_style)
-        if base not in aff["packages"]:
-            r.append(f"package '{base}' is not named by Tenable's plugin text")
+        exact = _pkg_name(p, rpm_style, keep_case=True)
+        if not dict.__contains__(aff["packages"], exact):
+            # sec H1: names match EXACTLY (rpm names are case-sensitive — a case change is a rename)
+            other = next((k for k in aff["packages"] if str(k).lower() == base), None)
+            r.append(f"package '{exact}' differs in case from the finding's '{other}' — a case change is a rename" if other
+                     else f"package '{exact}' is not in this finding's package scope (Tenable's output pairs / text)")
             continue
         if rollback:
             if step_pkgs is not None and base not in step_pkgs:
@@ -778,7 +1339,7 @@ def _check_pkgs(pk, aff, rollback, rpm_style=False, step_pkgs=None):
 
 def step_packages(cmd):
     """Base names of the packages a (validated) step command changes — rollbacks may only name these."""
-    argv, _ = _argv(cmd, "step")
+    argv, _ = _argv(_cleaned(cmd), "step")
     if not argv:
         return set()
     v, args = argv[0], argv[1:]
@@ -790,6 +1351,49 @@ def step_packages(cmd):
     if v == "zypper" and pos[:1] and pos[0] in ("update", "up"):
         return {_pkg_name(x) for x in pos[1:]}
     return set()
+
+
+def narrow_step(cmd, keep):
+    """sec F1 (verify round): a package step narrowed to the names in `keep` (THIS host's own package scope, exact
+    case). Never adds a name. → (command, kept[], dropped[]). A command that is not a package change, or that loses
+    nothing, is returned unchanged."""
+    from core.c2_catalog import qword
+    argv, r = _argv(_cleaned(cmd), "step")
+    if r or not argv or argv[0] not in ("apt-get", "apt", "dnf", "yum", "zypper"):
+        return cmd, [], []
+    try:
+        toks = shlex.split(cmd)
+    except ValueError:
+        return cmd, [], []
+    v = argv[0]
+    rpm_style = v in ("dnf", "yum")
+    head_n = next((i + 1 for i, x in enumerate(toks) if os.path.basename(x) == v), 1)
+    out, sub_seen, skip, kept, dropped = toks[:head_n], False, False, [], []
+    pk_idx = []
+    for a in toks[head_n:]:
+        if skip:
+            out.append(a)
+            skip = False
+            continue
+        if a == "-o":
+            out.append(a)
+            skip = True
+            continue
+        if a.startswith("-") or not sub_seen:
+            out.append(a)
+            if not a.startswith("-"):
+                sub_seen = True
+            continue
+        n = _pkg_name(a, rpm_style, keep_case=True)
+        if n in keep:
+            kept.append(n)
+            pk_idx.append(len(out))
+            out.append(a)
+        else:
+            dropped.append(n)
+    if not dropped:
+        return cmd, kept, []
+    return " ".join(qword(x) if i in pk_idx else shlex.quote(x) for i, x in enumerate(out)), kept, dropped
 
 
 def resolve_rollback(cmd, aff):
@@ -807,9 +1411,18 @@ def resolve_rollback(cmd, aff):
     if v not in ("apt-get", "apt", "dnf", "yum", "zypper"):
         return cmd, ""                              # not a package rollback (e.g. systemctl restart) — nothing to pin
     rpm_style = v in ("dnf", "yum")
-    head_n = len(toks) - len(argv) + 1
-    out, sub_seen = toks[:head_n], False
+    head_n = len(toks) - len(_argv(_cleaned(cmd), "step")[0]) + 1
+    head_n = next((i + 1 for i, x in enumerate(toks) if os.path.basename(x) == v), head_n)
+    out, sub_seen, skip = toks[:head_n], False, False
     for a in toks[head_n:]:
+        if skip:                                   # the value of an allowed `-o` (kept verbatim, never a package)
+            out.append(a)
+            skip = False
+            continue
+        if a == "-o":
+            out.append(a)
+            skip = True
+            continue
         if a.startswith("-") or not sub_seen:
             out.append(a)
             if not a.startswith("-"):
@@ -863,6 +1476,24 @@ def _check_change(argv, aff, rollback=False, step_pkgs=None):
     opts = [a for a in args if a.startswith("-")]
     pos = [a for a in args if not a.startswith("-")]
     r = []
+    # build 486 (owner decision 6): the read-only simulations / probes are CHECKS (precheck, verify, pre-flight) —
+    # never plan steps or rollbacks
+    probe = ""
+    if v in ("apt-get", "apt") and any(o in ("-s", "--simulate", "--dry-run", "--just-print", "--no-act", "--recon")
+                                       for o in opts):
+        probe = "a package-manager simulation"
+    elif v in ("dnf", "yum") and ("--assumeno" in opts or pos[:1] in (["versionlock"], ["needs-restarting"], ["list"],
+                                                                     ["info"])):
+        probe = "a read-only package query"
+    elif v == "zypper" and ("--dry-run" in opts or pos[:1] in (["locks"], ["ps"], ["needs-rebooting"], ["info"],
+                                                               ["search"], ["se"])):
+        probe = "a read-only package query"
+    elif v in ("apt-cache", "apt-mark", "needrestart", "needs-restarting", "dpkg-query", "rpm") or \
+            (v == "dpkg" and "--audit" in opts):
+        probe = "a read-only probe"
+    if probe:
+        return [f"'{v}' here is {probe} — allowed only as a precheck / verify / pre-flight check, never as a plan "
+                "step or rollback"]
     if v in ("apt-get", "apt"):
         if not pos:
             return ["apt needs a sub-command"]
@@ -940,6 +1571,7 @@ def _read_path(p):
 
 
 _QF_OK = re.compile(r"^(?:[^%]|%\{[A-Z]+\}|%%)*$")
+_PKG_ARG = re.compile(r"^[a-z0-9][a-z0-9.+_:-]*$", re.I)
 
 
 def _file_args(args, takes_value=(), first_is_pattern=False):
@@ -996,20 +1628,60 @@ def _check_read(argv):
             i += 1
         return r + [f"'{a}' is not a package name" for a in names if not re.match(r"^[a-z0-9][a-z0-9.+_:-]*$", a, re.I)]
     if v == "dpkg":
+        if args == ["--audit"]:
+            return []                              # build 486 (C10): half-configured packages — read-only
         return [] if args and args[0] in ("-l", "-s", "--status", "--list") and \
-            all(re.match(r"^[a-z0-9][a-z0-9.+_:-]*$", a) for a in args[1:]) else ["dpkg: only -l / -s <pkg>"]
+            all(re.match(r"^[a-z0-9][a-z0-9.+_:-]*$", a) for a in args[1:]) else ["dpkg: only -l / -s <pkg> / --audit"]
+    names_ok = lambda xs: bool(xs) and all(_PKG_ARG.match(a) for a in xs)   # noqa: E731
+    if v == "apt-get":
+        # build 486 (C10): the package manager's own simulation, read-only, WITHOUT sudo; never a plan step
+        return [] if args[:3] == ["-s", "install", "--only-upgrade"] and names_ok(args[3:]) else \
+            ["apt-get in a check: only `apt-get -s install --only-upgrade <pkgs>` (a simulation)"]
+    if v == "apt-mark":
+        return [] if args == ["showhold"] else ["apt-mark: only showhold"]
     if v == "apt-cache":
         return [] if args and args[0] in ("policy", "show", "madison") and not any(a.startswith("-") for a in args) \
-            else ["apt-cache: only policy / show <pkg>"]
+            else ["apt-cache: only policy / show / madison <pkg>"]
     if v == "apt":
         return [] if args[:2] == ["list", "--installed"] and not any(a.startswith("-") for a in args[2:]) \
             else ["apt: only list --installed"]
     if v in ("dnf", "yum"):
-        return [] if args and args[0] in ("list", "info") and all(a in ("-q", "-C", "installed", "updates") or not a.startswith("-")
-                                                                 for a in args[1:]) else [f"{v}: only list / info"]
+        if args == ["versionlock", "list"]:
+            return []
+        if v == "dnf" and args == ["needs-restarting", "-r"]:
+            return []                              # build 487, owner decision 7a: read-only, exact tokens
+        sim = ("--assumeno", "upgrade" if v == "dnf" else "update")
+        if tuple(args[:2]) == sim and names_ok(args[2:]):
+            return []                              # build 486 (C10): simulation (takes the rpm lock briefly)
+        lst = [a for a in args if a not in ("-q", "-C")]
+        if lst[:1] in (["list"], ["info"]):
+            opts = [a for a in lst[1:] if a.startswith("-")]
+            okopts = {"--upgrades", "--showduplicates"} if v == "dnf" else {"--showduplicates"}
+            if all(o in okopts for o in opts) and len(opts) <= 1:
+                return [] if all(a in ("installed", "updates") or _PKG_ARG.match(a) for a in lst[1:] if not a.startswith("-")) \
+                    else [f"'{a}' is not a package name" for a in lst[1:] if not a.startswith("-") and not _PKG_ARG.match(a)]
+        return [f"{v}: only list / info / list --upgrades / list --showduplicates / --assumeno "
+                f"{'upgrade' if v == 'dnf' else 'update'} <pkgs> / versionlock list"]
     if v == "zypper":
-        return [] if args and args[0] in ("info", "if", "search", "se") and not any(a.startswith("-") for a in args[1:]) \
-            else ["zypper: only info / search"]
+        g = [a for a in args if a in ("-q", "--quiet", "-n", "--non-interactive")]
+        rest = [a for a in args if a not in g]
+        if rest[:1] in (["info"], ["if"]) and names_ok(rest[1:]):
+            return []
+        if rest[:1] in (["search"], ["se"]) and rest[1:3] == ["-s", "--match-exact"] and names_ok(rest[3:]):
+            return []
+        if rest[:1] in (["search"], ["se"]) and names_ok(rest[1:]):
+            return []
+        if rest in (["locks"], ["ps", "-s"], ["needs-rebooting"]):
+            return []
+        if rest[:1] in (["update"], ["up"]) and "--dry-run" in rest and names_ok([a for a in rest[1:] if a != "--dry-run"]) \
+                and ("-n" in g or "--non-interactive" in g):
+            return []                              # build 486 (C10): zypper's own simulation
+        return ["zypper: only info / search [-s --match-exact] / locks / ps -s / needs-rebooting / "
+                "--non-interactive update --dry-run <pkgs>"]
+    if v == "needrestart":
+        return [] if args == ["-b", "-r", "l"] else ["needrestart: only -b -r l (batch, list only)"]
+    if v == "needs-restarting":
+        return [] if args in (["-r"], ["-s"]) else ["needs-restarting: only -r / -s"]
     if v == "systemctl":
         return [] if args and args[0] in ("is-active", "is-enabled", "status", "show", "is-failed") and \
             all(a in ("--no-pager",) or not a.startswith("-") for a in args[1:]) else ["systemctl: only is-active / status in a check"]
@@ -1046,6 +1718,45 @@ def _check_read(argv):
             "stat, test, cat, grep, <known server binary> --version …)"]
 
 
+YUM_LOCK_OPT = "--setopt=exit_on_lock=1"           # owner decision 7b — the ONE allowed --setopt, exact token
+_YUM_LOCK_SUBS = {"step": {"install", "update", "upgrade", "downgrade"},
+                  "read": {"list", "info", "versionlock", "update"}}
+
+
+def _strip_yum_lock(toks, kind):
+    """(toks without the allowed yum exit_on_lock token, n_stripped) — build 487, owner decision 7b: exactly
+    `--setopt=exit_on_lock=1`, ONLY as the token directly after `yum` ([sudo [-n]] yum …), and only when the first
+    sub-command after it is install / update / upgrade / downgrade (steps) or list / info / versionlock / update
+    (read-only checks). Anything else — another position, a duplicate, `--setopt exit_on_lock=1`, `=True`, `=0`, dnf —
+    stays in the command and the deny-list refuses it."""
+    i = 0
+    if i < len(toks) and toks[i] == "sudo":
+        i += 1
+        while i < len(toks) and toks[i] in ("-n", "--non-interactive"):
+            i += 1
+    if i >= len(toks) or toks[i] != "yum" or i + 1 >= len(toks) or toks[i + 1] != YUM_LOCK_OPT:
+        return list(toks), 0
+    sub = next((t for t in toks[i + 2:] if not t.startswith("-")), "")
+    if sub not in _YUM_LOCK_SUBS.get(kind, set()):
+        return list(toks), 0
+    return toks[:i + 1] + toks[i + 2:], 1
+
+
+def _cleaned(cmd, kind="step"):
+    """The command with the allowed apt-get `-o` pairs (build 486, linux C10; steps only) and the yum exit_on_lock
+    token (build 487, owner decision 7b; steps and read checks) removed — what the deny-list scans and what package
+    names are read from. Unparsable → unchanged (the lexer / shlex reasons refuse it anyway)."""
+    try:
+        toks = shlex.split(cmd)
+    except ValueError:
+        return cmd
+    n = 0
+    if kind == "step":
+        toks, n = _strip_apt_o(toks)
+    toks, n2 = _strip_yum_lock(toks, kind)
+    return " ".join(shlex.quote(t) for t in toks) if (n or n2) else cmd
+
+
 def check_command(cmd, kind, src="", rollback=False, step_pkgs=None):
     """Reasons (list) why `cmd` may not run as `kind` ∈ step | read. Empty list = allowed.
     `src` is a sources() dict (or plain source text) — what the plugin actually names."""
@@ -1056,11 +1767,22 @@ def check_command(cmd, kind, src="", rollback=False, step_pkgs=None):
         return [f"command longer than {MAX_CMD} characters"]
     aff = _src_obj(src)
     reasons = list(_lex(cmd))
+    raw = cmd
+    # the exact allowed `-o` pairs (steps) and the yum exit_on_lock token (steps + read checks) are taken out before
+    # anything else reads the command; every other `-o` / `--setopt` stays in and the deny-list refuses it
+    cmd = _cleaned(cmd, kind)
+    if cmd != raw and YUM_LOCK_OPT in raw:
+        fams = [f for f in ((src.get("families") or []) if isinstance(src, dict) else []) if f and f != "unknown"]
+        if fams and any(f != "yum" for f in fams):
+            # owner decision 7b: yum-family hosts only (CentOS/RHEL 7, AL1/AL2) — EL8+'s yum is dnf
+            reasons.append(f"{YUM_LOCK_OPT} is allowed only on yum-family hosts (this source is {', '.join(sorted(set(fams)))})")
     try:
         norm = " ".join(shlex.split(cmd))          # 're'boot / /etc/sha''dow → reboot / /etc/shadow
     except ValueError:
         norm = cmd
     from core import navi_cli
+    if kind == "read" and re.match(r"^\s*sudo\b", raw) and re.search(r"(^|\s)apt-get\s", raw):
+        reasons.append("apt-get -s runs without sudo (a simulation needs no root)")
     for text in dict.fromkeys((cmd, norm)):
         for label in navi_cli.scan_command(text):
             reasons.append("deny-list: " + label)
@@ -1069,7 +1791,7 @@ def check_command(cmd, kind, src="", rollback=False, step_pkgs=None):
                 if kind == "read" and label.startswith("firewall"):
                     continue
                 reasons.append("deny-list: " + label)
-    sudos = [m.start() for m in re.finditer(r"\bsudo\b", cmd)]
+    sudos = [m.start() for m in re.finditer(r"\bsudo\b", raw)]
     if [x for x in sudos if x != 0]:
         reasons.append("the word 'sudo' may only lead a command — navi injects its sudo prompt at the FIRST "
                        "'sudo' it sees; quote-split any other occurrence as su''do")
@@ -1094,10 +1816,39 @@ def _check_extra(chk):
     return r
 
 
+def with_yum_lock(cmd):
+    """Fix round 487 (linux M-3): a yum change step / downgrade normalised to carry --setopt=exit_on_lock=1 directly
+    after `yum` (inserted when absent; the validator still accepts the step without it)."""
+    c = str(cmd or "")
+    if YUM_LOCK_OPT in c:
+        return c
+    m = re.match(r"^(\s*(?:sudo\s+(?:-n\s+)?)?yum)(\s+)(.*)$", c, re.S)
+    if not m:
+        return c
+    try:
+        rest = shlex.split(m.group(3))
+    except ValueError:
+        return c
+    sub = next((t for t in rest if not t.startswith("-")), "")
+    if sub not in ("install", "update", "upgrade", "downgrade"):
+        return c
+    return m.group(1) + " " + YUM_LOCK_OPT + m.group(2) + m.group(3)
+
+
 def validate(plan, src):
     """{ok, deployable, plan(normalized), rejected:[{where,n,command,reasons}], warnings:[…], hash}"""
     p = normalize(plan)
     aff = _src_obj(src)
+    fams = [f for f in ((src.get("families") or []) if isinstance(src, dict) else []) if f and f != "unknown"]
+    if fams:
+        aff = dict(aff, families=fams)           # the yum-family gate of the exit_on_lock token sees the source family
+    if not any(f != "yum" for f in fams):
+        # fix round 487 (linux M-3): yum change steps and their downgrades always carry exit_on_lock — a yum lock
+        # taken after pre-flight then fails at once ("Package manager busy") instead of waiting to "Unknown state"
+        for st in p["steps"]:
+            st["command"] = with_yum_lock(st["command"])
+            if st.get("rollback"):
+                st["rollback"] = with_yum_lock(st["rollback"])
     rejected, warnings = [], []
     for where, chk in (("precheck", p.get("precheck")), ("post_verify", p.get("post_verify"))):
         if chk:

@@ -36,7 +36,9 @@
     "rollback",
     "plans",
     "c2log",
-    "c2log_export"
+    "c2log_export",
+    "ack",
+    "preflight"
   ],
   "gated": "rce"
 }
