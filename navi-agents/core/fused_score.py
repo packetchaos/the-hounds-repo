@@ -549,10 +549,11 @@ def iter_scored(db_path=None, weights=None, epss_cap=_EPSS_CAP):
         yield s, score
 
 
-def select_uuids(db_path=None, weights=None, threshold=80, uuid=None, fallback=10, epss_cap=_EPSS_CAP):
+def select_uuids(db_path=None, weights=None, threshold=80, uuid=None, fallback=10, epss_cap=_EPSS_CAP, scope=None):
     """The asset set a Priority tag is applied to, recomputed from navi.db — never taken
     from the browser. ``threshold``: every asset scoring >= it (or the worst ``fallback``
-    when none does — the same rule the page shows). ``uuid``: just that asset, if it exists."""
+    when none does — the same rule the page shows). ``uuid``: just that asset, if it exists.
+    ``scope``: a set of asset uuids (a tag's assets, see scope_uuids) — only those count."""
     p = db_path or db.db_path()
     if uuid is not None:
         uuid = str(uuid).strip()
@@ -564,6 +565,8 @@ def select_uuids(db_path=None, weights=None, threshold=80, uuid=None, fallback=1
     epss_map, _ = _epss_map(p, epss_cap)
     hit, top = [], []
     for s, _pts, fscore, score in _scored(p, wmap, epss_map):
+        if scope is not None and s["uuid"] not in scope:
+            continue
         if score >= threshold:
             hit.append(s["uuid"])
         elif not hit:
@@ -588,7 +591,12 @@ def _signals_on(s):
     return [i for i, (k, _) in enumerate(SIGNALS) if s.get(k)]
 
 
-def overview(db_path=None, limit=500, offset=0, epss_cap=_EPSS_CAP, weights=None) -> dict:
+def overview(db_path=None, limit=500, offset=0, epss_cap=_EPSS_CAP, weights=None, scope=None, scores=None) -> dict:
+    """The whole rollup. ``scope``: a set of asset uuids (a tag's assets) — every KPI, band,
+    act-now set, leaderboard row and worst-per-Hound entry covers only those assets. Each
+    asset's score is unchanged (it never depends on the other assets), so a scoped view
+    shows the same numbers as the whole estate, only over fewer assets. ``scores``: a dict
+    filled with {uuid: score} for EVERY asset scored (Software Explorer's Nemesis column)."""
     if not _has("assets", db_path):
         return {"ok": False, "error": "no assets table in navi.db — run `navi config update assets`"}
     p = db_path or db.db_path()
@@ -616,6 +624,10 @@ def overview(db_path=None, limit=500, offset=0, epss_cap=_EPSS_CAP, weights=None
     stack = [0] * (STACK_MAX + 1)               # assets by how many signals fire on them
 
     for s, pts, fscore, score in _scored(p, wmap, epss_map):
+        if scores is not None:
+            scores[s["uuid"]] = score
+        if scope is not None and s["uuid"] not in scope:
+            continue
         # ---- estate KPIs ----
         kpi["assets"] += 1
         for t, a in act.items():           # act-now set at each threshold, whole estate
@@ -749,3 +761,60 @@ def overview(db_path=None, limit=500, offset=0, epss_cap=_EPSS_CAP, weights=None
             "truncated": n > len(page), "epss_used": epss_used,
             "weights_custom": wcustom, "worst": worst_list, "convergence": convergence,
             "sla_days": _sla_days(p)}
+
+
+# ── tag scope + the per-asset score map (build 488) ──────────────────────────────────────────
+def scope_uuids(tag_key, tag_value, db_path=None):
+    """The assets carrying tag_key:tag_value in navi.db's tags table (exact match, as the SLA
+    hound's filter). An empty set when the tag has none."""
+    if not (tag_key and tag_value) or not _has("tags", db_path):
+        return set()
+    return {r["asset_uuid"] for r in _q("SELECT DISTINCT asset_uuid FROM tags WHERE tag_key=? AND tag_value=?",
+                                         (tag_key, tag_value), db_path or db.db_path()) if r["asset_uuid"]}
+
+
+def cache_extra(weights=None):
+    """What a cached score depends on besides navi.db: the effective weighting + SLA windows."""
+    wmap, custom = _resolve_weights(weights)
+    try:
+        sla = _sla_days(None)
+    except Exception:
+        sla = {}
+    return {"w": {k: round(v, 1) for k, v in sorted(wmap.items())} if custom else "default", "sla": sla}
+
+
+def _score_store():
+    global _SCORES
+    if _SCORES is None:
+        from core import snapcache
+        _SCORES = snapcache.Snapshots("fused_scores", version=1, keep=2)
+    return _SCORES
+
+
+_SCORES = None
+
+
+def save_score_map(scores, sig, built_at, db_path=None):
+    """Keep {uuid: score} from a whole-estate, default-weighted build, keyed by the navi.db
+    signature the build started on — Software Explorer reads it, never computes it."""
+    st = _score_store()
+    snap = {"result": scores, "meta": {"sig": sig, "built_at": built_at, "assets": len(scores),
+                                       "extra": cache_extra(None)}}
+    st.save(st.key(db_path, cache_extra(None)), snap)
+
+
+def score_map(db_path=None):
+    """The saved score map for the CURRENT navi.db, or {"stale": True, ...} when one exists
+    for an older navi.db, or None when no default-weighted estate build has run."""
+    from core import snapcache
+    st = _score_store()
+    key, sig = st.key(db_path, cache_extra(None)), snapcache.db_signature(db_path)
+    s = st.load(key, sig)
+    if s:
+        return {"scores": s["result"], "built_at": s["meta"].get("built_at"), "assets": s["meta"].get("assets")}
+    try:                                               # one for an older navi.db? say so, don't use it
+        import os                                      # (file time only — never parse a stale map)
+        ts = os.path.getmtime(st._path(key))
+        return {"stale": True, "built_at": datetime.datetime.fromtimestamp(ts).astimezone().isoformat(timespec="seconds")}
+    except Exception:
+        return None

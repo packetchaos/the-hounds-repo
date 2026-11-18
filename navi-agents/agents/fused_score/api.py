@@ -3,6 +3,10 @@
 snapshot — the page's read. The whole rollup (estate KPIs, act-now sets at 80/60/40,
            worst 500, worst-from-each-Hound) cached on disk per navi.db signature +
            weighting + SLA policy (core/snapcache.py).
+             {tag_key, tag_value} scope it to the assets carrying that tag (build 488): every
+                          number covers only them; per-asset scores are the estate's. Tag
+                          views are a SECOND cache (fused_tag), so they never push the
+                          whole-estate snapshot out.
              {peek:true}   what's cached / building right now; never computes
              {}            cached result if navi.db, weights and SLA policy are unchanged
                            and it was built today, else start a background build
@@ -15,8 +19,18 @@ tag      — Priority : P1..P4 (gated). The asset set is RECOMPUTED here from na
            {mode:"one", uuid} answers at once. Client UUID lists are never trusted. Never
            removes tags.
 refresh  — background `navi update assets`.
+scopes   — the switcher (live, never computes): the whole estate + the recent tag views, each
+           with whether it's cached for the current navi.db / weighting; the tag keys, and
+           the values of one key ({key}).
+
+A whole-estate build with the DEFAULT weighting also saves every asset's score
+(engine.save_score_map) — Software Explorer's Nemesis column reads it.
 """
 import datetime
+import json
+import os
+import threading
+import time
 
 from core import fused_score as engine, jobq, navi_cli, snapcache
 from .agent import FusedScoreAgent
@@ -24,6 +38,9 @@ from core.gates import confirmed
 
 AGENT = FusedScoreAgent()
 SNAP = snapcache.Snapshots("fused", version=4)   # 3: cert dates/PQ plugin, half-up rounding, tiebreak · 4: kpi.stack/cooccur
+SNAP_TAG = snapcache.Snapshots("fused_tag", version=1, keep=6)   # 488: one tag's assets — its own cache
+RECENT_MAX = 6
+_RLOCK = threading.Lock()
 PRIORITIES = ("P1", "P2", "P3", "P4")
 CHUNK = navi_cli.BATCH_UUIDS   # ≤1,999 UUIDs per navi job, byte-guarded (core.navi_cli.uuid_batches)
 
@@ -35,12 +52,71 @@ def _weights(p):
 
 def _extra(w):
     """Cache key: the effective (normalised) weighting + the SLA windows the score uses."""
-    wmap, custom = engine._resolve_weights(w)
+    return engine.cache_extra(w)
+
+
+def _scope(p):
+    """(tag_key, tag_value) from the request, or (None, None) for the whole estate."""
+    k = str(p.get("tag_key") or "").strip()
+    v = str(p.get("tag_value") or "").strip()
+    return (k, v) if (k and v) else (None, None)
+
+
+def _recent_path():
+    os.makedirs(snapcache.CACHE_DIR, mode=0o700, exist_ok=True)
+    return os.path.join(snapcache.CACHE_DIR, "fused_tag_recent.json")
+
+
+def _recent():
     try:
-        sla = engine._sla_days(None)
+        with open(_recent_path(), encoding="utf-8") as f:
+            r = json.load(f)
+        return [x for x in r if isinstance(x, dict) and x.get("key") and x.get("value")][:RECENT_MAX]
     except Exception:
-        sla = {}
-    return {"w": {k: round(v, 1) for k, v in sorted(wmap.items())} if custom else "default", "sla": sla}
+        return []
+
+
+def _remember(k, v):
+    with _RLOCK:
+        r = [x for x in _recent() if not (x["key"] == k and x["value"] == v)]
+        r.insert(0, {"key": k, "value": v, "at": time.time()})
+        try:
+            tmp = _recent_path() + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(r[:RECENT_MAX], f)
+            os.replace(tmp, _recent_path())
+        except Exception:
+            pass
+
+
+def _tag_count(k, v):
+    try:
+        from core import db
+        return int(db.scalar("SELECT COUNT(DISTINCT asset_uuid) FROM tags WHERE tag_key=? AND tag_value=?",
+                             (k, v)) or 0)
+    except Exception:
+        return 0
+
+
+def _estate_build(w):
+    """The whole-estate rollup; with the default weighting it also saves every asset's score."""
+    if _extra(w)["w"] != "default":
+        return engine.overview(limit=500, weights=w)
+    sig, t0 = snapcache.db_signature(), time.time()
+    scores = {}
+    res = engine.overview(limit=500, weights=w, scores=scores)
+    if res.get("ok"):
+        engine.save_score_map(scores, sig, snapcache._iso(t0))
+    return res
+
+
+def _tag_build(w, k, v):
+    """One tag's assets — the scope is read from navi.db inside the job, never from the browser."""
+    scope = engine.scope_uuids(k, v)
+    res = engine.overview(limit=500, weights=w, scope=scope)
+    if res.get("ok"):
+        res["scope"] = {"tag_key": k, "tag_value": v, "tagged": len(scope), "scored": res.get("total", 0)}
+    return res
 
 
 def _submit(fn):
@@ -84,7 +160,15 @@ def overview(p):
 def snapshot(p):
     w = _weights(p)
     extra = _extra(w)
-    st = SNAP.state(extra=extra)
+    k, v = _scope(p)
+    store = SNAP
+    if k:
+        if not p.get("peek") and not _tag_count(k, v):
+            return {"ok": False, "error": f"no asset in navi.db carries the tag {k} : {v} — "
+                                          "a tag added in Tenable reaches navi.db after `navi update assets`"}, 200
+        extra = dict(extra, scope={"tag_key": k, "tag_value": v})
+        store = SNAP_TAG
+    st = store.state(extra=extra)
     snap, bld = st["snap"], st["building"]
     if snap and p.get("peek"):
         return {"ok": True, "result": snap, "cached": True, "stale": _stale(snap), "building": bld}, 200
@@ -92,8 +176,36 @@ def snapshot(p):
         return {"ok": True, "result": snap, "cached": True, "stale": False}, 200
     if p.get("peek") or bld:
         return {"ok": True, "result": None, "building": bld}, 200
-    b = SNAP.start(_submit, lambda: engine.overview(limit=500, weights=w), extra=extra, label="Exposure Score")
+    if k:
+        _remember(k, v)
+        b = store.start(_submit, lambda: _tag_build(w, k, v), extra=extra, label=f"Exposure Score · {k} : {v}")
+    else:
+        b = store.start(_submit, lambda: _estate_build(w), extra=extra, label="Exposure Score")
     return {"ok": True, "result": None, "building": b}, 200
+
+
+def scopes(p):
+    """The scope switcher. Live; reads only cache metadata and the tags table — never scores."""
+    w = _weights(p)
+    extra = _extra(w)
+
+    def _st(store, ex):
+        s = store.state(extra=ex)
+        snap = s["snap"]
+        return {"cached": bool(snap), "built_at": (snap or {}).get("meta", {}).get("built_at"),
+                "stale": _stale(snap) if snap else False, "building": s["building"]}
+
+    out = [dict({"key": None, "value": None, "label": "Whole estate"}, **_st(SNAP, extra))]
+    for r in _recent():
+        ex = dict(extra, scope={"tag_key": r["key"], "tag_value": r["value"]})
+        out.append(dict({"key": r["key"], "value": r["value"], "label": f'{r["key"]} : {r["value"]}',
+                         "assets": _tag_count(r["key"], r["value"])}, **_st(SNAP_TAG, ex)))
+    from core import sla as _sla
+    res = {"scopes": out, "keys": _sla.tag_keys()[:300]}
+    key = str(p.get("key") or "").strip()
+    if key:
+        res["values"] = _sla.tag_values(tag_key=key, top=500)
+    return {"ok": True, "result": res}, 200
 
 
 def refresh(p):
@@ -127,12 +239,19 @@ def tag(p):
         if not 1 <= thr <= 100:
             return {"ok": False, "error": "threshold must be 1–100"}, 400
         w = _weights(p)
+        tk, tv = _scope(p)
+        if tk and not _tag_count(tk, tv):
+            return {"ok": False, "error": f"no asset in navi.db carries the tag {tk} : {tv}"}, 400
         # Recomputing the set re-scores the whole estate (~2 s at 120k assets, much longer at a
         # million), so it runs on the job queue — the request returns at once and the page polls
         # /api/jobs/<id>. A fast single-asset tag stays synchronous.
-        job = jobq.submit(lambda: _tag_set(engine.select_uuids(weights=w, threshold=thr), value),
-                          {"agent": "fused_score", "action": "tag", "label": f"Priority : {value} ≥ {thr}"})
+        # a tag view's act-now set is only that tag's assets — re-read from navi.db in the job
+        job = jobq.submit(lambda: _tag_set(engine.select_uuids(
+                              weights=w, threshold=thr, scope=engine.scope_uuids(tk, tv) if tk else None), value),
+                          {"agent": "fused_score", "action": "tag",
+                           "label": f"Priority : {value} ≥ {thr}" + (f" within {tk} : {tv}" if tk else "")})
         return {"ok": True, "background": True, "job_id": job.get("id"), "value": value, "threshold": thr,
+                "scope": {"tag_key": tk, "tag_value": tv} if tk else None,
                 "writes_enabled": navi_cli.writes_enabled()}, 200
     else:
         return {"ok": False, "error": "mode must be 'act' or 'one'"}, 400
@@ -154,4 +273,4 @@ def _tag_set(uuids, value):
 
 
 ACTIONS = {"load": load, "run": load, "overview": overview, "snapshot": snapshot,
-           "tag": tag, "refresh": refresh}
+           "tag": tag, "refresh": refresh, "scopes": scopes}

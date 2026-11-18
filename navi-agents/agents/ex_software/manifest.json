@@ -5,7 +5,7 @@
   "order": 27,
   "category": "Explore",
   "codename": "Harrier",
-  "summary": "Zero-day hunting over the software inventory — where a product is installed, at which versions, and which assets fall in an affected version range. ✨ Look up a new CVE (you approve every site it reads) to get the affected products and versions. Read-only navi.db search.",
+  "summary": "Zero-day hunting over the software inventory — where a product is installed, at which versions, and which assets fall in an affected version range, each with its Nemesis exposure score (sort most-exposed first). ✨ Look up a new CVE (you approve every site it reads) to get the affected products and versions. Read-only navi.db search.",
   "needs_backend": true,
   "page": "page.html",
   "actions": ["status", "search", "export", "lookup_plan", "lookup_fetch"]

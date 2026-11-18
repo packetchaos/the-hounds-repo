@@ -78,6 +78,14 @@
   .wc{border:1px solid var(--line);border-radius:11px;padding:11px 12px;background:var(--bg-2)}
   .wc .wh{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3)}
   .wc .wa{font-weight:600;font-size:14px;margin-top:3px} a.wc{text-decoration:none;color:var(--ink);display:block} a.wc:hover{border-color:var(--accent)} .wc.conv{box-shadow:inset 3px 0 0 var(--crit)}
+.scopebar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:10px 0 0;padding:8px 10px;border:1px solid var(--line);border-radius:10px}
+.scopes{display:flex;flex-wrap:wrap;gap:6px}
+.scopes button{font:inherit;font-size:12px;border:1px solid var(--line);background:transparent;color:var(--ink);border-radius:999px;padding:4px 10px;cursor:pointer}
+.scopes button.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 16%,transparent)}
+.scopes button .st{color:var(--muted);margin-left:4px;font-size:11px}
+.scopepick{display:flex;flex-wrap:wrap;gap:6px;margin-left:auto}
+.scopepick select{max-width:220px}
+.scopehint{border-left:3px solid var(--accent);padding:6px 10px;margin:8px 0 0}
 </style>
 </head><body data-page-cache="off">
 <div class="wrap">
@@ -88,6 +96,14 @@
       <button class="btn run sm" id="load" data-run style="margin-left:auto">▶ Run</button></div>
     <div id="flash" class="flash"></div>
     <div class="sub" id="snapMeta" style="margin:6px 0 0"></div>
+    <div class="scopebar" id="scopeBar">
+      <span class="sub" style="margin:0;font-weight:600">Scope</span>
+      <div class="scopes" id="scopeList"><span class="sub" style="margin:0">loading…</span></div>
+      <span class="scopepick"><select id="tagKey" aria-label="tag category"><option value="">+ a tag category…</option></select>
+      <select id="tagVal" aria-label="tag value" disabled><option value="">value…</option></select>
+      <button class="btn sm" id="tagGo" disabled>▶ Score this tag</button></span>
+    </div>
+    <div class="sub" id="scopeNote" style="margin:6px 0 0"></div>
   </section>
 
   <section class="card" id="secGlance" data-nav="At a glance" data-nav-icon="📊">
@@ -126,7 +142,7 @@
   </section>
 
   <section class="card" id="sec-lb" data-nav="Leaderboard" data-nav-icon="🏁" style="display:none">
-    <div class="toolbar" style="margin:0 0 4px"><h2 style="margin:0;font-size:17px">🏁 Estate leaderboard</h2><span class="chip" id="lbCount" style="margin-left:auto"></span></div>
+    <div class="toolbar" style="margin:0 0 4px"><h2 style="margin:0;font-size:17px" id="lbTitle">🏁 Estate leaderboard</h2><span class="chip" id="lbCount" style="margin-left:auto"></span></div>
     <p class="sub" style="margin:2px 0 8px">Worst first — click an asset for its factor breakdown, to tag it, or to open it in Argos. Rows over the act-now line carry a red edge. Filter by a signal below or by clicking a metric card above.</p>
     <div class="fbar" id="fbar"></div>
     <div class="fgrid" id="fgrid">
@@ -172,7 +188,11 @@
 <script>
 const API=agentApi('fused_score');
 let DATA=null, META={}, CACHED=false, STALE=false, ROWS=[], WRITES=false, THR=80, THR_USER=false, SEQ=0, FILT=null,
-    SEL=new Set(['patch','eol','crypto','segment','own']), CUR=0, WEIGHTS={}, WDEF={}, APPLIED=null, SHOWN_W=null;
+    SEL=new Set(['patch','eol','crypto','segment','own']), CUR=0, WEIGHTS={}, WDEF={}, APPLIED=null, SHOWN_W=null,
+    SCOPE=null, SHOWN_SCOPE=null;   /* 488: null = whole estate, else {key,value} — one tag's assets */
+const SKEY='fused_scope_v1';
+const scopeLabel=sc=>sc?`${sc.key} : ${sc.value}`:'Whole estate';
+const inScope=()=>SHOWN_SCOPE?'this tag':'the whole estate';
 const N=v=>Number(v||0).toLocaleString();
 const pct=(a,b)=>b?Math.round(100*a/b):0;
 const FCOLOR={expl:'var(--crit)',aes:'#38bdf8',sev:'var(--high)',crit:'#e6c34a',path:'#e06a9c',ident:'#c084fc',comp:'#94a3b8',was:'#f472b6',
@@ -244,8 +264,8 @@ function renderMetrics(){
  if(FILT) h+=`<div class="sub" style="margin:8px 0 0">Leaderboard filtered to <b>${esc(FILTERS[FILT][0])}</b> — <a href="#" id="clrF">clear</a></div>`;
  const el=document.getElementById('kpis'); el.innerHTML=h;
  renderGlance('glxFs', [
-  {title:'Estate', t:'Bands: ≥ 80 · 60–79 · 40–59 · < 40.',
-   hero:{v:N(n), l:'assets scored', u:`estate exposure ${N(k.estate)} · avg ${k.avg}`, href:'#sec-lb'},
+  {title:SHOWN_SCOPE?'This tag':'Estate', t:'Bands: ≥ 80 · 60–79 · 40–59 · < 40.',
+   hero:{v:N(n), l:'assets scored', u:`${SHOWN_SCOPE?'exposure':'estate exposure'} ${N(k.estate)} · avg ${k.avg}`, href:'#sec-lb'},
    bar:n?nz([{label:'critical',value:k.critical||0,color:'crit'},{label:'high',value:hiOnly,color:'high'},{label:'elevated',value:k.elevated||0,color:'med'},{label:'low',value:k.low||0,color:'low'},{label:'score 0',value:k.clean||0,color:'var(--line)'}]):null,
    chips:[{v:N(k.critical), l:'CRITICAL ≥ 80', u:`${pct(k.critical,n)}% of assets · ${N(k.unowned_crit)} with no owner`, sev:'crit', filter:'band:CRITICAL'},
           {v:N(hiOnly), l:'HIGH 60–79', u:`${pct(hiOnly,n)}% of assets`, sev:'high', filter:'band:HIGH'},
@@ -393,7 +413,7 @@ function renderLB(){
 function drawAct(){ const S=actSet(), st=actStats(), n=actN(), over=!!st.n;
  const u=over?st.unowned:S.filter(a=>a.unowned).length, ck=over?st.crown_kev:S.filter(a=>a.crown&&a.kev).length, bl=over?st.blind:S.filter(a=>a.blind).length;
  document.getElementById('anN').textContent=N(n);
- document.getElementById('anSub').innerHTML=(over?`assets ≥ ${THR} across the whole estate`:`no asset ≥ ${THR} yet — showing the worst ${S.length}`)+` · <b style="color:#a78bfa">${N(u)} unowned</b> · <b style="color:#e6c34a">${N(ck)} crown+KEV</b>`+(bl?` · <b style="color:var(--med)">${N(bl)} blind</b>`:'');
+ document.getElementById('anSub').innerHTML=(over?`assets ≥ ${THR} across ${inScope()}`:`no asset ≥ ${THR} yet — showing the worst ${S.length}`)+` · <b style="color:#a78bfa">${N(u)} unowned</b> · <b style="color:#e6c34a">${N(ck)} crown+KEV</b>`+(bl?` · <b style="color:var(--med)">${N(bl)} blind</b>`:'');
  document.getElementById('actbtns').innerHTML=
   `<button class="abtn hot" data-a="tag">🏷️ Tag Priority : P1 <b>${N(n)}</b></button>`+
   `<a class="abtn" href="/agents/asset_ownership/page.html">🏷️ Tag owners <b>${N(u)}</b></a>`+
@@ -470,8 +490,9 @@ async function followTagJob(o,label,el){ const t0=Date.now();
  }
 }
 function tagAct(btn){ const n=actN(); if(btn.disabled) return;
- if(!confirm(`Tag ${tagCat('Priority')} : P1 on ${N(n)} asset(s) scoring ≥ ${THR}${actStats().n?'':' (none do — the worst '+n+')'}? The set is recomputed from navi.db with the current weighting.`+(WRITES?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the jobs queue but are blocked.'))) return;
- gated(btn,'tagging the act-now set Priority : P1',()=>API.post('tag',{mode:'act',threshold:THR,weights:SHOWN_W||undefined,value:'P1',confirm:true}),o=>`queued Priority : P1 on ${N(o.count)} asset(s)`,'flash',true); }
+ if(!confirm(`Tag ${tagCat('Priority')} : P1 on ${N(n)} asset(s) scoring ≥ ${THR}${SHOWN_SCOPE?' among the assets tagged '+scopeLabel(SHOWN_SCOPE):''}${actStats().n?'':' (none do — the worst '+n+')'}? The set is recomputed from navi.db with the current weighting.`+(WRITES?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the jobs queue but are blocked.'))) return;
+ gated(btn,'tagging the act-now set Priority : P1',()=>API.post('tag',Object.assign({mode:'act',threshold:THR,weights:SHOWN_W||undefined,value:'P1',confirm:true},
+   SHOWN_SCOPE?{tag_key:SHOWN_SCOPE.key,tag_value:SHOWN_SCOPE.value}:{})),o=>`queued Priority : P1 on ${N(o.count)} asset(s)`,'flash',true); }
 function tagOne(a,btn){ if(btn&&btn.disabled) return;
  if(!confirm(`Tag ${tagCat('Priority')} : P1 on ${a.host||a.uuid}?`+(WRITES?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.'))) return;
  gated(btn,'tagging '+esc(a.host)+' Priority : P1',()=>API.post('tag',{mode:'one',uuid:a.uuid,value:'P1',confirm:true}),o=>`queued Priority : P1 on ${esc(a.host)}`,'bdFlash',true); }
@@ -479,9 +500,10 @@ function tagOne(a,btn){ if(btn&&btn.disabled) return;
 /* ---- ▶ Run — one `snapshot` per weighting, cached on disk per navi.db signature + SLA
    policy. Unchanged navi.db (and built today) → renders at once. Otherwise the build runs on
    the job queue: you can leave the page, and coming back re-attaches (peek on open). ---- */
-function payload(extra){ const p=Object.assign({_nocache:true},extra||{}); if(APPLIED) p.weights=APPLIED; return p; }
+function payload(extra){ const p=Object.assign({_nocache:true},extra||{}); if(APPLIED) p.weights=APPLIED;
+ if(SCOPE){ p.tag_key=SCOPE.key; p.tag_value=SCOPE.value; } return p; }
 async function run(opts){ opts=opts||{}; const my=++SEQ; const b=document.getElementById('load'), ap=document.getElementById('wApply'); b.disabled=true; if(ap) ap.disabled=true;
- flash('flash','<span class="spin"></span> '+(opts.force?'rebuilding the exposure snapshot…':APPLIED?'scoring the estate with your weighting…':'fusing every Hound\'s signal across the estate…'),'run');
+ flash('flash','<span class="spin"></span> '+(opts.force?'rebuilding the exposure snapshot…':SCOPE?'scoring the assets tagged '+esc(scopeLabel(SCOPE))+'…':APPLIED?'scoring the estate with your weighting…':'fusing every Hound\'s signal across the estate…'),'run');
  let o; try{ o=await API.post('snapshot', payload({force:!!opts.force})); }catch(e){ o={ok:false,error:e.message}; }
  if(my!==SEQ) return;
  if(!o||!o.ok){ b.disabled=false; flash('flash','✗ '+esc((o&&(o.error||o.message))||'failed'),'crit'); if(DATA) updateWSum(); return; }
@@ -491,7 +513,7 @@ async function run(opts){ opts=opts||{}; const my=++SEQ; const b=document.getEle
 }
 async function waitBuild(bd,my){
  my=my||++SEQ; const b=document.getElementById('load'); b.disabled=true; const t0=Date.now();
- const msg=()=>flash('flash',`<span class="spin"></span> building the exposure snapshot in the background${bd.started?' (started '+esc(String(bd.started).slice(11,19))+')':''} · ${Math.round((Date.now()-t0)/1000)}s — <b>you can leave this page</b>; it keeps running and the result is cached for when you come back. <a href="/web/agent-runs.html">Runs log</a>`,'run');
+ const msg=()=>flash('flash',`<span class="spin"></span> building the exposure snapshot${SCOPE?' for <b>'+esc(scopeLabel(SCOPE))+'</b>':''} in the background${bd.started?' (started '+esc(String(bd.started).slice(11,19))+')':''} · ${Math.round((Date.now()-t0)/1000)}s — <b>you can leave this page</b>; it keeps running and the result is cached for when you come back. <a href="/web/agent-runs.html">Runs log</a>`,'run');
  msg();
  while(true){
   await new Promise(r=>setTimeout(r,1200)); if(my!==SEQ) return; msg();
@@ -503,17 +525,18 @@ async function waitBuild(bd,my){
  let o; try{ o=await API.post('snapshot', payload({peek:true})); }catch(e){ o=null; }
  if(my!==SEQ) return;
  b.disabled=false;
- if(o&&o.result){ flashClear('flash'); applySnap(o.result,false,!!o.stale); }
+ if(o&&o.result){ flashClear('flash'); applySnap(o.result,false,!!o.stale); loadScopes(); }
  else if(o&&o.building) return waitBuild(o.building,my);
  else flash('flash','⚠ the build finished but navi.db changed meanwhile — press ▶ Run again.','warn');
 }
 function applySnap(s,cached,stale){
  const res=s.result||{}; if(!res.ok){ flash('flash','✗ '+esc(res.error||'no result'),'crit'); return; }
- DATA=res; SHOWN_W=APPLIED?Object.assign({},APPLIED):null; META=s.meta||{}; CACHED=cached; STALE=stale; ROWS=DATA.assets||[];
+ DATA=res; SHOWN_W=APPLIED?Object.assign({},APPLIED):null; SHOWN_SCOPE=SCOPE?Object.assign({},SCOPE):null; META=s.meta||{}; CACHED=cached; STALE=stale; ROWS=DATA.assets||[];
  WEIGHTS={}; (DATA.factors||[]).forEach(f=>{ WEIGHTS[f.id]=APPLIED&&APPLIED[f.id]!=null?+APPLIED[f.id]:f.default; });
  if(!THR_USER){ const A=(DATA.kpi||{}).act||{}; THR=(A['80']||{}).n?80:(A['60']||{}).n?60:40; }
  document.querySelectorAll('#thr button').forEach(x=>x.classList.toggle('on',+x.dataset.t===THR));
- renderAll(); snapLine();
+ renderAll(); snapLine(); scopeNote();
+ document.getElementById('lbTitle').textContent=SHOWN_SCOPE?'🏁 Leaderboard · '+scopeLabel(SHOWN_SCOPE):'🏁 Estate leaderboard';
 }
 function snapLine(){ const m=META||{}, el=document.getElementById('snapMeta'); if(!el) return;
  const t=v=>v?esc(String(v).replace('T',' ').slice(0,16)):'—';
@@ -527,17 +550,67 @@ document.getElementById('load').onclick=()=>run();
 document.getElementById('wApply').onclick=()=>applyWeights();
 document.getElementById('wReset').onclick=()=>resetWeights();
 document.querySelectorAll('#thr button').forEach(b=>b.onclick=()=>{ THR=+b.dataset.t; THR_USER=true; document.querySelectorAll('#thr button').forEach(x=>x.classList.toggle('on',x===b)); renderMetrics(); renderLB(); drawAct(); drawRed(); showBd(CUR,true); });
+/* ---- 488: scope — the whole estate or one tag's assets. Each scope is its own cached
+   snapshot (tags in a second cache, so they never push the estate out); switching PEEKS the
+   chosen scope's cache and never computes. ▶ Run builds the selected scope. ---- */
+function saveScope(){ try{ SCOPE?localStorage.setItem(SKEY,JSON.stringify(SCOPE)):localStorage.removeItem(SKEY); }catch(e){} }
+function loadScope(){ try{ const o=JSON.parse(localStorage.getItem(SKEY)||'null'); if(o&&o.key&&o.value) SCOPE={key:String(o.key),value:String(o.value)}; }catch(e){} }
+const sameScope=(a,b)=>(!a&&!b)||(!!a&&!!b&&a.key===b.key&&a.value===b.value);
+let SCOPES=[];
+async function loadScopes(){ let o; try{ o=await API.post('scopes',APPLIED?{weights:APPLIED}:{}); }catch(e){ return; }
+ if(!o||!o.ok) return; SCOPES=o.result.scopes||[];
+ if(SCOPE&&!SCOPES.some(x=>sameScope(x.key?{key:x.key,value:x.value}:null,SCOPE)))
+   SCOPES.splice(1,0,{key:SCOPE.key,value:SCOPE.value,label:scopeLabel(SCOPE),cached:false});
+ drawScopes();
+ const ks=document.getElementById('tagKey'), cur=ks.value;
+ ks.innerHTML='<option value="">+ a tag category…</option>'+(o.result.keys||[]).map(k=>`<option value="${esc(k.key)}">${esc(k.key)} (${N(k.assets)})</option>`).join('');
+ ks.value=cur;
+}
+function drawScopes(){
+ const t=v=>v?esc(String(v).slice(11,16)):'';
+ document.getElementById('scopeList').innerHTML=SCOPES.map((x,i)=>{ const sc=x.key?{key:x.key,value:x.value}:null;
+  const st=x.building?'building…':x.cached?('⚡ '+t(x.built_at)+(x.stale?' · old':'')):'not built';
+  return `<button data-i="${i}" class="${sameScope(sc,SCOPE)?'on':''}" title="${x.key?esc(N(x.assets))+' tagged asset(s)':'every asset in navi.db'}">${x.key?'🏷 ':'🌐 '}${esc(x.label)}<span class="st">${esc(st)}</span></button>`; }).join('');
+ document.querySelectorAll('#scopeList button').forEach(b=>b.onclick=()=>{ const x=SCOPES[+b.dataset.i]; switchScope(x.key?{key:x.key,value:x.value}:null); });
+}
+function scopeNote(){ const el=document.getElementById('scopeNote'), sc=(DATA||{}).scope;
+ if(!SHOWN_SCOPE){ el.innerHTML=''; return; }
+ const miss=sc&&sc.tagged>sc.scored?` · ${N(sc.tagged-sc.scored)} tagged asset(s) aren't in navi.db's assets table, so aren't scored`:'';
+ el.innerHTML=`<div class="scopehint">Showing only the assets tagged <b>${esc(scopeLabel(SHOWN_SCOPE))}</b>${sc?' — '+N(sc.scored)+' scored':''}${miss}. Every count, band, act-now set and the leaderboard cover only them; each asset's own score is the same as in the whole-estate view.</div>`;
+}
+function resetView(){ DATA=null; ROWS=[]; META={}; FILT=null; LB_PAGE=0;
+ ['sec-drv','sec-act','sec-play','sec-lb','sec-worst','sec-score'].forEach(id=>document.getElementById(id).style.display='none');
+ document.getElementById('snapMeta').innerHTML=''; document.getElementById('scopeNote').innerHTML='';
+ document.getElementById('kpis').innerHTML=`<div class="setupcard"><div class="big">🎯 Press ▶ Run</div><p class="sub">${SCOPE?'Not built yet for the assets tagged <b>'+esc(scopeLabel(SCOPE))+'</b> — ▶ Run scores them in the background (you can leave the page) and keeps the result in the tag cache, next to the whole-estate one.':'Nemesis fuses every Hound\'s signal into one 0–100 score per asset and ranks the estate. The result is cached per navi.db — it builds in the background (you can leave the page) and reopens instantly until navi.db, your weighting or the SLA policy changes.'}</p></div>`;
+}
+async function switchScope(sc){ SCOPE=sc; saveScope(); drawScopes(); const my=++SEQ; flashClear('flash');
+ document.getElementById('load').disabled=false;
+ let o; try{ o=await API.post('snapshot', payload({peek:true})); }catch(e){ return; }
+ if(my!==SEQ) return;
+ if(o&&o.result) applySnap(o.result,true,!!o.stale); else resetView();
+ if(o&&o.building) waitBuild(o.building,my);
+}
+document.getElementById('tagKey').onchange=async e=>{ const k=e.target.value, vs=document.getElementById('tagVal');
+ document.getElementById('tagGo').disabled=true; vs.disabled=true; vs.innerHTML='<option value="">value…</option>'; if(!k) return;
+ let o; try{ o=await API.post('scopes',{key:k}); }catch(err){ return; }
+ if(!o||!o.ok||document.getElementById('tagKey').value!==k) return;
+ vs.innerHTML='<option value="">value…</option>'+(o.result.values||[]).map(v=>`<option value="${esc(v.value)}">${esc(v.value)} (${N(v.assets)})</option>`).join('');
+ vs.disabled=false; };
+document.getElementById('tagVal').onchange=e=>{ document.getElementById('tagGo').disabled=!e.target.value; };
+document.getElementById('tagGo').onclick=async()=>{ const k=document.getElementById('tagKey').value, v=document.getElementById('tagVal').value;
+ if(!k||!v) return; await switchScope({key:k,value:v}); if(!DATA) run(); loadScopes(); };
+
 mountAgentHeader({id:'fused_score',icon:'🎯',name:'Exposure Score',sub:'Nemesis · one score from every Hound · act now'});
 try{ hMailAuto(); }catch(e){}
 jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});
 /* NO auto-run. Opening the page PEEKS: the cached snapshot for your weighting renders at
    once, or a build still running from before is re-attached. Peek never computes. */
 document.getElementById('kpis').innerHTML='<div class="setupcard"><div class="big">🎯 Press ▶ Run</div><p class="sub">Nemesis fuses every Hound\'s signal into one 0–100 score per asset and ranks the estate. The result is cached per navi.db — it builds in the background (you can leave the page) and reopens instantly until navi.db, your weighting or the SLA policy changes.</p></div>';
-loadW();
+loadW(); loadScope(); loadScopes();
 (async()=>{ const my=++SEQ;
  let o; try{ o=await API.post('snapshot', payload({peek:true})); }catch(e){ return; }
  if(my!==SEQ||!o) return;
- if(o.result) applySnap(o.result,true,!!o.stale);
+ if(o.result) applySnap(o.result,true,!!o.stale); else if(SCOPE) resetView();
  if(o.building) waitBuild(o.building,my);
 })();
 </script>

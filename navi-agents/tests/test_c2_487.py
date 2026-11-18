@@ -76,13 +76,13 @@ def wait_run(rid, secs=90):
 
 
 # ============ 1. version ============
-check(version.BUILD == 487, "core/version.py BUILD is 487")
+check(version.BUILD >= 487, "core/version.py BUILD is 487 or later")
 _root_readme = os.path.join(ROOT, "ROOT_README.md")
 if not os.path.exists(_root_readme):
     _root_readme = os.path.join(os.path.dirname(ROOT), "README.md")
 for f_ in ("INSTALL.md", "README.md", _root_readme):
     t_ = open(os.path.join(ROOT, f_) if not os.path.isabs(f_) else f_, encoding="utf-8").read()
-    check("1.43.487" in t_ and "1.43.486" not in t_, f"{os.path.basename(f_)} names 1.43.487")
+    check(f"1.43.{version.BUILD}" in t_ and "1.43.486" not in t_, f"{os.path.basename(f_)} names 1.43.{version.BUILD}")
 
 # ============ 2. owner decision 7b — yum --setopt=exit_on_lock=1 ============
 fxD = json.load(open(os.path.join(HERE, "fixtures", "c2_plugin_output", "real_D_centos7_rsyslog_zstream.json"), encoding="utf-8"))

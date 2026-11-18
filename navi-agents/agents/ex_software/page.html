@@ -7,6 +7,7 @@
 #tbl{table-layout:fixed;width:100%}#tbl th,#tbl td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .st{display:inline-block;padding:1px 8px;border-radius:100px;font-size:11px;font-weight:700;font-family:var(--mono);white-space:nowrap}
 .st-affected{background:var(--crit-bg);color:var(--crit)} .st-check{background:var(--high-bg);color:var(--high)}
+.nem{font-weight:700} .nem-c{color:var(--crit)} .nem-h{color:var(--high)} .nem-m{color:var(--med)} .nem-l{color:var(--ink-2)}
 .st-unknown{background:var(--med-bg);color:var(--med)} .st-clear{background:var(--ok-bg);color:var(--ok)} .st-match{color:var(--ink-2)}
 .fin{padding:9px;border-radius:8px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink)}
 /* ✨ zero-day lookup */
@@ -80,16 +81,17 @@
     <div id="where"></div></div>
     <div id="prods"></div>
     <div class="toolbar" id="stf"></div>
-    <div style="overflow-x:auto"><table id="tbl" class="nopage norsz nocsv"><colgroup><col style="width:17%"><col style="width:132px"><col style="width:27%"><col style="width:17%"><col style="width:12%"><col style="width:52px"><col style="width:96px"></colgroup>
-      <thead><tr><th>Asset</th><th>Status</th><th>Installed</th><th>OS</th><th>Network</th><th>ACR</th><th>Last seen</th></tr></thead>
-      <tbody><tr><td colspan="7" class="sub">Search a product to see where it is installed.</td></tr></tbody></table></div>
+    <div style="overflow-x:auto"><table id="tbl" class="nopage norsz nocsv"><colgroup><col style="width:17%"><col style="width:132px"><col style="width:27%"><col style="width:17%"><col style="width:12%"><col style="width:52px"><col style="width:92px"><col style="width:96px"></colgroup>
+      <thead><tr><th>Asset</th><th>Status</th><th>Installed</th><th>OS</th><th>Network</th><th>ACR</th><th title="Nemesis — the asset's Exposure Score (0–100), from the last whole-estate Exposure Score run">Nemesis</th><th>Last seen</th></tr></thead>
+      <tbody><tr><td colspan="8" class="sub">Search a product to see where it is installed.</td></tr></tbody></table></div>
     <div class="toolbar" id="pager"></div>
+    <div class="sub" id="nemNote" style="margin:4px 0 0;font-size:12px"></div>
   </section>
   <footer>Software Explorer · Harrier · read-only navi.db search over <span class="mono">software</span> (and <span class="mono">cpes</span>) · version sprawl and EOL across the estate is <a href="/agents/software/page.html">Mimir</a>; one asset in depth is <a href="/agents/argos/page.html">Argos</a></footer>
 </div>
 <script src="/static/console.js"></script>
 <script>
-const API=agentApi('ex_software'); let PAGE=hPageSize('tbl'); let LAST=null; let STF='';
+const API=agentApi('ex_software'); let PAGE=hPageSize('tbl'); let LAST=null; let STF=''; let SORT='';
 const P=new URLSearchParams(location.search);
 const $=id=>document.getElementById(id);
 const fnum=n=>(n==null||n===''?'—':Number(n).toLocaleString());
@@ -106,7 +108,7 @@ function form(){ return {q:$('q').value.trim(), version:$('ver').value.trim(), r
 async function go(off, opts){ off=off||0; const b=Object.assign(form(), opts||{});
   if(b.q.length<2){ flash('flash','Type at least 2 characters of a product name.','warn'); return; }
   $('go').disabled=true; flash('flash','<span class="spin"></span> searching the software inventory…','run');
-  let o; try{ o=await API.post('search',Object.assign({limit:PAGE,offset:off,status:STF},b)); }catch(e){ o={ok:false,error:e.message}; }
+  let o; try{ o=await API.post('search',Object.assign({limit:PAGE,offset:off,status:STF,sort:SORT||undefined},b)); }catch(e){ o={ok:false,error:e.message}; }
   $('go').disabled=false;
   if(!o||!o.ok){ flash('flash','✗ '+esc((o&&(o.message||o.error))||'search failed'),'crit'); return; }
   const r=o.result||{};
@@ -114,8 +116,8 @@ async function go(off, opts){ off=off||0; const b=Object.assign(form(), opts||{}
   flashClear('flash'); LAST={req:b,res:r,off:off}; render();
 }
 function render(){ const r=LAST.res, k=r.kpi||{}, ranged=!!k.ranged, off=LAST.off;
-  if(!k.assets){ $('kpi').innerHTML=''; $('where').innerHTML=''; $('prods').innerHTML=''; $('stf').innerHTML=''; $('legend').textContent='';
-    $('pager').innerHTML=''; document.querySelector('#tbl tbody').innerHTML='<tr><td colspan="7" class="sub">Not installed anywhere in navi.db'+(LAST.req.version?' at that version':'')+'. Try a shorter part of the name, or another spelling (httpd vs apache2).</td></tr>'; return; }
+  if(!k.assets){ $('nemNote').innerHTML=''; $('kpi').innerHTML=''; $('where').innerHTML=''; $('prods').innerHTML=''; $('stf').innerHTML=''; $('legend').textContent='';
+    $('pager').innerHTML=''; document.querySelector('#tbl tbody').innerHTML='<tr><td colspan="8" class="sub">Not installed anywhere in navi.db'+(LAST.req.version?' at that version':'')+'. Try a shorter part of the name, or another spelling (httpd vs apache2).</td></tr>'; return; }
   let h=kpi(fnum(k.assets),'assets with it')+kpi(fnum(k.versions),'distinct versions')+kpi(fnum(k.products),k.products===1?'product':'products matched');
   if(ranged) h+=kpi(fnum(k.affected),'in the affected range','var(--crit)',STT.affected)+kpi(fnum(k.check),'in range · distro build','var(--high)',STT.check)
       +kpi(fnum(k.unknown),'no version to compare','var(--med)',STT.unknown)+kpi(fnum(k.clear),'not in range','var(--ok)',STT.clear);
@@ -154,11 +156,26 @@ function render(){ const r=LAST.res, k=r.kpi||{}, ranged=!!k.ranged, off=LAST.of
     return '<tr><td><a class="plink" href="/agents/argos/page.html?target='+encodeURIComponent(u)+'" title="'+esc((host?host+' · ':'')+(ip?ip+' · ':'')+u)+'">'+esc(lbl)+'</a></td>'
       +'<td>'+st(x.status)+'</td><td class="inst" title="'+esc(instT)+'">'+inst+'</td>'
       +'<td title="'+esc(x.operating_system||'')+'">'+esc((x.operating_system||'—').split('\n')[0])+'</td><td title="'+esc(x.network||'')+'">'+esc(x.network||'—')+'</td>'
-      +'<td class="mono">'+esc(x.acr==null?'—':x.acr)+'</td><td class="mono" style="font-size:11.5px">'+esc((x.last_found||'—').slice(0,10))+'</td></tr>'; }).join('')
-    :'<tr><td colspan="7" class="sub">No assets in this filter.</td></tr>';
+      +'<td class="mono">'+esc(x.acr==null?'—':x.acr)+'</td>'+nemCell(x.nemesis)+'<td class="mono" style="font-size:11.5px">'+esc((x.last_found||'—').slice(0,10))+'</td></tr>'; }).join('')
+    :'<tr><td colspan="8" class="sub">No assets in this filter.</td></tr>';
+  nemNote(r);
   const pg=$('pager'); pg.innerHTML='<button class="btn ghost sm" '+(off<=0?'disabled':'')+' id="pp">◀ Prev</button><span class="chip">page '+(r.page||1)+' · rows '+(rows.length?off+1:0)+'–'+(off+rows.length)+' of '+fnum(r.total)+'</span><button class="btn ghost sm" '+(r.has_next?'':'disabled')+' id="pn">Next ▶</button>';
   $('pp').onclick=()=>go(Math.max(0,off-PAGE), LAST.req); $('pn').onclick=()=>go(off+PAGE, LAST.req);
   hSizeControl(pg,'tbl',v=>{ PAGE=v; go(0, LAST.req); });
+}
+/* ── Nemesis column (488): the saved whole-estate Exposure Score map — never computed here ── */
+function nemCell(v){ if(v==null) return '<td class="mono zero">—</td>';
+  const c=v>=80?'c':v>=60?'h':v>=40?'m':'l'; return '<td class="mono nem nem-'+c+'">'+esc(v)+'</td>'; }
+function nemNote(r){ const n=r.nemesis||{}, t=v=>v?esc(String(v).replace('T',' ').slice(0,16)):'';
+  const link='<a href="/agents/fused_score/page.html">Exposure Score</a>';
+  let h;
+  if(n.state==='ok') h='Nemesis = each asset\'s score from the '+link+' built <b>'+t(n.built_at)+'</b> (whole estate, default weighting)'
+     +(n.unscored?' · '+fnum(n.unscored)+' row(s) have no score (not in the assets table when it ran)':'')
+     +' · <a href="#" id="nemSort">'+(SORT==='nemesis'?'↺ back to the search order':'⇣ most exposed first')+'</a>';
+  else if(n.state==='stale') h='Nemesis column empty: navi.db has changed since the '+link+' was built ('+t(n.built_at)+') — run it again (whole estate, default weighting) to refresh the scores.';
+  else h='Nemesis column empty: no whole-estate '+link+' with the default weighting has run on this navi.db yet — run it to fill the column.';
+  $('nemNote').innerHTML=h;
+  const a=$('nemSort'); if(a) a.onclick=e=>{ e.preventDefault(); SORT=SORT==='nemesis'?'':'nemesis'; go(0, LAST.req); };
 }
 $('go').onclick=()=>{ STF=''; go(0); };
 ['q','ver','rng'].forEach(id=>$(id).addEventListener('keydown',e=>{ if(e.key==='Enter'){ STF=''; go(0); } }));

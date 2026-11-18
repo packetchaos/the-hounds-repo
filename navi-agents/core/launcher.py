@@ -55,7 +55,8 @@ _NOCACHE_AGENTS = {"settings", "hub", "argos", "explore", "ex_apps", "ex_assets"
                    # Command & Control: live gate / runs / command log — never a remembered answer
                    "c2"}
 _LIVE = {"status", "log", "loop_log", "history", "scheduler", "list", "get", "metrics", "release_get",
-         "tag_jobs", "navi_poll", "navi_jobs", "db_checks", "sla_get", "activity", "bg_status"}
+         "tag_jobs", "navi_poll", "navi_jobs", "db_checks", "sla_get", "activity", "bg_status",
+         "scopes"}
 # actions with their own server-side snapshot (or a peek of one): the short result cache
 # would only serve a stale "building…" / old summary. Still counted as runs (unlike _LIVE).
 _OWN_CACHE = {"snapshot", "scent"}
@@ -264,7 +265,7 @@ _OPEN_ACTIONS = {
     ("settings", "navi_jobs"), ("settings", "sla_get"), ("settings", "status"),
     ("hub", "pc_get"), ("hub", "pc_put"), ("hub", "pc_list"), ("hub", "roster"),
     ("hub", "release_plan"), ("hub", "release_status"), ("hub", "release_start"),
-    ("hub", "release_cancel"), ("hub", "bg_status"),
+    ("hub", "release_cancel"), ("hub", "bg_status"), ("fused_score", "scopes"),
     ("contract", "release_get"), ("contract", "release_save"), ("contract", "release_run"),
     ("contract", "release_cancel"),
 }
