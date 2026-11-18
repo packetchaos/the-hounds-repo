@@ -103,6 +103,9 @@
 const API=agentApi('exproute'); let DATA=null, MAP=[], COV=null;
 let WRITES=false; jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});
 const GATE_NOTE=()=>WRITES?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.';
+/* build 489 tag filter: every write from a tag view touches only the tag's assets (re-read on the server) */
+const SCOPE_NOTE=()=>tagScope()?'\n\nTag filter'+tagScopeNote()+': only the assets carrying that tag are tagged — nothing outside it.':'';
+const OF_SCOPE=()=>tagScope()?'this tag':'the estate';
 /* assets on a route/path (from the ownership snapshot) — for the confirm() text */
 function _assetsOn(kind,name){ const nm=String(name||'').toLowerCase();
   const pool=kind==='route'?((SNK&&SNK.routes)||[]):((SNK&&SNK.paths)||[]).concat((DATA&&DATA.paths)||[]);
@@ -155,9 +158,10 @@ function applySnap(s,cached){
   else flashClear('flash');
   renderMetrics(); snapLine(cached);
 }
+const s_n=m=>(m&&m.scope&&m.scope.assets!=null)?m.scope.assets:null;
 function snapLine(cached){ const m=SNAP_META||{}, el=document.getElementById('snapMeta'); if(!el) return;
   const t=v=>v?esc(String(v).replace('T',' ').slice(0,16)):'—';
-  el.innerHTML=`${cached?'⚡ from cache · ':''}snapshot built <b>${t(m.built_at)}</b>${m.build_sec!=null?` in ${m.build_sec}s`:''} · navi.db unchanged since · owners from Tenable <b>${t(m.owners_at)}</b> · `
+  el.innerHTML=`${tagScope()?'🏷 <b>'+esc(tagScopeLabel())+'</b>'+(s_n(m)!=null?' · '+N0(s_n(m))+' tagged asset(s)':'')+' · ':''}${cached?'⚡ from cache · ':''}snapshot built <b>${t(m.built_at)}</b>${m.build_sec!=null?` in ${m.build_sec}s`:''} · navi.db unchanged since · owners from Tenable <b>${t(m.owners_at)}</b> · `
     +`<a href="#" id="snapRebuild">↻ rebuild</a> · <a href="#" id="snapOwners">↻ refresh owners</a>`;
   document.getElementById('snapRebuild').onclick=e=>{ e.preventDefault(); load({force:true}); };
   document.getElementById('snapOwners').onclick=e=>{ e.preventDefault(); load({refresh_owners:true}); };
@@ -170,6 +174,11 @@ function omFeed(){
   if(f) return;                                   // still loading — onload feeds the latest SNK
   f=document.createElement('iframe'); f.id='omFrame'; f.title='Ownership Map'; f.src='/web/ownermap.html?embed=1';
   f.onload=()=>{ const w=f.contentWindow; f.__ready=true;
+    // a tag view: the embedded map's own POSTs to exproute (inline Assign, path drill-down) carry
+    // this page's tag_scope (console.js jpost reads window.__TAG_SCOPE / __TAG_SCOPE_AGENT), and its confirm dialogs
+    // name the scope — the frame is same-origin, so no change to web/ownermap.html is needed.
+    try{ const sc=tagScope(); if(sc){ w.__TAG_SCOPE={key:sc.key,value:sc.value}; w.__TAG_SCOPE_AGENT='exproute';
+      const c0=w.confirm.bind(w); w.confirm=m=>c0(String(m)+SCOPE_NOTE()); } }catch(e){}
     const fit=()=>{ try{ const el=w.document.querySelector('.wrap')||w.document.body; f.style.height=Math.max(420,Math.ceil(el.scrollHeight)+8)+'px'; }catch(e){} };
     try{ new w.ResizeObserver(fit).observe(w.document.querySelector('.wrap')||w.document.body); }catch(e){ setInterval(fit,1000); }
     const sync=()=>{ try{ const t=document.documentElement.getAttribute('data-theme'); if(t) w.document.documentElement.setAttribute('data-theme',t); else w.document.documentElement.removeAttribute('data-theme'); }catch(e){} };
@@ -205,14 +214,14 @@ function renderMetrics(){
     {title:'Attack surface',
      hero:{v:N(routes), l:'exposure routes', u:S?`${N(k.routes_with_paths)} with paths · ${N(k.routes_no_paths)} without`:'', href:'#snkCard'},
      chips:[{v:N(paths), l:'distinct paths', u:S?`${N(k.paths_covered)} under a route · ${N(k.paths_orphan)} orphan — need a direct owner`:'', href:'#secMap'},
-            {v:N(k.asset_scope!=null?k.asset_scope:v.assets_with_routes), l:'assets in scope', u:v.avg_routes!=null?`${v.avg_routes} routes per asset on average`:''},
-            {v:rr?rr+'%':'—', l:'fewer items to own', u:rf?`${N(rf)} route findings → ${N(v.total_routes)} routes`:'own routes, not findings', sev:'ok', href:'#coverCard',
+            {v:N(k.asset_scope!=null?k.asset_scope:v.assets_with_routes), l:tagScope()?'tagged assets on a route / path':'assets in scope', u:v.avg_routes!=null?`${v.avg_routes} routes per asset on average`:''},
+            {v:rr?rr+'%':'—', l:'fewer items to own', u:rf?`${N(rf)} route findings${tagScope()?' on this tag':''} → ${N(v.total_routes)} routes`:'own routes, not findings', sev:'ok', href:'#coverCard',
              t:`${rr?rr+'%':'—'} fewer items to own — `+(rf?`${N(rf)} route findings → ${N(v.total_routes)} routes; `:'')+'one owner decision per route covers all of its findings'}]},
     {title:'Ownership', t:'Partial = fewer owned assets than the route has. A path counts as owned when its route is.',
      hero:{v:dash(pc(k.routes_owned,k.routes)+'%'), l:'routes fully owned', u:S?`${N(k.routes_owned)} owned · ${N(k.routes_partial)} partial · ${N(k.routes_unowned)} none`:'', sev:'ok', href:'#snkCard'},
      bar:S?st('routes'):null,
      chips:[{v:dash(pc(k.paths_owned,k.paths)+'%'), l:'paths owned', u:S?`${N(k.paths_owned)} owned · ${N(k.paths_via_route)} via their route`:'', sev:'ok', href:'#secMap'},
-            {v:dash(N(k.unowned_assets)), l:'Ownerless Risk — assets', u:S?`no owner on the routes/paths they sit on · of ${N(k.asset_scope)}`:'', sev:'crit', href:'#snkCard',
+            {v:dash(N(k.unowned_assets)), l:'Ownerless Risk — assets', u:S?`no owner on the routes/paths they sit on · of ${N(k.asset_scope)}${tagScope()?' on this tag':''}`:'', sev:'crit', href:'#snkCard',
              t:`${dash(N(k.unowned_assets))} Ownerless Risk assets — the ⛔ Unassigned node on the Sankey`+(S?` · no owner on the routes/paths they sit on · of ${N(k.asset_scope)}`:'')},
             {v:v.assets_with_routes?pc(v.closed,v.assets_with_routes)+'%':'—', l:'assets closed', u:`${N(v.closed)} of ${N(v.assets_with_routes)} — every route they sit on has an owner`, sev:'info', href:'#coverCard'}],
      ranked:S?{title:'Paths by ownership', items:st('paths').filter(x=>x.value).map(x=>({label:x.label, value:x.value, sev:PSEV[x.label], href:'#secMap'}))}:null},
@@ -227,7 +236,7 @@ function renderMetrics(){
      hero:{v:dash(N(k.owners)), l:'owners with work', u:`of ${N(cnt.owners)} users & groups available`, sev:'info', href:'#ownersCard'},
      bar:S&&load.length?load.slice(0,5).map((x,i)=>({label:x.owner, value:x.assets, color:PAL[i]})).concat(load.length>5?[{label:'other owners', value:load.slice(5).reduce((s,x)=>s+x.assets,0), color:'var(--mut)'}]:[]):null,
      chips:[{v:top?busy+'%':'—', l:'carried by the busiest owner', u:top?`${top.owner} · ${N(top.routes)} routes · ${N(top.paths)} paths · ${N(top.assets)} assets`:'no owners assigned yet', sev:top&&busy>=50?'high':'info', href:'#secMap',
-             t:(top?`${busy}% carried by the busiest owner — ${top.owner} · ${N(top.routes)} routes · ${N(top.paths)} paths · ${N(top.assets)} assets. `:'')+'Share of all owner-assigned assets; one owner on most of the surface is a bottleneck'},
+             t:(top?`${busy}% carried by the busiest owner — ${top.owner} · ${N(top.routes)} routes · ${N(top.paths)} paths · ${N(top.assets)} assets. `:'')+'Share of all owner-assigned assets of '+OF_SCOPE()+'; one owner on most of the surface is a bottleneck'},
             {v:load.length?(items/load.length).toFixed(1):'—', l:'routes + paths per owner', u:load.length?`average across ${N(load.length)} owner(s)`:'', sev:'info', href:'#secMap'}]}
   ]);
   setNavCount('snkCard', S?N(gaps.length)+' gaps':'');
@@ -258,7 +267,7 @@ function coverRender(v){
     +donut(v.owned_paths,v.total_paths,'Distinct paths with an owner','var(--ok)')+'</div>'
     /* Decision outcomes — the result of what you did to each route/path, plus assets fully closed. */
     +(st?('<div style="border-top:1px solid var(--line);margin-top:8px;padding-top:12px">'
-      +`<div class="toolbar" style="margin:0 0 6px;justify-content:center;gap:8px"><b>🧭 Decision outcomes</b><span class="sub">dispositions are % of ${st.toLocaleString()} routes + paths</span></div>`
+      +`<div class="toolbar" style="margin:0 0 6px;justify-content:center;gap:8px"><b>🧭 Decision outcomes</b><span class="sub">dispositions are % of ${st.toLocaleString()} routes + paths${tagScope()?' on this tag':''}</span></div>`
       +'<div style="display:flex;gap:30px;flex-wrap:wrap;justify-content:center;align-items:center">'
       +donut(v.closed,v.assets_with_routes,'Assets closed — every route owned','#a78bfa')
       +donut(v.mitigated||0,st,'Mitigated','var(--ok)')
@@ -271,7 +280,7 @@ function coverRender(v){
       +(rr?`<span class="chip" style="color:#6ea8ff;border-color:rgba(110,168,255,.5)">${rr}% fewer route items</span>`:'')+'</div>'
       +'<div style="display:flex;gap:26px;flex-wrap:wrap;justify-content:center">'
       +(pf?wbar(pf,dp,'Path findings → distinct paths','var(--ok)'):'')
-      +(rf?wbar(rf,rc,'Route vulns → routes','#6ea8ff'):'')+'</div>'
+      +(rf?wbar(rf,rc,tagScope()?'Route findings on this tag → routes':'Route vulns → routes','#6ea8ff'):'')+'</div>'
       +'<p class="sub" style="text-align:center;margin:8px 0 0">Assigning ownership by <b>distinct route/path</b> instead of per-finding collapses the triage queue — one owner decision covers many findings.</p></div>'):'')
     +(v.owned===0?'<p class="sub" style="text-align:center;margin-top:8px">No <span class="tagval">Owner</span> tags in navi.db yet — assign owners below, then <b>↻ Refresh navi.db</b>.</p>'
       :`<p class="sub" style="text-align:center;margin-top:8px">${v.owned} asset(s) own-tagged. An asset is <b>closed</b> only when all its routes are owned (the <span class="tagval">Owner : &lt;app&gt;: &lt;user&gt;</span> scheme).</p>`)
@@ -336,7 +345,7 @@ async function pollJobs(ids, timeoutMs=25000){
 }
 async function applyOne(i){ const m=MAP[i]; if(!m||m._st==='queued'||m._st==='applied')return;   // no duplicate jobs
   await testRunStatus();
-  if(!confirm('Tag '+tagCat('Owner')+' : '+m.match+': '+m.owner+' on '+_onWhat(m.kind,m.match)+'?'+GATE_NOTE())) return;
+  if(!confirm('Tag '+tagCat('Owner')+' : '+m.match+': '+m.owner+' on '+_onWhat(m.kind,m.match)+'?'+SCOPE_NOTE()+GATE_NOTE())) return;
   if(m._st==='queued'||m._st==='applied')return;
   m._st='queued'; renderMap();
   flash('mapFlash','<span class="spin"></span> queueing Owner : '+esc(m.owner)+'…','run');
@@ -357,7 +366,7 @@ async function applyAll(){ if(!MAP.length)return;
   { const todo=MAP.filter(m=>!(m._st==='applied'||m._st==='queued'||tagApplied('Owner',m.match+': '+m.owner))); if(!todo.length)return;
     const ns=todo.map(m=>_assetsOn(m.kind,m.match)), known=ns.every(n=>n!=null), tot=ns.reduce((a,n)=>a+(n||0),0);
     if(!confirm('Tag '+todo.length+' '+tagCat('Owner')+' tag'+(todo.length===1?'':'s')+' on '+(known?tot+' asset-tag pair'+(tot===1?'':'s'):'every asset')+' across '+todo.length+' route/path selector'+(todo.length===1?'':'s')+'?\n\n'
-      +todo.slice(0,12).map((m,k)=>'• '+tagCat('Owner')+' : '+m.match+': '+m.owner+' ('+(ns[k]!=null?ns[k]+' asset'+(ns[k]===1?'':'s'):m.kind)+')').join('\n')+(todo.length>12?'\n• … +'+(todo.length-12)+' more':'')+GATE_NOTE())) return; }
+      +todo.slice(0,12).map((m,k)=>'• '+tagCat('Owner')+' : '+m.match+': '+m.owner+' ('+(ns[k]!=null?ns[k]+' asset'+(ns[k]===1?'':'s'):m.kind)+')').join('\n')+(todo.length>12?'\n• … +'+(todo.length-12)+' more':'')+SCOPE_NOTE()+GATE_NOTE())) return; }
   const btn=document.getElementById('applyAll'); const lbl=btn&&btn.textContent;
   const mf=document.getElementById('mapFlash');
   const scroll=()=>{ if(mf)mf.scrollIntoView({behavior:'smooth',block:'center'}); };
@@ -427,7 +436,7 @@ function snkUnmatched(){
 async function reretag(i, app){
   const u=UNMATCHED[i]; if(!u)return; const res=document.getElementById('reres-'+i);
   await testRunStatus(); const ow=(u.owners||[]);
-  if(!confirm('Tag '+tagCat('Owner')+' : '+app+': <owner> on the '+N0(u.assets)+' asset'+(u.assets===1?'':'s')+' that carry "'+u.name+': …" ('+ow.length+' owner'+(ow.length===1?'':'s')+(ow.length?': '+ow.slice(0,6).join(', ')+(ow.length>6?', …':''):'')+')? The old tag is kept.'+GATE_NOTE())) return;
+  if(!confirm('Tag '+tagCat('Owner')+' : '+app+': <owner> on the '+N0(u.assets)+' asset'+(u.assets===1?'':'s')+' that carry "'+u.name+': …" ('+ow.length+' owner'+(ow.length===1?'':'s')+(ow.length?': '+ow.slice(0,6).join(', ')+(ow.length>6?', …':''):'')+')? The old tag is kept.'+SCOPE_NOTE()+GATE_NOTE())) return;
   if(res)res.innerHTML='<span class="spin"></span> moving '+esc(u.name)+' → '+esc(app)+' on the '+N0(u.assets)+' tagged asset(s)…';
   let o; try{ o=await API.post('retag',{from:u.name,to:app,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
   if(!o||!o.ok){ if(res)res.innerHTML='<span style="color:var(--crit)">✗ '+esc((o&&(o.message||o.error))||'rejected')+'</span>'; return; }
@@ -505,7 +514,7 @@ async function _qaApply(){
   await testRunStatus();
   { const ns=QA.map(x=>_assetsOn(x.kind,x.name)), known=ns.every(n=>n!=null), tot=ns.reduce((a,n)=>a+(n||0),0);
     if(!confirm('Tag '+tagCat('Owner')+' : <name>: '+owner+' on '+(known?tot+' asset'+(tot===1?'':'s'):'every asset')+' across '+QA.length+' route/path selector'+(QA.length===1?'':'s')+'?\n\n'
-      +QA.slice(0,12).map((x,k)=>'• '+tagCat('Owner')+' : '+x.name+': '+owner+' ('+(ns[k]!=null?ns[k]+' asset'+(ns[k]===1?'':'s'):x.kind)+')').join('\n')+(QA.length>12?'\n• … +'+(QA.length-12)+' more':'')+GATE_NOTE())) return; }
+      +QA.slice(0,12).map((x,k)=>'• '+tagCat('Owner')+' : '+x.name+': '+owner+' ('+(ns[k]!=null?ns[k]+' asset'+(ns[k]===1?'':'s'):x.kind)+')').join('\n')+(QA.length>12?'\n• … +'+(QA.length-12)+' more':'')+SCOPE_NOTE()+GATE_NOTE())) return; }
   flash('qaFlash','<span class="spin"></span> resolving owner + queueing '+QA.length+'…','run');
   const jobmap={};   // jid -> index
   for(let i=0;i<QA.length;i++){ const x=QA[i]; const st=document.getElementById('qast-'+i);
@@ -531,6 +540,8 @@ document.getElementById('qaSkip').onclick=()=>{ document.getElementById('quickCa
 document.getElementById('qaBack').onclick=e=>{ e.preventDefault(); const m=document.getElementById('secMap'); if(m) m.scrollIntoView({behavior:'smooth',block:'start'}); };
 
 mountAgentHeader({id:'exproute',icon:'🧭',name:'Exposure Routes',sub:'Atlas · owner mapping · Sankey · Ownership Map'});
+mountTagScope({agent:'exproute', note:'the routes and paths their findings sit on, their Owner tags and coverage; the owner directory is the whole tenant'});
+if(tagScope()){ const a=document.querySelector('#secMap a[href="/web/ownermap.html"]'); if(a){ a.textContent='Whole-estate map ↗'; a.title='The standalone Ownership Map covers the whole estate'; } }
 // ⛶ full screen + 📧 picture & list (Gabriel) on the ownership Sankey
 hWidget('snkCard',{title:'Ownership Sankey — routes / paths → owners', visual:()=>document.querySelector('#snkGraph svg')||document.getElementById('snkGraph'),
   columns:['route / path','type','owner','assets','status'],

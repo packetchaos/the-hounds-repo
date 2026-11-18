@@ -7,8 +7,16 @@ per-asset table — plus a drill handle. The table, crown list and blind spots p
 search on the server (`drill`); no asset list or uuid array reaches the page. `apply` takes the
 plan's FILTER or a KEY ({run, key:"blind"}) and the server rebuilds the set; `plan` no longer
 returns the matched uuid list.
+
+Tag filter (build 489): every action the page calls honours `tag_scope` {key, value}
+(core.tagscope). A tag view rolls up only the assets carrying that tag — each asset's own row
+(owners, claimed %, crown, blind, signals) is exactly its whole-estate row; only the population
+changes. Its runs live in their own result-store namespace (engine.STORE_NS_TAG, the newest
+tagscope.MAX_TAGS kept), so a tag view never evicts the estate's rows nor is served them: a
+`drill` / `apply key=blind` only reads a run of the same scope. Writes from a tag view
+(apply / assign) re-read the tag's assets from navi.db and touch only those.
 """
-from core import asset_ownership as engine, navi_cli, payload, tagname
+from core import asset_ownership as engine, navi_cli, payload, tagname, tagscope
 from .agent import AssetOwnershipAgent
 from core.gates import confirmed
 
@@ -31,31 +39,69 @@ SECTIONS = {
 BLIND_SHOWN = 200          # the blind-spot list shows (and "Tag owner on all shown" tags) the top 200
 
 
+def _scope(p):
+    """(key, value) of the request's tag_scope, or None for the whole estate."""
+    k, v = tagscope.parse(p if isinstance(p, dict) else {})
+    return (k, v) if k else None
+
+
+def _ns(scope):
+    """The result-store namespace a run of this scope lives in."""
+    return engine.STORE_NS_TAG if scope else engine.STORE_NS
+
+
+def _run_of_scope(run, scope):
+    """run_info of `run` when it is a finished run of exactly this scope, else None — a tag
+    view never reads the estate's rows (nor another tag's), and the estate never reads a tag's."""
+    info = payload.STORE.run_info(run, _ns(scope))
+    if not info:
+        return None
+    if scope:
+        sc = (info.get("meta") or {}).get("scope") or {}
+        if (sc.get("key"), sc.get("value")) != scope:
+            return None
+    return info
+
+
 def overview(p):
     """The Asset Ownership dashboard — KPIs, crown jewels, blind spots, owners + page 1 of the
     per-asset table (contract response; the rows stay server-side for `drill`)."""
-    st = engine.overview_store()
+    scope = _scope(p)
+    st = engine.overview_store(scope=scope)
     if not st.get("ok"):
         return {"ok": False, "result": st, "error": st.get("error")}, 200
     run = st["run"]
-    AGENT.result = {"kpi": st.get("kpi") or {}}     # the hub card's summary (meta()) after a run
-    first, _c = payload.drill("asset_ownership", {"run": run, "section": "assets", "sort": "acr", "limit": 50}, SECTIONS)
-    crown, _c = payload.drill("asset_ownership", {"run": run, "section": "crown", "sort": "rank", "limit": 50}, SECTIONS)
-    blind, _c = payload.drill("asset_ownership", {"run": run, "section": "blind", "sort": "rank",
-                                                  "limit": BLIND_SHOWN}, SECTIONS)
+    if not scope:
+        AGENT.result = {"kpi": st.get("kpi") or {}}     # the hub card's summary (meta()) after a run — estate only
+    ns = _ns(scope)
+    first, _c = payload.drill(ns, {"run": run, "section": "assets", "sort": "acr", "limit": 50}, SECTIONS)
+    crown, _c = payload.drill(ns, {"run": run, "section": "crown", "sort": "rank", "limit": 50}, SECTIONS)
+    blind, _c = payload.drill(ns, {"run": run, "section": "blind", "sort": "rank",
+                                   "limit": BLIND_SHOWN}, SECTIONS)
     k = st["kpi"]
     result = {"ok": True, "kpi": k, "crown_jewels": crown.get("top") or [], "crown_total": k.get("crown", 0),
               "crown_next": (crown.get("page") or {}).get("next"),
               "blind_spots": blind.get("top") or [], "blind_total": k.get("blind", 0),
               "owners": st["owners"], "owners_total": st["owners_total"], "signal_keys": st["signal_keys"],
               "run": run}
+    if scope:
+        result["scope"] = tagscope.describe(*scope)
     return payload.response(summary=k, top=first.get("top") or [], total_=first.get("total"), page=first.get("page"),
                             drill={"action": "drill", "run": run, "section": "assets", "sort": "acr"},
                             tag={"key": "filter", "count": k.get("assets", 0)}, result=result), 200
 
 
 def drill(p):
-    return payload.drill("asset_ownership", p, SECTIONS)
+    scope = _scope(p)
+    if not scope:
+        return payload.drill(engine.STORE_NS, p, SECTIONS)
+    if not _run_of_scope((p or {}).get("run"), scope):
+        return {"ok": False, "expired": True,
+                "error": "this tag view's rows are no longer on the server — press ▶ Run again"}, 200
+    body, code = payload.drill(engine.STORE_NS_TAG, p, SECTIONS)
+    if isinstance(body, dict) and body.get("ok") is not False:
+        body["scope"] = tagscope.describe(*scope)
+    return body, code
 
 
 def refresh(p):
@@ -71,7 +117,10 @@ def plan(p):
     prompt = _s(p.get("prompt"))
     if not prompt:
         return {"ok": False, "error": "describe who owns which assets"}, 400
-    out = engine.plan(prompt)
+    scope = _scope(p)
+    out = engine.plan(prompt, scope=scope)
+    if scope and isinstance(out, dict):
+        out["scope"] = tagscope.describe(*scope)
     # the page previews 12 rows and applies by FILTER — never ship the matched uuid list
     out.pop("uuids", None)
     if isinstance(out.get("matched"), list):
@@ -122,24 +171,34 @@ def apply(p):
     if not confirmed(p):
         return {"ok": False, "error": "confirm=true required to write tags"}, 400
     owner = _s(p.get("owner"))
+    scope = _scope(p)
     # the plan's FILTER (preferred): the server rebuilds the matched set itself; a bare uuid
     # list is still accepted for the "claim unclaimed assets" button (both layers page any
     # size in ≤1,999-UUID tag series — build 464)
     if isinstance(p.get("filter"), dict):
-        uuids = engine.match_filter(p["filter"])
+        uuids = engine.match_filter(p["filter"], scope=scope)     # a tag view: only the tag's assets
     elif p.get("key") == "blind":
         # "Tag owner on all shown": the blind spots the page shows (top BLIND_SHOWN of the run)
         run = p.get("run")
-        if not payload.STORE.run_info(run, "asset_ownership"):
+        if not _run_of_scope(run, scope):
             return {"ok": False, "error": "this run is no longer on the server — press ▶ Run again"}, 200
         rows, _l, _n, _e = payload.STORE.page(run, "blind", sort=("s1", "s2"), limit=BLIND_SHOWN, count=False)
         uuids = [r["uuid"] for r in rows if r.get("uuid")]
+        if scope:                                   # re-checked against navi.db's tags now
+            uuids = engine.in_scope(uuids, scope)
+    elif scope:
+        # a tag view never takes an asset list from the browser — use the plan's filter
+        return {"ok": False, "error": "from a tag view, assign by plan (✨ Ask) or the blind-spot list — "
+                                      "an asset list from the page is not accepted"}, 400
     else:
         uuids = _uuids(p.get("uuids"))
     layer = "asset" if _s(p.get("layer")).lower() == "asset" else "business"
     mode = _mode(p.get("mode"))
     if not owner or not uuids:
+        if scope and owner:
+            return {"ok": False, "error": f"no matched assets carry the tag {tagscope.label(*scope)}"}, 400
         return {"ok": False, "error": "owner and matched assets required"}, 400
+    sdesc = tagscope.describe(*scope) if scope else None
     if layer == "asset":
         from core import tagq
         batch = uuids                    # unbounded (build 464): the job pages it
@@ -147,16 +206,19 @@ def apply(p):
             _bulk_asset_apply, {"owner": owner, "uuids": batch, "mode": mode},
             {"agent": "asset_ownership", "category": tagname.effective(engine.ASSET_OWNER_KEY),
              "value": f"{owner} · {mode}", "op": "tag",
-             "selector": f"{len(batch)} asset(s)",
+             "selector": f"{len(batch)} asset(s)" + (f" tagged {tagscope.label(*scope)}" if scope else ""),
              "detail": "bulk asset-owner assign — cascades each asset's routes & paths"})
         return {"ok": True, "queued": True, "job_id": job["id"], "layer": "asset",
                 "owner": owner, "mode": mode, "assets": len(batch),
                 "message": f"queued (job #{job['id']}) — assigning in the background; "
                            "you can leave this page. Track it in the Tagging log.",
-                "writes_enabled": navi_cli.writes_enabled()}, 200
+                "writes_enabled": navi_cli.writes_enabled(), **({"scope": sdesc} if scope else {})}, 200
     r = engine.apply_business_owner(owner, uuids)
-    return {"ok": r.get("ok", False), "layer": "business", "owner": owner,
-            "assets": len(uuids), **r, "writes_enabled": navi_cli.writes_enabled()}, 200
+    out = {"ok": r.get("ok", False), "layer": "business", "owner": owner,
+           "assets": len(uuids), **r, "writes_enabled": navi_cli.writes_enabled()}
+    if scope:
+        out["scope"] = sdesc
+    return out, 200
 
 
 def assign(p):
@@ -169,8 +231,16 @@ def assign(p):
     mode = _mode(p.get("mode"))
     if not uuid or not owner:
         return {"ok": False, "error": "asset uuid and owner required"}, 400
+    scope = _scope(p)
+    if scope and not engine.in_scope([uuid], scope):
+        # a tag view writes only inside the tag — re-checked in navi.db, not taken from the page
+        return {"ok": False, "error": f"that asset doesn't carry the tag {tagscope.label(*scope)} — "
+                                      "nothing was written"}, 400
     r = engine.assign_asset_owner(uuid, owner, mode=mode)
-    return {"ok": r.get("ok", False), **r}, 200
+    out = {"ok": r.get("ok", False), **r}
+    if scope:
+        out["scope"] = tagscope.describe(*scope)
+    return out, 200
 
 
 ACTIONS = {"load": load, "run": load, "overview": overview, "drill": drill, "plan": plan,

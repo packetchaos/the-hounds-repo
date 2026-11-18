@@ -1,42 +1,46 @@
 {
-  "codename": "Heimdall",
-  "discipline": "Post-Quantum Cipher Analysis",
-  "category": "Crypto",
-  "tagline": "Find crypto that won't survive quantum — and what to migrate first.",
-  "lore": "Heimdall, the ever-watchful guardian who sees to the ends of the world and hears the grass grow — here he watches the quantum horizon for the RSA and ECC crypto that won't survive it.",
-  "problem": "\"Harvest now, decrypt later\": traffic captured today can be read once a large quantum computer exists, and long-lived certificates are already exposed. Few organizations have an inventory of their quantum-vulnerable crypto, let alone an order to migrate it in.",
-  "does": "Heimdall finds the quantum-vulnerable surface three ways — certificates (RSA, ECC and DSA are all vulnerable to Shor's algorithm, whatever the key length), on-the-wire transport crypto from TLS and SSH plugins, and Tenable's Post-Quantum Cipher Analysis plugins — scores crypto agility from OpenSSH and OpenSSL versions, and ranks a migration roadmap by ACR and CISA KEV against the CNSA 2.0 deadlines.",
-  "glance": {
-    "caption": "Heimdall's At a glance on a 128-asset lab: 96 quantum-vulnerable assets (75%); all 173 certificates quantum-vulnerable, 10 still valid in 2033; 4 assets with classical-only key exchange and 3 legacy crypto stacks; 42 crown jewels (ACR ≥ 7) exposed."
-  },
-  "capabilities": [
-    [
-      "Certificate quantum risk",
-      "every certificate by algorithm family, with how many are still valid at each CNSA 2.0 / NIST milestone and the long-lived harvest-now set."
-    ],
-    [
-      "Transport crypto",
-      "TLS and SSH key exchange without ML-KEM or a hybrid group, SHA-1 MACs and deprecated protocol versions."
-    ],
-    [
-      "Tenable's PQC plugins",
-      "services not using post-quantum ciphers, the target cipher inventory, and services already using them."
-    ],
-    [
-      "Crypto-agility tiers",
-      "each host PQC-ready, Upgradable or Legacy from its OpenSSH / OpenSSL versions."
-    ],
-    [
-      "Migration roadmap",
-      "assets ranked by crypto risk weighted by ACR and KEV, crown jewels first; export to CSV."
-    ],
-    [
-      "Tags that route the migration",
-      "Post-Quantum : Cipher Analysis on the quantum-vulnerable set, plus PQC Risk, Transport, Priority, Harvest-Now and Agility tags from the roadmap."
-    ]
+ "codename": "Heimdall",
+ "discipline": "Post-Quantum Cipher Analysis",
+ "category": "Crypto",
+ "tagline": "Find crypto that won't survive quantum — and what to migrate first.",
+ "lore": "Heimdall, the ever-watchful guardian who sees to the ends of the world and hears the grass grow — here he watches the quantum horizon for the RSA and ECC crypto that won't survive it.",
+ "problem": "\"Harvest now, decrypt later\": traffic captured today can be read once a large quantum computer exists, and long-lived certificates are already exposed. Few organizations have an inventory of their quantum-vulnerable crypto, let alone an order to migrate it in.",
+ "does": "Heimdall finds the quantum-vulnerable surface three ways — certificates (RSA, ECC and DSA are all vulnerable to Shor's algorithm, whatever the key length), on-the-wire transport crypto from TLS and SSH plugins, and Tenable's Post-Quantum Cipher Analysis plugins — scores crypto agility from OpenSSH and OpenSSL versions, and ranks a migration roadmap by ACR and CISA KEV against the CNSA 2.0 deadlines.",
+ "glance": {
+  "caption": "Heimdall's At a glance on a 128-asset lab: 96 quantum-vulnerable assets (75%); all 173 certificates quantum-vulnerable, 10 still valid in 2033; 4 assets with classical-only key exchange and 3 legacy crypto stacks; 42 crown jewels (ACR ≥ 7) exposed."
+ },
+ "capabilities": [
+  [
+   "Certificate quantum risk",
+   "every certificate by algorithm family, with how many are still valid at each CNSA 2.0 / NIST milestone and the long-lived harvest-now set."
   ],
-  "how": "Heimdall reads the certs table, TLS / SSH and PQC plugin output, and software inventory in your local navi.db. Tags go through navi (by query, by plugin ID or on exact assets) behind the write gate and a confirm.",
-  "who": "PKI and crypto owners planning the post-quantum migration, CISOs and compliance planners working to the CNSA 2.0 timeline, and GRC teams who need evidence, not estimates.",
-  "better": "Heimdall reads the same certificates as Certania, weights by Anubis's ACR and Laelaps's KEV, and feeds Nemesis's crypto factor. On the Scent's quantum card opens his exact asset list, and Covenant re-applies the Post-Quantum : Cipher Analysis tag on its schedule.",
-  "cta": "Map your quantum exposure with Heimdall — and move the riskiest crypto first."
+  [
+   "Transport crypto",
+   "TLS and SSH key exchange without ML-KEM or a hybrid group, SHA-1 MACs and deprecated protocol versions."
+  ],
+  [
+   "Tenable's PQC plugins",
+   "services not using post-quantum ciphers, the target cipher inventory, and services already using them."
+  ],
+  [
+   "Crypto-agility tiers",
+   "each host PQC-ready, Upgradable or Legacy from its OpenSSH / OpenSSL versions."
+  ],
+  [
+   "Migration roadmap",
+   "assets ranked by crypto risk weighted by ACR and KEV, crown jewels first; export to CSV."
+  ],
+  [
+   "Tags that route the migration",
+   "Post-Quantum : Cipher Analysis on the quantum-vulnerable set, plus PQC Risk, Transport, Priority, Harvest-Now and Agility tags from the roadmap."
+  ],
+  [
+   "By tag",
+   "run over one tag's assets: every metric, the migration roadmap and the CNSA 2.0 counts are rebuilt for that tag, each asset keeps its estate priority, and tags written from that view stay inside the tag. Switch between the whole estate and your last 5 tags without re-running."
+  ]
+ ],
+ "how": "Heimdall reads the certs table, TLS / SSH and PQC plugin output, and software inventory in your local navi.db. Tags go through navi (by query, by plugin ID or on exact assets) behind the write gate and a confirm.",
+ "who": "PKI and crypto owners planning the post-quantum migration, CISOs and compliance planners working to the CNSA 2.0 timeline, and GRC teams who need evidence, not estimates.",
+ "better": "Heimdall reads the same certificates as Certania, weights by Anubis's ACR and Laelaps's KEV, and feeds Nemesis's crypto factor. On the Scent's quantum card opens his exact asset list, and Covenant re-applies the Post-Quantum : Cipher Analysis tag on its schedule.",
+ "cta": "Map your quantum exposure with Heimdall — and move the riskiest crypto first."
 }

@@ -8,8 +8,12 @@
 `tag_eol_date` — gated; tags the assets running software that reached end of life on each
                  chosen date: Lifecycle EOL:<YYYY-MM-DD> (by the exact asset uuids whose plugin
                  output states that date — never --plugin, which would tag every version's hosts).
+
+Tag filter (build 489): every action honours the request's tag_scope {key, value}
+(core.tagscope). A scoped run counts only the tag's assets; a scoped write re-reads the tag's
+assets from navi.db here and tags only those — never a uuid list from the browser.
 """
-from core import eol, navi_cli
+from core import eol, hx_summary, navi_cli, tagscope
 from core.gates import confirmed
 
 AGENT = None
@@ -29,11 +33,16 @@ def _agent():
 
 def run(p):
     groups = p.get("groups")  # optional [[label,[patterns]]] override
-    res = _agent().run(groups=groups)
+    k, v = tagscope.parse(p)
+    scope = (k, v) if k else None
+    # a tag view never replaces the whole-estate result the agent keeps (its status card)
+    res = eol.scan(groups=groups, scope=scope) if scope else _agent().run(groups=groups)
     try:
-        res = {**res, "view": eol.analyze(groups=groups)}
+        res = {**res, "view": eol.analyze(groups=groups, scope=scope)}
     except Exception as e:
         res = {**res, "view": {"ok": False, "error": f"product view failed: {e}"}}
+    if scope:
+        res["scope"] = tagscope.describe(k, v)
     return {"ok": True, "agent": _agent().meta(), "result": res}, 200
 
 
@@ -47,21 +56,28 @@ def tag_eol_date(p):
     want = {d for d in (p.get("dates") or []) if (d or "").strip()}
     if not want:
         return {"ok": False, "error": "no end-of-life dates supplied"}, 400
-    view = eol.analyze()                                   # recompute server-side; never trust the page
+    k, v = tagscope.parse(p)
+    scope = (k, v) if k else None
+    view = eol.analyze(scope=scope)                        # recompute server-side; never trust the page
     groups = [g for g in view.get("date_groups", []) if g["eol_date"] in want]
     if not groups:
-        return {"ok": False, "error": "none of those dates match EOL software on assets in navi.db"}, 400
+        return {"ok": False, "error": "none of those dates match EOL software on "
+                + (f"the assets tagged {k} : {v}" if scope else "assets in navi.db")}, 400
     results = []
     for g in groups:
         uu = g.get("uuids") or []
-        # the date's own condition (core.eol.date_tag_query), computed here and paged
-        q = eol.date_tag_query(g) if uu else ""
+        # the date's own condition (core.eol.date_tag_query), computed here and paged; in a tag
+        # view the condition also requires the tag, so only that tag's assets are tagged
+        q = eol.date_tag_query(g, scope=scope) if uu else ""
         jobs = navi_cli.tag_set(DATE_CATEGORY, g["eol_date"], sql=q, agent="eol") if q else []
         ids = [j["job_id"] for j in jobs if j.get("job_id") is not None]
         results.append({"eol_date": g["eol_date"], "products": g["products"], "plugins": len(g["plugin_ids"]),
                         "jobs": len(ids), "queued": bool(ids)})
-    return {"ok": True, "queued": sum(r["jobs"] for r in results), "results": results,
-            "writes_enabled": navi_cli.writes_enabled()}, 200
+    out = {"ok": True, "queued": sum(r["jobs"] for r in results), "results": results,
+           "writes_enabled": navi_cli.writes_enabled()}
+    if scope:
+        out["scope"] = tagscope.describe(k, v)
+    return out, 200
 
 
 def apply(p):
@@ -73,6 +89,9 @@ def apply(p):
     groups = [g for g in (p.get("apply_groups") or []) if (g.get("value") or "") in known]
     if not groups:
         return {"ok": False, "error": "no groups approved"}, 400
+    k, v = tagscope.parse(p)
+    if k:
+        return _apply_scoped(groups, known, k, v)
     results = []
     for g in groups:
         cat = "Lifecycle"
@@ -95,6 +114,39 @@ def apply(p):
     return {"ok": True, "applied": sum(1 for r in results if r.get("ok")),
             "total": len(results), "results": results,
             "writes_enabled": navi_cli.writes_enabled()}, 200
+
+
+def _group_sql(pats, excl, k, v):
+    """(sql, params): the assets a group's navi selector would tag (plugin name matches a pattern,
+    minus opted-out plugins — the same rule as apply()'s query), limited to the tag's assets.
+    Uses hx_plugin when the summaries are current (no full vulns scan at scale)."""
+    frag, args = tagscope.sql(k, v, "asset_uuid")
+    if hx_summary.usable():
+        cond = hx_summary.plugins_where("(" + eol._clause(pats, "lname") + ")")
+    else:
+        cond = "(" + _clause(pats) + ")"
+    ex = (" AND plugin_id NOT IN (" + ",".join("'" + e.replace("'", "''") + "'" for e in excl) + ")") if excl else ""
+    return "SELECT DISTINCT asset_uuid FROM vulns WHERE " + cond + ex + frag, args
+
+
+def _apply_scoped(groups, known, k, v):
+    """apply() from a tag view: Lifecycle:<group> on ONLY the tag's assets. navi's --name
+    selector would tag every matching asset in the estate, so the set is computed here (the
+    group's rule AND the tag, re-read from navi.db) and paged with navi_cli.tag_set — add-only,
+    a point-in-time set (re-apply after new EOL plugins ship)."""
+    results = []
+    for g in groups:
+        val = g["value"]
+        pats = known[val]
+        excl = [str(x) for x in (g.get("exclude") or []) if str(x).isdigit()]
+        q, args = _group_sql(pats, excl, k, v)
+        jobs = navi_cli.tag_set("Lifecycle", val, sql=q, params=args, agent="eol")
+        ids = [j["job_id"] for j in jobs if j.get("job_id") is not None]
+        results.append({"value": val, "selector": "tag set (only %s : %s)" % (k, v), "excluded": len(excl),
+                        "jobs": len(ids), "ok": bool(ids) and not any(j.get("ok") is False for j in jobs)})
+    return {"ok": True, "applied": sum(1 for r in results if r.get("ok")), "total": len(results),
+            "results": results, "writes_enabled": navi_cli.writes_enabled(),
+            "scope": tagscope.describe(k, v)}, 200
 
 
 ACTIONS = {"run": run, "apply": apply, "tag_eol_date": tag_eol_date}

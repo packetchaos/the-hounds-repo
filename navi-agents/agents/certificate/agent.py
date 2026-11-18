@@ -96,14 +96,23 @@ class CertificateAgent(Agent):
                 "iot_devices": iot.get("IoT", 0),
                 "cache_rows": iot.get("total", 0)}
 
-    def _run(self, db_path: str | None) -> dict:
+    def _run(self, db_path: str | None, scope=None) -> dict:
         """One STREAMED pass over certs ⋈ assets (build 455). Every number is computed exactly
         as before (same SQL, same row order, same per-(asset, expiry) dedupe), but the rows
         are written to the result store (core.payload) as they go instead of being kept in
         Python lists and shipped to the page: the page gets the decision data and pages the
         certificate / crown / IoT lists through the `drill` action. Memory: one dedupe key
-        per in-scope (asset, date) pair + integer asset ids for the distinct counts."""
-        from core import payload
+        per in-scope (asset, date) pair + integer asset ids for the distinct counts.
+
+        scope = (tag_key, tag_value) (build 489): only the certificates ON the assets carrying
+        that tag, and only the cert-issue plugin hits on them. Every per-certificate value is
+        computed exactly as for the whole estate; only the population changes. A scoped run goes
+        to its own result store (TAG_STORE, hound "certificate_tag"), so it never prunes the
+        estate's run. scope=None is byte-for-byte the whole-estate run."""
+        from core import payload, tagscope
+        sk, sv = scope if scope else (None, None)
+        sfrag, sargs = tagscope.sql(sk, sv, "c.asset_uuid")
+        vfrag, vargs = tagscope.sql(sk, sv, "asset_uuid")
         today = datetime.date.today()
         try:
             end = today.replace(year=today.year + 1)
@@ -111,7 +120,11 @@ class CertificateAgent(Agent):
             end = today.replace(year=today.year + 1, day=28)
 
         # --- meta ---
-        asset_total = db.scalar("SELECT count(uuid) FROM assets;", path=db_path)
+        if sk:
+            afrag, aargs = tagscope.sql(sk, sv, "uuid")
+            asset_total = db.scalar("SELECT count(uuid) FROM assets WHERE 1=1" + afrag + ";", aargs, path=db_path)
+        else:
+            asset_total = db.scalar("SELECT count(uuid) FROM assets;", path=db_path)
         try:
             fresh = db.scalar("SELECT MAX(last_found) FROM vulns;", path=db_path)
         except Exception:
@@ -128,13 +141,14 @@ class CertificateAgent(Agent):
                     + col("organization") + ", " + col("organization_unit") + ", " + col("not_valid_after") + ", "
                     + col("signature_algorithm") + ", " + col("key_length") + extra
                     + (", a.acr" if "acr" in ac else "") +
-                    " FROM certs c LEFT JOIN assets a ON a.uuid = c.asset_uuid;")
+                    " FROM certs c LEFT JOIN assets a ON a.uuid = c.asset_uuid"
+                    + (" WHERE 1=1" + sfrag if sk else "") + ";")
 
         # --- Heat map 2 source ---
         matrix = db.query(
             "SELECT plugin_id, plugin_name, COUNT(DISTINCT asset_uuid) AS asset_count "
-            "FROM vulns WHERE plugin_name LIKE '%Certificate%' "
-            "GROUP BY plugin_id, plugin_name ORDER BY asset_count DESC;", path=db_path)
+            "FROM vulns WHERE plugin_name LIKE '%Certificate%'" + vfrag + " "
+            "GROUP BY plugin_id, plugin_name ORDER BY asset_count DESC;", vargs, path=db_path)
 
         win0 = _month_add(today.year, today.month, -11)          # first month of the 12-month look-back
         win0_key = f"{win0[0]:04d}-{win0[1]:02d}"
@@ -174,10 +188,10 @@ class CertificateAgent(Agent):
         cr = {}                                   # crown asset -> rollup (bounded by crown assets in scope)
         by_val = {}                               # tag value -> {first row, raws, assets(int set)}
         iot_seen, iot_n = set(), {"IoT": 0, "Application": 0, "Unknown": 0}
-        W = payload.STORE.begin("certificate")
+        W = (TAG_STORE.begin(TAG_HOUND) if sk else payload.STORE.begin("certificate"))
         W.section("certs"); W.section("crown"); W.section("iot")
         try:
-            for r in db.iter(cert_sql, path=db_path, budget="job"):
+            for r in db.iter(cert_sql, sargs, path=db_path, budget="job"):
                 C["cert_rows"] += 1
                 u = r.get("asset_uuid")
                 S["all"].add(aid(u))
@@ -298,6 +312,8 @@ class CertificateAgent(Agent):
             for c in crown_l:
                 W.add("crown", c, uid=c["asset_uuid"], text=" ".join(str(x or "") for x in (c["host"], c["ip"], " ".join(c["cns"]))))
             W.meta = {"window_end": end.isoformat()}
+            if sk:
+                W.meta["scope"] = {"key": sk, "value": sv}
         except BaseException:
             W.close(ok=False)
             raise
@@ -354,7 +370,7 @@ class CertificateAgent(Agent):
                 "tool_call": (f'navi enrich tag --c "{tagname.effective("Cert failure")}" --v "{r["tag_value"]}" '
                               f'--query "{q}"')})
 
-        return {
+        out = {
             "generated": today.isoformat(),
             "window_start": today.isoformat(), "window_end": end.isoformat(),
             "asset_total": asset_total, "cert_rows": C["cert_rows"], "db_fresh": fresh,
@@ -367,8 +383,79 @@ class CertificateAgent(Agent):
             "lookback_start": win0_key,
             "run": W.run,
         }
+        if sk:
+            out["scope"] = tagscope.describe(sk, sv, db_path)
+        return out
 
 
 def _neg_iso(iso):
     """Sort key that orders ISO dates descending inside an ascending sort."""
     return tuple(-ord(ch) for ch in iso)
+
+
+# ── build 489: tag views keep their own drill rows ──────────────────────────────────────────
+TAG_HOUND = "certificate_tag"
+TAG_KEEP_PER_SCOPE = 2              # the run a cached tag page shows + one newer (run in flight)
+
+
+def _scope_of(meta):
+    sc = (meta or {}).get("scope") or {}
+    return (sc.get("key"), sc.get("value")) if sc.get("key") else None
+
+
+def _make_tag_store():
+    from core import payload, tagscope
+
+    class _TagStore(payload.ResultStore):
+        """Same results.db as payload.STORE, but tag runs live under their own hound id and are
+        pruned per tag: the newest TAG_KEEP_PER_SCOPE runs of each of the newest MAX_TAGS tags.
+        So a tag run never evicts the whole estate's rows, nor another recent tag's."""
+
+        def path(self):
+            return payload.STORE.path()
+
+        def prune(self, hound, keep_run=None, keep=None):
+            if hound != TAG_HOUND:
+                return super().prune(hound, keep_run, keep)
+            import json as _j
+            import time as _t
+            con = self._connect()
+            try:
+                rs = con.execute("SELECT run, meta, built_at, done FROM runs WHERE hound=? ORDER BY built_at DESC",
+                                 (hound,)).fetchall()
+            finally:
+                con.close()
+            def sc_of(meta):
+                try:
+                    return _scope_of(_j.loads(meta or "{}"))
+                except Exception:
+                    return None
+            per, order, old = {}, [], []
+            for run, meta, _b, _d in rs:            # the run just written counts first
+                if run == keep_run:
+                    sc = sc_of(meta)
+                    if sc:
+                        order.append(sc); per[sc] = 1
+            for run, meta, built, done in rs:
+                if run == keep_run:
+                    continue
+                sc = sc_of(meta)
+                if sc is None:                      # still being written (or abandoned > 3 h ago)
+                    if not done and (built or 0) > _t.time() - 3 * 3600:
+                        continue
+                    old.append(run)
+                    continue
+                if sc not in per:
+                    per[sc] = 0
+                    order.append(sc)
+                per[sc] += 1
+                if order.index(sc) >= tagscope.MAX_TAGS or per[sc] > TAG_KEEP_PER_SCOPE:
+                    old.append(run)
+            for r in old:
+                self.drop(r)
+
+    return _TagStore()
+
+
+TAG_STORE = _make_tag_store()
+

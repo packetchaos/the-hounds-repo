@@ -20,6 +20,7 @@
     "release_plan",
     "release_start",
     "release_status",
-    "release_cancel"
+    "release_cancel",
+    "tag_scopes"
   ]
 }

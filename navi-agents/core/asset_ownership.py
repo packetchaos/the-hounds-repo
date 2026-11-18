@@ -21,7 +21,7 @@ tag. All reads are read-only; every write goes through the gated navi tag path.
 """
 import re
 
-from core import db, hx_summary, navi_cli, tagname
+from core import db, hx_summary, navi_cli, tagname, tagscope
 from core import cloud as _cloud
 
 CROWN_ACR = 9
@@ -38,6 +38,22 @@ _OWNER_KEYS = {"Owner", BUSINESS_OWNER_KEY, ASSET_OWNER_KEY}
 # plugin id is in that route's plugin_list (stored like ['51192','187315']).
 _RA = ("WITH ra AS (SELECT DISTINCT r.app_name app, v.asset_uuid au "
        "FROM vuln_route r JOIN vulns v ON r.plugin_list LIKE '%''' || v.plugin_id || '''%') ")
+
+
+def _sc(scope, col):
+    """Build 489 — the tag-scope WHERE fragment (' AND col IN (SELECT asset_uuid FROM tags …)')
+    and its params for `col`; ('', ()) for the whole estate (scope None) so every estate
+    statement stays exactly what it was."""
+    if not scope:
+        return "", ()
+    return tagscope.sql(scope[0], scope[1], col)
+
+
+def _scope(scope):
+    """A (key, value) pair, or None for the whole estate."""
+    if isinstance(scope, (tuple, list)) and len(scope) == 2 and scope[0] and scope[1]:
+        return (str(scope[0]), str(scope[1]))
+    return None
 
 
 def _q(sql, args=(), path=None):
@@ -74,16 +90,21 @@ def _asset_cols(path=None):
     return {r["name"] for r in _q("PRAGMA table_info(assets)", path=path)}
 
 
-def assets_with_tags(db_path=None) -> list[dict]:
+def assets_with_tags(db_path=None, scope=None) -> list[dict]:
     """Every asset with its attributes AND all its tags — the object the NL
-    processor reasons over (it can filter on any tag key/value or attribute)."""
+    processor reasons over (it can filter on any tag key/value or attribute).
+    scope=(key, value) (build 489): only the assets carrying that tag, read from navi.db."""
     if not _has_table("assets", db_path):
         return []
+    scope = _scope(scope)
+    fa, pa = _sc(scope, "uuid")
+    ft, pt = _sc(scope, "asset_uuid")
     cols = _asset_cols(db_path)
     acr = "acr" if "acr" in cols else "NULL AS acr"
     aes = "aes" if "aes" in cols else "NULL AS aes"
     url = "url" if "url" in cols else "NULL AS url"
-    rows = _q(f"SELECT uuid, hostname, ip_address ip, {acr}, {aes}, {url} FROM assets", path=db_path)
+    rows = _q(f"SELECT uuid, hostname, ip_address ip, {acr}, {aes}, {url} FROM assets"
+              + (" WHERE 1=1" + fa if scope else ""), pa, path=db_path)
     by = {}
     cloud_cols = _cloud.columns(cols)
     for r in rows:
@@ -95,11 +116,11 @@ def assets_with_tags(db_path=None) -> list[dict]:
                  "tags": [], "_tagmap": {}}
     if cloud_cols:
         cc = ", ".join(cloud_cols)
-        for r in _q(f"SELECT uuid, {cc} FROM assets", path=db_path):
+        for r in _q(f"SELECT uuid, {cc} FROM assets" + (" WHERE 1=1" + fa if scope else ""), pa, path=db_path):
             u = r.get("uuid")
             if u in by and any(_cloud.present(r.get(c)) for c in cloud_cols):
                 by[u]["cloud"] = True
-    for r in _q("SELECT asset_uuid, tag_key, tag_value FROM tags WHERE asset_uuid IS NOT NULL", path=db_path):
+    for r in _q("SELECT asset_uuid, tag_key, tag_value FROM tags WHERE asset_uuid IS NOT NULL" + ft, pt, path=db_path):
         e = by.get(r.get("asset_uuid"))
         if not e:
             continue
@@ -114,7 +135,7 @@ def assets_with_tags(db_path=None) -> list[dict]:
     return list(by.values())
 
 
-def _route_members(db_path=None) -> dict:
+def _route_members(db_path=None, scope=None) -> dict:
     """uuid -> set(route app_name) it sits on.
 
     Build 455: the old form joined vuln_route to EVERY vulns row with a LIKE on the quoted
@@ -126,6 +147,7 @@ def _route_members(db_path=None) -> dict:
     out = {}
     if not _has_table("vuln_route", db_path):
         return out
+    fs, ps = _sc(scope, "asset_uuid")          # build 489: only the tag's assets' findings
     hv = db.indexed_by("hx_v_plugin", db_path)
     for r in _q("SELECT app_name, plugin_list FROM vuln_route", path=db_path):
         app = r.get("app_name")
@@ -135,8 +157,8 @@ def _route_members(db_path=None) -> dict:
         for i in range(0, len(pids), 500):
             part = pids[i:i + 500]
             try:
-                for (u,) in db.iter("SELECT DISTINCT asset_uuid FROM vulns%s WHERE plugin_id IN (%s)"
-                                    % (hv, ",".join("?" * len(part))), tuple(part), path=db_path,
+                for (u,) in db.iter("SELECT DISTINCT asset_uuid FROM vulns%s WHERE plugin_id IN (%s)%s"
+                                    % (hv, ",".join("?" * len(part)), fs), tuple(part) + tuple(ps), path=db_path,
                                     tuples=True, budget="job"):
                     if u:
                         out.setdefault(u, set()).add(app)
@@ -145,17 +167,18 @@ def _route_members(db_path=None) -> dict:
     return out
 
 
-def _path_members(db_path=None) -> dict:
+def _path_members(db_path=None, scope=None) -> dict:
     out = {}
     if not _has_table("vuln_paths", db_path):
         return out
-    for r in _q("SELECT DISTINCT asset_uuid au, path FROM vuln_paths WHERE path IS NOT NULL", path=db_path):
+    fs, ps = _sc(scope, "asset_uuid")
+    for r in _q("SELECT DISTINCT asset_uuid au, path FROM vuln_paths WHERE path IS NOT NULL" + fs, ps, path=db_path):
         if r.get("au"):
             out.setdefault(r["au"], set()).add(r["path"])
     return out
 
 
-def _vuln_risk(db_path=None) -> dict:
+def _vuln_risk(db_path=None, scope=None) -> dict:
     """uuid -> (open critical findings, has an open CISA-KEV finding). Read-only; tolerant
     of a missing vulns table or columns (navi.db shapes vary). Fixed findings are skipped
     when navi recorded a state."""
@@ -173,20 +196,41 @@ def _vuln_risk(db_path=None) -> dict:
         # critical/'4' (per finding, exact), .kev = an open finding of a CISA-KEV plugin;
         # n_open > 0 keeps exactly the assets the GROUP BY over open findings returned
         out = {}
-        for r in _q("SELECT asset_uuid u, crit c, kev k FROM hx_asset WHERE n_open > 0", path=db_path):
+        fs, ps = _sc(scope, "asset_uuid")
+        for r in _q("SELECT asset_uuid u, crit c, kev k FROM hx_asset WHERE n_open > 0" + fs, ps, path=db_path):
             if r.get("u"):
                 out[r["u"]] = (int(r.get("c") or 0), bool(r.get("k")))
         return out
     sev = "lower(severity) IN ('critical','4')" if "severity" in vc else "0"
     kev = "xrefs LIKE '%CISA-KNOWN-EXPLOITED%'" if "xrefs" in vc else "0"
     where = ("WHERE lower(COALESCE(state,'open')) IN ('open','reopened')" if "state" in vc else "")
+    fs, ps = _sc(scope, "asset_uuid")
+    if fs:
+        where = (where or "WHERE 1=1") + fs
     out = {}
     for r in _q(f"SELECT asset_uuid u, SUM(CASE WHEN {sev} THEN 1 ELSE 0 END) c, "
                 f"MAX(CASE WHEN {kev} THEN 1 ELSE 0 END) k FROM vulns {where} GROUP BY asset_uuid",
-                path=db_path):
+                ps, path=db_path):
         if r.get("u"):
             out[r["u"]] = (int(r.get("c") or 0), bool(r.get("k")))
     return out
+
+
+def _any_open_finding(db_path=None) -> bool:
+    """Build 489: the whole-estate meaning of kpi.has_vulns ("the estate's _vuln_risk is not
+    empty") for a tag view, whose own risk map may be empty — one LIMIT 1 probe, not the rollup."""
+    if not _has_table("vulns", db_path):
+        return False
+    vc = {r["name"] for r in _q("PRAGMA table_info(vulns)", path=db_path)}
+    if "asset_uuid" not in vc:
+        return False
+    try:
+        if hx_summary.usable(db_path):
+            return bool(_q("SELECT 1 FROM hx_asset WHERE n_open > 0 AND asset_uuid IS NOT NULL LIMIT 1", path=db_path))
+    except Exception:
+        pass
+    where = ("lower(COALESCE(state,'open')) IN ('open','reopened') AND " if "state" in vc else "")
+    return bool(_q(f"SELECT 1 FROM vulns WHERE {where}asset_uuid IS NOT NULL AND asset_uuid<>'' LIMIT 1", path=db_path))
 
 
 def _nk(s):
@@ -293,7 +337,7 @@ def _hound_signals(a):
     return sig
 
 
-def _iter_assets_with_tags(db_path=None):
+def _iter_assets_with_tags(db_path=None, scope=None):
     """assets_with_tags(), STREAMED (build 455): assets ordered by uuid merge-joined with their
     tags ordered by (asset_uuid, rowid) — the covering tags(asset_uuid, …) index when present —
     so each asset's tags keep the table's order, as before. Each asset carries `_rid` (its
@@ -306,13 +350,15 @@ def _iter_assets_with_tags(db_path=None):
     url = "url" if "url" in cols else "NULL AS url"
     cloud_cols = _cloud.columns(cols)
     cc = "".join(", " + c for c in cloud_cols)
+    fa, pa = _sc(scope, "uuid")              # build 489: a tag view streams only the tag's assets
+    ft, pt = _sc(scope, "asset_uuid")
     arows = db.iter(f"SELECT rowid AS _rid, uuid, hostname, ip_address ip, {acr}, {aes}, {url}{cc} FROM assets "
-                    "WHERE uuid IS NOT NULL AND uuid<>'' ORDER BY uuid, rowid", path=db_path, budget="job")
+                    "WHERE uuid IS NOT NULL AND uuid<>''" + fa + " ORDER BY uuid, rowid", pa, path=db_path, budget="job")
     trows = iter(())
     if _has_table("tags", db_path):
         try:
-            trows = db.iter("SELECT asset_uuid, tag_key, tag_value FROM tags WHERE asset_uuid IS NOT NULL "
-                            "ORDER BY asset_uuid, rowid", path=db_path, budget="job", tuples=True)
+            trows = db.iter("SELECT asset_uuid, tag_key, tag_value FROM tags WHERE asset_uuid IS NOT NULL" + ft
+                            + " ORDER BY asset_uuid, rowid", pt, path=db_path, budget="job", tuples=True)
         except Exception:
             trows = iter(())
     tnext = next(trows, None)
@@ -346,16 +392,21 @@ def _iter_assets_with_tags(db_path=None):
         yield cur
 
 
-def _rollup(db_path, emit):
+def _rollup(db_path, emit, scope=None):
     """THE ownership rollup, one asset at a time (build 455). For every asset it builds the
     per-asset row exactly as before and calls emit(row, rid, is_crown, is_blind); the KPIs are
     accumulated as counters (no per-asset lists). Returns (kpi, owners list); raises LookupError
     when navi.db has no assets table."""
     if not _has_table("assets", db_path):
         raise LookupError("no assets table in navi.db — run `navi config update assets`")
-    routes_by = _route_members(db_path)
-    paths_by = _path_members(db_path)
-    risk_by = _vuln_risk(db_path)
+    scope = _scope(scope)
+    if scope and not _has_table("tags", db_path):
+        raise LookupError("no tags table in navi.db — run `navi config update assets` to filter by a tag")
+    # build 489: a tag view reads only the tag's assets; each asset's row is built exactly as in
+    # the whole estate (its own tags, routes, paths and findings), only the population changes
+    routes_by = _route_members(db_path, scope)
+    paths_by = _path_members(db_path, scope)
+    risk_by = _vuln_risk(db_path, scope)
     owners = {}                       # name -> {assets, crown, business, asset, tech}
     K = dict(n=0, with_surface=0, unclaimed=0, fully=0, biz=0, asset=0, tech=0, claimed_sum=0.0, claimed_n=0,
              surf_total=0, mit=0, acc=0, ign=0, owned=0, crown=0, crown_owned=0, crown_unclaimed=0, crown_biz=0,
@@ -363,7 +414,7 @@ def _rollup(db_path, emit):
              surface_items=0, ao_complete=0, ao_remainder=0, crit_assets=0, kev_findings=0, unowned_crit=0,
              unowned_crit_findings=0, unowned_kev=0)
     tu, tu_key = None, None
-    for a in _iter_assets_with_tags(db_path):
+    for a in _iter_assets_with_tags(db_path, scope):
         ro = routes_by.get(a["uuid"], set())
         pa = paths_by.get(a["uuid"], set())
         own = _asset_ownership(a, ro, pa)
@@ -480,7 +531,7 @@ def _rollup(db_path, emit):
         "surface_dispositioned": K["surf_disp"], "surface_handled": K["surf_handled"],
         "surface_handled_pct": pct(K["surf_handled"], K["surface_items"]),
         "crown_no_owner": K["crown_no_owner"],
-        "has_vulns": bool(risk_by),
+        "has_vulns": bool(risk_by) or (bool(scope) and _any_open_finding(db_path)),
         "crit_assets": K["crit_assets"],
         "kev_finding_assets": K["kev_findings"],
         "unowned_crit": K["unowned_crit"],
@@ -496,7 +547,7 @@ def _claimed_key(r):
     return r["claimed_pct"] if r["claimed_pct"] is not None else 999
 
 
-def overview(db_path=None) -> dict:
+def overview(db_path=None, scope=None) -> dict:
     """The Asset Ownership dashboard payload — per-asset rollup + KPIs + crown jewels (what the
     Hounds know) + blind spots. Read-only. The FULL result, for server-side callers and tests;
     the page reads overview_store() (summary + top lists + server-paged rows)."""
@@ -509,7 +560,7 @@ def overview(db_path=None) -> dict:
         if is_blind:
             blind.append((rid, row))
     try:
-        kpi, ol = _rollup(db_path, emit)
+        kpi, ol = _rollup(db_path, emit, scope)
     except LookupError as e:
         return {"ok": False, "error": str(e)}
     rows.sort(key=lambda t: (-(t[1]["acr"] or 0), _claimed_key(t[1]), t[0]))
@@ -536,14 +587,24 @@ def _row_flags(r):
     return [k for k, v in f.items() if v]
 
 
-def overview_store(db_path=None):
+STORE_NS = "asset_ownership"
+STORE_NS_TAG = "asset_ownership_tag"     # build 489: tag views' runs — never evict the estate's
+
+
+def overview_store(db_path=None, scope=None):
     """▶ Run for the page (build 455): the same rollup, STREAMED into the result store
     (core.payload) — every asset row once (sort keys ACR ↓ / claimed ↑ / table order, the
     scope flags, host/IP/owner search text), plus the crown jewels and blind spots as their own
     sections. Python keeps only the KPI counters and the owners. Returns
     {ok, run, kpi, owners (top 100), owners_total, signal_keys}."""
     from core import payload
-    W = payload.STORE.begin("asset_ownership")
+    scope = _scope(scope)
+    if scope:
+        if not _has_table("assets", db_path):
+            return {"ok": False, "error": "no assets table in navi.db — run `navi config update assets`"}
+        if not _has_table("tags", db_path):
+            return {"ok": False, "error": "no tags table in navi.db — run `navi config update assets` to filter by a tag"}
+    W = (payload.STORE.begin(STORE_NS_TAG, keep=tagscope.MAX_TAGS) if scope else payload.STORE.begin(STORE_NS))
     for sec in ("assets", "crown", "blind"):
         W.section(sec)
 
@@ -557,8 +618,10 @@ def overview_store(db_path=None):
         if is_blind:
             W.add("blind", row, uid=row["uuid"], keys=(neg_acr, rid))
     try:
-        kpi, ol = _rollup(db_path, emit)
+        kpi, ol = _rollup(db_path, emit, scope)
         W.meta = {"owners_total": len(ol)}
+        if scope:
+            W.meta["scope"] = {"key": scope[0], "value": scope[1]}
     except LookupError as e:
         W.close(ok=False)
         return {"ok": False, "error": str(e)}
@@ -706,22 +769,41 @@ def clean_filter(filt) -> dict:
     return filt
 
 
-def match_filter(filt, db_path=None) -> list:
+def match_filter(filt, db_path=None, scope=None) -> list:
     """The assets a plan's filter selects, re-evaluated HERE (apply never trusts a UUID list
-    from the page; it sends the plan's filter and the server rebuilds the set)."""
+    from the page; it sends the plan's filter and the server rebuilds the set). scope=(key,
+    value) (build 489): only among the assets carrying that tag, re-read from navi.db."""
     filt = clean_filter(filt)
-    return [a["uuid"] for a in assets_with_tags(db_path) if a.get("uuid") and _match_asset(a, filt)]
+    return [a["uuid"] for a in assets_with_tags(db_path, scope) if a.get("uuid") and _match_asset(a, filt)]
 
 
-def plan(prompt, db_path=None) -> dict:
+def in_scope(uuids, scope, db_path=None, chunk=900) -> list:
+    """Build 489: the uuids (in order) that carry the scope's tag in navi.db right now — a
+    write from a tag view keeps only these. scope None → the list unchanged."""
+    scope = _scope(scope)
+    uu = [u for u in (uuids or []) if u]
+    if not scope:
+        return uu
+    if not _has_table("tags", db_path):
+        return []
+    have = set()
+    for i in range(0, len(uu), chunk):
+        part = uu[i:i + chunk]
+        for r in _q("SELECT DISTINCT asset_uuid FROM tags WHERE tag_key=? AND tag_value=? AND asset_uuid IN (%s)"
+                    % ",".join("?" * len(part)), (scope[0], scope[1]) + tuple(part), db_path):
+            have.add(r["asset_uuid"])
+    return [u for u in uu if u in have]
+
+
+def plan(prompt, db_path=None, scope=None) -> dict:
     """Turn a plain-English instruction into a preview: which owner, which layer
     (business vs single asset owner), and the matched assets — considering each
     asset's attributes AND its existing tags. Nothing is written."""
     prompt = (prompt or "").strip()
     if not prompt:
         return {"ok": False, "error": "describe who owns which assets"}
-    schema = tag_schema(db_path)
-    assets = assets_with_tags(db_path)
+    schema = tag_schema(db_path)            # the vocabulary stays the estate's: a tag view only
+    assets = assets_with_tags(db_path, scope)   # narrows WHICH assets match (build 489)
     owner_names = []
     try:
         from agents.exproute.agent import owners as _owners

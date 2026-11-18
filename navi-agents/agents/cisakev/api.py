@@ -10,10 +10,14 @@
                    due date: CISA KEV Due:<YYYY-MM-DD> (navi tag-by-CVE).
 `tag_ransomware` — gated; tag the assets behind ransomware-linked KEVs CISA KEV:Ransomware.
 `nl`             — NL → one read-only SELECT to hunt KEV in navi.db / tags.
+
+Tag filter (build 489): run and every tag_* action honour {tag_scope:{key,value}} — the whole
+page is rebuilt over the tag's assets, and a write from a tag view tags only assets carrying
+that tag (the set re-read from navi.db here, never from the browser). source / nl ignore it.
 """
-from core import downloads, navi_cli, llm, kev
+from core import downloads, navi_cli, llm, kev, tagscope
 from .agent import CisaKevAgent, kev_dates, summary as _xref_summary
-from .agent import tag_vulnerable as _tag_vuln, tag_date as _tag_date
+from .agent import tag_vulnerable as _tag_vuln, tag_date as _tag_date, fmt_date, xref_view, scoped_xref_sql
 from core.gates import confirmed
 
 AGENT = CisaKevAgent()
@@ -44,8 +48,15 @@ def source(p):
 _UPLOAD = {"text": ""}   # the catalog the PAGE last uploaded, so tag actions use the SAME due dates
 
 
+def _scope(p):
+    k, v = tagscope.parse(p)
+    return (k, v) if k else None
+
+
 def run(p):
-    base = AGENT.run()                                     # xref summary + dateAdded list
+    scope = _scope(p)
+    # a tag view never touches AGENT.result (the whole estate's last run)
+    base = xref_view(None, scope) if scope else AGENT.run()   # xref summary + dateAdded list
     # only a page run (it always sends json_text / approved) updates the remembered upload —
     # the Contract's discovery runs this with {} and must not wipe it
     if "json_text" in p or "approved" in p:
@@ -53,21 +64,26 @@ def run(p):
     # live download only when approved: by the human (approved:true) or Settings → Auto-approve
     live, by = downloads.allowed(p)
     try:
-        a = kev.analyze(json_text=_UPLOAD["text"], force=bool(p.get("refresh_catalog")), allow_live=live)
+        a = kev.analyze(json_text=_UPLOAD["text"], force=bool(p.get("refresh_catalog")), allow_live=live,
+                        **({"scope": scope} if scope else {}))
     except Exception as e:
         a = {"ok": False, "error": f"could not read the CISA KEV catalog: {e}"}
-    return {"ok": True, "agent": AGENT.meta(), "result": {**base, "kev": a}, "approved_by": by}, 200
+    res = {**base, "kev": a}
+    if scope:
+        res["scope"] = tagscope.describe(*scope)
+    return {"ok": True, "agent": AGENT.meta(), "result": res, "approved_by": by}, 200
 
 
-def _cves_for(pred, p):
+def _cves_for(pred, p, scope=None):
     # live vs snapshot decided by THIS request's approval (the page sends approved with each
     # tag action, as with run) — not a process-wide flag another caller can overwrite
     a = kev.analyze(json_text=_UPLOAD["text"], keep_uuids=True,
-                    allow_live=downloads.allowed(p)[0])          # catalog is cached — cheap
+                    allow_live=downloads.allowed(p)[0],          # catalog is cached — cheap
+                    **({"scope": scope} if scope else {}))
     return [c for c in a.get("cves", []) if pred(c)]
 
 
-def _tag_rows(category, value, rows):
+def _tag_rows(category, value, rows, scope=None):
     """Tag the assets with an OPEN finding for these KEV CVEs (navi --cve would also match
     FIXED findings and longer ids by LIKE). The set is core.kev.cve_tag_query — the analysis'
     own rule as SQL — computed here (streamed) and paged: ≤1,999 per navi job, a series above."""
@@ -75,6 +91,9 @@ def _tag_rows(category, value, rows):
     q = kev.cve_tag_query(rows)
     if not q:
         return []
+    if scope:                       # a tag view: only assets carrying the tag (re-read from navi.db)
+        frag, args = tagscope.sql(scope[0], scope[1], "asset_uuid")
+        return navi_cli.tag_set(category, value, sql=q + frag, params=args, agent="cisakev")
     return navi_cli.tag_set(category, value, sql=q, agent="cisakev")
 
 
@@ -85,33 +104,57 @@ def tag_due(p):
     want = {d for d in (p.get("dues") or []) if (d or "").strip()}
     if not want:
         return {"ok": False, "error": "no due dates supplied"}, 400
-    rows = _cves_for(lambda c: c.get("due_date") in want, p)
+    scope = _scope(p)
+    rows = _cves_for(lambda c: c.get("due_date") in want, p, scope)
     if not rows:
-        return {"ok": False, "error": "none of those due dates have KEV CVEs on assets in navi.db"}, 400
+        return {"ok": False, "error": "none of those due dates have KEV CVEs on assets in navi.db"
+                + _where(scope)}, 400
     results = []
     for due in sorted(want):
-        jobs = _tag_rows(DUE_CATEGORY, due, [r for r in rows if r["due_date"] == due])
+        jobs = _tag_rows(DUE_CATEGORY, due, [r for r in rows if r["due_date"] == due], scope)
         ids = [j["job_id"] for j in jobs if j.get("job_id") is not None]
         results.append({"due_date": due, "cves": sum(1 for r in rows if r["due_date"] == due),
                         "jobs": len(ids), "queued": bool(ids)})
     return {"ok": True, "queued": sum(r["jobs"] for r in results), "results": results,
-            "writes_enabled": navi_cli.writes_enabled()}, 200
+            "writes_enabled": navi_cli.writes_enabled(), **_scoped(scope)}, 200
+
+
+def _where(scope):
+    return (" tagged %s" % tagscope.label(*scope)) if scope else ""
+
+
+def _scoped(scope):
+    return {"scope": tagscope.describe(*scope)} if scope else {}
 
 
 def tag_ransomware(p):
     if not confirmed(p):
         return {"ok": False, "error": "confirm=true required to write tags"}, 400
-    rows = _cves_for(lambda c: c.get("ransomware"), p)
+    scope = _scope(p)
+    rows = _cves_for(lambda c: c.get("ransomware"), p, scope)
     if not rows:
-        return {"ok": False, "error": "no ransomware-linked KEV CVEs on assets in navi.db"}, 400
-    ids = [j["job_id"] for j in _tag_rows("CISA KEV", "Ransomware", rows)
+        return {"ok": False, "error": "no ransomware-linked KEV CVEs on assets in navi.db" + _where(scope)}, 400
+    ids = [j["job_id"] for j in _tag_rows("CISA KEV", "Ransomware", rows, scope)
            if j.get("job_id") is not None]
-    return {"ok": True, "queued": len(ids), "cves": len(rows), "writes_enabled": navi_cli.writes_enabled()}, 200
+    return {"ok": True, "queued": len(ids), "cves": len(rows), "writes_enabled": navi_cli.writes_enabled(),
+            **_scoped(scope)}, 200
+
+
+def _tag_xref_scoped(value, scope, kev_date=None):
+    """A tag view's --xrefs [--xid] tag: the tag's KEV assets, computed from navi.db and paged."""
+    sql, args = scoped_xref_sql(scope, kev_date)
+    return navi_cli.jobs_summary(navi_cli.tag_set("CISA KEV", value, sql=sql, params=args, agent="cisakev"))
 
 
 def tag_vulnerable(p):
     if not confirmed(p):
         return {"ok": False, "error": "confirm=true required to write tags"}, 400
+    scope = _scope(p)
+    if scope:
+        r = _tag_xref_scoped("Vulnerable", scope)
+        if not r["jobs"]:
+            return {"ok": False, "error": "no assets with a CISA KEV xref" + _where(scope)}, 400
+        return {**r, "queued": len(r["job_ids"]), "writes_enabled": navi_cli.writes_enabled(), **_scoped(scope)}, 200
     r = _tag_vuln()
     return {"ok": r.get("ok", False), **r, "writes_enabled": navi_cli.writes_enabled()}, 200
 
@@ -119,8 +162,9 @@ def tag_vulnerable(p):
 def tag_dates(p):
     if not confirmed(p):
         return {"ok": False, "error": "confirm=true required to write tags"}, 400
+    scope = _scope(p)
     dates = p.get("dates")
-    known = [d["kev_date"] for d in kev_dates()]
+    known = [d["kev_date"] for d in kev_dates(None, scope)]   # a tag view: only dates on the tag's assets
     if dates is None:                       # default: every catalog date present
         dates = known
     if not isinstance(dates, list):
@@ -129,9 +173,12 @@ def tag_dates(p):
     dates = [d for d in dates if isinstance(d, str) and d.strip() in ks]   # only KEV dates in navi.db
     if not dates:
         return {"ok": False, "error": "no KEV dates supplied / found"}, 400
-    results = [{"kev_date": d, **_tag_date(d)} for d in dates]
+    if scope:
+        results = [{"kev_date": d, **_tag_xref_scoped(fmt_date(d.strip()), scope, d.strip())} for d in dates]
+    else:
+        results = [{"kev_date": d, **_tag_date(d)} for d in dates]
     return {"ok": True, "queued": len(results), "results": results,
-            "writes_enabled": navi_cli.writes_enabled()}, 200
+            "writes_enabled": navi_cli.writes_enabled(), **_scoped(scope)}, 200
 
 
 _SCHEMA = ("vulns(asset_uuid, plugin_id, plugin_name, cves, xrefs, severity, state, url) — "

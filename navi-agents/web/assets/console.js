@@ -35,7 +35,10 @@
    result the job left in the server cache) and, when the payload says optimize, a link to
    Settings → ⚡ Optimize. budget_partial answers are never stored in the page cache (HC). */
 const H_WRITE_RE = /^(apply|bulk_apply|assign|tag|tag_.+|.+_tag|tags_.+|send|send_.+|delete|remove|rotate|encrypt|decrypt|refresh|save|set|set_.+|.+_set|toggle|add_.+|arm|disarm|run_now|command|upload|push_file|campaign|abort|verify|run_checks|cred_test|path_check|deploy|rollback|promote|ignore_.+|detections_.+|evaluate|test|trust|run_all|reset_usage|navi_.+|build_from_.+)$/;
-const H_READ_OK = new Set(['tag_plan','os_plan','detections_export']);   // read actions whose names look like writes
+/* build 489: the one ▶ Run click mountTagScope makes for "▶ Run for this tag" counts as the
+   operator's own (recorded as a run step) — only for that button, only while it is dispatched */
+function hTsClick(ev){ const t=window.__TS_CLICK; return !!(t && ev && ev.target && (ev.target===t || (t.contains && t.contains(ev.target)))); }
+const H_READ_OK = new Set(['tag_plan','os_plan','detections_export','tag_scopes']);   // read actions whose names look like writes
 const HB = (function(){
   const TAB = Date.now().toString(36)+Math.random().toString(36).slice(2,10);
   const S = { ran: /(?:^|[?&])run=1(?:&|$)/.test(location.search), lastBtn:null, last:null, seq:0 };
@@ -48,7 +51,7 @@ const HB = (function(){
     try{ const b=typeof body==='string'?JSON.parse(body):null; return !!(b && b._run); }catch(e){ return false; } }
   const isRunBtn = b => !!b && (b.hasAttribute('data-run') || /^\s*▶/.test(b.textContent||''));
   document.addEventListener('click', ev=>{
-    if(!ev.isTrusted) return;
+    if(!ev.isTrusted && !hTsClick(ev)) return;
     const b=ev.target && ev.target.closest && ev.target.closest('button,a[data-run]');
     if(b && !b.disabled && isRunBtn(b) && !b.closest('#hbBanner')) markRun(b);
   }, true);
@@ -446,7 +449,7 @@ const HC = (function(){
   /* user-driven recording: a trusted click on a data-run button starts/extends the run */
   if(ENABLED){
     document.addEventListener('click', ev=>{
-      if(!ev.isTrusted || S.mode!=='live') return;
+      if((!ev.isTrusted && !hTsClick(ev)) || S.mode!=='live') return;
       const b=ev.target.closest && ev.target.closest('button[data-run],a[data-run]'); if(!b || !b.id) return;
       if(!S.entry) S.entry=blank();
       const steps=S.entry.steps, i=steps.findIndex(s=>s.id===b.id);
@@ -812,8 +815,88 @@ function focusRow(tableSel, text){
 
 async function jget(u){ const r = await fetch(u); return r.json(); }
 async function jpost(u, b){
+  // build 489: a tag-scoped page (mountTagScope) adds {tag_scope:{key,value}} to every POST to
+  // its OWN hound; the launcher refuses it on an action that doesn't declare tag_scope, so no
+  // action silently ignores it. (Its own name: tag_key / tag_value mean other things in hounds.)
+  // the hound the page mounted the filter for — NOT window.__AGENT_ID, which any later
+  // agentApi('email') (hMailAuto) etc. overwrites
+  const ts = window.__TAG_SCOPE, ta = window.__TAG_SCOPE_AGENT;
+  if(ts && ta && String(u).startsWith('/api/'+ta+'/')
+     && !(b && Object.prototype.hasOwnProperty.call(b,'tag_scope')))
+    b = Object.assign({}, b||{}, {tag_scope:{key:ts.key, value:ts.value}});
   const r = await fetch(u, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(b||{})});
   return r.json();
+}
+
+/* ---- Tag filter (build 489) — run a hound over ONE tag's assets ----------------------------
+   mountTagScope({agent, note}) puts a bar at the top of the page:
+     🌐 Whole estate · the last 5 tags this hound ran on (⚡ when each was last run) · pick a tag
+   A tag view is the same page at ?tk=<key>&tv=<value>: its own page-cache entry on the server
+   (switching shows that tag's last run at once, never re-runs it), and every POST the page
+   sends to its hound carries {tag_scope:{key, value}}. "▶ Run for this tag" opens the tag view and
+   presses the page's ▶ Run once — the click is yours; opening a tag view from a chip or a link
+   never runs anything. Writes made from a tag view stay inside the tag (re-read on the server).
+   tagScope() → {key, value} | null · tagScopeNote(prefix) → " (only assets tagged K : V)" | '' */
+function tagScope(){ return window.__TAG_SCOPE || null; }
+function tagScopeLabel(sc){ sc = sc===undefined ? tagScope() : sc; return sc ? sc.key+' : '+sc.value : 'Whole estate'; }
+function tagScopeNote(prefix){ const sc=tagScope(); return sc ? (prefix==null?' (only assets tagged ':prefix)+sc.key+' : '+sc.value+(prefix==null?')':'') : ''; }
+function tagScopeHref(sc){ return location.pathname + (sc ? '?tk='+encodeURIComponent(sc.key)+'&tv='+encodeURIComponent(sc.value) : ''); }
+(function(){ try{ const q=new URLSearchParams(location.search), k=(q.get('tk')||'').trim(), v=(q.get('tv')||'').trim();
+  if(k && v && location.pathname.startsWith('/agents/')) window.__TAG_SCOPE_URL={key:k, value:v}; }catch(e){} })();
+function mountTagScope(opts){
+  opts = opts||{}; const agent = opts.agent || window.__AGENT_ID; if(!agent) return;
+  window.__TAG_SCOPE = window.__TAG_SCOPE_URL || null;
+  window.__TAG_SCOPE_AGENT = agent;
+  const sc = window.__TAG_SCOPE;
+  if(!document.getElementById('tsStyle')){ const st=document.createElement('style'); st.id='tsStyle'; st.textContent=
+   '.tsbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:0 0 12px;padding:8px 12px;border:1px solid var(--line);border-radius:12px;background:var(--panel)}'
+   +'.tsbar .tsl{font-weight:600;font-size:12.5px}.tsbar .tschips{display:flex;flex-wrap:wrap;gap:6px}'
+   +'.tsbar .tschips a{font-size:12px;border:1px solid var(--line);border-radius:999px;padding:3px 10px;color:var(--ink);text-decoration:none}'
+   +'.tsbar .tschips a.on{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 16%,transparent)}'
+   +'.tsbar .tschips .st{color:var(--ink-3,var(--muted));margin-left:4px;font-size:11px}'
+   +'.tsbar .tspick{display:flex;flex-wrap:wrap;gap:6px;margin-left:auto}.tsbar select{max-width:220px}'
+   +'.tsnote{border-left:3px solid var(--accent);padding:6px 10px;margin:0 0 12px;font-size:12.5px}';
+   document.head.appendChild(st); }
+  const bar=document.createElement('div'); bar.className='tsbar'; bar.id='tagScopeBar';
+  bar.innerHTML='<span class="tsl">🏷 Tag filter</span><div class="tschips" id="tsChips"><span class="sub" style="margin:0">…</span></div>'
+   +'<span class="tspick"><select id="tsKey" aria-label="tag category"><option value="">+ a tag category…</option></select>'
+   +'<select id="tsVal" aria-label="tag value" disabled><option value="">value…</option></select>'
+   +'<button class="btn sm" id="tsGo" disabled>▶ Run for this tag</button></span>';
+  const note=document.createElement('div'); note.className='tsnote sub'; note.id='tagScopeNote';
+  note.innerHTML = sc ? 'Showing only the assets tagged <b>'+esc(tagScopeLabel(sc))+'</b>. Every number, list and tag write on this page covers only them'
+     +(opts.note?' — '+esc(String(opts.note).replace(/[.\s]+$/,'')):'')+'. <a href="'+esc(tagScopeHref(null))+'">Back to the whole estate</a>' : '';
+  const anchor = opts.before || document.querySelector('main section.card, .wrap section.card, section.card');
+  if(anchor && anchor.parentNode){ anchor.parentNode.insertBefore(bar, anchor); if(sc) anchor.parentNode.insertBefore(note, anchor); }
+  else { document.body.insertBefore(bar, document.body.firstChild); }
+  const t=ms=>{ if(!ms) return 'not run'; const d=new Date(ms); return '⚡ '+(d.toDateString()===new Date().toDateString()?d.toTimeString().slice(0,5):d.toISOString().slice(5,10)); };
+  const same=(a,b)=>(!a&&!b)||(!!a&&!!b&&a.key===b.key&&a.value===b.value);
+  const loadChips=()=>jpost('/api/hub/tag_scopes',{agent}).then(o=>{ if(!o||!o.ok) return; const R=o.result||{};
+    let L=R.scopes||[]; if(sc && !L.some(x=>x.key&&same({key:x.key,value:x.value},sc))) L.splice(1,0,{key:sc.key,value:sc.value,label:tagScopeLabel(sc)});
+    document.getElementById('tsChips').innerHTML=L.map(x=>{ const s2=x.key?{key:x.key,value:x.value}:null;
+      return '<a href="'+esc(tagScopeHref(s2))+'" class="'+(same(s2,sc)?'on':'')+'" title="'+esc(x.key?(Number(x.assets||0).toLocaleString()+' tagged asset(s) — opens its last run, runs nothing'):'every asset in navi.db')+'">'
+        +(x.key?'🏷 ':'🌐 ')+esc(x.label)+'<span class="st">'+esc(t(x.cached_at))+'</span></a>'; }).join('');
+    const ks=document.getElementById('tsKey'), cur=ks.value;
+    if(ks.options.length<2) ks.innerHTML='<option value="">+ a tag category…</option>'+(R.keys||[]).map(k=>'<option value="'+esc(k.key)+'">'+esc(k.key)+' ('+Number(k.assets).toLocaleString()+')</option>').join('');
+    ks.value=cur;
+  }).catch(()=>{});
+  loadChips();
+  // a run just finished (console's run tracker) → the chips' "last run" times move
+  window.addEventListener('hounds:ran', ()=>setTimeout(loadChips, 1500));
+  document.getElementById('tsKey').onchange=async e=>{ const k=e.target.value, vs=document.getElementById('tsVal');
+    document.getElementById('tsGo').disabled=true; vs.disabled=true; vs.innerHTML='<option value="">value…</option>'; if(!k) return;
+    let o; try{ o=await jpost('/api/hub/tag_scopes',{agent,key:k}); }catch(err){ return; }
+    if(!o||!o.ok||document.getElementById('tsKey').value!==k) return;
+    vs.innerHTML='<option value="">value…</option>'+((o.result||{}).values||[]).map(v=>'<option value="'+esc(v.value)+'">'+esc(v.value)+' ('+Number(v.assets).toLocaleString()+')</option>').join('');
+    vs.disabled=false; };
+  document.getElementById('tsVal').onchange=e=>{ document.getElementById('tsGo').disabled=!e.target.value; };
+  document.getElementById('tsGo').onclick=()=>{ const k=document.getElementById('tsKey').value, v=document.getElementById('tsVal').value; if(!k||!v) return;
+    try{ sessionStorage.setItem('tsRunOnce', tagScopeHref({key:k,value:v})); }catch(e){}
+    location.href=tagScopeHref({key:k,value:v}); };
+  // the ▶ Run the operator asked for with "▶ Run for this tag" — once, on this exact view only
+  let want=null; try{ want=sessionStorage.getItem('tsRunOnce'); sessionStorage.removeItem('tsRunOnce'); }catch(e){}
+  if(sc && want && want===location.pathname+location.search){
+    setTimeout(()=>{ const b=opts.runButton ? document.querySelector(opts.runButton) : document.querySelector('[data-run]');
+      if(b && !b.disabled){ window.__TS_CLICK=b; try{ b.click(); } finally { window.__TS_CLICK=null; } } }, opts.runDelay||600); }
 }
 const esc = s => String(s==null?'':s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 /* ---- URL hygiene for links built from data (navi.db fields, LLM output, catalogs) ----
@@ -1099,7 +1182,8 @@ const AGENT_INTRO = {
    "<b>Data-egress governance<\/b> — egress capability and destinations seen in plugin output, split sanctioned vs shadow by an allowlist you edit.",
    "<b>Why + false-positive control<\/b> — every row shows its evidence (source, term, plugin, snippet); dismiss a false positive per asset, per framework or everywhere.",
    "<b>MITRE ATLAS map<\/b> — AI-specific adversary techniques implied by each asset's role, exposure and egress — click a technique or tactic to list and tag its assets.",
-   "<b>Gated tags and ACR<\/b> — AI, AI Role, AI Software, AI Exposed, AI Priority, AI Egress and AI ATLAS tags; under-rated assets get AI ACR Raise and the role's suggested ACR."]},
+   "<b>Gated tags and ACR<\/b> — AI, AI Role, AI Software, AI Exposed, AI Priority, AI Egress and AI ATLAS tags; under-rated assets get AI ACR Raise and the role's suggested ACR.",
+   "<b>By tag<\/b> — run over one tag's assets: the same per-asset roles, exposure, risk and ACR as the whole estate, with every count, percentage and tag write limited to that tag. Switch between the whole estate and your last 5 tags without re-running."]},
  alert:{does:"Alert Raven watches navi.db for the conditions you choose and emails a digest when one newly fires. An alert is a number plus a condition: above or below a threshold, or a rise or drop since the last check. Start from a suggested pattern, or describe the alert in plain English, then test it before you save it.",caps:[
    "<b>Seven ready-made patterns<\/b> — credentialed-scan coverage, slow scans, new CISA KEV exposure, new criticals, certificates expiring within 30 days, ownerless assets, end-of-life software.",
    "<b>Alerts in plain English<\/b> — describe what to watch and Alert Raven drafts a read-only SQL metric, operator and threshold for review; without an AI model it builds the query from navi's tables.",
@@ -1121,7 +1205,8 @@ const AGENT_INTRO = {
    "<b>Crown jewels first<\/b> — assets with ACR ≥ 9 or a crown-jewel tag, unclaimed first, with what the other hounds already know about each one.",
    "<b>Risk without an owner<\/b> — unclaimed crown jewels, open critical and CISA KEV findings on unowned assets, and assets no hound has signaled on.",
    "<b>Owners in plain English<\/b> — \"assign Jane Smith to production\" — Terminus reads each asset's tags, previews who matches, and tags them on approval.",
-   "<b>Built for large estates<\/b> — the per-asset table pages and searches on the server; owner tagging runs as a background job, so 150,000 assets tag as easily as 50."]},
+   "<b>Built for large estates<\/b> — the per-asset table pages and searches on the server; owner tagging runs as a background job, so 150,000 assets tag as easily as 50.",
+   "<b>By tag<\/b> — run over one tag's assets (\"who owns MY assets?\"): every count, crown jewel, blind spot and owner covers only that tag, each asset's ownership is unchanged, and owner tags written from that view go only onto its assets. Switch between the whole estate and your last 5 tags without re-running."]},
  attackpath:{does:"Fenrir chains the weaknesses Tenable already found — remote exploits, default credentials, open unauthenticated services, local privilege escalation, accounts reused across hosts, NTLM relay, domain-controller flaws and failed controls like LAPS, SMB signing and LLMNR — into ranked routes to every crown jewel (ACR ≥ 7), then finds the fixes that cut the most exposure.",caps:[
    "<b>Chained steps with evidence<\/b> — exploit → privilege escalation → credential harvest → lateral move → crown jewel; every step names its finding and its ATT&amp;CK technique.",
    "<b>Failed controls as enablers<\/b> — failed compliance checks (LAPS, SMB signing, LLMNR, WDigest, LSASS protection, sudo, empty passwords) become the steps they make possible.",
@@ -1142,14 +1227,16 @@ const AGENT_INTRO = {
    "<b>Risk context<\/b> — crown jewels (ACR above 7) with an expired or expiring certificate, weak crypto (MD5 / SHA-1 signatures, RSA keys under 2048 bits), self-signed certificates, and days expired.",
    "<b>Cert failure : &lt;date&gt; tags<\/b> — the assets behind each expiry date you choose, tagged with that exact date — a dated, routable work item.",
    "<b>Cert Issue tags by plugin<\/b> — every certificate plugin firing in navi.db, with its asset count; tag its assets Cert Issue : &lt;plugin name&gt;.",
-   "<b>Devices and apps from certificates<\/b> — device and application names identified from certificate subjects."]},
+   "<b>Devices and apps from certificates<\/b> — device and application names identified from certificate subjects.",
+   "<b>By tag<\/b> — run over one tag's assets: expired and failing certificates, crown jewels, cert-issue plugins and IoT / app fingerprints for just those assets, with the same per-certificate verdicts; tags written from that view touch only them. Switch between the whole estate and your last 5 tags without re-running."]},
  cisakev:{does:"Laelaps finds every asset with a KEV finding from the CISA KEV reference Tenable attaches to each finding, joins it to CISA's catalog for due dates and ransomware use, and shows what is overdue, what is due soon, which crown jewels and vendors are involved — then tags the assets so the work can be routed.",caps:[
    "<b>KEV from your own findings<\/b> — Tenable marks each KEV finding with a CISA cross-reference and the date CISA added it; Laelaps reads that, so no memorized CVE list is involved.",
    "<b>Due dates and overdue<\/b> — CISA's remediation due date per KEV, on a month-by-month timeline of overdue vs due later.",
    "<b>Ransomware, crown jewels, vendors<\/b> — KEVs CISA links to ransomware campaigns, crown jewels (ACR above 7) carrying KEV, and the vendors and products involved.",
    "<b>Four tag schemes<\/b> — CISA KEV : Vulnerable, CISA KEV : &lt;date added&gt;, CISA KEV Due : &lt;due date&gt; and CISA KEV : Ransomware — each on the exact assets.",
    "<b>Hunt in plain English<\/b> — ask a KEV question and get the answer from one read-only SQL query over navi.db and its tags.",
-   "<b>Approved downloads<\/b> — the CISA catalog is fetched only after you approve it (or auto-approve in Settings), with a bundled snapshot when offline."]},
+   "<b>Approved downloads<\/b> — the CISA catalog is fetched only after you approve it (or auto-approve in Settings), with a bundled snapshot when offline.",
+   "<b>By tag<\/b> — run over one tag's assets: KEV exposure, CISA due-date compliance, crown jewels, vendors and dates added are rebuilt for those assets, with the same per-CVE due dates; tags written from that view land only on them. Switch between the whole estate and your last 5 tags without re-running."]},
  classify:{does:"Linnaeus classifies every asset from the tags the pack has written, and shows exactly what is still unclassified. From operating-system fingerprints and device signals he suggests classes for the untagged assets, groups them into cohorts you can approve, and writes the tags.",caps:[
    "<b>Classes from tags<\/b> — the pack's own taxonomy — Asset Inventory, IoT, Device Type, OS — rolled up into Windows, Linux, macOS, Server, Workstation, Mobile, IoT, OT, network, hypervisor, cloud and Unclassified.",
    "<b>Standard device types<\/b> — Server, Desktop, Laptop, Workstation, Phone / Tablet, Camera, Printer, NAS, VoIP, UPS / Power, Badge Reader, Switch, Router, Firewall, Wireless Access Point, Load Balancer, Hypervisor, PLC, HMI, RTU — offered as you tag, and each maps to its class.",
@@ -1157,7 +1244,8 @@ const AGENT_INTRO = {
    "<b>OS explorer<\/b> — OS families and versions for the untagged assets, with a confidence rating for each fingerprint.",
    "<b>Tag by OS in plain English<\/b> — \"tag all my assets by OS with a confidence over 70\" becomes a plan you review before anything is written.",
    "<b>Environment Explorer<\/b> — a zoomable sunburst of class → subnet → software and Docker, down to each asset (which opens in Argos).",
-   "<b>Risk and ownership per class<\/b> — KEV and critical findings, cloud assets, and classified assets with no owner — so the unclassified bucket becomes a ranked worklist."]},
+   "<b>Risk and ownership per class<\/b> — KEV and critical findings, cloud assets, and classified assets with no owner — so the unclassified bucket becomes a ranked worklist.",
+   "<b>By tag<\/b> — run over one tag's assets: every class count, coverage %, OS signals cohort and Explorer view covers just that tag, each asset keeps its whole-estate class, and classification tags written from that view touch only its assets. Switch between the whole estate and your last 5 tags without re-running."]},
  compliance:{does:"Minos turns your audit results into one verdict: pass rate, results by status, the controls failing the most assets, how failures map to frameworks such as NIST 800-53, PCI, HIPAA, CIS and ISO, every audit benchmark, and a scorecard per asset. He can tag an Audit Owner on the assets failing a control.",caps:[
    "<b>Results by status<\/b> — passed, failed, warning and unknown across every check × asset, with pass rate = pass ÷ (pass + fail).",
    "<b>Controls failing the most assets<\/b> — the short list of controls whose fix moves the most assets.",
@@ -1165,7 +1253,8 @@ const AGENT_INTRO = {
    "<b>Audit benchmarks<\/b> — every audit file in navi.db, with its results.",
    "<b>Per-asset scorecards<\/b> — which assets pass least, which have warnings, which are clean.",
    "<b>Audit Owner tags<\/b> — assign an owner to the assets that fail one control — Audit Owner : &lt;owner&gt;.",
-   "<b>One click to the evidence<\/b> — every card, bar, control, framework and benchmark opens the matching assets in Tiresias."]},
+   "<b>One click to the evidence<\/b> — every card, bar, control, framework and benchmark opens the matching assets in Tiresias.",
+   "<b>By tag<\/b> — run over one tag's assets: pass rate, failing controls, frameworks, benchmarks and scorecards are rebuilt over that tag, and Audit Owner tagging from that view reaches only the tag's failing assets. Switch between the whole estate and your last 5 tags without re-running."]},
  compliance_asset:{does:"Tiresias investigates compliance two ways. By asset: every audit check the asset passed, failed or warned, with actual vs expected values and framework mappings, plus the inferred link between each failed control and real vulnerabilities on that host. By audit file: a benchmark leaderboard, each file's adherence, the checks and assets it covers, and the vulnerabilities behind its failing controls.",caps:[
    "<b>Every check on one asset<\/b> — status, actual vs expected value, and the frameworks and controls it maps to.",
    "<b>Audit ↔ vuln correlation<\/b> — compliance results carry no CVEs, so Tiresias infers the link by topic on the same asset — and shows the evidence.",
@@ -1193,7 +1282,8 @@ const AGENT_INTRO = {
    "<b>Gap against the inventory<\/b> — keeps only what the software inventory doesn't already list.",
    "<b>Name it in plain English<\/b> — \"tag my custom app billing-portal\" searches both routes and paths and shows the matches before anything is written.",
    "<b>Tags across both sources<\/b> — Custom App : &lt;name&gt; on every asset with a matching path or route.",
-   "<b>Ignore list<\/b> — drop noise terms once, or import a list from CSV."]},
+   "<b>Ignore list<\/b> — drop noise terms once, or import a list from CSV.",
+   "<b>By tag<\/b> — run over one tag's assets (\"which custom software runs on Business Tier : Production?\"): the unnamed or unowned apps on those assets, counted over just them; tagging from that view names only the tagged assets. Switch between the whole estate and your last 5 tags without re-running."]},
  dashboard:{does:"Daedalus turns a plain-English request into one read-only query over navi.db and renders the answer as a chart, KPI or table. 34 starter metrics run with no AI model at all. Pin what you like to your own dashboard, rearrange and resize it, email it, or promote it to a standalone page.",caps:[
    "<b>Ask in plain English<\/b> — \"top 10 plugins by affected assets\" — the model writes one SQL SELECT, which you can see before it renders.",
    "<b>Read-only by design<\/b> — the query must be a single SELECT and navi.db is opened read-only, so nothing can be changed.",
@@ -1213,7 +1303,8 @@ const AGENT_INTRO = {
    "<b>Product view<\/b> — each EOL product, operating system or application, with its end-of-life date from the plugin output and years past support.",
    "<b>Why it matters<\/b> — EOL assets that are crown jewels (ACR above 7), carry a CISA KEV, or have critical findings.",
    "<b>Support timeline<\/b> — when support ended, by date, across the estate.",
-   "<b>Lifecycle tags<\/b> — Lifecycle : Unsupported or End of Life on every affected asset, and Lifecycle EOL : &lt;date&gt; on exactly the assets whose output states that date."]},
+   "<b>Lifecycle tags<\/b> — Lifecycle : Unsupported or End of Life on every affected asset, and Lifecycle EOL : &lt;date&gt; on exactly the assets whose output states that date.",
+   "<b>By tag<\/b> — run over one tag's assets: every count, date and crown-jewel list covers only that tag, each asset's EOL facts stay the same, and tags written from that view land only on its assets. Switch between the whole estate and your last 5 tags without re-running."]},
  ex_apps:{does:"Vizsla searches every web application in navi.db and filters by name, target, technology, severity and how recently it was scanned. Each row shows critical, high and medium counts, total findings, technology, top OWASP category and last scan; click an app for Arachne's report.",caps:[
    "<b>Search and filter<\/b> — name, target, technology, severity presence and scan recency.",
    "<b>Severity at a glance<\/b> — critical, high and medium counts and total findings per app.",
@@ -1286,7 +1377,8 @@ const AGENT_INTRO = {
    "<b>Tags on the right assets<\/b> — Owner tags on every asset on a matched route or with a matched path, never removing anything.",
    "<b>Decisions, not just owners<\/b> — mark a route ignored, accepted or mitigated, and the coverage counts it as handled.",
    "<b>Coverage you can defend<\/b> — routes owned, partial or unowned; paths owned; assets fully closed; ownerless risk by VPR.",
-   "<b>Ownership Sankey and map<\/b> — routes and paths flowing to their owners, the gaps, and each owner's load; drill into any new path."]},
+   "<b>Ownership Sankey and map<\/b> — routes and paths flowing to their owners, the gaps, and each owner's load; drill into any new path.",
+   "<b>By tag<\/b> — run over one tag's assets: ownership coverage, the Sankey and the Ownership Map are rebuilt over the routes and paths those assets sit on, and owner tags written from that view land only on that tag's assets. Switch between the whole estate and your last 5 tags without re-running."]},
  fused_score:{does:"Nemesis gives every asset one 0–100 Exposure Score built from 16 signals — exploitability (KEV and EPSS), Tenable AES and VPR, ACR, attack paths, identity, compliance, web-app findings, EOL, internet exposure, AI risk, weak or expiring crypto, SLA aging, finding volume, ownership and ATT&amp;CK — then shows what to act on now, the worst asset from each hound, and where their signals converge.",caps:[
    "<b>16 signals, one number<\/b> — weights sum to 100, so a score reads as the share of the most danger one asset can carry; dispositions discount it, and Chronos's coverage flags how far to trust it.",
    "<b>Your weighting<\/b> — drag any weight to re-rank the estate to what matters to you; each weighting is cached separately.",
@@ -1301,7 +1393,8 @@ const AGENT_INTRO = {
    "<b>Risk flags<\/b> — privileged, non-expiring passwords, account reuse across five or more hosts, SSH password auth, default credentials, on a KEV, critical or crown-jewel host.",
    "<b>Honest about reuse<\/b> — the same account name on many hosts is reported as account reuse — never claimed as a shared password.",
    "<b>Coverage<\/b> — credentialed vs blind hosts by the pack's single credentialed rule, and the scan credentials themselves.",
-   "<b>Tags that route the work<\/b> — Identity / NHI / Machine ID : &lt;account&gt; on its hosts, Identity Risk : Account Reuse, Identity Coverage : No Credentials, Owner : &lt;name&gt;; an AI model can propose more."]},
+   "<b>Tags that route the work<\/b> — Identity / NHI / Machine ID : &lt;account&gt; on its hosts, Identity Risk : Account Reuse, Identity Coverage : No Credentials, Owner : &lt;name&gt;; an AI model can propose more.",
+   "<b>By tag<\/b> — run over one tag's assets: the identities found on them, with host counts, privilege and host signals counted over the tag only, while each account keeps its estate-wide class and reach (account reuse ×N); tag writes stay inside the tag. Switch between the whole estate and your last 5 tags without re-running."]},
  insights:{does:"Sphinx reads what the whole pack found on its last release and puts it on one page, On the Scent: how exposed the estate is, where risk concentrates, what is converging, what is on the clock, the blind spots, and the next moves — including a recommended play and how much exposure it would remove. Every number opens the exact assets behind it.",caps:[
    "<b>At a glance, actionable<\/b> — every card opens its evidence: the exact assets (KEV, score ≥ 60, crown jewels, with KEV or blind, EOL, quantum-vulnerable …) or the owning hound, already filtered.",
    "<b>Coverage funnel<\/b> — all assets → seen by a hound → credentialed → classified → owned → business-tiered, each step linked to the hound that owns the gap.",
@@ -1328,21 +1421,24 @@ const AGENT_INTRO = {
    "<b>Only what's in your estate<\/b> — by default only CVEs present in navi.db, so every tag lands on real assets.",
    "<b>ATT&amp;CK matrix<\/b> — techniques and tactics your findings enable, by mapping type; full screen and email from the widget.",
    "<b>Mitre tags<\/b> — Mitre : Primary Impact: &lt;technique&gt;, Secondary Impact: &lt;technique&gt; and Exploit Technique: &lt;technique&gt; on the assets carrying each CVE, via navi's tag-by-CVE.",
-   "<b>Honest coverage<\/b> — not every CVE has a mapped technique; an unmapped CVE simply gets no Mitre tag."]},
+   "<b>Honest coverage<\/b> — not every CVE has a mapped technique; an unmapped CVE simply gets no Mitre tag.",
+   "<b>By tag<\/b> — run over one tag's assets (an owner, a tier, an environment): the ATT&amp;CK exposure, matrix, planned tags and ACR &gt; 7 list cover only that tag, and tags written from that view land only on its assets. Switch between the whole estate and your last 5 tags without re-running."]},
  postquantum:{does:"Heimdall finds the quantum-vulnerable surface three ways — certificates (RSA, ECC and DSA are all vulnerable to Shor's algorithm, whatever the key length), on-the-wire transport crypto from TLS and SSH plugins, and Tenable's Post-Quantum Cipher Analysis plugins — scores crypto agility from OpenSSH and OpenSSL versions, and ranks a migration roadmap by ACR and CISA KEV against the CNSA 2.0 deadlines.",caps:[
    "<b>Certificate quantum risk<\/b> — every certificate by algorithm family, with how many are still valid at each CNSA 2.0 / NIST milestone and the long-lived harvest-now set.",
    "<b>Transport crypto<\/b> — TLS and SSH key exchange without ML-KEM or a hybrid group, SHA-1 MACs and deprecated protocol versions.",
    "<b>Tenable's PQC plugins<\/b> — services not using post-quantum ciphers, the target cipher inventory, and services already using them.",
    "<b>Crypto-agility tiers<\/b> — each host PQC-ready, Upgradable or Legacy from its OpenSSH / OpenSSL versions.",
    "<b>Migration roadmap<\/b> — assets ranked by crypto risk weighted by ACR and KEV, crown jewels first; export to CSV.",
-   "<b>Tags that route the migration<\/b> — Post-Quantum : Cipher Analysis on the quantum-vulnerable set, plus PQC Risk, Transport, Priority, Harvest-Now and Agility tags from the roadmap."]},
+   "<b>Tags that route the migration<\/b> — Post-Quantum : Cipher Analysis on the quantum-vulnerable set, plus PQC Risk, Transport, Priority, Harvest-Now and Agility tags from the roadmap.",
+   "<b>By tag<\/b> — run over one tag's assets: every metric, the migration roadmap and the CNSA 2.0 counts are rebuilt for that tag, each asset keeps its estate priority, and tags written from that view stay inside the tag. Switch between the whole estate and your last 5 tags without re-running."]},
  scan_eval:{does:"Chronos reads Tenable's scan-information and credential-status plugins to show which assets were scanned with a working login, which were blind and why, how fresh each scan is, which crown jewels sit in a blind spot, and how scanners, policies and scans perform. Every set can be tagged so the fix gets routed.",caps:[
    "<b>One credentialed rule<\/b> — credentialed = the scan-information plugin reports credentialed checks, or a valid-credentials plugin is present; blind = scanned without credentials. Every hound in the pack uses this rule.",
    "<b>Why a host is blind<\/b> — credential failed, insufficient privilege, intermittent, or no credentials at all — and credentialed hosts that still have a credential issue.",
    "<b>Freshness<\/b> — scanned in the last 7 days, 8–30, 31–90, over 90, never, or date unknown; network vs agent scans.",
    "<b>Crown-jewel blind spots<\/b> — crown jewels (ACR ≥ 7) that are uncredentialed or failed, or not scanned in over 90 days.",
    "<b>Performance and scanners<\/b> — average scan time, slow scans, slow scanners, policies and scans; scanner load; scanners on an old plugin feed; safe-checks scans.",
-   "<b>Scan Health tags<\/b> — Cred Failure, Insufficient Privilege, Intermittent Auth, Uncredentialed, Patch Assessment Failed, Stale Scan 30d+ / 90d+, Never Scanned, Slow Scan, Crown Jewel Blind Spot, and by scanner, policy or scan."]},
+   "<b>Scan Health tags<\/b> — Cred Failure, Insufficient Privilege, Intermittent Auth, Uncredentialed, Patch Assessment Failed, Stale Scan 30d+ / 90d+, Never Scanned, Slow Scan, Crown Jewel Blind Spot, and by scanner, policy or scan.",
+   "<b>By tag<\/b> — run over one tag's assets: credential health, freshness, blind spots and scanner / policy load are rebuilt for just those assets, and Scan Health tags written from that view stay inside the tag. Switch between the whole estate and your last 5 tags without re-running."]},
  sla:{does:"Sköll measures adherence three ways: navi's own Pass / Fail SLA verdict, open findings aged against your per-severity SLA days, and fixed findings — were they fixed in time, and how long did it take. Every view can be segmented by any tag (Owner by default), and a daily snapshot builds the trend.",caps:[
    "<b>Three lenses<\/b> — navi's verdict (after <span class='mono'>navi config sla calculate<\/span>), open-finding aging (needs only your SLA days), and remediation of fixed findings.",
    "<b>Segment by anything<\/b> — Owner by default, or any tag category and value.",
@@ -1358,7 +1454,8 @@ const AGENT_INTRO = {
    "<b>Crown-jewel software<\/b> — domain controllers, certificate authorities, databases, hypervisors, backup, security tooling, remote access — each role with a suggested ACR.",
    "<b>Risk leaderboard<\/b> — products ranked by KEV, critical findings and VPR on their hosts and in their own plugins; full screen and email from the widget.",
    "<b>Ask in plain English<\/b> — a question becomes one read-only SQL query over software, assets and findings that you review before it runs.",
-   "<b>Software tags<\/b> — Software : &lt;product&gt; (or a version, EOL set or crown role) — the server rebuilds the exact assets from navi.db."]},
+   "<b>Software tags<\/b> — Software : &lt;product&gt; (or a version, EOL set or crown role) — the server rebuilds the exact assets from navi.db.",
+   "<b>By tag<\/b> — run over one tag's assets: version sprawl, most-deployed and single-install software, lifecycle / EOL, crown jewels and the risk leaderboard are rebuilt for that tag, and tags written from that view reach only its assets. Switch between the whole estate and your last 5 tags without re-running."]},
  tagremoval:{does:"Garmr lists every tag navi can remove — the tags in navi.db with the number of assets carrying each — and removes the ones you choose through the same background queue every hound uses. He also explains why some tags in Tenable are out of navi's reach, and can hand your choices to the Contract to clear at the start of every cycle before re-tagging.",caps:[
    "<b>Only what navi can remove<\/b> — the tags navi.db knows about, with asset counts — a tag that exists only in Tenable is shown separately, never offered.",
    "<b>Tags navi can't reach<\/b> — navi.db assets compared with Tenable's licensed and stale assets.",

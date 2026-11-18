@@ -1,46 +1,50 @@
 {
-  "codename": "Mimir",
-  "discipline": "Software Analyzer",
-  "category": "Discovery",
-  "tagline": "Remember everything installed — and see which product carries the most risk.",
-  "lore": "Mimir, the Norse keeper of the well of wisdom — here he remembers every software version in the estate and shows you the sprawl.",
-  "problem": "Software inventory is fragmented: package data says one thing, CPE fingerprints another. Teams can't see version sprawl, can't spot end-of-life versions before they become unpatchable, and can't answer the board's simplest question: which product is dragging in the most risk?",
-  "does": "Mimir reconciles the software and CPE inventories into one product list, shows version sprawl, the most-deployed and the single-install products, checks versions against endoflife.date, flags the software that makes a host a crown jewel, and ranks a risk leaderboard by the KEV and critical exposure on the hosts that run each product.",
-  "glance": {
-    "caption": "Mimir's software inventory: each product with its versions, assets, installs, newest version seen, lifecycle status and which inventory found it — sorted for version sprawl."
-  },
-  "capabilities": [
-    [
-      "One product list, two sources",
-      "software and CPE inventories reconciled, each product badged with the source that saw it, and a delta view of what one source missed."
-    ],
-    [
-      "Sprawl, common, single-install",
-      "the product on fourteen versions, the package on half the estate, the one-off install nobody owns."
-    ],
-    [
-      "Lifecycle check",
-      "products matched to endoflife.date (on demand, cached) — assets on end-of-life or behind-latest versions."
-    ],
-    [
-      "Crown-jewel software",
-      "domain controllers, certificate authorities, databases, hypervisors, backup, security tooling, remote access — each role with a suggested ACR."
-    ],
-    [
-      "Risk leaderboard",
-      "products ranked by KEV, critical findings and VPR on their hosts and in their own plugins; full screen and email from the widget."
-    ],
-    [
-      "Ask in plain English",
-      "a question becomes one read-only SQL query over software, assets and findings that you review before it runs."
-    ],
-    [
-      "Software tags",
-      "Software : <product> (or a version, EOL set or crown role) — the server rebuilds the exact assets from navi.db."
-    ]
+ "codename": "Mimir",
+ "discipline": "Software Analyzer",
+ "category": "Discovery",
+ "tagline": "Remember everything installed — and see which product carries the most risk.",
+ "lore": "Mimir, the Norse keeper of the well of wisdom — here he remembers every software version in the estate and shows you the sprawl.",
+ "problem": "Software inventory is fragmented: package data says one thing, CPE fingerprints another. Teams can't see version sprawl, can't spot end-of-life versions before they become unpatchable, and can't answer the board's simplest question: which product is dragging in the most risk?",
+ "does": "Mimir reconciles the software and CPE inventories into one product list, shows version sprawl, the most-deployed and the single-install products, checks versions against endoflife.date, flags the software that makes a host a crown jewel, and ranks a risk leaderboard by the KEV and critical exposure on the hosts that run each product.",
+ "glance": {
+  "caption": "Mimir's software inventory: each product with its versions, assets, installs, newest version seen, lifecycle status and which inventory found it — sorted for version sprawl."
+ },
+ "capabilities": [
+  [
+   "One product list, two sources",
+   "software and CPE inventories reconciled, each product badged with the source that saw it, and a delta view of what one source missed."
   ],
-  "how": "Mimir analyzes the software and cpes tables in your local navi.db on the server; the page gets counts and pages, never raw tables, so it works at hundreds of thousands of assets. The endoflife.date lookup runs from your browser. Tags go through navi behind the write gate and a confirm.",
-  "who": "VM teams who want risk-ranked patching, IT asset managers reconciling inventories, and patch teams who want one worklist instead of three exports.",
-  "better": "Charon tags EOL from Tenable's own lifecycle plugins; Mimir adds the endoflife.date view. Cavall finds the software that never made the inventory, Pythia the AI tools in it, and Anubis can raise ACR for Mimir's crown-jewel roles. Covenant re-applies Software tags on its schedule.",
-  "cta": "Open Mimir's inventory — and find the product carrying the most risk."
+  [
+   "Sprawl, common, single-install",
+   "the product on fourteen versions, the package on half the estate, the one-off install nobody owns."
+  ],
+  [
+   "Lifecycle check",
+   "products matched to endoflife.date (on demand, cached) — assets on end-of-life or behind-latest versions."
+  ],
+  [
+   "Crown-jewel software",
+   "domain controllers, certificate authorities, databases, hypervisors, backup, security tooling, remote access — each role with a suggested ACR."
+  ],
+  [
+   "Risk leaderboard",
+   "products ranked by KEV, critical findings and VPR on their hosts and in their own plugins; full screen and email from the widget."
+  ],
+  [
+   "Ask in plain English",
+   "a question becomes one read-only SQL query over software, assets and findings that you review before it runs."
+  ],
+  [
+   "Software tags",
+   "Software : <product> (or a version, EOL set or crown role) — the server rebuilds the exact assets from navi.db."
+  ],
+  [
+   "By tag",
+   "run over one tag's assets: version sprawl, most-deployed and single-install software, lifecycle / EOL, crown jewels and the risk leaderboard are rebuilt for that tag, and tags written from that view reach only its assets. Switch between the whole estate and your last 5 tags without re-running."
+  ]
+ ],
+ "how": "Mimir analyzes the software and cpes tables in your local navi.db on the server; the page gets counts and pages, never raw tables, so it works at hundreds of thousands of assets. The endoflife.date lookup runs from your browser. Tags go through navi behind the write gate and a confirm.",
+ "who": "VM teams who want risk-ranked patching, IT asset managers reconciling inventories, and patch teams who want one worklist instead of three exports.",
+ "better": "Charon tags EOL from Tenable's own lifecycle plugins; Mimir adds the endoflife.date view. Cavall finds the software that never made the inventory, Pythia the AI tools in it, and Anubis can raise ACR for Mimir's crown-jewel roles. Covenant re-applies Software tags on its schedule.",
+ "cta": "Open Mimir's inventory — and find the product carrying the most risk."
 }

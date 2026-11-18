@@ -17,5 +17,7 @@
     "assign",
     "refresh"
   ],
+  "tag_scope": {"actions": ["load", "run", "overview", "drill", "plan", "apply", "assign"],
+                "ignore": ["refresh"]},
   "codename": "Terminus"
 }

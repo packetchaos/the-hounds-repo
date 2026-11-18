@@ -7,7 +7,7 @@
           tag-by-CVE selector (navi enrich tag --cve), exactly as the navi skill
           recipe prescribes — the CVE picks the assets, the tag lands on them.
 """
-from core import downloads, mitre, navi_cli
+from core import downloads, mitre, navi_cli, tagscope
 from core.gates import confirmed
 try:
     from core import llm
@@ -59,12 +59,19 @@ def run(p):
     # the Contract's discovery runs this with {} and must not wipe it
     if "csv_text" in p or "approved" in p:
         _LAST["csv"] = csv_text or ""
+    tk, tv = tagscope.parse(p)          # build 489: (None, None) = the whole estate, as before
     try:
-        res = mitre.build_plan(scope=scope, csv_text=csv_text, allow_live=live)
+        if tk:
+            res = mitre.build_plan(scope=scope, csv_text=csv_text, allow_live=live, tag_key=tk, tag_value=tv)
+        else:
+            res = mitre.build_plan(scope=scope, csv_text=csv_text, allow_live=live)
     except Exception as e:
         return {"ok": False, "error": f"could not build ATT&CK->CVE plan: {e}"}, 200
-    return {"ok": True, "agent": _agent().meta(), "result": res,
-            "download_url": mitre.CSV_URL, "approved_by": by}, 200
+    out = {"ok": True, "agent": _agent().meta(), "result": res,
+           "download_url": mitre.CSV_URL, "approved_by": by}
+    if tk:
+        out["scope"] = res.get("tag_scope") or tagscope.describe(tk, tv)
+    return out, 200
 
 
 def apply(p):
@@ -81,6 +88,9 @@ def apply(p):
     # Re-build the plan on the server and accept only (cve, value) pairs that are in it AND have
     # assets in navi.db; the category is always Mitre. A crafted request can't pick another
     # category, and "approve all" in full-mapping scope doesn't queue jobs for absent CVEs.
+    tk, tv = tagscope.parse(p)
+    if tk:
+        return _apply_scoped(p, actions, tk, tv)
     try:
         # live vs snapshot decided by THIS request's approval (the page sends approved with
         # apply, as with run) — not a process-wide flag another caller can overwrite
@@ -111,6 +121,50 @@ def apply(p):
                         "write_gate_reason": navi_cli.write_gate_reason()})
     return {"ok": True, "applied": sum(1 for r in results if r.get("ok")), "skipped": skipped,
             "total": len(results), "results": results,
+            "writes_enabled": navi_cli.writes_enabled()}, 200
+
+
+def _apply_scoped(p, actions, tk, tv):
+    """apply() from a tag view (build 489): the tag lands ONLY on the tag's assets.
+
+    navi's tag-by-CVE selector (--cve) would tag every asset in the estate that has the CVE, so
+    a tag view cannot use it. Instead the server rebuilds the plan over the tag (re-read from
+    navi.db, never from the browser), keeps only (CVE, value) pairs that have assets in the tag,
+    and for each Mitre value tags the union of the tag's assets citing its CVEs through
+    navi_cli.tag_set — ≤ 1,999-UUID pages, a tag series above that, add-only (remove=False)."""
+    try:
+        plan = mitre.build_plan(scope="navidb", csv_text=_LAST["csv"], allow_live=downloads.allowed(p)[0],
+                                tag_key=tk, tag_value=tv)
+    except Exception as e:
+        return {"ok": False, "error": f"could not rebuild the plan: {e}"}, 200
+    valid = {(a["cve"], a["value"]) for a in plan.get("actions", []) if a.get("assets")}
+    groups, skipped = {}, 0
+    for a in actions:
+        cve, val = (a.get("cve", "") or "").upper(), a.get("value", "")
+        if (cve, val) not in valid:
+            skipped += 1
+            continue
+        groups.setdefault(val, set()).add(cve)
+    scope = tagscope.describe(tk, tv)
+    if not groups:
+        return {"ok": False, "error": f"none of those CVE / value pairs have assets tagged {tk} : {tv}",
+                "scope": scope}, 400
+    # the tag's assets per CVE, from navi.db (SQL-scoped), for just the CVEs being written
+    ca = mitre.cve_assets(only=set().union(*groups.values()), tag_key=tk, tag_value=tv)
+    results = []
+    for val, cves in groups.items():
+        uu = sorted(set().union(*(ca.get(c, set()) for c in cves)))
+        jobs = navi_cli.tag_set("Mitre", val, uuids=uu, agent="mitre") if uu else []
+        job_ids = [j.get("job_id") for j in jobs if isinstance(j, dict) and j.get("job_id") is not None]
+        bad = [j for j in jobs if isinstance(j, dict) and j.get("ok") is False]
+        results.append({"value": val, "cves": len(cves), "assets": len(uu), "commands": len(jobs),
+                        "mode": "uuids-in-tag", "job_ids": job_ids,
+                        "job_id": (job_ids[0] if job_ids else None), "ok": bool(jobs) and not bad,
+                        "queued": bool(job_ids), "error": (bad[0].get("message") if bad else None),
+                        "writes_enabled": navi_cli.writes_enabled(),
+                        "write_gate_reason": navi_cli.write_gate_reason()})
+    return {"ok": True, "applied": sum(1 for r in results if r.get("ok")), "skipped": skipped,
+            "total": len(results), "results": results, "scope": scope,
             "writes_enabled": navi_cli.writes_enabled()}, 200
 
 

@@ -6,14 +6,70 @@ drill — read; page / search one class's assets on the server (filter cls:<clas
 assets— drill one class → its assets (capped list; kept for server-side callers).
 tag   — GATED write of Class:<type[ - subtype]> tags for a class (same navi path as
         every other agent). Closes the loop: a classified asset becomes an ownable one.
+
+Tag filter (build 489): every action takes the page's {tag_scope:{key, value}} and works over
+only that tag's assets (core/tagscope). Each asset's class / sub / owned / KEV / critical is the
+same as in the whole estate; only the population changes. A tag run's rows live in their own
+result-store hound (classify_t_<hash>, the newest TAG_RUNS tags kept), so tag runs never evict
+the estate's run, and a drill / "select all" can't mix the two. A write from a tag view re-reads
+the tag's assets from navi.db and never touches an asset outside it.
 """
+import hashlib
 import re
 
-from core import navi_cli, payload, classify as _classify, topology as _topology
+from core import navi_cli, payload, tagscope, classify as _classify, topology as _topology
 from .agent import ClassifyAgent
 from core.gates import confirmed
 
 AGENT = ClassifyAgent()
+TAG_RUNS = tagscope.MAX_TAGS          # tag views whose drillable rows stay on the server
+_TAG_PREFIX = "classify_t_"
+
+
+def _scope(p):
+    """(key, value) of the request's tag scope, or None for the whole estate."""
+    k, v = tagscope.parse(p or {})
+    return (k, v) if k else None
+
+
+def _hound(scope):
+    """The result-store hound a run of this scope is filed under — the estate keeps 'classify'
+    (unchanged); each tag gets its own, so tag runs never prune the estate's (or each other's)."""
+    if not scope:
+        return "classify"
+    h = hashlib.sha1((scope[0] + "\x00" + scope[1]).encode("utf-8")).hexdigest()[:12]
+    return _TAG_PREFIX + h
+
+
+def _prune_tag_runs(keep=None, store=None):
+    """Keep the newest `keep` tag scopes' runs (like the page cache's 5 tag views)."""
+    keep = TAG_RUNS if keep is None else keep
+    store = store or payload.STORE
+    con = store._connect()
+    try:
+        rows = con.execute("SELECT hound, MAX(built_at) b FROM runs WHERE substr(hound,1,?)=? "
+                           "GROUP BY hound ORDER BY b DESC", (len(_TAG_PREFIX), _TAG_PREFIX)).fetchall()
+        old = [r[0] for r in rows[keep:]]
+        runs = [r[0] for h in old for r in con.execute("SELECT run FROM runs WHERE hound=?", (h,))]
+    finally:
+        con.close()
+    for r in runs:
+        store.drop(r)
+
+
+def _in_scope(uuids, scope):
+    """A write's asset set, cut to the tag's assets re-read from navi.db (never the browser's)."""
+    if not scope:
+        return uuids
+    keep = tagscope.uuids(scope[0], scope[1])
+    return [u for u in uuids if u in keep]
+
+
+def _scoped(res, scope):
+    """Add "scope" to a scoped result (the whole estate's result is left exactly as it was)."""
+    if scope:
+        res["scope"] = tagscope.describe(scope[0], scope[1])
+    return res
 
 # OS-family words the prompt parser recognizes → canonical family
 _FAMILY_ALIASES = {
@@ -68,7 +124,8 @@ def os_plan(p):
     pf = p.get("families")
     fams = set(parsed["families"]) or set(f for f in (pf if isinstance(pf, list) else []) if isinstance(f, str))
     group = p.get("group") or parsed["group"]
-    rows = _classify.os_confidence()
+    scope = _scope(p)
+    rows = _classify.os_confidence(scope=scope) if scope else _classify.os_confidence()
     kept = [r for r in rows if r["confidence"] >= thr and (not fams or r["family"] in fams)]
     cohorts = {}
     for r in kept:
@@ -85,27 +142,33 @@ def os_plan(p):
         # build 464: counts only — a cohort is tagged by KEY {plan:{…the same inputs…, value}}
         # and the server rebuilds its uuids (_plan_uuids); no uuid arrays reach the page
         out = [{k: v for k, v in c.items() if k != "uuids"} for c in out]
-    return {"ok": True, "prompt": prompt, "threshold": thr, "families": sorted(fams),
+    return _scoped({"ok": True, "prompt": prompt, "threshold": thr, "families": sorted(fams),
             "group": group, "scanned": len(rows),
             "with_confidence": sum(1 for r in rows if r["confidence"] > 0),
             "matched": len(kept), "cohorts": out,
             "note": ("No OS-fingerprinted assets meet that confidence floor — lower the "
-                     "threshold or run an OS-identification scan." if not out else None)}, 200
+                     "threshold or run an OS-identification scan." if not out else None)}, scope), 200
 
 
 def tree(p):
     """The zoomable-sunburst topology tree — Class/Subnet → Sub → Software/Docker →
     Version, sized by asset count, plus the virtualization narrative."""
     by = (p or {}).get("by") or "class"
-    return {"ok": True, "result": _topology.tree(by=by if by in ("class", "subnet") else "class")}, 200
+    by = by if by in ("class", "subnet") else "class"
+    scope = _scope(p)
+    if not scope:
+        return {"ok": True, "result": _topology.tree(by=by)}, 200
+    return {"ok": True, "result": _scoped(_topology.tree(by=by, scope=scope), scope)}, 200
 
 
 def members(p):
     """Lazy asset list at any sunburst node (leaf → Argos)."""
     p = p or {}
-    return {"ok": True, **_topology.members(cls=p.get("cls"), sub=p.get("sub"),
-                                            software=p.get("software"), version=p.get("version"),
-                                            subnet=p.get("subnet"))}, 200
+    scope = _scope(p)
+    kw = {"scope": scope} if scope else {}
+    return _scoped({"ok": True, **_topology.members(cls=p.get("cls"), sub=p.get("sub"),
+                                                    software=p.get("software"), version=p.get("version"),
+                                                    subnet=p.get("subnet"), **kw)}, scope), 200
 
 
 DRILL_MAX = 5000      # rows a class drill-down ships (≈1.5 MB); the class tag covers the whole class
@@ -122,10 +185,13 @@ def _risk_key(r):
     return (not r.get("kev"), not r.get("critical"), str(r.get("hostname") or "~").lower(), str(r.get("uuid") or ""))
 
 
-def _publish(rows):
+def _publish(rows, scope=None):
     """Every classified asset → the result store (one section), riskiest first within each
-    class; flags cls:<class> / sub:<sub-type>; search over host, IP, sub-type, evidence."""
-    W = payload.STORE.begin("classify")
+    class; flags cls:<class> / sub:<sub-type>; search over host, IP, sub-type, evidence.
+    A tag run goes under its own hound (_hound) with its scope in the run's meta."""
+    W = payload.STORE.begin(_hound(scope))
+    if scope:
+        W.meta["scope"] = {"key": scope[0], "value": scope[1]}
     W.section("assets")
     try:
         for r in sorted(rows, key=_risk_key):
@@ -138,6 +204,8 @@ def _publish(rows):
         W.close(ok=False)
         raise
     W.close()
+    if scope:
+        _prune_tag_runs()
     return W.run
 
 
@@ -145,27 +213,39 @@ def run(p):
     """Payload contract (build 464): the run ships the classes, glance and stats plus a drill
     handle — never the per-asset list (150k assets was a 49 MB answer). The drill-down pages
     and searches one class on the server (`drill`); "select all" tags by key {run, cls, q}."""
-    res = AGENT.run()
+    scope = _scope(p)
+    if scope:
+        # a tag view: computed directly — AGENT.result stays the whole estate's (the `assets`
+        # action and the status card read it)
+        if not tagscope.count(scope[0], scope[1]):
+            return {"ok": False, "error": f"no assets carry the tag {scope[0]} : {scope[1]} in navi.db — "
+                                          "check the name, or run navi update assets"}, 200
+        res = _classify.classify(None, glance=True, scope=scope)
+    else:
+        res = AGENT.run()
     small = {k: v for k, v in res.items() if k != "assets"}
     small["assets_total"] = len(res.get("assets") or [])
     small["device_types"] = _classify.DEVICE_TYPE_LABELS
     try:
-        small["drill"] = {"action": "drill", "run": _publish(res.get("assets") or []), "section": "assets"}
+        small["drill"] = {"action": "drill", "run": _publish(res.get("assets") or [], scope), "section": "assets"}
     except Exception as e:                 # the summary still works; the drill-down falls back to `assets`
         small["drill_error"] = str(e)
-    return {"ok": True, "agent": AGENT.meta(), "result": small,
+    return {"ok": True, "agent": AGENT.meta(), "result": _scoped(small, scope),
             "writes_enabled": navi_cli.writes_enabled()}, 200
 
 
 def drill(p):
-    return payload.drill("classify", p, SECTIONS)
+    """Pages a stored run — of the request's own scope only (a tag run under the estate, or the
+    estate's under a tag, is "no longer on the server")."""
+    return payload.drill(_hound(_scope(p)), p, SECTIONS)
 
 
-def _run_uuids(key):
-    """{run, cls, q?} → the exact asset set of that class (and search) in the stored run."""
+def _run_uuids(key, scope=None):
+    """{run, cls, q?} → the exact asset set of that class (and search) in the stored run —
+    which must be a run of the same scope as the request."""
     if not isinstance(key, dict) or not isinstance(key.get("cls"), str) or not key.get("cls"):
         return None
-    if not payload.STORE.run_info(key.get("run"), "classify"):
+    if not payload.STORE.run_info(key.get("run"), _hound(scope)):
         return None
     q = key.get("q") if isinstance(key.get("q"), str) else ""
     return payload.STORE.uids(key["run"], "assets", ["cls:" + key["cls"]], q.strip()[:200])
@@ -173,7 +253,8 @@ def _run_uuids(key):
 
 def assets(p):
     p = p or {}
-    res = AGENT.result or AGENT.run()
+    scope = _scope(p)
+    res = _classify.classify(None, scope=scope) if scope else (AGENT.result or AGENT.run())
     cls = (p.get("cls") or "").strip()
     sub = (p.get("sub") or "").strip()
     rows = res.get("assets", [])
@@ -189,8 +270,8 @@ def assets(p):
     if count > lim:
         # the riskiest first (KEV, then critical), so what's shipped is what matters
         rows = sorted(rows, key=lambda r: (not r.get("kev"), not r.get("critical")))[:lim]
-    return {"ok": True, "cls": cls, "sub": sub, "assets": rows, "count": count,
-            "shown": len(rows), "truncated": count > len(rows)}, 200
+    return _scoped({"ok": True, "cls": cls, "sub": sub, "assets": rows, "count": count,
+                    "shown": len(rows), "truncated": count > len(rows)}, scope), 200
 
 
 def signals(p):
@@ -198,29 +279,34 @@ def signals(p):
     into taggable cohorts. Mirrors the IoT squad's detect → tag flow. Build 464: counts and
     samples only — a cohort is tagged by KEY {sig:{facet, value, all?}} (_sig_uuids)."""
     only = (p or {}).get("all") is not True
-    res = dict(_classify.os_signals(only_untagged=only))
+    scope = _scope(p)
+    kw = {"scope": scope} if scope else {}
+    res = dict(_classify.os_signals(only_untagged=only, **kw))
     res["cohorts"] = [{k: v for k, v in c.items() if k != "uuids"} for c in (res.get("cohorts") or [])]
     res["device_types"] = _classify.DEVICE_TYPE_LABELS
-    return {"ok": True, "result": res}, 200
+    return {"ok": True, "result": _scoped(res, scope)}, 200
 
 
-def _sig_uuids(key):
+def _sig_uuids(key, scope=None):
     """The asset set behind an OS Signals cohort (its DETECTED facet + value), rebuilt server-side."""
     if not isinstance(key, dict) or not isinstance(key.get("facet"), str) or not isinstance(key.get("value"), str):
         return None
-    res = _classify.os_signals(only_untagged=key.get("all") is not True)
+    kw = {"scope": scope} if scope else {}
+    res = _classify.os_signals(only_untagged=key.get("all") is not True, **kw)
     for c in res.get("cohorts") or []:
         if c.get("facet") == key["facet"] and c.get("value") == key["value"]:
             return list(c.get("uuids") or [])
     return []
 
 
-def _plan_uuids(key):
+def _plan_uuids(key, scope=None):
     """The asset set behind one cohort of an OS plan — os_plan re-run with the same inputs."""
     if not isinstance(key, dict) or not isinstance(key.get("value"), str):
         return None
     q = {k: key.get(k) for k in ("prompt", "threshold", "families", "group") if key.get(k) is not None}
     q["_with_uuids"] = True
+    if scope:
+        q["tag_scope"] = {"key": scope[0], "value": scope[1]}
     o, _st = os_plan(q)
     for c in o.get("cohorts") or []:
         if c.get("value") == key["value"]:
@@ -231,21 +317,23 @@ def _plan_uuids(key):
 def os_breakdown(p):
     """OS families → versions for the two-pie OS explorer (untagged assets)."""
     only = (p or {}).get("all") is not True
-    res = _classify.os_breakdown(only_untagged=only)
+    scope = _scope(p)
+    res = _classify.os_breakdown(only_untagged=only, scope=scope) if scope else _classify.os_breakdown(only_untagged=only)
     # build 464: counts only — no uuid arrays (138k uuids, twice, was 11 MB). A tag sends the
     # KEY {os:{family, version?, all?}} and the server rebuilds the exact set (_os_uuids).
     out = dict(res)
     out["families"] = [{**{k: v for k, v in f.items() if k != "uuids"},
                         "versions": [{k: v for k, v in x.items() if k != "uuids"} for x in (f.get("versions") or [])]}
                        for f in (res.get("families") or [])]
-    return {"ok": True, "result": out}, 200
+    return {"ok": True, "result": _scoped(out, scope)}, 200
 
 
-def _os_uuids(key):
+def _os_uuids(key, scope=None):
     """The asset set behind an OS explorer node, rebuilt server-side from the same breakdown."""
     if not isinstance(key, dict) or not isinstance(key.get("family"), str):
         return None
-    res = _classify.os_breakdown(only_untagged=key.get("all") is not True)
+    kw = {"scope": scope} if scope else {}
+    res = _classify.os_breakdown(only_untagged=key.get("all") is not True, **kw)
     for f in res.get("families") or []:
         if f.get("family") != key["family"]:
             continue
@@ -260,8 +348,11 @@ def _os_uuids(key):
 def tag(p):
     """Gated write of the unified inventory scheme (scheme A): category
     'Asset Inventory', value '<Facet>: <Value>' (Class / OS / Device Type / App / Cloud).
-    Targets a cohort by explicit `uuids` (OS Signals) OR by the path (cls/sub/…)."""
+    Targets a cohort by explicit `uuids` (OS Signals) OR by the path (cls/sub/…).
+    From a tag view (tag_scope) every cohort is rebuilt over that tag's assets and the final set
+    is cut to the tag's assets re-read from navi.db — a write never leaves the tag."""
     p = p or {}
+    scope = _scope(p)
     if not confirmed(p):
         return {"ok": False, "error": "confirm=true required to write tags"}, 400
     facet = (p.get("facet") or "Class").strip()
@@ -271,26 +362,29 @@ def tag(p):
     if p.get("uuids") is not None and not isinstance(p.get("uuids"), list):
         return {"ok": False, "error": "uuids must be a list"}, 400
     if p.get("sig") is not None or p.get("plan") is not None:
-        uuids = _sig_uuids(p["sig"]) if p.get("sig") is not None else _plan_uuids(p["plan"])
+        uuids = _sig_uuids(p["sig"], scope) if p.get("sig") is not None else _plan_uuids(p["plan"], scope)
         if uuids is None:
             return {"ok": False, "error": "malformed cohort key"}, 400
     elif p.get("set") is not None:
-        uuids = _run_uuids(p.get("set"))
+        uuids = _run_uuids(p.get("set"), scope)
         if uuids is None:
             return {"ok": False, "expired": True,
                     "error": "that run's rows are no longer on the server — press ▶ Run again"}, 400
     elif p.get("os") is not None:
-        uuids = _os_uuids(p.get("os"))
+        uuids = _os_uuids(p.get("os"), scope)
         if uuids is None:
             return {"ok": False, "error": "os must be {family, version?}"}, 400
     elif p.get("uuids"):
         uuids = [str(u) for u in p["uuids"] if u and isinstance(u, str)]
     else:
+        kw = {"scope": scope} if scope else {}
         m = _topology.members(cls=p.get("cls"), sub=p.get("sub"), software=p.get("software"),
-                              version=p.get("version"), subnet=p.get("subnet"), cap=None)   # unbounded (build 464)
+                              version=p.get("version"), subnet=p.get("subnet"), cap=None, **kw)   # unbounded (build 464)
         uuids = [a["uuid"] for a in m.get("assets", []) if a.get("uuid")]
+    uuids = _in_scope(uuids, scope)
     if not uuids:
-        return {"ok": False, "error": "no assets for that cohort"}, 400
+        return {"ok": False, "error": "no assets for that cohort" + (
+            f" among the assets tagged {scope[0]} : {scope[1]}" if scope else "")}, 400
     tag_value = f"{facet}: {value}"
 
     # The classification is computed in Python (core.classify); the cohort is paged by
@@ -309,7 +403,8 @@ def tag(p):
                         if len(chunks) > 1 else first.get("message")),
             "value": "Asset Inventory : " + tag_value, "asset_count": len(uuids),
             "writes_enabled": navi_cli.writes_enabled(),
-            "write_gate_reason": navi_cli.write_gate_reason()}, 200
+            "write_gate_reason": navi_cli.write_gate_reason(),
+            **({"scope": tagscope.describe(scope[0], scope[1])} if scope else {})}, 200
 
 
 ACTIONS = {"run": run, "drill": drill, "assets": assets, "tag": tag, "tree": tree, "members": members,

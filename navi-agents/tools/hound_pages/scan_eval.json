@@ -1,42 +1,46 @@
 {
-  "codename": "Chronos",
-  "discipline": "Scan Evaluations",
-  "category": "Health",
-  "tagline": "Know what your scans can't see — before you trust them.",
-  "lore": "Chronos, the embodiment of time — here he measures where your scans spend their time, and how much of the estate they actually see.",
-  "problem": "Every dashboard and priority list is only as good as the scans underneath it. An uncredentialed host reports a fraction of its real findings, a failed login looks like a clean host, and an old scan quietly ages the data — and nobody notices until a \"clean\" asset turns out to have been half-blind.",
-  "does": "Chronos reads Tenable's scan-information and credential-status plugins to show which assets were scanned with a working login, which were blind and why, how fresh each scan is, which crown jewels sit in a blind spot, and how scanners, policies and scans perform. Every set can be tagged so the fix gets routed.",
-  "glance": {
-    "caption": "Chronos's At a glance on a 128-asset lab: 57 of 128 assets credentialed (44.5%) — 4 credential failures, 67 scanned without credentials, 3 credentialed with a credential issue; every scan over 90 days old; all 58 crown jewels (ACR ≥ 7) in a blind spot; average scan 7m 20s and scanner load."
-  },
-  "capabilities": [
-    [
-      "One credentialed rule",
-      "credentialed = the scan-information plugin reports credentialed checks, or a valid-credentials plugin is present; blind = scanned without credentials. Every hound in the pack uses this rule."
-    ],
-    [
-      "Why a host is blind",
-      "credential failed, insufficient privilege, intermittent, or no credentials at all — and credentialed hosts that still have a credential issue."
-    ],
-    [
-      "Freshness",
-      "scanned in the last 7 days, 8–30, 31–90, over 90, never, or date unknown; network vs agent scans."
-    ],
-    [
-      "Crown-jewel blind spots",
-      "crown jewels (ACR ≥ 7) that are uncredentialed or failed, or not scanned in over 90 days."
-    ],
-    [
-      "Performance and scanners",
-      "average scan time, slow scans, slow scanners, policies and scans; scanner load; scanners on an old plugin feed; safe-checks scans."
-    ],
-    [
-      "Scan Health tags",
-      "Cred Failure, Insufficient Privilege, Intermittent Auth, Uncredentialed, Patch Assessment Failed, Stale Scan 30d+ / 90d+, Never Scanned, Slow Scan, Crown Jewel Blind Spot, and by scanner, policy or scan."
-    ]
+ "codename": "Chronos",
+ "discipline": "Scan Evaluations",
+ "category": "Health",
+ "tagline": "Know what your scans can't see — before you trust them.",
+ "lore": "Chronos, the embodiment of time — here he measures where your scans spend their time, and how much of the estate they actually see.",
+ "problem": "Every dashboard and priority list is only as good as the scans underneath it. An uncredentialed host reports a fraction of its real findings, a failed login looks like a clean host, and an old scan quietly ages the data — and nobody notices until a \"clean\" asset turns out to have been half-blind.",
+ "does": "Chronos reads Tenable's scan-information and credential-status plugins to show which assets were scanned with a working login, which were blind and why, how fresh each scan is, which crown jewels sit in a blind spot, and how scanners, policies and scans perform. Every set can be tagged so the fix gets routed.",
+ "glance": {
+  "caption": "Chronos's At a glance on a 128-asset lab: 57 of 128 assets credentialed (44.5%) — 4 credential failures, 67 scanned without credentials, 3 credentialed with a credential issue; every scan over 90 days old; all 58 crown jewels (ACR ≥ 7) in a blind spot; average scan 7m 20s and scanner load."
+ },
+ "capabilities": [
+  [
+   "One credentialed rule",
+   "credentialed = the scan-information plugin reports credentialed checks, or a valid-credentials plugin is present; blind = scanned without credentials. Every hound in the pack uses this rule."
   ],
-  "how": "Chronos reproduces `navi scan evaluate` over your local navi.db — no extra scanning. The rule exactly: plugin 19506 says \"Credentialed checks : yes\", or plugin 141118 or 110095 is present. The asset list pages and filters on the server and exports to CSV. Tagging re-runs the evaluation on the server and tags the exact assets under Scan Health, behind the write gate and a confirm.",
-  "who": "Scan engineers tuning credentials, scanners and policies, and VM leads who want to know how much of the estate their numbers actually describe.",
-  "better": "Chronos's rule decides \"blind\" for the whole pack — Nemesis's confidence, Janus's coverage, Fenrir's uncredentialed hosts, Alert Raven's coverage alert and On the Scent's funnel. Amarok's credential test tells you why a login fails, and Covenant re-applies the Scan Health tags on its schedule.",
-  "cta": "Ask Chronos what your scans are missing — trust is measured, not assumed."
+  [
+   "Why a host is blind",
+   "credential failed, insufficient privilege, intermittent, or no credentials at all — and credentialed hosts that still have a credential issue."
+  ],
+  [
+   "Freshness",
+   "scanned in the last 7 days, 8–30, 31–90, over 90, never, or date unknown; network vs agent scans."
+  ],
+  [
+   "Crown-jewel blind spots",
+   "crown jewels (ACR ≥ 7) that are uncredentialed or failed, or not scanned in over 90 days."
+  ],
+  [
+   "Performance and scanners",
+   "average scan time, slow scans, slow scanners, policies and scans; scanner load; scanners on an old plugin feed; safe-checks scans."
+  ],
+  [
+   "Scan Health tags",
+   "Cred Failure, Insufficient Privilege, Intermittent Auth, Uncredentialed, Patch Assessment Failed, Stale Scan 30d+ / 90d+, Never Scanned, Slow Scan, Crown Jewel Blind Spot, and by scanner, policy or scan."
+  ],
+  [
+   "By tag",
+   "run over one tag's assets: credential health, freshness, blind spots and scanner / policy load are rebuilt for just those assets, and Scan Health tags written from that view stay inside the tag. Switch between the whole estate and your last 5 tags without re-running."
+  ]
+ ],
+ "how": "Chronos reproduces `navi scan evaluate` over your local navi.db — no extra scanning. The rule exactly: plugin 19506 says \"Credentialed checks : yes\", or plugin 141118 or 110095 is present. The asset list pages and filters on the server and exports to CSV. Tagging re-runs the evaluation on the server and tags the exact assets under Scan Health, behind the write gate and a confirm.",
+ "who": "Scan engineers tuning credentials, scanners and policies, and VM leads who want to know how much of the estate their numbers actually describe.",
+ "better": "Chronos's rule decides \"blind\" for the whole pack — Nemesis's confidence, Janus's coverage, Fenrir's uncredentialed hosts, Alert Raven's coverage alert and On the Scent's funnel. Amarok's credential test tells you why a login fails, and Covenant re-applies the Scan Health tags on its schedule.",
+ "cta": "Ask Chronos what your scans are missing — trust is measured, not assumed."
 }

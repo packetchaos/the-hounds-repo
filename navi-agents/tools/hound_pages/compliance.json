@@ -1,46 +1,50 @@
 {
-  "codename": "Minos",
-  "discipline": "Compliance",
-  "category": "Risk",
-  "tagline": "Weigh the estate against its benchmarks — and assign failures an owner.",
-  "lore": "Minos, the mythic judge who weighs each case and renders a verdict — here he weighs every asset against its audit benchmarks: pass, fail, warning.",
-  "problem": "Tenable's compliance scans produce one result per check per asset — tens of thousands of rows that say little on their own. Which controls fail most widely, which frameworks are exposed, and who should fix them gets lost in the volume.",
-  "does": "Minos turns your audit results into one verdict: pass rate, results by status, the controls failing the most assets, how failures map to frameworks such as NIST 800-53, PCI, HIPAA, CIS and ISO, every audit benchmark, and a scorecard per asset. He can tag an Audit Owner on the assets failing a control.",
-  "glance": {
-    "caption": "Minos's At a glance on a 128-asset lab: 60 assets audited, every one failing at least one check and 21 under a 50% pass rate; a 54.2% pass rate (325 passed, 275 failed, plus 60 warnings); 11 failing controls across 5 frameworks and 2 audit files."
-  },
-  "capabilities": [
-    [
-      "Results by status",
-      "passed, failed, warning and unknown across every check × asset, with pass rate = pass ÷ (pass + fail)."
-    ],
-    [
-      "Controls failing the most assets",
-      "the short list of controls whose fix moves the most assets."
-    ],
-    [
-      "Framework exposure",
-      "failures rolled up by the frameworks and controls each check references (NIST, PCI, HIPAA, CIS, ISO …)."
-    ],
-    [
-      "Audit benchmarks",
-      "every audit file in navi.db, with its results."
-    ],
-    [
-      "Per-asset scorecards",
-      "which assets pass least, which have warnings, which are clean."
-    ],
-    [
-      "Audit Owner tags",
-      "assign an owner to the assets that fail one control — Audit Owner : <owner>."
-    ],
-    [
-      "One click to the evidence",
-      "every card, bar, control, framework and benchmark opens the matching assets in Tiresias."
-    ]
+ "codename": "Minos",
+ "discipline": "Compliance",
+ "category": "Risk",
+ "tagline": "Weigh the estate against its benchmarks — and assign failures an owner.",
+ "lore": "Minos, the mythic judge who weighs each case and renders a verdict — here he weighs every asset against its audit benchmarks: pass, fail, warning.",
+ "problem": "Tenable's compliance scans produce one result per check per asset — tens of thousands of rows that say little on their own. Which controls fail most widely, which frameworks are exposed, and who should fix them gets lost in the volume.",
+ "does": "Minos turns your audit results into one verdict: pass rate, results by status, the controls failing the most assets, how failures map to frameworks such as NIST 800-53, PCI, HIPAA, CIS and ISO, every audit benchmark, and a scorecard per asset. He can tag an Audit Owner on the assets failing a control.",
+ "glance": {
+  "caption": "Minos's At a glance on a 128-asset lab: 60 assets audited, every one failing at least one check and 21 under a 50% pass rate; a 54.2% pass rate (325 passed, 275 failed, plus 60 warnings); 11 failing controls across 5 frameworks and 2 audit files."
+ },
+ "capabilities": [
+  [
+   "Results by status",
+   "passed, failed, warning and unknown across every check × asset, with pass rate = pass ÷ (pass + fail)."
   ],
-  "how": "Minos reads the compliance table in your local navi.db (it parses the framework references navi stores for each check). It changes nothing except the Audit Owner tag, which goes through navi's tag commands behind the write gate and a confirm.",
-  "who": "GRC and audit teams, compliance owners preparing for an assessment, and security leads who need to show how the estate measures against a framework.",
-  "better": "Tiresias is his twin for one asset at a time. Fenrir turns failed controls such as LAPS and SMB signing into attack-path steps, and Nemesis counts compliance failures in its score. Covenant can keep Audit Owner tags current once an owner is set.",
-  "cta": "Put the estate on trial with Minos — and name who fixes each failure."
+  [
+   "Controls failing the most assets",
+   "the short list of controls whose fix moves the most assets."
+  ],
+  [
+   "Framework exposure",
+   "failures rolled up by the frameworks and controls each check references (NIST, PCI, HIPAA, CIS, ISO …)."
+  ],
+  [
+   "Audit benchmarks",
+   "every audit file in navi.db, with its results."
+  ],
+  [
+   "Per-asset scorecards",
+   "which assets pass least, which have warnings, which are clean."
+  ],
+  [
+   "Audit Owner tags",
+   "assign an owner to the assets that fail one control — Audit Owner : <owner>."
+  ],
+  [
+   "One click to the evidence",
+   "every card, bar, control, framework and benchmark opens the matching assets in Tiresias."
+  ],
+  [
+   "By tag",
+   "run over one tag's assets: pass rate, failing controls, frameworks, benchmarks and scorecards are rebuilt over that tag, and Audit Owner tagging from that view reaches only the tag's failing assets. Switch between the whole estate and your last 5 tags without re-running."
+  ]
+ ],
+ "how": "Minos reads the compliance table in your local navi.db (it parses the framework references navi stores for each check). It changes nothing except the Audit Owner tag, which goes through navi's tag commands behind the write gate and a confirm.",
+ "who": "GRC and audit teams, compliance owners preparing for an assessment, and security leads who need to show how the estate measures against a framework.",
+ "better": "Tiresias is his twin for one asset at a time. Fenrir turns failed controls such as LAPS and SMB signing into attack-path steps, and Nemesis counts compliance failures in its score. Covenant can keep Audit Owner tags current once an owner is set.",
+ "cta": "Put the estate on trial with Minos — and name who fixes each failure."
 }

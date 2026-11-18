@@ -14,7 +14,7 @@ import json
 import os
 import re
 
-from core import db, tagname
+from core import db, tagname, tagscope
 from core.agents.base import Agent
 from core.security import private_open as _popen
 
@@ -96,7 +96,13 @@ class CustomAppAgent(Agent):
                 "from_routes": sum(1 for c in self.result["candidates"] if c["source"] == "route")}
 
     # ---- discovery ----
-    def _run(self, db_path=None, **kwargs) -> dict:
+    def _run(self, db_path=None, scope=None, **kwargs) -> dict:
+        """`scope` = (tag_key, tag_value) runs over that tag's assets only (build 489): path
+        candidates come from the tag's path rows, a route candidate is kept when any of its
+        assets carries the tag, and every count covers only the tag's assets. None = the whole
+        estate, exactly as before."""
+        sk, sv = scope if scope else (None, None)
+        sfrag, sargs = tagscope.sql(sk, sv, "asset_uuid")
         # vuln_route / vuln_paths are populated by SEPARATE navi commands
         # (navi config update route / paths), NOT a normal full sync — so they are
         # often missing/empty. Degrade gracefully and report what needs populating
@@ -105,8 +111,12 @@ class CustomAppAgent(Agent):
         sw = [r["software_string"].lower() for r in
               _safe_rows("SELECT software_string FROM software;", db_path)
               if r.get("software_string")]
-        paths = _safe_rows("SELECT path, asset_uuid FROM vuln_paths "
-                           "WHERE path IS NOT NULL AND path<>'';", db_path)
+        if sk:
+            paths = _safe_rows("SELECT path, asset_uuid FROM vuln_paths "
+                               "WHERE path IS NOT NULL AND path<>''" + sfrag + ";", db_path, sargs)
+        else:
+            paths = _safe_rows("SELECT path, asset_uuid FROM vuln_paths "
+                               "WHERE path IS NOT NULL AND path<>'';", db_path)
         setup = routing_status(db_path)
 
         # one joined string: a substring test across every software string in C, instead of
@@ -159,7 +169,21 @@ class CustomAppAgent(Agent):
         terms = load_ignore()
         kept = [c for c in candidates if not is_ignored(c["name"], c.get("keyword"), terms)]
         hidden = len(candidates) - len(kept)
-        metrics = _enrich(kept, tok_assets, db_path)
+        if sk:
+            # a hidden route only counts when it sits on the tag's assets (paths already do)
+            gone = [c for c in candidates if c["source"] == "route" and c not in kept]
+            if gone:
+                rpl = _route_plugins(db_path)
+                hidden -= sum(1 for c in gone if not rpl.get(c["name"].lower())
+                              or not _plugin_assets(sorted(rpl[c["name"].lower()]), db_path, (sk, sv)))
+        metrics = _enrich(kept, tok_assets, db_path, scope=(sk, sv) if sk else None)
+        if sk:
+            return {"candidates": kept, "ignored": terms, "hidden": hidden,
+                    "setup": setup, "needs_setup": not (setup["vuln_route"] or setup["vuln_paths"]),
+                    "setup_hint": _SETUP_HINT, "metrics": metrics,
+                    "counts": {"routes": len(routes), "software": len(sw),
+                               "paths": len(paths), "candidates": len(kept), "hidden": hidden},
+                    "scope": tagscope.describe(sk, sv, db_path)}
         return {"candidates": kept, "ignored": terms, "hidden": hidden,
                 "setup": setup, "needs_setup": not (setup["vuln_route"] or setup["vuln_paths"]),
                 "setup_hint": _SETUP_HINT, "metrics": metrics,
@@ -174,7 +198,16 @@ def _nk(s):
     return " ".join((s or "").strip().lower().split())
 
 
-def _enrich(cands, tok_assets, db_path=None) -> dict:
+def _route_plugins(db_path=None) -> dict:
+    """{route app_name (lower): {plugin ids}} from vuln_route.plugin_list."""
+    route_pl = {}
+    for r in _safe_rows("SELECT app_name, plugin_list FROM vuln_route WHERE app_name IS NOT NULL;", db_path):
+        ids = set(re.findall(r"\d+", str(r.get("plugin_list") or "")))
+        route_pl.setdefault((r.get("app_name") or "").strip().lower(), set()).update(ids)
+    return route_pl
+
+
+def _enrich(cands, tok_assets, db_path=None, scope=None) -> dict:
     """Per-candidate visibility: the assets it sits on (paths: assets with that path token;
     routes: assets with any of the route's plugins — one linear scan, no LIKE joins), how
     many are crown jewels (ACR ≥ 7) or have no Owner tag at all, and whether the app is
@@ -192,7 +225,8 @@ def _enrich(cands, tok_assets, db_path=None) -> dict:
             continue
         pids = sorted(route_pl.get(c["name"].lower(), ()))
         if pids and c["name"].lower() not in route_assets:
-            route_assets[c["name"].lower()] = _plugin_assets(pids, db_path)
+            route_assets[c["name"].lower()] = (_plugin_assets(pids, db_path, scope) if scope
+                                               else _plugin_assets(pids, db_path))
     asets = []
     for c in cands:
         if c["source"] == "route":
@@ -200,6 +234,12 @@ def _enrich(cands, tok_assets, db_path=None) -> dict:
         else:
             aset = {a for a in tok_assets.get(c["keyword"], set()) if a}
         asets.append(aset)
+    if scope:
+        # a tag view keeps only the candidates that sit on the tag's assets (path candidates
+        # always do — they were mined from the tag's own path rows)
+        keep = [i for i, a in enumerate(asets) if a]
+        cands[:] = [cands[i] for i in keep]
+        asets = [asets[i] for i in keep]
     need = set().union(*asets) if asets else set()
     acr, owned_assets = _acr_owner(need, db_path)
     has_acr = _has_acr(acr, db_path)
@@ -232,13 +272,16 @@ def _enrich(cands, tok_assets, db_path=None) -> dict:
 _BULK = 50000      # past this many candidate assets, read assets/Owner tags whole (narrow scans)
 
 
-def _plugin_assets(pids, db_path=None) -> set:
-    """DISTINCT asset_uuid carrying any of these plugins (all states, like before)."""
+def _plugin_assets(pids, db_path=None, scope=None) -> set:
+    """DISTINCT asset_uuid carrying any of these plugins (all states, like before). `scope`
+    (tag_key, tag_value) keeps only the assets carrying that tag (in SQL)."""
     try:
         ib = db.indexed_by("hx_v_plugin", db_path)
+        sfrag, sargs = tagscope.sql(scope[0], scope[1], "asset_uuid") if scope else ("", ())
         out = set()
         for r in db.iter(f"SELECT DISTINCT asset_uuid FROM vulns{ib} WHERE plugin_id IN "
-                         "(SELECT value FROM json_each(?))", (json.dumps([str(p) for p in pids]),),
+                         "(SELECT value FROM json_each(?))" + sfrag,
+                         (json.dumps([str(p) for p in pids]),) + tuple(sargs),
                          path=db_path, budget="run" if ib else "job", tuples=True):
             if r[0]:
                 out.add(r[0])
@@ -310,10 +353,12 @@ _SETUP_HINT = ("Custom App discovery reads navi.db's vuln_route + vuln_paths tab
                "`navi config update paths` (they are NOT part of a normal full sync).")
 
 
-def _safe_rows(sql, db_path=None):
+def _safe_rows(sql, db_path=None, params=None):
     """Run a SELECT, returning [] if the table doesn't exist yet (missing routing
     tables must not crash discovery)."""
     try:
+        if params:
+            return db.query(sql, tuple(params), path=db_path)
         return db.query(sql, path=db_path)
     except Exception:
         return []
@@ -331,26 +376,63 @@ def routing_status(db_path=None) -> dict:
     return {"vuln_route": _table_has_rows("vuln_route", db_path),
             "vuln_paths": _table_has_rows("vuln_paths", db_path)}
 
-def search_paths(keyword: str, db_path=None) -> list[dict]:
-    """Filesystem-path matches (vuln_paths.path) — assets linked by asset_uuid."""
+def search_paths(keyword: str, db_path=None, scope=None) -> list[dict]:
+    """Filesystem-path matches (vuln_paths.path) — assets linked by asset_uuid. `scope`
+    (tag_key, tag_value) keeps only path rows on that tag's assets."""
     kw = (keyword or "").strip().replace("'", "''")
     if not kw:
         return []
+    if scope:
+        sfrag, sargs = tagscope.sql(scope[0], scope[1], "p.asset_uuid")
+        sql = (f"SELECT p.path, p.plugin_id, a.hostname, a.ip_address, p.asset_uuid "
+               f"FROM vuln_paths p LEFT JOIN assets a ON a.uuid=p.asset_uuid "
+               f"WHERE p.path LIKE '%{kw}%'{sfrag} GROUP BY p.path;")
+        return _safe_rows(sql, db_path, sargs)
     sql = (f"SELECT p.path, p.plugin_id, a.hostname, a.ip_address, p.asset_uuid "
            f"FROM vuln_paths p LEFT JOIN assets a ON a.uuid=p.asset_uuid "
            f"WHERE p.path LIKE '%{kw}%' GROUP BY p.path;")
     return _safe_rows(sql, db_path)
 
 
-def search_routes(keyword: str, db_path=None) -> list[dict]:
+def search_routes(keyword: str, db_path=None, scope=None) -> list[dict]:
     """Application-route matches (vuln_route.app_name). vuln_route carries no
-    asset_uuid, so navi tags these via --route_id rather than a SQL query."""
+    asset_uuid, so navi tags these via --route_id rather than a SQL query.
+    `scope` (tag_key, tag_value) keeps only the routes with a plugin on that tag's assets,
+    each with `scope_assets` (how many of the tag's assets) and `plugins` (its plugin ids)."""
     kw = (keyword or "").strip().replace("'", "''")
     if not kw:
         return []
+    if scope:
+        rows = _safe_rows(f"SELECT route_id, app_name, vuln_type, total_vulns, plugin_list FROM vuln_route "
+                          f"WHERE app_name LIKE '%{kw}%' ORDER BY total_vulns DESC;", db_path)
+        out = []
+        for r in rows:
+            pids = sorted(set(re.findall(r"\d+", str(r.pop("plugin_list", None) or ""))))
+            n = len(_plugin_assets(pids, db_path, scope)) if pids else 0
+            if n:
+                out.append({**r, "scope_assets": n, "plugins": pids})
+        return out
     sql = (f"SELECT route_id, app_name, vuln_type, total_vulns FROM vuln_route "
            f"WHERE app_name LIKE '%{kw}%' ORDER BY total_vulns DESC;")
     return _safe_rows(sql, db_path)
+
+
+def scoped_tag_sql(keyword: str, plugins, k: str, v: str):
+    """(sql, params) selecting the assets a tag view's Custom App write may touch: assets with a
+    path matching `keyword` plus assets carrying any of the matching routes' `plugins` — BOTH
+    limited to the assets tagged k : v, read from navi.db on the server."""
+    kw = (keyword or "").strip()
+    sfrag, sargs = tagscope.sql(k, v, "asset_uuid")
+    parts, params = [], []
+    if kw:
+        parts.append("SELECT DISTINCT asset_uuid FROM vuln_paths WHERE path LIKE ?" + sfrag)
+        params += ["%" + kw + "%", *sargs]
+    pids = sorted({str(p) for p in (plugins or []) if str(p).isdigit()})
+    if pids:
+        parts.append("SELECT DISTINCT asset_uuid FROM vulns WHERE plugin_id IN "
+                     "(SELECT value FROM json_each(?))" + sfrag)
+        params += [json.dumps(pids), *sargs]
+    return " UNION ".join(parts), tuple(params)
 
 
 def search_app(keyword: str, db_path=None) -> dict:

@@ -27,6 +27,7 @@
   <section class="card">
     <h3 style="margin:0 0 4px">✨ Ask — query the software inventory</h3>
     <p class="sub" style="margin:0 0 8px">Plain-English question → one read-only SELECT over <span class="mono">software</span> joined to <span class="mono">assets</span> / <span class="mono">vulns</span>. e.g. <i>"openssl versions on assets with ACR over 8"</i> · <i>"products on hosts that have a critical CVE"</i>.</p>
+    <p class="sub" id="swNLscope" style="margin:0 0 8px;display:none"></p>
     <div class="toolbar"><input id="swNL" placeholder="Ask across software + assets + vulns…" style="flex:1;min-width:240px;padding:9px;border-radius:8px;border:1px solid var(--accent);background:var(--bg-2);color:var(--ink)"><button class="btn sm" id="swNLgo" data-run>✨ Ask</button></div>
     <div id="swNLflash" class="flash"></div>
     <div id="swNLout"></div>
@@ -67,7 +68,11 @@ const API=agentApi('software'); let WRITES=false; jget('/api/health').then(h=>{W
    the table pages / filters / searches on the server (hDrill), and every tag sends a KEY
    (product / version / role) — the server rebuilds the asset set from navi.db. */
 /* asset count → the Asset Explorer list of those assets (build 481: sent 500 at a time, shown 20 per page, CSV has all) */
-function swAL(name,ver,n){ const u='/agents/ex_assets/page.html?software='+encodeURIComponent(name)+(ver==null?'':'&version='+encodeURIComponent(ver));
+function swAL(name,ver,n){
+  /* build 489: Asset Explorer has no tag filter yet — in a tag view its list would be the whole
+     estate's, so the count stays plain text (it is the tag's count) */
+  if(tagScope()) return '<span title="'+esc(fmtN(n))+' asset(s) of this tag — the Asset Explorer list covers the whole estate, so it is not linked here">'+esc(fmtN(n))+'</span>';
+  const u='/agents/ex_assets/page.html?software='+encodeURIComponent(name)+(ver==null?'':'&version='+encodeURIComponent(ver));
   return '<a class="swal" href="'+esc(u)+'" title="Open the '+esc(fmtN(n))+' asset(s) running '+esc(name+(ver==null?'':' '+(ver||'(no version)')))+' — 20 per page, ⬇ CSV has every one">'+esc(fmtN(n))+' →</a>'; }
 function verCmp(a,b){ const pa=String(a).split(/[._\-]/),pb=String(b).split(/[._\-]/); for(let i=0;i<Math.max(pa.length,pb.length);i++){ const na=parseInt(pa[i],10),nb=parseInt(pb[i],10); const va=isNaN(na)?(pa[i]||''):na, vb=isNaN(nb)?(pb[i]||''):nb; if(va<vb)return -1; if(va>vb)return 1; } return 0; }
 function _srcBadge(p){ return p.src==='both'?'<span class="chip" title="software + cpes">both</span>':(p.src==='cpe'?'<span class="chip" style="color:var(--accent);border-color:var(--accent)" title="only in the cpes inventory">cpes</span>':'<span class="chip" title="only in the software inventory">software</span>'); }
@@ -75,6 +80,7 @@ function _srcBadge(p){ return p.src==='both'?'<span class="chip" title="software
 let SW=null, swFilter='sprawl', SWT=null, EOLT=null;
 const SW_VIEWS={sprawl:['sprawl',['multi']],common:['common',[]],single:['single',['single']],eol:['eol',['eol']],delta:['delta',['delta']],all:['all',[]]};
 const fmtN=n=>Number(n||0).toLocaleString();
+const swW=()=>tagScope()?'this tag':'the estate';   /* build 489: wording for a tag view */
 
 /* every software tag is a KEY — {product}, {product, version}, {product, kind:'eol'|'behind'} or {role};
    the server rebuilds the exact asset set (and pages it ≤1,999 per navi job) */
@@ -82,7 +88,7 @@ async function tagByKey(category,value,key,n,name,btn){ const res=document.getEl
   if(btn&&btn.disabled)return;
   if(!SW||!SW.run)return;
   await testRunStatus();
-  if(!confirm('Tag '+tagCat(category)+' : '+value+' on '+n+' asset'+(n===1?'':'s')+'?'
+  if(!confirm('Tag '+tagCat(category)+' : '+value+' on '+n+' asset'+(n===1?'':'s')+tagScopeNote()+'?'
     +(WRITES?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.'))) return;
   if(btn&&btn.disabled)return;
   const scroll=()=>{ if(res)res.scrollIntoView({behavior:'smooth',block:'center'}); };
@@ -94,7 +100,7 @@ async function tagByKey(category,value,key,n,name,btn){ const res=document.getEl
   let o; try{ o=await API.post('tag',{category,value,key,run:SW.run,name:(name||''),confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
   const r=(o&&o.result)||{}; const ok=o&&o.ok&&r.ok!==false;
   const capNote=(o&&o.over_cap)?(' · '+esc(o.count)+' assets exceed the 1999-UUID cap, so navi tagged by built-in signature (--plugin/--output -regex, '+esc(o.commands||1)+' command'+((o.commands||1)>1?'s':'')+')'):'';
-  res.innerHTML='<div class="callbox" style="color:'+(ok?'var(--ok)':'#ffb4c6')+'">'+(ok?('✓ queued tag → '+esc(category)+' : '+esc(value)+' ('+esc(o.count||n)+' asset(s))'+capNote+(r.warning?' — '+esc(r.warning):'')):('✗ '+esc(r.message||r.stderr||(o&&(o.error||o.message))||'write rejected')))+'</div>'
+  res.innerHTML='<div class="callbox" style="color:'+(ok?'var(--ok)':'#ffb4c6')+'">'+(ok?('✓ queued tag → '+esc(category)+' : '+esc(value)+' ('+esc(o.count||n)+' asset(s)'+esc(tagScopeNote(' tagged '))+')'+capNote+(r.warning?' — '+esc(r.warning):'')):('✗ '+esc(r.message||r.stderr||(o&&(o.error||o.message))||'write rejected')))+'</div>'
     +((o&&o.writes_enabled)?'':'<div class="sub" style="margin-top:6px;color:var(--warn)">'+esc((o&&o.write_gate_reason)||'Writes are gated — set NAVI_ALLOW_WRITES=1')+'. Tags queue in the <a href="/web/tags-log.html">Tagging log</a> and apply after a navi.db sync.</div>');
   scroll(); reset();
 }
@@ -103,14 +109,14 @@ function acrNote(cat,val,acr){ document.getElementById('swTagRes').innerHTML=
 
 async function runSoftware(){
   const b=document.getElementById('swRun'); if(b)b.disabled=true;
-  const f=document.getElementById('swFlash'); if(f){f.className='flash show';f.style.background='var(--runbg)';f.style.color='var(--accent)';f.innerHTML='<span class="spin"></span> reading the software + cpes inventories…';}
+  const f=document.getElementById('swFlash'); if(f){f.className='flash show';f.style.background='var(--runbg)';f.style.color='var(--accent)';f.innerHTML='<span class="spin"></span> reading the software + cpes inventories'+esc(tagScopeNote())+'…';}
   let o; try{ o=await API.post('inventory'); }catch(e){ o={ok:false,error:e.message}; }
   if(!o||!o.ok){ if(f){f.className='flash show';f.style.background='var(--critbg)';f.style.color='var(--crit)';f.innerHTML='✗ '+esc((o&&(o.error||o.message))||'failed');} if(b)b.disabled=false; return; }
   const m=o.summary||{};
   SW={run:(o.drill||{}).run, ...m, crown:o.crown||null, eol:null, first:o};
   if(f)f.className='flash'; if(b)b.disabled=false;
   const _dk = SW.haveCpe ? `<div class="k" title="products seen by BOTH inventories"><div class="v">${fmtN(m.both)}</div><div class="l">in both sources</div></div><div class="k" style="border-color:var(--accent)" title="products ONLY the cpes table sees"><div class="v" style="color:var(--accent)">${fmtN(m.onlyCpe)}</div><div class="l">Δ only in cpes</div></div><div class="k" title="products ONLY the software table sees"><div class="v">${fmtN(m.onlySoft)}</div><div class="l">Δ only in software</div></div><div class="k"${m.cpeOnlyAssets?' style="border-color:var(--accent)"':''} title="assets the software table misses but cpes inventories"><div class="v"${m.cpeOnlyAssets?' style="color:var(--accent)"':''}>${fmtN(m.cpeOnlyAssets)}</div><div class="l">assets only in cpes</div></div>` : '';
-  document.getElementById('swKpi').innerHTML=`<div class="k"><div class="v">${fmtN(m.nprod)}</div><div class="l">unique products</div></div><div class="k"><div class="v">${fmtN(m.pairs)}</div><div class="l">product+version pairs</div></div><div class="k"><div class="v" style="color:var(--crit)">${fmtN(m.multi)}</div><div class="l">multi-version (sprawl)</div></div><div class="k"><div class="v">${fmtN(m.nasset)}</div><div class="l">assets inventoried</div></div><div class="k"><div class="v">${fmtN(m.single)}</div><div class="l">single-install</div></div>`+_dk;
+  document.getElementById('swKpi').innerHTML=`<div class="k"><div class="v">${fmtN(m.nprod)}</div><div class="l">unique products</div></div><div class="k"><div class="v">${fmtN(m.pairs)}</div><div class="l">product+version pairs</div></div><div class="k"><div class="v" style="color:var(--crit)">${fmtN(m.multi)}</div><div class="l">multi-version (sprawl)</div></div><div class="k"><div class="v">${fmtN(m.nasset)}</div><div class="l">assets inventoried${tagScope()?' (of this tag)':''}</div></div><div class="k"><div class="v">${fmtN(m.single)}</div><div class="l">single-install${tagScope()?' (in this tag)':''}</div></div>`+_dk;
   ['swEol','swCrown','swRisk'].forEach(id=>{const e=document.getElementById(id);if(e)e.disabled=false;});
   swFilter=((o.drill||{}).view)||'sprawl'; document.querySelectorAll('#swFb button').forEach(x=>x.classList.toggle('on',x.dataset.f===swFilter));
   document.getElementById('swDrill').innerHTML=''; SWT=null; renderSoftware(true);
@@ -119,7 +125,7 @@ function _swRow(p,idx){ const vb=p.nver>1?`<span class="badge b-appr" style="col
   return `<tr><td><a class="swl" data-n="${esc(p.name)}">${esc(p.name)}</a></td><td>${vb}</td><td>${swAL(p.name,null,p.nasset)}</td><td>${fmtN(p.installs)}</td><td class="mono" style="font-size:12.5px">${esc(p.newest||'')}</td><td>${_eolCell(p)}</td><td>${_srcBadge(p)}</td><td><button class="btn sm" data-tag="${esc(p.name)}" data-n="${esc(p.nasset)}">🏷️ Tag product</button></td></tr>`; }
 function renderSoftware(first){
   if(!SW)return;
-  const hints={sprawl:'Products running more than one version across the estate — your biggest version-consolidation opportunities first.',common:'Most-deployed software by asset count — your de-facto enterprise-standard set.',single:'Software found on only one asset — rare / shadow / one-off installs worth a look.',eol:'Products with end-of-life / unsupported versions in the estate (via endoflife.date) — patch or isolate first.',all:'Every product, alphabetical.',delta:'Products seen by only ONE inventory source — cpes-only first (apps the RPM view misses), then software-only.'};
+  const hints={sprawl:'Products running more than one version across '+swW()+' — your biggest version-consolidation opportunities first.',common:'Most-deployed software by asset count'+(tagScope()?' in this tag — its de-facto standard set.':' — your de-facto enterprise-standard set.'),single:'Software found on only one asset'+(tagScope()?' of this tag':'')+' — rare / shadow / one-off installs worth a look.',eol:'Products with end-of-life / unsupported versions in '+swW()+' (via endoflife.date) — patch or isolate first.',all:'Every product, alphabetical.',delta:'Products seen by only ONE inventory source — cpes-only first (apps the RPM view misses), then software-only.'};
   document.getElementById('swHint').textContent=hints[swFilter]||'';
   setNavCount('swCard', fmtN(SW.nprod)); document.getElementById('swCount').textContent='('+fmtN(SW.nprod)+' products · '+fmtN(SW.nasset)+' assets)';
   const v=SW_VIEWS[swFilter]||SW_VIEWS.all;
@@ -140,7 +146,7 @@ async function swDrill(name){ const d=document.getElementById('swDrill'); if(!SW
   const p=o.product, e=p.eol||null;
   const eolSet=new Set((e&&e.eolVers)||[]); const _lat=(e&&e.latest)||'';
   const life = e ? ((e.noData||!e.slug) ? '<span class="sub">no endoflife.date match for this product</span>'
-      : ('endoflife.date <span class="mono">'+esc(e.slug)+'</span> · latest release <b>'+esc(e.latest||'?')+'</b>'+(e.eolAssetCount?(' · <b style="color:var(--crit)">'+esc(fmtN(e.eolAssetCount))+' asset(s) on EOL/unsupported versions</b>'):' · <span style="color:var(--ok)">no EOL versions in the estate</span>')))
+      : ('endoflife.date <span class="mono">'+esc(e.slug)+'</span> · latest release <b>'+esc(e.latest||'?')+'</b>'+(e.eolAssetCount?(' · <b style="color:var(--crit)">'+esc(fmtN(e.eolAssetCount))+' asset(s) on EOL/unsupported versions</b>'):' · <span style="color:var(--ok)">no EOL versions in '+esc(swW())+'</span>')))
       : (SW.eol?'<span class="sub">no endoflife.date match for this product</span>':'<span class="sub">Run ⏳ Check lifecycle to enrich EOL / latest.</span>');
   const behind=(e&&e.behindAssets)||0;
   d.innerHTML='<div class="card" style="background:var(--panel2);margin-top:14px"><div class="toolbar" style="margin:0 0 8px"><b>'+esc(p.name)+' — '+esc(fmtN(p.nver))+' version(s) across '+esc(fmtN(p.nasset))+' asset(s)</b><button class="btn ghost sm" id="swdClose" style="margin-left:auto">Close</button></div>'
@@ -285,10 +291,12 @@ document.getElementById('swNLgo').onclick=swAsk;
 document.getElementById('swNL').addEventListener('keydown',e=>{if(e.key==='Enter')swAsk();});
 document.querySelectorAll('#swFb button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#swFb button').forEach(x=>x.classList.remove('on'));b.classList.add('on');swFilter=b.dataset.f;document.getElementById('swDrill').innerHTML='';renderSoftware();});
 mountAgentHeader({id:'software',icon:'📦',name:'Software Analyzer',sub:'Mimir · sprawl · lifecycle · crown jewels · risk'});
+mountTagScope({agent:'software', note:'a product\'s assets, versions, EOL and risk counts cover only them; the ✨ Ask box still searches the whole estate'});
+if(tagScope()){ const ns=document.getElementById('swNLscope'); if(ns){ ns.style.display=''; ns.innerHTML='⚠ The Ask box is <b>not</b> limited to <b>'+esc(tagScopeLabel())+'</b> — it searches the whole estate. Add the tag to your question to narrow it.'; } }
 mountSectionNav();
 // ⛶ full screen + 📧 picture & list (Gabriel) on the risk leaderboard
 hWidget('secRisk',{title:'Software risk leaderboard', visual:()=>document.getElementById('swRiskOut'),
-  note:()=>(SW&&SW.risk&&SW.risk.summary)?(fmtN(SW.risk.summary.total)+' product(s) with findings · '+fmtN(SW.risk.summary.named)+' with findings that name the package'):'',
+  note:()=>(SW&&SW.risk&&SW.risk.summary)?(fmtN(SW.risk.summary.total)+' product(s) with findings · '+fmtN(SW.risk.summary.named)+' with findings that name the package'+tagScopeNote()):'',
   columns:['rank','product','risk','named KEV / crit','named finds','assets','KEV assets','critical','max VPR','EOL'],
   rows:()=>((SW&&SW.risk&&SW.risk.top)||[]).map((r,i)=>({rank:i+1, product:r.name, risk:Math.round(r.risk||0),
     'named KEV / crit':(r.pk||r.pc)?((r.pk||0)+' / '+(r.pc||0)):'', 'named finds':r.pf||'', assets:r.nasset, 'KEV assets':r.kev,

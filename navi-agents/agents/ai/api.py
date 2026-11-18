@@ -22,8 +22,16 @@ as COUNTS) plus page 1 of the asset list and a drill handle. The full assets (wi
 stay server-side for the run; no uuid arrays reach the page. Every tag button sends a KEY
 ({run, key:{…}}) and the server rebuilds the set from the stored run (`tag`, `tag_underrated`,
 `tag_atlas`); the uuid-list forms remain for server-side callers.
+
+Tag filter (build 489): every action but the legacy `apply` honours the request's
+tag_scope {key, value} (core/tagscope). A scoped `run` scans only the tag's assets (each asset's
+values are exactly its whole-estate values) and writes its rows to the result store under
+"ai_tag", kept per tag, so a tag view never evicts the whole estate's run (or the reverse).
+drill / counts / the tag writes only accept a run of the SAME scope. Every scoped write
+re-reads the tag's members from navi.db and drops anything outside it; `acr_roles` (navi sets
+ACR by tag) is refused for a role whose AI ACR Raise tag holds an asset outside the scope.
 """
-from core import activity, ai_assets, navi_cli, db, hx_summary, payload, tagname
+from core import activity, ai_assets, navi_cli, db, hx_summary, payload, tagname, tagscope
 from core.gates import confirmed
 
 AGENT = None
@@ -40,17 +48,73 @@ def _agent():
 ATLAS_CATEGORY = "AI ATLAS"          # the only category tag_atlas writes
 ATLAS_TACTIC_PREFIX = "Tactic : "    # tactic-level values: AI ATLAS : Tactic : <tactic>
 AI_CATS = ("AI", "AI Role", "AI Exposed", "AI Priority", "AI Egress", "AI ATLAS", "AI Software", "AI ACR Raise")
+TAG_HOUND = "ai_tag"                 # result-store name of tag-view runs (build 489)
+TAG_RUNS_PER_SCOPE = payload.KEEP_RUNS
+GONE = "this run is no longer on the server — press ▶ Run again"
 
 
-def _enrich(res):
+# ── tag filter (build 489) ───────────────────────────────────────────────────────────────────
+def _hound(k):
+    """The result-store name a view's runs live under: the whole estate's stay "ai"."""
+    return TAG_HOUND if k else "ai"
+
+
+def _run_ok(run, k, v):
+    """True when `run` is a finished run of THIS view (the whole estate, or exactly this tag)."""
+    info = payload.STORE.run_info(run, _hound(k))
+    if not info:
+        return False
+    if not k:
+        return True
+    sc = (info.get("meta") or {}).get("scope") or {}
+    return sc.get("key") == k and sc.get("value") == v
+
+
+def _inside(uuids, k, v):
+    """The uuids that carry tag k : v in navi.db right now (order kept). Scoped writes go through
+    this: the set is re-read on the server, never taken from the browser."""
+    if not k:
+        return list(uuids or [])
+    uu = [u for u in (uuids or []) if u]
+    keep = set()
+    for part in navi_cli.uuid_batches(uu, size=900):
+        rows = db.query("SELECT DISTINCT asset_uuid FROM tags WHERE tag_key=? AND tag_value=? AND asset_uuid IN ("
+                        + ",".join("?" * len(part)) + ")", (k, v, *part))
+        keep.update(r["asset_uuid"] for r in rows)
+    return [u for u in uu if u in keep]
+
+
+def _prune_tag_runs():
+    """Tag-view runs: the newest TAG_RUNS_PER_SCOPE per tag, for the tagscope.MAX_TAGS most
+    recently run tags (the page cache keeps 5 tag views). The estate's runs are never touched."""
+    seen, drop = {}, []
+    for r in payload.STORE.runs(TAG_HOUND):
+        sc = (r.get("meta") or {}).get("scope") or {}
+        key = (sc.get("key"), sc.get("value"))
+        if key not in seen and len(seen) >= tagscope.MAX_TAGS:
+            drop.append(r["run"])
+            continue
+        seen[key] = seen.get(key, 0) + 1
+        if seen[key] > TAG_RUNS_PER_SCOPE:
+            drop.append(r["run"])
+    for run in drop:
+        payload.STORE.drop(run)
+
+
+def _enrich(res, scope=(None, None)):
     """Page metrics on top of the scan: ACR vs the role's suggested ACR, what the pack has
     already tagged, how much was found beyond Tenable's AI plugin family, the framework
     inventory, and the estate denominator. Read-only; best-effort."""
     assets = res.get("assets") or []
     inl = ",".join("'" + str(x["asset_uuid"]).replace("'", "''") + "'" for x in assets)
     acr, tags = {}, {}
+    sk, sv = scope
     try:
-        total = db.scalar("SELECT COUNT(*) FROM assets") or 0
+        if sk:           # the denominator of a tag view: the tag's assets in navi.db
+            frag, args = tagscope.sql(sk, sv, "uuid")
+            total = db.scalar("SELECT COUNT(*) FROM assets WHERE 1=1" + frag, args) or 0
+        else:
+            total = db.scalar("SELECT COUNT(*) FROM assets") or 0
     except Exception:
         total = 0
     if inl:
@@ -149,11 +213,14 @@ def _median(vals):
     return v[len(v) // 2] if v else None
 
 
-def _publish(res):
+def _publish(res, scope=(None, None)):
     """Write the run's assets to the result store and build the page's decision data (what the
-    page used to compute in the browser over the full asset list)."""
+    page used to compute in the browser over the full asset list). A tag view's run is stored
+    under TAG_HOUND with its scope in the run's meta."""
     assets = res.get("assets") or []
-    W = payload.STORE.begin("ai")
+    sk, sv = scope
+    W = (payload.STORE.begin(TAG_HOUND, keep=tagscope.MAX_TAGS * TAG_RUNS_PER_SCOPE) if sk
+         else payload.STORE.begin("ai"))
     W.section("assets")
     src, roles, dests, tech, tacs = {}, {}, {}, {}, {}
     ex = un = sh = 0
@@ -204,10 +271,17 @@ def _publish(res):
         for f in res.get("frameworks") or []:
             W.members("fw:" + str(f.get("name")), f.get("uuids") or [])
         W.meta = {"allow": res.get("allow")}
+        if sk:
+            W.meta["scope"] = {"key": sk, "value": sv}
     except BaseException:
         W.close(ok=False)
         raise
     W.close()
+    if sk:
+        try:
+            _prune_tag_runs()
+        except Exception:
+            pass
     for d in dests.values():
         d["assets"] = len(d.pop("_u"))
     for d in tech.values():
@@ -224,27 +298,40 @@ def _publish(res):
 
 
 def run(p):
+    sk, sv = tagscope.parse(p or {})
     try:
-        res = ai_assets.scan(fp=(p or {}).get("fp"), allow=(p or {}).get("allow"))
+        if sk:
+            res = ai_assets.scan(fp=(p or {}).get("fp"), allow=(p or {}).get("allow"), scope=(sk, sv))
+        else:
+            res = ai_assets.scan(fp=(p or {}).get("fp"), allow=(p or {}).get("allow"))
     except Exception as e:
         return {"ok": False, "error": f"AI scan failed: {e}"}, 200
     try:
-        res = _enrich(res)
+        res = _enrich(res, (sk, sv)) if sk else _enrich(res)
     except Exception as e:
         res["metrics_error"] = f"metrics failed: {e}"
-    runid, view = _publish(res)
-    first, _c = payload.drill("ai", {"run": runid, "section": "assets", "limit": 50}, SECTIONS)
+    runid, view = _publish(res, (sk, sv)) if sk else _publish(res)
+    first, _c = payload.drill(_hound(sk), {"run": runid, "section": "assets", "limit": 50}, SECTIONS)
     small = {k: v for k, v in res.items() if k not in ("assets", "frameworks")}
     small["view"] = view
+    extra = {}
+    if sk:
+        small["scope"] = extra["scope"] = tagscope.describe(sk, sv)
     return payload.response(summary=res.get("metrics") or {}, top=first.get("top") or [],
                             total_=first.get("total"), page=first.get("page"),
                             drill={"action": "drill", "run": runid, "section": "assets"},
                             tag={"key": "filter", "count": res.get("asset_count", 0)},
-                            agent=_agent().meta(), result=small), 200
+                            agent=_agent().meta(), result=small, **extra), 200
 
 
 def drill(p):
-    return payload.drill("ai", p, SECTIONS)
+    sk, sv = tagscope.parse(p or {})
+    if not sk:
+        return payload.drill("ai", p, SECTIONS)
+    if not _run_ok((p or {}).get("run"), sk, sv):
+        return {"ok": False, "expired": True,
+                "error": "this run's rows are not this tag view's — press ▶ Run again"}, 200
+    return payload.drill(TAG_HOUND, p, SECTIONS)
 
 
 def _view_args(p):
@@ -261,7 +348,8 @@ def counts(p):
     """Read: how many assets of a filtered view are in each role, exposed, KEV — the numbers on
     the tag buttons (counted server-side over the run's stored assets)."""
     run = (p or {}).get("run")
-    if not payload.STORE.run_info(run, "ai"):
+    sk, sv = tagscope.parse(p or {})
+    if not _run_ok(run, sk, sv):
         return {"ok": False, "expired": True, "error": "this run is gone — press ▶ Run again"}, 200
     flt, q = _view_args(p)
     if flt is None:
@@ -279,8 +367,9 @@ def _key_uuids(p):
     """(uuids, error) for a tag KEY over a stored run: {all} · {filter:[…], q} · {asset} ·
     {fw: name} · {egress: 'cat|dest'} · {shadow}. The page never sends uuids."""
     run = p.get("run")
-    if not payload.STORE.run_info(run, "ai"):
-        return None, "this run is no longer on the server — press ▶ Run again"
+    sk, sv = tagscope.parse(p)
+    if not _run_ok(run, sk, sv):
+        return None, GONE
     k = p.get("key") or {}
     S = payload.STORE
     if k.get("all") is True:
@@ -310,16 +399,34 @@ def acr_roles(p):
     roles = [r for r in (p.get("roles") or []) if r in ai_assets.ROLE_ACR]
     if not roles:
         return {"ok": False, "error": "no AI roles selected"}, 400
+    sk, sv = tagscope.parse(p)
     done = []
     for r in roles:
         score = ai_assets.ROLE_ACR[r]
+        if sk:
+            # navi sets ACR on EVERY asset carrying the AI ACR Raise tag; from a tag view that is
+            # only allowed when all of them carry the scope tag too (re-read from navi.db)
+            try:
+                out_n = int(db.scalar(
+                    "SELECT COUNT(DISTINCT asset_uuid) FROM tags WHERE tag_key=? AND tag_value=? AND asset_uuid "
+                    "NOT IN (SELECT asset_uuid FROM tags WHERE tag_key=? AND tag_value=?)",
+                    (tagname.effective("AI ACR Raise"), r, sk, sv)) or 0)
+            except Exception:
+                out_n = -1
+            if out_n != 0:
+                done.append({"role": r, "acr": score, "ok": False, "blocked": True, "outside": out_n,
+                             "message": (f"not sent — {out_n:,} asset(s) tagged AI ACR Raise : {r} are outside "
+                                         f"{tagscope.label(sk, sv)}; set this role's ACR from the whole estate")
+                             if out_n > 0 else "not sent — could not check the AI ACR Raise tag against the tag filter"})
+                continue
         # the tag tag_underrated wrote — its test-run name when Settings → Test run is on
         out = navi_cli.acr(tagname.effective("AI ACR Raise"), r, score, mod="set", reasons=["business"],
                            note=f"Pythia: {r} AI asset -> ACR {score}", agent="ai")
         done.append({"role": r, "acr": score, "ok": bool(out.get("ok")), "blocked": bool(out.get("blocked")),
                      "message": out.get("message") or out.get("stderr") or ""})
     ok = sum(1 for d in done if d["ok"])
-    return {"ok": ok > 0, "applied": ok, "results": done,
+    extra = {"scope": tagscope.describe(sk, sv)} if sk else {}
+    return {"ok": ok > 0, "applied": ok, "results": done, **extra,
             "error": None if ok else ((done[0]["message"] or "navi rejected the ACR change")[:300]
                                       + ("" if done[0]["blocked"] else " — tag the under-rated assets (AI ACR Raise) first and wait for the tag to reach Tenable")),
             "writes_enabled": navi_cli.writes_enabled()}, 200
@@ -334,12 +441,15 @@ def tag_underrated(p):
     if role not in ai_assets.ROLE_ACR:
         return {"ok": False, "error": "unknown AI role"}, 400
     score = ai_assets.ROLE_ACR[role]
+    sk, sv = tagscope.parse(p)
     if p.get("run"):              # the page's form: the role's under-rated assets of the stored run
-        if not payload.STORE.run_info(p.get("run"), "ai"):
-            return {"ok": False, "error": "this run is no longer on the server — press ▶ Run again"}, 200
+        if not _run_ok(p.get("run"), sk, sv):
+            return {"ok": False, "error": GONE}, 200
         uu = payload.STORE.uids(p["run"], "assets", ["role:" + role, "under"])
     else:
         uu = [u for u in (p.get("uuids") or []) if u]
+    if sk:
+        uu = _inside(uu, sk, sv)
     if not uu:
         return {"ok": False, "error": "no asset uuids supplied"}, 400
     keep = []
@@ -353,8 +463,9 @@ def tag_underrated(p):
     if not keep:
         return {"ok": False, "error": f"no {role} asset is below ACR {score}"}, 200
     r = ai_assets.tag_uuids("AI ACR Raise", role, keep, agent="ai")
+    extra = {"scope": tagscope.describe(sk, sv)} if sk else {}
     return {"ok": bool(r.get("ok", True)), "category": tagname.effective("AI ACR Raise"), "value": role,
-            "count": len(keep), "result": r, "writes_enabled": navi_cli.writes_enabled()}, 200
+            "count": len(keep), "result": r, "writes_enabled": navi_cli.writes_enabled(), **extra}, 200
 
 
 def tag(p):
@@ -374,11 +485,17 @@ def tag(p):
             return {"ok": False, "error": err}, 400 if err == "unknown filter" or err == "unknown key" else 200
     else:
         uuids = p.get("uuids") or []
+    sk, sv = tagscope.parse(p)
+    if sk and uuids:
+        uuids = _inside(uuids, sk, sv)
+        if not uuids:
+            return {"ok": False, "error": f"none of these assets carry {tagscope.label(sk, sv)}"}, 200
     if not uuids:
         return {"ok": False, "error": "no asset uuids supplied"}, 400
     r = ai_assets.tag_uuids(category, value, uuids, agent="ai")
+    extra = {"scope": tagscope.describe(sk, sv)} if sk else {}
     return {"ok": bool(r.get("ok", True)), "category": tagname.effective(category), "value": value,
-            "count": len(uuids), "result": r, "writes_enabled": navi_cli.writes_enabled()}, 200
+            "count": len(uuids), "result": r, "writes_enabled": navi_cli.writes_enabled(), **extra}, 200
 
 
 def tag_atlas(p):
@@ -400,23 +517,28 @@ def tag_atlas(p):
         value = ATLAS_TACTIC_PREFIX + name
     else:
         return {"ok": False, "error": "unknown ATLAS technique or tactic"}, 400
-    if p.get("run") and payload.STORE.run_info(p.get("run"), "ai"):
+    sk, sv = tagscope.parse(p)
+    if p.get("run") and _run_ok(p.get("run"), sk, sv):
         # the stored run the page shows (same fp / allow) — no re-scan of navi.db
         uu = payload.STORE.uids(p["run"], "assets", [("tech:" if kind == "tech" else "tactic:") + name])
     else:
         try:
-            res = ai_assets.scan(fp=p.get("fp"), allow=p.get("allow"))
+            res = (ai_assets.scan(fp=p.get("fp"), allow=p.get("allow"), scope=(sk, sv)) if sk
+                   else ai_assets.scan(fp=p.get("fp"), allow=p.get("allow")))
         except Exception as e:
             return {"ok": False, "error": f"AI scan failed: {e}"}, 200
         uu = sorted(ai_assets.atlas_sets(res.get("assets"))[kind].get(name, set()))
+    if sk:
+        uu = _inside(uu, sk, sv)
     if not uu:
         return {"ok": False, "error": f"no AI assets map to {value}"}, 200
     # ATLAS mapping is computed in Python (ai_assets.atlas_sets) → ≤1,999-UUID batches
     jobs = navi_cli.tag_capped(ATLAS_CATEGORY, value, uuids=uu, remove=False, agent="ai")
     ids = [j.get("job_id") for j in jobs if j.get("job_id") is not None]
+    extra = {"scope": tagscope.describe(sk, sv)} if sk else {}
     return {"ok": True, "category": tagname.effective(ATLAS_CATEGORY), "value": value, "count": len(uu), "jobs": len(ids),
             "job_ids": ids, "result": (jobs[0] if jobs else {}),
-            "writes_enabled": navi_cli.writes_enabled()}, 200
+            "writes_enabled": navi_cli.writes_enabled(), **extra}, 200
 
 
 def _ai_fallbacks_and_count():

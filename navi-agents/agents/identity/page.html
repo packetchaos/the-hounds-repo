@@ -29,7 +29,7 @@
 
   <section class="card" id="secGlance" data-nav="At a glance" data-nav-icon="📊">
     <h2 style="margin:0 0 2px;font-size:17px">📊 At a glance</h2>
-    <div id="metrics"><div class="setupcard"><div class="big">Press ▶ Run</div><p class="sub">See every human, service and machine identity on your credentialed hosts, which ones are privileged, reused or never expire, which sit on exploitable or crown-jewel hosts, and how much of the estate you can't see.</p></div></div>
+    <div id="metrics"><div class="setupcard"><div class="big">Press ▶ Run</div><p class="sub">See every human, service and machine identity on your credentialed hosts, which ones are privileged, reused or never expire, which sit on exploitable or crown-jewel hosts, and how much of <span id="estWord">the estate</span> you can't see.</p></div></div>
   </section>
 
   <section class="card" id="nlCard" style="display:none">
@@ -65,7 +65,8 @@
     <h2>Account reuse <span class="sub" id="reuseCount"></span></h2>
     <p class="sub">The same account <b>name</b> on five or more hosts. That is <b>account reuse</b>, not proof of a shared password: navi.db shows which accounts exist, not their passwords. Treat it as a lateral-movement path to check, not as a known shared password. The scan account (Nessus plugin 19506) is excluded, because its host count comes from scanning.</p>
     <div class="toolbar"><button class="btn sm" id="tagReused" disabled>🏷️ Tag account-reuse hosts → Identity Risk : Account Reuse</button></div>
-    <table id="reuseTbl"><thead><tr><th>Account</th><th>Class</th><th>Hosts</th><th>Crown-jewel hosts</th><th>Also</th><th></th></tr></thead><tbody></tbody></table>
+    <p class="sub" id="reuseScope" style="display:none"></p>
+    <table id="reuseTbl"><thead><tr><th>Account</th><th>Class</th><th id="reuseHostsTh">Hosts</th><th>Crown-jewel hosts</th><th>Also</th><th></th></tr></thead><tbody></tbody></table>
   </section>
 
   <section class="card" id="secAuth" data-nav="Auth weaknesses" data-nav-icon="🛡">
@@ -143,7 +144,7 @@ const SIGNALS=[
 
 async function run(){
   const b=document.getElementById('run'); b.disabled=true;
-  flash('flash','<span class="spin"></span> sweeping plugin names + output for identities…','run');
+  flash('flash','<span class="spin"></span> sweeping plugin names + output for identities'+esc(tagScopeNote())+'…','run');
   buildHead('<span class="spin"></span> querying…');
   let o; try{ o=await API.post('run'); }catch(e){ o={ok:false,error:e.message}; }
   b.disabled=false;
@@ -178,7 +179,7 @@ function renderMetrics(){
             {v:N(m.scan_creds), l:'scan credentials', u:'Nessus login accounts, excluded from reuse', href:'#secCov'},
             {v:N(c.flagged), l:'risk-flagged identities', u:'at least one risk signal', sev:'crit', filter:'g:flagged'}]},
     {title:'Account hygiene',
-     hero:{v:N(m.reused), l:'accounts reused across hosts', u:`on ${N(m.reused_hosts)} hosts · widest ${N(m.max_reuse)} · same account name, not a known shared password`, filter:'f:reused'},
+     hero:{v:N(m.reused), l:'accounts reused across hosts', u:(tagScope()?`on ${N(m.reused_hosts)} of this tag's hosts · widest ${N(m.max_reuse)} hosts across the estate`:`on ${N(m.reused_hosts)} hosts · widest ${N(m.max_reuse)}`)+' · same account name, not a known shared password', filter:'f:reused'},
      chips:[{v:N(m.privileged), l:'privileged accounts', u:`admin group, UID 0 or RID 500 · ${N(m.privileged_hosts)} hosts`, sev:'crit', filter:'f:privileged'},
             {v:N(m.nonexpiring), l:'passwords never expire', u:'plugin 83303', sev:'high', filter:'f:nonexp'},
             {v:N(sig['ssh password auth']), l:'hosts accept SSH passwords', u:'password auth enabled (plugin 149334)', sev:'high', filter:'f:ssh'}]},
@@ -234,10 +235,13 @@ function renderReuse(){
   const n=(IDENT.counts||{}).reused||0;
   document.getElementById('reuseCount').textContent=`(${N(n)} account${n===1?'':'s'} · ${N((IDENT.counts||{}).reused_hosts)} hosts)`; setNavCount('secReuse', N(n));
   document.getElementById('tagReused').disabled=!n;
+  const rs=document.getElementById('reuseScope'), sc=tagScope();
+  rs.style.display=sc?'':'none'; document.getElementById('reuseHostsTh').textContent=sc?'Hosts in this tag':'Hosts';
+  if(sc) rs.textContent='Tag view: an account is listed when it is reused across the estate (×N hosts, scan account excluded) and at least one of those hosts carries '+sc.key+' : '+sc.value+'. The Tag buttons tag only this tag\'s hosts.';
   if(!RUN) return;
   TR=hDrill({api:API, table:'reuseTbl', run:RUN, section:'reuse', cols:6,
     row:x=>`<tr><td class="mono"><b>${esc(x.user)}</b></td><td><span class="tagval" style="color:${KC[x.klass]||'var(--accent)'}">${esc(x.klass)}</span></td>`+
-      `<td><b>${N(x.reused||x.assets_n)}</b></td>`+
+      (tagScope()?`<td><b>${N(x.reuse_n||0)}</b> <span class="sub">of ×${N(x.reused)} estate-wide</span></td>`:`<td><b>${N(x.reused||x.assets_n)}</b></td>`)+
       `<td>${x.crown_hosts?`<b style="color:var(--crit)">${N(x.crown_hosts)}</b>`:'0'}</td>`+
       `<td><div class="flagwrap" style="display:flex;flex-wrap:wrap;gap:4px">${(x.risky||[]).filter(f=>!/^account reuse/.test(f)).map(f=>`<span class="chip" style="margin:0;color:var(--cx-ffb4c6)">${esc(f)}</span>`).join('')}</div></td>`+
       `<td><button class="btn ghost sm" data-ru="${esc(x.rk)}" title="Tag these hosts Identity Risk : Account Reuse : ${esc(x.user)}">🏷️ Tag</button></td></tr>`,
@@ -294,7 +298,7 @@ async function tagKey(category,value,set,btn,label){
   if(!d.tags||!d.assets){ flash('flash','Nothing to tag.','warn'); return; }
   const cats=(d.categories||[]).map(c=>tagCat(c)).join(' / ');
   const what=d.tags===1?`${esc(tagCat(category))} : ${esc(value||(d.sample||[''])[0])}`:`${N(d.tags)} ${esc(cats)} tag(s) (${esc((d.sample||[]).join(', '))}${d.tags>3?', …':''})`;
-  return gated(btn,`queue ${what} on ${N(d.assets)} asset(s)`,()=>API.post('tag',{category,value,set,confirm:true}),
+  return gated(btn,`queue ${what} on ${N(d.assets)} asset(s)${tagScopeNote()}`,()=>API.post('tag',{category,value,set,confirm:true}),
     o=>d.tags===1?`queued <span class="tagval">${esc(category)} : ${esc(value||'')}</span> on ${N(o.count)} asset(s)`:`queued ${N(o.applied)} of ${N(o.total)} ${label||'tag(s)'}`);
 }
 document.querySelectorAll('#secIds button[data-cls]').forEach(b=>b.onclick=()=>{
@@ -324,6 +328,8 @@ document.querySelectorAll('#idFilter button[data-if]').forEach(b=>b.onclick=()=>
 document.getElementById('run').onclick=run;
 document.getElementById('nlGo').onclick=nlInterpret;
 mountAgentHeader({id:'identity',icon:'🆔',name:'Identity Inventory',sub:'Janus · NHI + human + machine identities'});
+mountTagScope({agent:'identity', note:'an identity is listed when it was enumerated on one of these assets; its host counts and host signals cover only them, while its class and account-wide flags (account reuse ×N, never-expiring password) are the same as for the whole estate'});
+if(tagScope()) document.getElementById('estWord').textContent='this tag';
 mountColPick(); buildHead('Press ▶ Run to load…');
 mountSectionNav();
 try{ hMailAuto(); }catch(e){}

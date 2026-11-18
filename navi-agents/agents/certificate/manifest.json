@@ -14,5 +14,15 @@
     "tags_apply",
     "tags_issues"
   ],
-  "codename": "Certania"
+  "codename": "Certania",
+  "tag_scope": {
+    "actions": [
+      "run",
+      "drill",
+      "dates",
+      "tags_apply",
+      "tags_issues"
+    ],
+    "ignore": []
+  }
 }

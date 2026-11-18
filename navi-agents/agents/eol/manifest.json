@@ -12,5 +12,13 @@
     "apply",
     "tag_eol_date"
   ],
-  "codename": "Charon"
+  "codename": "Charon",
+  "tag_scope": {
+    "actions": [
+      "run",
+      "apply",
+      "tag_eol_date"
+    ],
+    "ignore": []
+  }
 }

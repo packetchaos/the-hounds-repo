@@ -82,9 +82,10 @@ def _uniq(vers):
     return s
 
 
-def tree(db_path=None, by="class"):
-    """Return {ok, root, virt, total}. `by`='class' (default) or 'subnet'."""
-    cl = _classify.classify(db_path)
+def tree(db_path=None, by="class", scope=None):
+    """Return {ok, root, virt, total}. `by`='class' (default) or 'subnet'.
+    scope=(tag_key, tag_value) (build 489): only that tag's assets."""
+    cl = _classify.classify(db_path, scope=scope)
     if not cl.get("ok"):
         return cl
     assets = cl["assets"]
@@ -169,9 +170,10 @@ def _virt(assets, dock, db_path):
                                "containers": dock.get(a["uuid"], [])} for a in docker_hosts[:40]]}
 
 
-def members(cls=None, sub=None, software=None, version=None, subnet=None, db_path=None, cap=500):
-    """Lazy asset list at a node — for the members panel + asset→Argos click."""
-    cl = _classify.classify(db_path)
+def members(cls=None, sub=None, software=None, version=None, subnet=None, db_path=None, cap=500, scope=None):
+    """Lazy asset list at a node — for the members panel + asset→Argos click.
+    scope=(tag_key, tag_value) (build 489): only that tag's assets."""
+    cl = _classify.classify(db_path, scope=scope)
     if not cl.get("ok"):
         return {"ok": False, "error": cl.get("error", "classify failed")}
     rows = cl["assets"]

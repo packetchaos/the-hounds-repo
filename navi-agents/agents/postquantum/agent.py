@@ -28,7 +28,7 @@ highest-value, most-exposed assets rise to the top of the migration queue.
 import re
 from datetime import datetime, timezone
 
-from core import db, navi_cli
+from core import db, navi_cli, tagscope
 from core.agents.base import Agent
 
 PLUGINS = [
@@ -58,11 +58,49 @@ _VULN_CERT_WHERE = (
 _CERT_TAG_QUERY = "SELECT DISTINCT asset_uuid FROM certs WHERE " + _VULN_CERT_WHERE
 
 
-def _uuid_set(sql, db_path=None) -> set:
+def _uuid_set(sql, db_path=None, args=()) -> set:
     try:
-        return {r.get("asset_uuid") for r in db.query(sql, path=db_path) if r.get("asset_uuid")}
+        return {r.get("asset_uuid") for r in db.query(sql, args, path=db_path) if r.get("asset_uuid")}
     except Exception:
         return set()
+
+
+# ---- build 489: tag scope ----------------------------------------------------------------
+# `scope` everywhere below is (tag_key, tag_value) or None (= the whole estate, whose SQL and
+# results are exactly what they were before). Scoping filters the asset_uuid of every row a
+# query reads — certs, vulns, assets — so each asset keeps the facts (certs, signals, stack,
+# ACR, KEV) it has in the whole estate; only the population shrinks.
+def _sk(scope):
+    if not scope:
+        return None, None
+    k, v = scope
+    return (k, v) if (k and v) else (None, None)
+
+
+def _w(sql, scope, col="asset_uuid"):
+    """(sql, args) — `sql` unchanged for the whole estate, else wrapped so only rows whose
+    `col` (an asset uuid) carries the tag come back. Wrapping keeps OR clauses in the signal
+    SQL intact; SQLite pushes the IN filter down into the subquery."""
+    k, v = _sk(scope)
+    if not k:
+        return sql, ()
+    frag, args = tagscope.sql(k, v, col)
+    return "SELECT * FROM (" + sql + ") WHERE 1=1" + frag, tuple(args)
+
+
+def _srows(q, db_path=None):
+    return _rows(q[0], db_path, q[1])
+
+
+def _suset(q, db_path=None):
+    return _uuid_set(q[0], db_path, q[1])
+
+
+def _scope_set(scope, db_path=None):
+    """The tag's asset set, for the one place SQL can't scope (software.asset_uuid holds a
+    list of uuids). None for the whole estate."""
+    k, v = _sk(scope)
+    return tagscope.uuids(k, v, db_path) if k else None
 
 
 def _has_table(name, db_path=None) -> bool:
@@ -73,7 +111,7 @@ def _has_table(name, db_path=None) -> bool:
         return False
 
 
-def discover(db_path=None, keep_uuids=False) -> dict:
+def discover(db_path=None, keep_uuids=False, scope=None) -> dict:
     """The quantum-vulnerable surface. Sources, in order of what tenants actually have:
       1. Certificates — RSA/ECC/DSA signature algorithms (broken by Shor). Present on almost
          every scan, so this is the reliable floor.
@@ -85,7 +123,7 @@ def discover(db_path=None, keep_uuids=False) -> dict:
     out, all_uuids = [], set()
 
     # 1. certificates (the reliable floor)
-    cert_set = _uuid_set(_CERT_TAG_QUERY, db_path) if _has_table("certs", db_path) else set()
+    cert_set = _suset(_w(_CERT_TAG_QUERY, scope), db_path=db_path) if _has_table("certs", db_path) else set()
     if cert_set:
         out.append({"plugin_id": "certs", "plugin_name": "Quantum-vulnerable certificates (RSA / ECC / DSA)",
                     "role": "Certificate signature algorithms broken by Shor — key length is irrelevant. "
@@ -95,7 +133,7 @@ def discover(db_path=None, keep_uuids=False) -> dict:
     # 2. transport crypto signals
     trans_set = set()
     for s in PQT_SIGNALS:
-        trans_set |= _uuid_set(s["sql"], db_path)
+        trans_set |= _suset(_w(s["sql"], scope), db_path=db_path)
     if trans_set:
         out.append({"plugin_id": "transport", "plugin_name": "Quantum-weak transport crypto (TLS / SSH)",
                     "role": "Classical-only key exchange, no PQ cipher suites, SHA-1 MACs or deprecated "
@@ -104,17 +142,21 @@ def discover(db_path=None, keep_uuids=False) -> dict:
 
     # 3. the Tenable PQC plugins (present only where they've been run)
     for pid, name, role in PLUGINS:
-        s = _uuid_set("SELECT DISTINCT asset_uuid FROM vulns WHERE plugin_id='" + pid + "'", db_path)
+        s = _suset(_w("SELECT DISTINCT asset_uuid FROM vulns WHERE plugin_id='" + pid + "'", scope), db_path=db_path)
         out.append({"plugin_id": pid, "plugin_name": name, "role": role, "assets": len(s), "kind": "plugin"})
         if pid == "277650":   # 277652 is inventory, 277653 = USING PQ ciphers — neither is exposure
             all_uuids |= s
 
-    plugin_assets = _uuid_set("SELECT DISTINCT asset_uuid FROM vulns WHERE plugin_id IN ('"
-                              + "','".join(_IDS) + "')", db_path)
+    plugin_assets = _suset(_w("SELECT DISTINCT asset_uuid FROM vulns WHERE plugin_id IN ('"
+                                  + "','".join(_IDS) + "')", scope), db_path=db_path)
     note = ("" if plugin_assets else
             "Tenable's Post-Quantum Cipher Analysis plugins (277650/277652/277653) aren't in this "
             "navi.db yet — so exposure is derived from certificate + transport crypto instead. Run "
             "those plugins in a scan for the richest signal.")
+    if _sk(scope)[0] and not plugin_assets:
+        note = ("Tenable's Post-Quantum Cipher Analysis plugins (277650/277652/277653) aren't on "
+                "the assets of this tag — so exposure is derived from certificate + transport crypto "
+                "instead.")
     res = {"plugins": out, "assets": len(all_uuids),
             "cert_assets": len(cert_set), "transport_assets": len(trans_set),
             "pqc_plugin_assets": len(plugin_assets), "note": note}
@@ -123,9 +165,27 @@ def discover(db_path=None, keep_uuids=False) -> dict:
     return res
 
 
-def tag_all() -> list:
+def surface_sql(scope=None):
+    """(sql, args): what tag_all tags — the cert set + the assets of each PQC plugin — as one
+    SELECT asset_uuid, scoped to the tag. Used for a tag view's surface write."""
+    sql = (_CERT_TAG_QUERY + " UNION SELECT DISTINCT asset_uuid FROM vulns WHERE plugin_id IN ('"
+           + "','".join(_IDS) + "')") if _has_table("certs") else \
+        ("SELECT DISTINCT asset_uuid FROM vulns WHERE plugin_id IN ('" + "','".join(_IDS) + "')")
+    return _w(sql, scope)
+
+
+def tag_all(scope=None) -> list:
     """Tag the quantum-vulnerable surface under Post-Quantum:Cipher Analysis — the cert set
-    (via query) AND each PQC plugin (harmless no-op where a plugin has no assets)."""
+    (via query) AND each PQC plugin (harmless no-op where a plugin has no assets).
+    From a tag view (`scope`): ONE set — the same cert set + plugin assets, re-read from
+    navi.db and limited to the tag's assets — paged by tag_set (add-only)."""
+    if _sk(scope)[0]:
+        sql, args = surface_sql(scope)
+        uu = navi_cli.collect_uuids(sql, args)
+        if not uu:
+            return []
+        return [{"source": "scope", "assets": len(uu), **j}
+                for j in navi_cli.tag_set(CATEGORY, VALUE, uuids=uu, agent="postquantum")]
     jobs = []
     if _has_table("certs"):
         cert_set = _uuid_set(_CERT_TAG_QUERY)
@@ -244,19 +304,19 @@ def _uuids_in(s):
     return re.findall(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}", str(s or ""))
 
 
-def _rows(sql, db_path=None):
+def _rows(sql, db_path=None, args=()):
     try:
-        return list(db.query(sql, path=db_path))
+        return list(db.query(sql, args, path=db_path))
     except Exception:
         return []
 
 
-def _amap(db_path=None):
-    """asset_uuid -> {host, ip, acr, url}."""
+def _amap(db_path=None, scope=None):
+    """asset_uuid -> {host, ip, acr, url} (only the tag's assets when scoped)."""
     acols = _cols("assets", db_path)
     sel = ["uuid", "hostname", "ip_address", "acr"] + (["url"] if "url" in acols else [])
     out = {}
-    for a in _rows("SELECT " + ",".join(sel) + " FROM assets", db_path):
+    for a in _srows(_w("SELECT " + ",".join(sel) + " FROM assets", scope, "uuid"), db_path=db_path):
         u = a.get("uuid")
         if not u:
             continue
@@ -274,7 +334,7 @@ CERT_CAT = "PQC Risk"
 HARVEST_CAT = "PQC Harvest-Now"
 
 
-def cert_analysis(db_path=None) -> dict:
+def cert_analysis(db_path=None, scope=None) -> dict:
     """Classify every cert signature algorithm by quantum risk, group into an algorithm
     inventory, and rank the harvest-now-decrypt-later hit-list (long-lived broken certs on
     high-ACR assets). Read-only."""
@@ -282,13 +342,13 @@ def cert_analysis(db_path=None) -> dict:
         return {"ok": True, "inventory": [], "harvest_now": [],
                 "kpi": {"certs": 0, "vulnerable": 0, "safe": 0, "assets": 0, "harvest_now": 0},
                 "note": "No certs table / rows in navi.db — run a scan that collects certificates."}
-    amap = _amap(db_path)
+    amap = _amap(db_path, scope)
     ccols = _cols("certs", db_path)
     sel = ["asset_uuid", "signature_algorithm", "not_valid_after"]
     for c in ("key_length", "common_name"):
         if c in ccols:
             sel.append(c)
-    rows = _rows("SELECT " + ", ".join(sel) + " FROM certs", db_path)
+    rows = _srows(_w("SELECT " + ", ".join(sel) + " FROM certs", scope), db_path=db_path)
     inv, harvest = {}, []
     total_certs, safe_certs, vuln_assets = 0, 0, set()
     for c in rows:
@@ -336,36 +396,39 @@ TRANSPORT_CAT = "PQC Transport"
 AGILITY_CAT = "PQC Agility"
 
 
-def transport_analysis(db_path=None) -> dict:
+def transport_analysis(db_path=None, scope=None) -> dict:
     """The on-the-wire quantum-weak transport signals (TLS/SSH KEX, SHA-1 MAC, deprecated
     TLS) + per-host crypto-agility tier from OpenSSH/OpenSSL versions. Read-only."""
-    amap = _amap(db_path)
+    amap = _amap(db_path, scope)
     signals = []
     for s in PQT_SIGNALS:
-        uu = sorted({r.get("asset_uuid") for r in _rows(s["sql"], db_path) if r.get("asset_uuid")})
+        uu = sorted({r.get("asset_uuid") for r in _srows(_w(s["sql"], scope), db_path=db_path) if r.get("asset_uuid")})
         signals.append({"key": s["key"], "sev": s["sev"], "note": s["note"],
                         "assets": len(uu), "uuids": uu})
     # crypto-agility from OpenSSH (10267/181418) + OpenSSL (168149) versions
     ag = {}
-    for r in _rows("SELECT asset_uuid, output FROM vulns WHERE plugin_id IN ('10267','181418')", db_path):
+    for r in _srows(_w("SELECT asset_uuid, output FROM vulns WHERE plugin_id IN ('10267','181418')", scope), db_path=db_path):
         u, v = r.get("asset_uuid"), _ssh_ver(r.get("output"))
         if u and v:
             a = ag.setdefault(u, {})
             if not a.get("ssh") or v["maj"] > a["ssh"]["maj"] or (v["maj"] == a["ssh"]["maj"] and v["min"] > a["ssh"]["min"]):
                 a["ssh"] = v
-    for r in _rows("SELECT asset_uuid, output FROM vulns WHERE plugin_id='168149'", db_path):
+    for r in _srows(_w("SELECT asset_uuid, output FROM vulns WHERE plugin_id='168149'", scope), db_path=db_path):
         u, v = r.get("asset_uuid"), _ssl_ver(r.get("output"))
         if u and v:
             a = ag.setdefault(u, {})
             if not a.get("ssl") or v["maj"] > a["ssl"]["maj"] or (v["maj"] == a["ssl"]["maj"] and v["min"] > a["ssl"]["min"]):
                 a["ssl"] = v
     if "software_string" in _cols("software", db_path):
+        keep = _scope_set(scope, db_path)
         for r in _rows("SELECT asset_uuid, software_string FROM software "
                        "WHERE lower(software_string) LIKE '%openssl%'", db_path):
             v = _ssl_ver(r.get("software_string"))
             if not v:
                 continue
             for u in (_uuids_in(r.get("asset_uuid")) or ([r["asset_uuid"]] if r.get("asset_uuid") else [])):
+                if keep is not None and u not in keep:
+                    continue
                 a = ag.setdefault(u, {})
                 if not a.get("ssl") or v["maj"] > a["ssl"]["maj"] or (v["maj"] == a["ssl"]["maj"] and v["min"] > a["ssl"]["min"]):
                     a["ssl"] = v
@@ -398,14 +461,14 @@ CNSA = [(2027, "PQC preferred for software / firmware signing"),
         (2033, "CNSA 2.0 exclusive — classical RSA / ECC deprecated")]
 
 
-def overview(db_path=None) -> dict:
+def overview(db_path=None, scope=None) -> dict:
     """One pass for the page: the surface (discover), certificate crypto, transport +
     agility, the roadmap, and the headline metrics that tie them together. Read-only."""
-    surf = discover(db_path)
-    cert = cert_analysis(db_path)
-    trans = transport_analysis(db_path)
-    road = roadmap(db_path)
-    amap = _amap(db_path)
+    surf = discover(db_path, scope=scope)
+    cert = cert_analysis(db_path, scope=scope)
+    trans = transport_analysis(db_path, scope=scope)
+    road = roadmap(db_path, scope=scope)
+    amap = _amap(db_path, scope)
     total = len(amap)
 
     fam = {}
@@ -433,7 +496,7 @@ def overview(db_path=None) -> dict:
                      "assets": len({h["uuid"] for h in rows})})
     past = lambda y: [h for h in hn if h.get("exp_year") and h["exp_year"] >= y]
 
-    plugin_ready = _uuid_set("SELECT DISTINCT asset_uuid FROM vulns WHERE plugin_id='277653'", db_path)
+    plugin_ready = _suset(_w("SELECT DISTINCT asset_uuid FROM vulns WHERE plugin_id='277653'", scope), db_path=db_path)
     ag = trans.get("agility", {})
     ready_stack = {h["uuid"] for h in ag.get("hosts", []) if h["tier"] == "PQC-ready"}
     sig = {s["key"]: s for s in trans.get("signals", [])}
@@ -473,7 +536,7 @@ def overview(db_path=None) -> dict:
             "metrics": m}
 
 
-def roadmap(db_path=None) -> dict:
+def roadmap(db_path=None, scope=None) -> dict:
     """Correlate cert crypto + transport + agility, weighted by ACR + KEV, into a
     ranked crown-jewel migration roadmap. Pure read from navi.db."""
     acols = _cols("assets", db_path)
@@ -481,7 +544,7 @@ def roadmap(db_path=None) -> dict:
     if "url" in acols:
         sel.append("url")
     amap = {}
-    for a in _rows("SELECT " + ",".join(sel) + " FROM assets", db_path):
+    for a in _srows(_w("SELECT " + ",".join(sel) + " FROM assets", scope, "uuid"), db_path=db_path):
         u = a.get("uuid")
         if not u:
             continue
@@ -492,8 +555,8 @@ def roadmap(db_path=None) -> dict:
         amap[u] = {"host": (a.get("hostname") or a.get("ip_address") or "").strip() or "(none)",
                    "ip": a.get("ip_address") or "", "acr": acr, "url": a.get("url") or ""}
 
-    kev = {r["asset_uuid"] for r in _rows(
-        "SELECT DISTINCT asset_uuid FROM vulns WHERE xrefs LIKE '%CISA-KNOWN-EXPLOITED%'", db_path)
+    kev = {r["asset_uuid"] for r in _srows(_w(
+        "SELECT DISTINCT asset_uuid FROM vulns WHERE xrefs LIKE '%CISA-KNOWN-EXPLOITED%'", scope), db_path=db_path)
         if r.get("asset_uuid")}
 
     def _mk(u):
@@ -508,8 +571,8 @@ def roadmap(db_path=None) -> dict:
     # --- cert crypto -------------------------------------------------------
     inv, safe_certs, total_certs = {}, 0, 0
     if "certs" in _cols("certs", db_path) or _rows("SELECT 1 FROM certs LIMIT 1", db_path):
-        for c in _rows("SELECT c.asset_uuid, c.signature_algorithm, c.not_valid_after "
-                       "FROM certs c", db_path):
+        for c in _srows(_w("SELECT c.asset_uuid, c.signature_algorithm, c.not_valid_after "
+                           "FROM certs c", scope), db_path=db_path):
             u = c.get("asset_uuid")
             total_certs += 1
             cls = pqc_classify(c.get("signature_algorithm"))
@@ -530,7 +593,7 @@ def roadmap(db_path=None) -> dict:
 
     # --- transport signals -------------------------------------------------
     for s in PQT_SIGNALS:
-        for r in _rows(s["sql"], db_path):
+        for r in _srows(_w(s["sql"], scope), db_path=db_path):
             u = r.get("asset_uuid")
             if not u:
                 continue
@@ -541,14 +604,14 @@ def roadmap(db_path=None) -> dict:
 
     # --- crypto-agility (OpenSSH / OpenSSL) --------------------------------
     ag = {}
-    for r in _rows("SELECT asset_uuid, output FROM vulns WHERE plugin_id IN ('10267','181418')", db_path):
+    for r in _srows(_w("SELECT asset_uuid, output FROM vulns WHERE plugin_id IN ('10267','181418')", scope), db_path=db_path):
         u = r.get("asset_uuid")
         v = _ssh_ver(r.get("output"))
         if u and v:
             a = ag.setdefault(u, {})
             if not a.get("ssh") or v["maj"] > a["ssh"]["maj"] or (v["maj"] == a["ssh"]["maj"] and v["min"] > a["ssh"]["min"]):
                 a["ssh"] = v
-    for r in _rows("SELECT asset_uuid, output FROM vulns WHERE plugin_id='168149'", db_path):
+    for r in _srows(_w("SELECT asset_uuid, output FROM vulns WHERE plugin_id='168149'", scope), db_path=db_path):
         u = r.get("asset_uuid")
         v = _ssl_ver(r.get("output"))
         if u and v:
@@ -556,12 +619,15 @@ def roadmap(db_path=None) -> dict:
             if not a.get("ssl") or v["maj"] > a["ssl"]["maj"] or (v["maj"] == a["ssl"]["maj"] and v["min"] > a["ssl"]["min"]):
                 a["ssl"] = v
     if "software_string" in _cols("software", db_path):
+        keep = _scope_set(scope, db_path)
         for r in _rows("SELECT asset_uuid, software_string FROM software "
                        "WHERE lower(software_string) LIKE '%openssl%'", db_path):
             v = _ssl_ver(r.get("software_string"))
             if not v:
                 continue
             for u in (_uuids_in(r.get("asset_uuid")) or ([r["asset_uuid"]] if r.get("asset_uuid") else [])):
+                if keep is not None and u not in keep:
+                    continue
                 a = ag.setdefault(u, {})
                 if not a.get("ssl") or v["maj"] > a["ssl"]["maj"] or (v["maj"] == a["ssl"]["maj"] and v["min"] > a["ssl"]["min"]):
                     a["ssl"] = v
@@ -594,6 +660,74 @@ def roadmap(db_path=None) -> dict:
             "kpi": {"exposed": len(rows), "crown_jewels": len(cj),
                     "harvest_now": len(hn), "legacy_cj": len(leg), "kev": len(kv)},
             "certs": {"total": total_certs, "safe": safe_certs}}
+
+
+# ---- build 489: a tag view's tag buttons, recomputed on the server --------------------------
+# In the whole estate the page posts the UUIDs it shows (tag_uuids). From a tag view it posts a
+# SELECTION instead — which list, which filter — and the set is re-read from navi.db here,
+# limited to the tag's assets. Browser UUIDs are never used for a scoped write.
+ROAD_FILTERS = {
+    "cert": lambda p, kex: p["brokenCerts"] > 0,
+    "transport": lambda p, kex: len(p["transport"]) > 0,
+    "p2030": lambda p, kex: p.get("past2030"),
+    "p2033": lambda p, kex: p.get("past2033"),
+    "legacy": lambda p, kex: p["agility"] == "Legacy",
+    "crown": lambda p, kex: p["acr"] >= 7,
+    "crown2030": lambda p, kex: p["acr"] >= 7 and p.get("past2030"),
+    "kex": lambda p, kex: p["uuid"] in kex,
+    "kev": lambda p, kex: p["kev"],
+    "legacycrown": lambda p, kex: p["acr"] >= 7 and p["agility"] == "Legacy",
+}
+_KEX_SIGNALS = ("TLS classical-only key exchange", "SSH classical-only key exchange", "TLS no post-quantum ciphers")
+
+
+def select_uuids(sel, scope, db_path=None):
+    """(uuids, error) — the asset set a tag button stands for, computed from navi.db over the
+    tag's assets only. `sel` = {"kind": roadmap|asset|algo|harvest|agility, …} as the page
+    describes what it shows; every uuid returned carries the scope's tag."""
+    if not _sk(scope)[0]:
+        return None, "select is only for a tag view"
+    if not isinstance(sel, dict):
+        return None, "from a tag view the page sends what to tag (select), not a list of assets"
+    kind = sel.get("kind")
+    if kind == "roadmap":
+        f = sel.get("filter") or None
+        if f is not None and f not in ROAD_FILTERS:
+            return None, "unknown roadmap filter"
+        rows = roadmap(db_path, scope=scope).get("rows", [])
+        kex = set()
+        if f == "kex":
+            for s in PQT_SIGNALS:
+                if s["key"] in _KEX_SIGNALS:
+                    kex |= _suset(_w(s["sql"], scope), db_path=db_path)
+        uu = [p["uuid"] for p in rows if f is None or ROAD_FILTERS[f](p, kex)]
+    elif kind == "asset":
+        u = str(sel.get("uuid") or "").strip()
+        k, v = _sk(scope)
+        uu = [u] if u and _rows("SELECT 1 FROM tags WHERE asset_uuid=? AND tag_key=? AND tag_value=? LIMIT 1",
+                                db_path, (u, k, v)) else []
+    elif kind == "algo":
+        algo = str(sel.get("algo") or "")
+        r = next((x for x in cert_analysis(db_path, scope=scope).get("inventory", [])
+                  if str(x["algo"]) == algo and x["verdict"] == "broken"), None)
+        uu = list(r["uuids"]) if r else []
+    elif kind == "harvest":
+        try:
+            hz = float(sel.get("hz"))
+        except (TypeError, ValueError):
+            return None, "harvest window must be a number"
+        hn = cert_analysis(db_path, scope=scope).get("harvest_now", [])
+        uu = [h["uuid"] for h in hn if (h.get("exp_year") and h["exp_year"] >= hz)] if hz >= 2000 else \
+            [h["uuid"] for h in hn if h["years"] > hz]
+    elif kind == "agility":
+        tier = sel.get("tier")
+        if tier not in ("Legacy", "Upgradable", "PQC-ready"):
+            return None, "unknown agility tier"
+        uu = [h["uuid"] for h in transport_analysis(db_path, scope=scope).get("agility", {}).get("hosts", [])
+              if h["tier"] == tier]
+    else:
+        return None, "unknown selection"
+    return sorted({u for u in uu if u}), None
 
 
 class PostQuantumAgent(Agent):

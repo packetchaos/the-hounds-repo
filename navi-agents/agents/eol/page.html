@@ -55,22 +55,22 @@
   </section>
 
   <section class="card" id="secProd" data-nav="EOL products" data-nav-icon="📦">
-    <h2>End-of-life products on your assets <span class="sub" id="prodCount"></span></h2>
-    <p class="sub">Every EOL product navi.db sees, longest out of support first. <b>Crown</b> = assets with ACR &gt; 7. <b>KEV</b> = assets that also carry a CISA Known Exploited Vulnerability. <b>Critical</b> = assets with at least one critical finding.</p>
+    <h2>End-of-life products on <span id="prodWhere">your assets</span> <span class="sub" id="prodCount"></span></h2>
+    <p class="sub">Every EOL product navi.db sees<span id="prodScope"></span>, longest out of support first. <b>Crown</b> = assets with ACR &gt; 7. <b>KEV</b> = assets that also carry a CISA Known Exploited Vulnerability. <b>Critical</b> = assets with at least one critical finding.</p>
     <div class="toolbar"><span id="filt"></span></div>
     <table id="pTbl"><thead><tr><th>Product</th><th>Type</th><th>EOL date</th><th>Past EOL</th><th>Assets</th><th>Crown</th><th>KEV</th><th>Critical</th><th>Plugins</th></tr></thead><tbody></tbody></table>
   </section>
 
   <section class="card" id="secGroups" data-nav="Lifecycle groups" data-nav-icon="🗂">
     <h2>Lifecycle groups <span class="sub" id="grpCount"></span></h2>
-    <p class="sub">Tag every asset in a group as <span class="tagval">Lifecycle : &lt;group&gt;</span>, matched by plugin name so it keeps up as new EOL plugins ship. Untick a plugin to opt it out; your opt-outs are remembered in this browser. Approve a group, then apply.</p>
+    <p class="sub">Tag every asset<span id="grpScope"></span> in a group as <span class="tagval">Lifecycle : &lt;group&gt;</span>, matched by plugin name so it keeps up as new EOL plugins ship. Untick a plugin to opt it out; your opt-outs are remembered in this browser. Approve a group, then apply.</p>
     <div id="groups"></div>
     <div class="toolbar" style="margin-top:10px"><button class="btn sm" id="eolApply" disabled>🏷️ Tag approved groups</button><span class="chip" id="eolCount">0 group(s) approved</span></div>
     <div id="eolRes"></div>
   </section>
 
   <section class="card" id="secCrown" data-nav="Crown jewels on EOL" data-nav-icon="👑">
-    <h2>Crown jewels on end-of-life software (ACR &gt; 7) <span class="sub" id="crownCount"></span></h2>
+    <h2>Crown jewels on end-of-life software (ACR &gt; 7)<span id="crownScope"></span> <span class="sub" id="crownCount"></span></h2>
     <p class="sub">Your most critical assets running software that no longer gets security fixes, highest ACR first.</p>
     <table id="cTbl"><thead><tr><th>Host</th><th>ACR</th><th>EOL products</th><th>EOL OS</th><th>CISA KEV</th><th>Critical findings</th></tr></thead><tbody></tbody></table>
   </section>
@@ -94,7 +94,7 @@ const FILTERS={ os:['Operating systems',p=>p.kind==='Operating system'], app:['A
 
 async function run(){
   const b=document.getElementById('run'); b.disabled=true;
-  flash('flash','<span class="spin"></span> scanning navi.db for end-of-life software…','run');
+  flash('flash','<span class="spin"></span> scanning navi.db for end-of-life software'+esc(tagScopeNote())+'…','run');
   let o; try{ o=await API.post('run'); }catch(e){ o={ok:false,error:e.message}; }
   b.disabled=false;
   if(!o.ok){ flash('flash','✗ '+esc(o.error||'failed'),'crit'); return; }
@@ -103,7 +103,7 @@ async function run(){
   if(V.ok===false) flash('flash','⚠ '+esc(V.error||'product view unavailable')+' — lifecycle groups still work.','warn'); else flashClear('flash');
   try{ await loadAppliedTags(); }catch(e){}
   render();
-  if(!(V.metrics||{}).eol_assets && !(RES.groups||[]).some(g=>g.asset_count)) flash('flash','No end-of-life software found — is navi.db fresh? Run a navi update.','warn');
+  if(!(V.metrics||{}).eol_assets && !(RES.groups||[]).some(g=>g.asset_count)) flash('flash',tagScope()?'No end-of-life software on the assets tagged '+esc(tagScopeLabel())+'.':'No end-of-life software found — is navi.db fresh? Run a navi update.','warn');
 }
 
 function renderMetrics(){
@@ -113,7 +113,7 @@ function renderMetrics(){
   el.innerHTML='<p class="sub" style="margin:2px 0 0">Click a number to filter the product list.</p><div id="glxEol"></div>';
   renderGlance('glxEol', [
     {title:'EOL exposure',
-     hero:{v:N(m.eol_assets), l:'assets on EOL software', u:m.has_state?'open findings only':'', t:'distinct assets with at least one Unsupported / End-of-Life plugin finding', href:'#secProd'},
+     hero:{v:N(m.eol_assets), l:'assets on EOL software'+(tagScope()?' in this tag':''), u:(m.has_state?'open findings only':'')+(tagScope()?(m.has_state?' · ':'')+'of '+N((RES.scope||{}).assets)+' tagged '+tagScopeLabel():''), t:'distinct assets with at least one Unsupported / End-of-Life plugin finding', href:'#secProd'},
      chips:[{v:N(m.products), l:'EOL products', u:`${N(m.plugins)} plugin${m.plugins===1?'':'s'}`, href:'#secProd'},
             {v:N(m.findings), l:'EOL findings'},
             {v:N(m.crown_assets), l:'crown jewels on EOL', u:'ACR > 7', sev:'crit', filter:'crown'}]},
@@ -124,8 +124,8 @@ function renderMetrics(){
             {v:N(m.app_assets), l:'assets with only EOL applications', u:'OS still supported', sev:'info', filter:'app'},
             {v:N(m.crit_assets), l:'EOL assets with critical findings', sev:'high', filter:'crit'}]},
     {title:'How long out of support',
-     hero:{v:yrs(m.max_years_past), l:'longest past end of life', u:'oldest EOL date found', href:'#secTl'},
-     chips:[{v:yrs(m.median_years_past), l:'median past end of life', u:'across dated products'},
+     hero:{v:yrs(m.max_years_past), l:'longest past end of life', u:'oldest EOL date found'+(tagScope()?' in this tag':''), href:'#secTl'},
+     chips:[{v:yrs(m.median_years_past), l:'median past end of life', u:'across dated products'+(tagScope()?' in this tag':'')},
             {v:N(m.products_5y), l:'products ≥ 5 years past EOL', sev:'crit', filter:'old'},
             {v:`${N(m.dated_products)} / ${N(m.products)}`, l:'products with an EOL date', u:'read from the plugin output', sev:'low', filter:'nodate',
              t:`${N(m.dated_products)} / ${N(m.products)} products with an EOL date (read from the plugin output) — click to list products where no end-of-life date was found in the plugin output`}]}
@@ -175,7 +175,7 @@ function renderProducts(){
   hPaginate('pTbl', rows, p=>`<tr><td>${esc(p.product)}</td><td>${kind(p.kind)}</td><td class="mono">${esc(p.eol_date||'—')}</td><td>${age(p.years_past,p.days_past)}</td>`+
     `<td><b>${N(p.assets)}</b></td><td>${p.crown_assets?`<b style="color:var(--crit)">${N(p.crown_assets)}</b>`:'0'}</td><td>${p.kev_assets?`<b style="color:var(--crit)">${N(p.kev_assets)}</b>`:'0'}</td><td>${N(p.crit_assets)}</td>`+
     `<td>${(p.plugins||[]).map(x=>`<span class="mono" title="${esc(x.plugin_name)} · ${N(x.assets)} asset(s)">${esc(String(x.plugin_id))}</span>`).join(' ')}</td></tr>`,
-    {cols:9, empty:'<tr><td colspan="9" class="sub">'+((V.products||[]).length?'Nothing matches the filter.':'No end-of-life software on assets in navi.db.')+'</td></tr>'});
+    {cols:9, empty:'<tr><td colspan="9" class="sub">'+((V.products||[]).length?'Nothing matches the filter.':(tagScope()?'No end-of-life software on the assets tagged '+esc(tagScopeLabel())+'.':'No end-of-life software on assets in navi.db.'))+'</td></tr>'});
   setNavCount('secProd', N((V.products||[]).length));
 }
 
@@ -206,7 +206,15 @@ function renderCrown(){
     {cols:6, empty:'<tr><td colspan="6" class="sub">No crown-jewel (ACR &gt; 7) assets run end-of-life software.</td></tr>'});
 }
 
+function renderScopeText(){
+  const sc=tagScope(), L=sc?esc(tagScopeLabel()):'';
+  document.getElementById('prodWhere').innerHTML=sc?'the assets tagged <span class="tagval">'+L+'</span>':'your assets';
+  document.getElementById('prodScope').innerHTML=sc?' on the assets tagged <span class="tagval">'+L+'</span>':'';
+  document.getElementById('grpScope').innerHTML=sc?' tagged <span class="tagval">'+L+'</span> (only those: the exact set is computed on the server, so new EOL plugins need a re-apply)':'';
+  document.getElementById('crownScope').innerHTML=sc?' · tagged <span class="tagval">'+L+'</span>':'';
+}
 function render(){
+  renderScopeText();
   if(!RES) return;
   renderMetrics(); renderTimeline(); renderDates(); renderProducts(); renderGroups(); renderCrown();
   setNavCount('secTl', (V.timeline||[]).length?N((V.date_groups||[]).length)+' dates':'');
@@ -228,14 +236,14 @@ async function gated(btn, label, call, okMsg, ask){   /* ask: plain-text questio
   return o;
 }
 document.getElementById('tagDates').onclick=()=>gated(document.getElementById('tagDates'),'tagging assets by end-of-life date',
-  ()=>API.post('tag_eol_date',{dates:[..._dSel],confirm:true}), o=>`queued ${N(o.queued)} job(s) across ${N((o.results||[]).length)} EOL date(s) — Lifecycle EOL : &lt;date&gt;`,
-  ()=>{ const sel=(V.date_groups||[]).filter(g=>_dSel.has(g.eol_date)); return `Tag ${tagCat('Lifecycle EOL')} : <date> for ${sel.length} EOL date(s) on ~${N(sel.reduce((s,g)=>s+g.assets,0))} asset(s)?\n\n`+sel.slice(0,12).map(g=>`• ${tagCat('Lifecycle EOL')} : ${g.eol_date} (${N(g.assets)} asset(s))`).join('\n')+(sel.length>12?`\n• … +${sel.length-12} more`:''); });
+  ()=>API.post('tag_eol_date',{dates:[..._dSel],confirm:true}), o=>`queued ${N(o.queued)} job(s) across ${N((o.results||[]).length)} EOL date(s) — Lifecycle EOL : &lt;date&gt;`+esc(tagScopeNote()),
+  ()=>{ const sel=(V.date_groups||[]).filter(g=>_dSel.has(g.eol_date)); return `Tag ${tagCat('Lifecycle EOL')} : <date> for ${sel.length} EOL date(s) on ~${N(sel.reduce((s,g)=>s+g.assets,0))} asset(s)${tagScopeNote()}?\n\n`+sel.slice(0,12).map(g=>`• ${tagCat('Lifecycle EOL')} : ${g.eol_date} (${N(g.assets)} asset(s))`).join('\n')+(sel.length>12?`\n• … +${sel.length-12} more`:''); });
 document.getElementById('eolApply').onclick=async()=>{
   const gs=(RES.groups||[]).filter(g=>appr[g.label]==='approved'); if(!gs.length) return;
   const o=await gated(document.getElementById('eolApply'),'tagging approved lifecycle groups',
     ()=>API.post('apply',{confirm:true,apply_groups:gs.map(g=>({category:g.category,value:g.label,patterns:g.patterns,exclude:(g.plugins||[]).map(p=>String(p.plugin_id)).filter(isExcl)}))}),
-    o=>`submitted ${N(o.applied)}/${N(o.total)} tag write(s) — confirms here once navi.db shows it (~30 min + a sync)`,
-    ()=>`Tag ${gs.length} approved lifecycle group(s) on ~${N(gs.reduce((s,g)=>s+(g.asset_count||0),0))} asset(s)?\n\n`+gs.slice(0,12).map(g=>`• ${tagCat(g.category)} : ${g.label} (${N(g.asset_count||0)} asset(s))`).join('\n')+(gs.length>12?`\n• … +${gs.length-12} more`:''));
+    o=>`submitted ${N(o.applied)}/${N(o.total)} tag write(s)`+esc(tagScopeNote())+` — confirms here once navi.db shows it (~30 min + a sync)`,
+    ()=>`Tag ${gs.length} approved lifecycle group(s) on ~${N(gs.reduce((s,g)=>s+(g.asset_count||0),0))} asset(s)${tagScopeNote()}?\n\n`+gs.slice(0,12).map(g=>`• ${tagCat(g.category)} : ${g.label} (${N(g.asset_count||0)} asset(s))`).join('\n')+(gs.length>12?`\n• … +${gs.length-12} more`:''));
   if(o&&o.ok){ gs.forEach(g=>{ delete appr[g.label]; }); try{ await loadAppliedTags(); }catch(e){} renderGroups(); }
 };
 
@@ -245,6 +253,8 @@ document.getElementById('dAll').onclick=()=>{ datesShown().forEach(g=>_dSel.add(
 document.getElementById('dNone').onclick=()=>{ _dSel.clear(); renderDates(); };
 document.getElementById('run').onclick=run;
 mountAgentHeader({icon:'⏏️',name:'EOL / Unsupported Tagging',sub:'Charon · end-of-life exposure by date · tags assets'});
+mountTagScope({agent:'eol', note:'Charon counts only the EOL software on this tag’s assets; each asset’s products, dates and flags are the same as in the whole estate. Tagging from here tags only this tag’s assets'});
+renderScopeText();
 mountSectionNav();
 try{ hMailAuto(); }catch(e){}
 jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});

@@ -17,5 +17,19 @@
     "os_breakdown",
     "os_plan",
     "tag"
-  ]
+  ],
+  "tag_scope": {
+    "actions": [
+      "run",
+      "drill",
+      "assets",
+      "tree",
+      "members",
+      "signals",
+      "os_breakdown",
+      "os_plan",
+      "tag"
+    ],
+    "ignore": []
+  }
 }

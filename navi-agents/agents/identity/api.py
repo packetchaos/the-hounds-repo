@@ -6,9 +6,10 @@
 `interpret` — natural-language tagging: turn an instruction + the discovered
               identities into per-identity {category,value} assignments (LLM).
 """
+import hashlib
 import re
 
-from core import identity, navi_cli, payload
+from core import identity, navi_cli, payload, tagscope
 from core.gates import confirmed
 
 try:
@@ -33,7 +34,7 @@ RISK = ("privileged", "non-expiring pw", "ssh password auth", "weak pw policy", 
         "never changed pw", "never logged in")
 
 
-def _enrich(res):
+def _enrich(res, k=None, v=None):
     """Page metrics: crown-jewel exposure (max ACR of the hosts behind each identity),
     credential coverage, and per-signal counts. Read-only; best-effort."""
     from core import db
@@ -52,7 +53,11 @@ def _enrich(res):
         except Exception:
             pass
     try:
-        total = db.scalar("SELECT COUNT(*) FROM assets") or 0
+        if k and v:      # a tag view: "estate" is the tag's assets (build 489)
+            frag, args = tagscope.sql(k, v, "uuid")
+            total = db.scalar("SELECT COUNT(*) FROM assets WHERE 1=1" + frag, args) or 0
+        else:
+            total = db.scalar("SELECT COUNT(*) FROM assets") or 0
     except Exception:
         total = 0
     for a in accts:
@@ -97,6 +102,49 @@ def scan_full():
     except Exception as e:
         res["metrics_error"] = f"metrics failed: {e}"
     return res
+
+
+def scan_scoped(k, v):
+    """build 489 — the whole-estate scan cut to the assets tagged k : v (core.identity.project).
+    The tag's assets are read from navi.db here, in the job — never from the browser."""
+    scope = tagscope.uuids(k, v)
+    res = identity.project(identity.scan(keep=True), scope)
+    try:
+        res = _enrich(res, k, v)
+    except Exception as e:
+        res["metrics_error"] = f"metrics failed: {e}"
+    res["scope"] = tagscope.describe(k, v)
+    return res, scope
+
+
+# ── tag views keep their own runs (build 489) ─────────────────────────────────────────────────
+# The result store keeps each hound's last 2 runs. A tag view stores under its OWN name,
+# idt_<hash of the tag>, so a tag run never evicts the estate's run (or another tag's), and a
+# drill / tag / interpret request is bound to its scope: the run must belong to the request's
+# tag (or to "identity" for the whole estate) or it is refused as expired. Tags that fall out
+# of this hound's 5 recent tags (core.tagscope.recent) have their runs dropped.
+TAG_PREFIX = "idt_"
+
+
+def _hound(k=None, v=None):
+    if not (k and v):
+        return "identity"
+    return TAG_PREFIX + hashlib.sha1((k + "\x00" + v).encode("utf-8")).hexdigest()[:16]
+
+
+def _trim_tag_runs(keep_hound):
+    try:
+        live = {_hound(r["key"], r["value"]) for r in tagscope.recent("identity")} | {keep_hound}
+        con = payload.STORE._connect()
+        try:
+            rows = con.execute("SELECT run, hound FROM runs WHERE hound LIKE ?", (TAG_PREFIX + "%",)).fetchall()
+        finally:
+            con.close()
+        for run_, h in rows:
+            if h not in live:
+                payload.STORE.drop(run_)
+    except Exception:
+        pass
 
 
 # ── payload contract (build 464) ──────────────────────────────────────────────────────────────
@@ -157,9 +205,9 @@ def _slim(a, rk):
             "privileged_hosts": a.get("privileged_hosts") or 0, "groups": (a.get("groups") or [])[:12]}
 
 
-def _publish(res):
+def _publish(res, hound="identity"):
     accts = res.get("accounts") or []
-    W = payload.STORE.begin("identity")
+    W = payload.STORE.begin(hound)
     W.section("ids")
     W.section("reuse")
     flag_top, auth_ids = {}, {k: 0 for k in SIGNAL_KEYS}
@@ -201,6 +249,9 @@ def _publish(res):
 
 
 def run(p):
+    tk, tv = tagscope.parse(p or {})
+    if tk:
+        return _run_scoped(tk, tv)
     try:
         res = scan_full()
     except Exception as e:
@@ -217,8 +268,30 @@ def run(p):
                             llm_available=bool(llm and llm.available())), 200
 
 
+def _run_scoped(tk, tv):
+    if not tagscope.count(tk, tv):
+        return {"ok": False, "error": f"no asset in navi.db carries the tag {tk} : {tv} "
+                                      "(new tags reach navi.db with navi update assets)"}, 200
+    try:
+        res, _scope = scan_scoped(tk, tv)
+    except Exception as e:
+        return {"ok": False, "error": f"identity scan failed: {e}"}, 200
+    hound = _hound(tk, tv)
+    runid, view = _publish(res, hound)
+    _trim_tag_runs(hound)
+    first, _c = payload.drill(hound, {"run": runid, "section": "ids", "limit": 50}, SECTIONS)
+    small = {k: v for k, v in res.items() if k not in ("accounts", "host_sets")}
+    small["view"] = view
+    small["accounts_total"] = len(res.get("accounts") or [])
+    return payload.response(summary=res.get("metrics") or {}, top=first.get("top") or [],
+                            total_=first.get("total"), page=first.get("page"),
+                            drill={"action": "drill", "run": runid, "section": "ids"},
+                            agent=_agent().meta(), result=small, scope=res.get("scope"),
+                            llm_available=bool(llm and llm.available())), 200
+
+
 def drill(p):
-    return payload.drill("identity", p, SECTIONS)
+    return payload.drill(_hound(*tagscope.parse(p or {})), p, SECTIONS)
 
 
 def _idcat(k):
@@ -235,7 +308,7 @@ def _view_args(st):
     return flt, q.strip()[:200]
 
 
-def _resolve(p):
+def _resolve(p, hound="identity"):
     """A tag KEY → [(category, value, uuids)] rebuilt from the stored run. Kinds:
       id {rk}            one identity's hosts            (category/value from the request)
       union {filter, q}  every shown identity's hosts, one tag
@@ -248,7 +321,7 @@ def _resolve(p):
         raise ValueError("set must be an object")
     run, kind = st.get("run"), st.get("kind")
     S = payload.STORE
-    if not S.run_info(run, "identity"):
+    if not S.run_info(run, hound):
         raise LookupError("expired")
     cat, val = (p.get("category") or "Identity").strip(), (p.get("value") or "").strip()
     rk = st.get("rk") if isinstance(st.get("rk"), str) and re.fullmatch(r"i\d{1,9}", st.get("rk") or "") else None
@@ -313,21 +386,36 @@ def _tag_one(category, value, asset_uuids):
 
 def tag(p):
     p = p or {}
+    tk, tv = tagscope.parse(p)
+    if tk and p.get("set") is None:
+        # a tag view only writes server-side sets: never a uuid list from the browser
+        return {"ok": False, "error": "from a tag view, tag with the page's buttons (the server rebuilds "
+                                      "the hosts inside the tag)"}, 400
     if p.get("set") is not None:
         # build 464: a KEY — the server rebuilds the hosts. dry=true (read-only, no confirm) just
         # counts, so the page's confirm dialog can name exactly what will be written.
         try:
-            plan = [(c, v, u) for c, v, u in _resolve(p) if u and v]
+            plan = [(c, v, u) for c, v, u in _resolve(p, _hound(tk, tv)) if u and v]
+            if tk:
+                # build 489: re-read the tag's assets from navi.db NOW and keep only those — a
+                # write from a tag view never leaves the tag, even if tags moved since the run
+                inside = tagscope.uuids(tk, tv)
+                plan = [(c, v, [u for u in uu if u in inside]) for c, v, uu in plan]
+                plan = [(c, v, uu) for c, v, uu in plan if uu]
         except LookupError:
             return {"ok": False, "expired": True,
                     "error": "this run's identities are no longer on the server — press ▶ Run again"}, 400
         except ValueError as e:
             return {"ok": False, "error": str(e)}, 400
         n_assets = len({u for _c, _v, uu in plan for u in uu})
+        scope = tagscope.describe(tk, tv)
         if p.get("dry") is True:
-            return {"ok": True, "dry": True, "tags": len(plan), "assets": n_assets,
-                    "categories": sorted({c for c, _v, _u in plan}),
-                    "sample": [c + " : " + v for c, v, _u in plan[:3]]}, 200
+            out = {"ok": True, "dry": True, "tags": len(plan), "assets": n_assets,
+                   "categories": sorted({c for c, _v, _u in plan}),
+                   "sample": [c + " : " + v for c, v, _u in plan[:3]]}
+            if scope:
+                out["scope"] = scope
+            return out, 200
         if not confirmed(p):
             return {"ok": False, "error": "confirm=true required to write tags"}, 400
         if not plan:
@@ -337,9 +425,12 @@ def tag(p):
             r = _tag_one(c, v, uu)
             results.append({"value": v, "category": c, **r})
         ok = sum(1 for r in results if r.get("ok", r.get("job_id") is not None))
-        return {"ok": ok > 0, "applied": ok, "total": len(results), "count": n_assets,
-                "error": None if ok else "no tags queued", "results": results[:50],
-                "writes_enabled": navi_cli.writes_enabled()}, 200
+        out = {"ok": ok > 0, "applied": ok, "total": len(results), "count": n_assets,
+               "error": None if ok else "no tags queued", "results": results[:50],
+               "writes_enabled": navi_cli.writes_enabled()}
+        if scope:
+            out["scope"] = scope
+        return out, 200
     if not confirmed(p):
         return {"ok": False, "error": "confirm=true required to write tags"}, 400
     items = p.get("items")
@@ -363,10 +454,11 @@ def tag(p):
 
 def interpret(p):
     prompt = (p.get("prompt") or "").strip()
-    accounts = p.get("accounts") or []
+    tk, _tv = tagscope.parse(p)
+    accounts = [] if tk else (p.get("accounts") or [])     # a tag view: only its stored run
     if not accounts and p.get("run"):
         # build 464: the identities come from the stored run, not a 20 MB upload from the page
-        if not payload.STORE.run_info(p.get("run"), "identity"):
+        if not payload.STORE.run_info(p.get("run"), _hound(*tagscope.parse(p))):
             return {"ok": False, "error": "this run's identities are no longer on the server — press ▶ Run again"}, 200
         accounts = [{"user": r.get("user"), "klass": r.get("klass")} for r in payload.STORE.iter_rows(p["run"], "ids")]
     if not prompt:

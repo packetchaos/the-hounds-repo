@@ -202,7 +202,17 @@ def config_status(p):
     return {"ok": True, "level": level, "title": title, "items": items}, 200
 
 
-ACTIONS = {"roster": roster, "run_all": run_all, "trust": trust, "config_status": config_status,
+def tag_scopes(p):
+    """Build 489 — a hound page's tag filter bar: the whole estate + that hound's recent tags
+    (with when each was last run), the tag keys, and one key's values. Live; never computes."""
+    from core import tagscope
+    agent = str(p.get("agent") or "").strip()
+    if not agent or not agent.replace("_", "").isalnum():
+        return {"ok": False, "error": "agent required"}, 400
+    return {"ok": True, "result": tagscope.scopes(agent, key=str(p.get("key") or "").strip() or None)}, 200
+
+
+ACTIONS = {"tag_scopes": tag_scopes, "roster": roster, "run_all": run_all, "trust": trust, "config_status": config_status,
            "bg_status": bg_status, "pc_get": pc_get, "pc_put": pc_put, "pc_patch": pc_patch, "pc_del": pc_del, "pc_list": pc_list,
            "release_plan": release_plan, "release_start": release_start,
            "release_status": release_status, "release_cancel": release_cancel}

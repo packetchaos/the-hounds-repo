@@ -12,5 +12,9 @@
     "tag",
     "interpret"
   ],
+  "tag_scope": {
+    "actions": ["run", "drill", "tag", "interpret"],
+    "ignore": []
+  },
   "codename": "Janus"
 }

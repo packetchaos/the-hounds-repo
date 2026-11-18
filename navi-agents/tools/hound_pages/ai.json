@@ -1,46 +1,50 @@
 {
-  "codename": "Pythia",
-  "discipline": "AI Inventory",
-  "category": "Discovery",
-  "tagline": "Reveal the AI hiding in your estate.",
-  "lore": "Pythia, the Oracle of Delphi — here she finds the oracles in your estate: the AI and ML software, model hosts and tools already running.",
-  "problem": "AI and ML tools spread faster than any inventory can track — Ollama, Jupyter, vector databases, AI coding tools — and many can send data to third-party APIs. A plugin-only view misses most of them, so shadow AI piles up unseen until an auditor or an incident finds it.",
-  "does": "Pythia finds AI across five data sources, gives each asset a role, flags endpoints that are exposed or unauthenticated, maps where data can leave (sanctioned vs shadow), checks KEV, critical and end-of-life risk, maps MITRE ATLAS techniques, and compares each asset's ACR with the ACR its role suggests.",
-  "glance": {
-    "caption": "Pythia's At a glance on a 128-asset lab: 27 assets running AI/ML, 25 of them found beyond Tenable's AI plugin family; 10 unauthenticated AI endpoints; 17 assets with shadow egress; 5 with a CISA KEV; 17 rated below their role's suggested ACR."
-  },
-  "capabilities": [
-    [
-      "Five-source discovery",
-      "Tenable's Artificial Intelligence plugin family, the software and CPE inventories, plugin output, and network endpoints — one AI asset list."
-    ],
-    [
-      "Role and suggested ACR",
-      "Model Serving, Vector DB / RAG, GPU / Training, MLOps, Notebook / Dev, AI Dev Tool, LLM API Client — each with a suggested ACR (e.g. Model Serving 9)."
-    ],
-    [
-      "Exposed and unauthenticated endpoints",
-      "AI services listening on inference, notebook or MLOps ports, with an unauthenticated check from the plugin output."
-    ],
-    [
-      "Data-egress governance",
-      "egress capability and destinations seen in plugin output, split sanctioned vs shadow by an allowlist you edit."
-    ],
-    [
-      "Why + false-positive control",
-      "every row shows its evidence (source, term, plugin, snippet); dismiss a false positive per asset, per framework or everywhere."
-    ],
-    [
-      "MITRE ATLAS map",
-      "AI-specific adversary techniques implied by each asset's role, exposure and egress — click a technique or tactic to list and tag its assets."
-    ],
-    [
-      "Gated tags and ACR",
-      "AI, AI Role, AI Software, AI Exposed, AI Priority, AI Egress and AI ATLAS tags; under-rated assets get AI ACR Raise and the role's suggested ACR."
-    ]
+ "codename": "Pythia",
+ "discipline": "AI Inventory",
+ "category": "Discovery",
+ "tagline": "Reveal the AI hiding in your estate.",
+ "lore": "Pythia, the Oracle of Delphi — here she finds the oracles in your estate: the AI and ML software, model hosts and tools already running.",
+ "problem": "AI and ML tools spread faster than any inventory can track — Ollama, Jupyter, vector databases, AI coding tools — and many can send data to third-party APIs. A plugin-only view misses most of them, so shadow AI piles up unseen until an auditor or an incident finds it.",
+ "does": "Pythia finds AI across five data sources, gives each asset a role, flags endpoints that are exposed or unauthenticated, maps where data can leave (sanctioned vs shadow), checks KEV, critical and end-of-life risk, maps MITRE ATLAS techniques, and compares each asset's ACR with the ACR its role suggests.",
+ "glance": {
+  "caption": "Pythia's At a glance on a 128-asset lab: 27 assets running AI/ML, 25 of them found beyond Tenable's AI plugin family; 10 unauthenticated AI endpoints; 17 assets with shadow egress; 5 with a CISA KEV; 17 rated below their role's suggested ACR."
+ },
+ "capabilities": [
+  [
+   "Five-source discovery",
+   "Tenable's Artificial Intelligence plugin family, the software and CPE inventories, plugin output, and network endpoints — one AI asset list."
   ],
-  "how": "Pythia reads your local navi.db (vulns, plugin output, software, cpes); with Optimize the egress search runs inside the database. The ATLAS mapping is built in. Tags go through navi's tag-by-query and ACR through navi enrich acr — each behind the write gate and a confirm.",
-  "who": "AI governance and risk teams who need a defensible inventory, security architects deciding what to sanction, and CISOs asked \"how much AI do we run, and where does its data go?\"",
-  "better": "Pythia's exposure and egress signals feed Nemesis's AI-risk factor, and its KEV view matches Laelaps. Anubis can calibrate further from the AI Role tags, and Covenant re-applies the AI, AI Role, AI Exposed, AI Priority and AI ATLAS tags on its schedule.",
-  "cta": "Ask Pythia what AI is running in your estate — the oracle already knows."
+  [
+   "Role and suggested ACR",
+   "Model Serving, Vector DB / RAG, GPU / Training, MLOps, Notebook / Dev, AI Dev Tool, LLM API Client — each with a suggested ACR (e.g. Model Serving 9)."
+  ],
+  [
+   "Exposed and unauthenticated endpoints",
+   "AI services listening on inference, notebook or MLOps ports, with an unauthenticated check from the plugin output."
+  ],
+  [
+   "Data-egress governance",
+   "egress capability and destinations seen in plugin output, split sanctioned vs shadow by an allowlist you edit."
+  ],
+  [
+   "Why + false-positive control",
+   "every row shows its evidence (source, term, plugin, snippet); dismiss a false positive per asset, per framework or everywhere."
+  ],
+  [
+   "MITRE ATLAS map",
+   "AI-specific adversary techniques implied by each asset's role, exposure and egress — click a technique or tactic to list and tag its assets."
+  ],
+  [
+   "Gated tags and ACR",
+   "AI, AI Role, AI Software, AI Exposed, AI Priority, AI Egress and AI ATLAS tags; under-rated assets get AI ACR Raise and the role's suggested ACR."
+  ],
+  [
+   "By tag",
+   "run over one tag's assets: the same per-asset roles, exposure, risk and ACR as the whole estate, with every count, percentage and tag write limited to that tag. Switch between the whole estate and your last 5 tags without re-running."
+  ]
+ ],
+ "how": "Pythia reads your local navi.db (vulns, plugin output, software, cpes); with Optimize the egress search runs inside the database. The ATLAS mapping is built in. Tags go through navi's tag-by-query and ACR through navi enrich acr — each behind the write gate and a confirm.",
+ "who": "AI governance and risk teams who need a defensible inventory, security architects deciding what to sanction, and CISOs asked \"how much AI do we run, and where does its data go?\"",
+ "better": "Pythia's exposure and egress signals feed Nemesis's AI-risk factor, and its KEV view matches Laelaps. Anubis can calibrate further from the AI Role tags, and Covenant re-applies the AI, AI Role, AI Exposed, AI Priority and AI ATLAS tags on its schedule.",
+ "cta": "Ask Pythia what AI is running in your estate — the oracle already knows."
 }

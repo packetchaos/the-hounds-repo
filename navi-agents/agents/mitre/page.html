@@ -64,7 +64,7 @@
 
   <section class="card" id="secPlan" data-nav="Planned asset tags" data-nav-icon="🏷️">
     <h2>Planned asset tags <span class="sub" id="planCount"></span></h2>
-    <p class="sub">Each row tags <b>the assets whose findings cite the CVE</b> with one <span class="tagval">Mitre : &lt;value&gt;</span>. The CVE only picks the assets (navi tag-by-CVE). Approve, then apply.</p>
+    <p class="sub">Each row tags <b>the assets<span class="tsIn"></span> whose findings cite the CVE</b> with one <span class="tagval">Mitre : &lt;value&gt;</span>. The CVE only picks the assets (<span id="tsHow">navi tag-by-CVE</span>). Approve, then apply.</p>
     <div class="toolbar"><span id="filt"></span><button class="btn sm" id="approveAll" title="Approve every planned row (all pages, ignoring the filter)">Approve all</button><button class="btn ghost sm" id="reset">Reset</button>
       <button class="btn run sm" id="apply" style="margin-left:auto" disabled>🏷️ Tag assets</button><span class="chip" id="apprCount"></span></div>
     <table id="tbl"><thead><tr><th>CVE (selector)</th><th>Assets</th><th>Tag applied to those assets</th><th>Status</th><th></th></tr></thead>
@@ -74,7 +74,7 @@
 
   <section class="card" id="secHigh" data-nav="High-risk assets (ACR > 7)" data-nav-icon="🔥">
     <h2>High-risk assets (ACR &gt; 7) with ATT&amp;CK-mapped CVEs <span class="sub" id="highCount"></span></h2>
-    <p class="sub">The crown-jewel assets behind the “MITRE techniques on assets (ACR &gt; 7)” insight.</p>
+    <p class="sub">The crown-jewel assets<span class="tsIn"></span> behind the “MITRE techniques on assets (ACR &gt; 7)” insight.</p>
     <table id="highTbl"><thead><tr><th>Host</th><th>IP</th><th>ACR</th><th>Mapped CVEs</th></tr></thead>
       <tbody><tr><td colspan="4" class="sub">Build the plan to load…</td></tr></tbody></table>
   </section>
@@ -83,8 +83,12 @@
 <script src="/static/console.js"></script>
 <script>
 const API=agentApi('mitre'); let WRITES=false; jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});
-let PLAN=null, scope='navidb', appr=JSON.parse(localStorage.getItem('mitreAppr')||'{}');
-const save=()=>localStorage.setItem('mitreAppr',JSON.stringify(appr));
+// approvals are kept per view: "applied" in a tag view covers only that tag's assets
+const TS=(()=>{ try{ const q=new URLSearchParams(location.search), k=(q.get('tk')||'').trim(), v=(q.get('tv')||'').trim(); return k&&v?{key:k,value:v}:null; }catch(e){ return null; } })();
+const APPR_KEY=TS?'mitreAppr|'+TS.key+'|'+TS.value:'mitreAppr';
+let PLAN=null, scope='navidb', appr={}; try{ appr=JSON.parse(localStorage.getItem(APPR_KEY)||'{}')||{}; }catch(e){ appr={}; }
+const save=()=>{ try{ localStorage.setItem(APPR_KEY,JSON.stringify(appr)); }catch(e){} };
+const inNavi=()=>tagScope()?'on the assets tagged '+tagScopeLabel():'in navi.db';   // plain words for the scope
 const key=a=>a.cve+'|'+a.value;
 const CSV_URL='https://raw.githubusercontent.com/center-for-threat-informed-defense/attack_to_cve/master/Att%26ckToCveMappings.csv';
 const ROLE_COLOR={'Primary Impact':'var(--r-p)','Secondary Impact':'var(--r-s)','Exploit Technique':'var(--r-e)','Technique':'var(--r-t)'};
@@ -98,7 +102,7 @@ const atkUrl=id=>esc('https://attack.mitre.org/techniques/'+String(id||'').split
 
 async function run(){
   document.getElementById('run').disabled=true;
-  flash('flash','<span class="spin"></span> '+(uploadText?'parsing uploaded CSV':'loading ATT&CK→CVE mapping')+' &amp; finding the affected assets…','run');
+  flash('flash','<span class="spin"></span> '+(uploadText?'parsing uploaded CSV':'loading ATT&CK→CVE mapping')+' &amp; finding the affected assets'+esc(tagScopeNote())+'…','run');
   let o; try{ o=await API.post('run',{scope,csv_text:uploadText,approved:APPROVED}); }catch(e){ o={ok:false,error:e.message}; }
   document.getElementById('run').disabled=false;
   if(!o.ok){ flash('flash','✗ '+esc(o.error||'failed'),'crit'); return; }
@@ -111,25 +115,25 @@ function renderMetrics(){
   // shade/count the matrix by assets for navi.db scope; by CVEs for the full mapping (few of those sit on assets)
   const m=PLAN.metrics||{}, byAssets=scope==='navidb' && (m.assets_affected||0)>0;
   const src={live:'● live download',bundled:'◆ baked snapshot',upload:'⬆ your upload',unavailable:'✗ no source'}[PLAN.mapping_source]||PLAN.mapping_source||'';
-  document.getElementById('counts').textContent=`${N(PLAN.csv_rows)} CSV rows · ${N(PLAN.navi_cves)} CVEs in navi.db · ${src}`;
+  document.getElementById('counts').textContent=`${N(PLAN.csv_rows)} CSV rows · ${N(PLAN.navi_cves)} CVEs ${inNavi()} · ${src}`;
   // 📊 At a glance (shared renderGlance template): the ATT&CK exposure — assets, techniques,
   // tactics, CVEs — then one filter chip per mapping type (Primary / Secondary Impact, Exploit)
   const roles=m.roles||[];
   document.getElementById('metrics').innerHTML='<div id="glxMitre"></div>'
-    +(roles.length?'':'<div class="sub" style="margin-top:8px">No ATT&amp;CK-mapped CVEs found — try Full mapping, or sync navi.db.</div>');
+    +(roles.length?'':'<div class="sub" style="margin-top:8px">No ATT&amp;CK-mapped CVEs found'+esc(tagScopeNote())+' — try Full mapping, or sync navi.db.</div>');
   renderGlance('glxMitre', [
     {title:'ATT&CK exposure',
-     hero:{v:N(m.assets_affected), l:'assets with ATT&CK techniques or impacts', u:'distinct assets in navi.db whose findings cite a CVE that maps to an ATT&CK technique or impact', href:'#secMatrix'},
+     hero:{v:N(m.assets_affected), l:'assets with ATT&CK techniques or impacts', u:(tagScope()?'distinct assets tagged '+tagScopeLabel():'distinct assets in navi.db')+' whose findings cite a CVE that maps to an ATT&CK technique or impact', href:'#secMatrix'},
      chips:[{v:N(m.unique_techniques), l:'ATT&CK techniques', u:'distinct techniques across every mapping type (multi-technique values split; retired ids followed to their replacement)', href:'#secMatrix'},
             {v:`${N(m.tactics_hit)} / ${N(m.tactics_total)}`, l:'tactics reached', zero:!m.tactics_hit, href:'#secMatrix'},
-            {v:N(m.cves_mapped), l:'CVEs mapped to ATT&CK', u:scope==='navidb'?'present in navi.db':'full mapping'},
+            {v:N(m.cves_mapped), l:'CVEs mapped to ATT&CK', u:scope==='navidb'?'present '+inNavi():'full mapping'},
             {v:N(m.tag_pairs), l:'tags in the plan', u:(m.unique_tag_values!==m.tag_pairs?`${N(m.unique_tag_values)} unique tag values · `:'')+'one row per CVE × technique / impact', href:'#secPlan'}]},
     roles.length?{title:'By mapping type', t:'Click a mapping type to filter the plan below.',
      bar:roles.map(r=>({label:(ROLE_LABEL[r.role]||r.role), value:r.assets, color:ROLE_COLOR[r.role]})), legend:false,
      chips:roles.map(r=>{
        const det=[`${N(r.unique_techniques)} technique${r.unique_techniques===1?'':'s'}`, `${N(r.cves)} CVE${r.cves===1?'':'s'}`];
        const l=(ROLE_LABEL[r.role]||r.role);
-       return {v:N(r.assets), l:'assets · '+l, u:det.join(' · '), t:`${N(r.assets)} assets with a ${l} mapping — ${det.join(' · ')} · ${N(r.tags)} tags in the plan`,
+       return {v:N(r.assets), l:'assets · '+l, u:det.join(' · '), t:`${N(r.assets)} assets${tagScopeNote()} with a ${l} mapping — ${det.join(' · ')} · ${N(r.tags)} tags in the plan`,
          sev:{'Primary Impact':'crit','Secondary Impact':'high','Exploit Technique':'info'}[r.role]||'none', filter:r.role}; })}:null
   ], {active:FILTER.role, onFilter:(f,_el,on)=>{ FILTER.role=on?f:null; hPageReset('tbl'); render();
     if(FILTER.role) document.getElementById('secPlan').scrollIntoView({behavior:'smooth',block:'start'}); }});
@@ -192,13 +196,13 @@ function render(){
       `<td><b>${N(a.assets)}</b></td>`+
       `<td><span class="rdot" style="background:${ROLE_COLOR[a.role]||'var(--line)'}"></span><span class="tagval">${esc(a.category)} : ${esc(a.value)}</span><div class="tnames">${esc(techNames(a))}</div></td>`+
       `<td><span class="badge ${B.cls}">${B.label}</span></td><td>${B.done?'':`<button class="btn sm" data-k="${esc(key(a))}">${appr[key(a)]==='approved'?'Un-approve':'Approve'}</button>`}</td></tr>`;},
-    {per:20, sizes:HPG_SIZES, empty:'<tr><td colspan="5" class="sub">'+(PLAN.actions.length?'Nothing matches the filter.':'No ATT&amp;CK-mapped CVEs on assets in navi.db. Try Full mapping, or sync navi.db.')+'</td></tr>',
+    {per:20, sizes:HPG_SIZES, empty:'<tr><td colspan="5" class="sub">'+(PLAN.actions.length?'Nothing matches the filter.':'No ATT&amp;CK-mapped CVEs '+esc(tagScope()?inNavi():'on assets in navi.db')+'. Try Full mapping, or sync navi.db.')+'</td></tr>',
      wire: tb=>tb.querySelectorAll('button[data-k]').forEach(b=>b.onclick=()=>{const k=b.dataset.k;appr[k]=appr[k]==='approved'?'pending':'approved';save();render();})});
   const n=PLAN.actions.filter(a=>appr[key(a)]==='approved').length;
   document.getElementById('apprCount').textContent=`${N(n)} approved / ${N(PLAN.actions.length)}`;
   document.getElementById('apply').disabled=!n;
   const ha=PLAN.high_acr||[]; document.getElementById('highCount').textContent=`(${ha.length})`; setNavCount('secHigh', N(ha.length));
-  hPaginate('highTbl', ha, a=>`<tr><td><a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(a.asset_uuid)}">${esc(a.host)}</a></td><td class="mono">${esc(a.ip||'')}</td><td><b style="color:var(--crit)">${esc(String(a.acr))}</b></td><td>${(a.cves||[]).map(c=>`<span class="tagval">${esc(c)}</span>`).join(' ')}</td></tr>`, {per:20, sizes:HPG_SIZES, empty:'<tr><td colspan="4" class="sub">No ACR&gt;7 assets with ATT&CK-mapped CVEs.</td></tr>', cols:4});
+  hPaginate('highTbl', ha, a=>`<tr><td><a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(a.asset_uuid)}">${esc(a.host)}</a></td><td class="mono">${esc(a.ip||'')}</td><td><b style="color:var(--crit)">${esc(String(a.acr))}</b></td><td>${(a.cves||[]).map(c=>`<span class="tagval">${esc(c)}</span>`).join(' ')}</td></tr>`, {per:20, sizes:HPG_SIZES, empty:'<tr><td colspan="4" class="sub">No ACR&gt;7 assets with ATT&CK-mapped CVEs'+esc(tagScopeNote())+'.</td></tr>', cols:4});
 }
 document.getElementById('mxEmpty').onchange=()=>{ if(PLAN) render(); };
 document.querySelectorAll('#scope button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#scope button').forEach(x=>x.classList.remove('on'));b.classList.add('on');scope=b.dataset.s;run();});
@@ -232,7 +236,8 @@ document.getElementById('apply').onclick=async()=>{
   const acts=PLAN.actions.filter(a=>appr[key(a)]==='approved'); if(!acts.length)return;
   await testRunStatus();
   { const cats=[...new Set(acts.map(a=>tagCat(a.category)))], vals=[...new Set(acts.map(a=>a.value))], nC=new Set(acts.map(a=>a.cve)).size, nA=acts.reduce((s,a)=>s+(a.assets||0),0);
-    if(!confirm('Tag '+cats.join(' / ')+' with '+vals.length+' value'+(vals.length===1?'':'s')+' ('+vals.slice(0,6).join(', ')+(vals.length>6?', …':'')+') on the assets behind '+nC+' CVE'+(nC===1?'':'s')+(nA?' (~'+nA+' asset-tag pairs)':'')+'?'
+    if(!confirm('Tag '+cats.join(' / ')+' with '+vals.length+' value'+(vals.length===1?'':'s')+' ('+vals.slice(0,6).join(', ')+(vals.length>6?', …':'')+') on the assets behind '+nC+' CVE'+(nC===1?'':'s')+(nA?' (~'+nA+' asset-tag pairs)':'')+tagScopeNote()+'?'
+      +(tagScope()?'\n\nOnly assets tagged '+tagScopeLabel()+' are tagged (re-read from navi.db on the server; sent as asset pages, not navi tag-by-CVE).':'')
       +(WRITES?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.'))) return; }
   if(btn&&btn.disabled)return;
   const res=document.getElementById('res');
@@ -240,25 +245,28 @@ document.getElementById('apply').onclick=async()=>{
   const reset=()=>{ if(!btn)return; btn.disabled=false; btn.textContent=btn.dataset.label; btn.style.opacity=''; btn.style.transform=''; btn.style.cursor=''; };
   if(btn){ btn.dataset.label=btn.dataset.label||btn.textContent; btn.disabled=true; btn.textContent='⏳ Sending…'; btn.style.opacity='.6'; btn.style.transform='translateY(1px)'; btn.style.cursor='default'; }
   const nAssets=acts.reduce((s,a)=>s+(a.assets||0),0);
-  res.innerHTML='<div class="callbox"><span class="spin"></span> tagging the assets behind '+N(new Set(acts.map(a=>a.cve)).size)+' CVE(s) with '+N(new Set(acts.map(a=>a.value)).size)+' Mitre value(s) via navi tag-by-CVE…</div>';
+  res.innerHTML='<div class="callbox"><span class="spin"></span> tagging the assets'+esc(tagScopeNote())+' behind '+N(new Set(acts.map(a=>a.cve)).size)+' CVE(s) with '+N(new Set(acts.map(a=>a.value)).size)+' Mitre value(s) '+(tagScope()?'in asset pages':'via navi tag-by-CVE')+'…</div>';
   scroll();
   const o=await API.post('apply',{actions:acts.map(({cve,category,value})=>({cve,category,value})),approved:APPROVED,confirm:true});
   if(!o.ok){res.innerHTML='<div class="callbox" style="color:var(--cx-ffb4c6)">✗ '+esc(o.error||'failed')+'</div>';reset();scroll();return;}
   // results are grouped per tag value — mark every approved row of a queued value as applied
   const queued=new Set((o.results||[]).filter(r=>r.ok&&r.queued).map(r=>r.value));
   acts.forEach(a=>{ if(queued.has(a.value)) appr[key(a)]='applied'; }); save();
-  res.innerHTML=`<div class="callbox" style="color:${o.applied?'var(--ok)':'var(--cx-ffb4c6)'}">Queued ${N(o.applied)}/${N(o.total)} Mitre tag value(s) for the assets behind ${N(new Set(acts.map(a=>a.cve)).size)} CVE(s)`+(nAssets?` (~${N(nAssets)} asset-tag pairs)`:'')+'.'+(o.writes_enabled?' Allow ~30 min for Tenable.':' (gated — set NAVI_ALLOW_WRITES=1 and put navi on PATH)')+'</div>';
+  res.innerHTML=`<div class="callbox" style="color:${o.applied?'var(--ok)':'var(--cx-ffb4c6)'}">Queued ${N(o.applied)}/${N(o.total)} Mitre tag value(s) for the assets${esc(tagScopeNote())} behind ${N(new Set(acts.map(a=>a.cve)).size)} CVE(s)`+(nAssets?` (~${N(nAssets)} asset-tag pairs)`:'')+'.'+(o.writes_enabled?' Allow ~30 min for Tenable.':' (gated — set NAVI_ALLOW_WRITES=1 and put navi on PATH)')+'</div>';
   reset(); render();
   scroll();
 };
 mountAgentHeader({icon:'🎯',name:'MITRE ATT&CK Tagging',sub:'tags assets by the ATT&CK impact of their CVEs'});
+mountTagScope({agent:'mitre', note:'the CVEs, techniques and ACR > 7 list are those on the tagged assets; 🏷️ Tag assets tags only them'});
 mountSectionNav();
 // ⛶ full screen + 📧 picture & list (Gabriel) on the ATT&CK map
 hWidget('secMatrix',{title:'MITRE ATT&CK matrix', visual:()=>document.getElementById('mx'),
   columns:['technique','name','tactics','assets','cves','mapping types'],
-  note:()=>PLAN?('Techniques behind the planned tags · '+(scope==='navidb'?'CVEs in navi.db':'full mapping')):'',
+  note:()=>PLAN?('Techniques behind the planned tags · '+(scope==='navidb'?'CVEs '+inNavi():'full mapping')+tagScopeNote()):'',
   rows:()=>((PLAN&&PLAN.techniques)||[]).map(t=>({technique:t.id, name:t.name||t.parent_name||'', tactics:(t.tactics||[]).join(', '),
     assets:t.assets, cves:t.cves, 'mapping types':Object.keys(t.roles||{}).join(', ')}))});
+document.querySelectorAll('.tsIn').forEach(e=>e.textContent=tagScopeNote(' tagged '));
+if(tagScope()) document.getElementById('tsHow').textContent='in a tag view: only the tagged assets citing it, sent to navi as asset pages';
 try{ hMailAuto(); }catch(e){}
 requestApprove(true);   // human approves the external download before anything is fetched (or Settings auto-approves it)
 </script>

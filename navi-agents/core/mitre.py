@@ -18,7 +18,7 @@ import os
 import re
 import urllib.request
 
-from core import db, downloads
+from core import db, downloads, tagscope
 
 CSV_URL = ("https://raw.githubusercontent.com/center-for-threat-informed-defense/"
            "attack_to_cve/master/Att%26ckToCveMappings.csv")
@@ -140,24 +140,26 @@ def _hx_plugin_cves(db_path=None) -> dict:
     return out
 
 
-def _hx_cve_assets(db_path=None, only=None) -> dict:
+def _hx_cve_assets(db_path=None, only=None, tag_key=None, tag_value=None) -> dict:
     """cve_assets() over hx_plugin + hx_v_plugin: only the plugins carrying a wanted CVE are
-    read, one covering index range each (no table rows)."""
+    read, one covering index range each (no table rows). A tag scope (build 489) keeps only the
+    pairs whose asset carries the tag (tagscope.sql — no UUID list in Python)."""
     pc = _hx_plugin_cves(db_path)
     if only is not None:
         pc = {p: cs & only for p, cs in pc.items() if cs & only}
     out = {}
     if not pc:
         return out
+    frag, fargs = tagscope.sql(tag_key, tag_value, "asset_uuid")
     for r in db.iter("SELECT DISTINCT plugin_id, asset_uuid FROM vulns" + db.indexed_by("hx_v_plugin", db_path)
-                     + " WHERE plugin_id IN (SELECT value FROM json_each(?))",
-                     (json.dumps(sorted(pc)),), path=db_path, tuples=True):
+                     + " WHERE plugin_id IN (SELECT value FROM json_each(?))" + frag,
+                     (json.dumps(sorted(pc)),) + tuple(fargs), path=db_path, tuples=True):
         for c in pc.get(str(r[0]), ()):
             out.setdefault(c, set()).add(r[1])
     return out
 
 
-def _hx_high_acr_rows(db_path=None, cset=()):
+def _hx_high_acr_rows(db_path=None, cset=(), tag_key=None, tag_value=None):
     """(asset_uuid, hostname, ip_address, acr, cves) for ACR > 7 assets carrying a plugin whose
     CVEs are in the mapping — only those plugins' (plugin, asset) pairs, from the covering
     hx_v_plugin index, joined to `assets` by uuid; CVEs from hx_plugin."""
@@ -165,23 +167,27 @@ def _hx_high_acr_rows(db_path=None, cset=()):
     pids = sorted(p for p, cs in _hx_plugin_cves(db_path).items() if cs & want)
     if not pids:
         return []
+    frag, fargs = tagscope.sql(tag_key, tag_value, "a.uuid")
     return db.query("SELECT DISTINCT a.uuid AS asset_uuid, a.hostname, a.ip_address, a.acr, p.cves "
                     "FROM hx_plugin p CROSS JOIN vulns v" + db.indexed_by("hx_v_plugin", db_path)
                     + " ON v.plugin_id = p.plugin_id CROSS JOIN assets a ON a.uuid = v.asset_uuid "
-                    "WHERE p.plugin_id IN (SELECT value FROM json_each(?)) AND CAST(a.acr AS REAL)>7",
-                    (json.dumps(pids),), path=db_path)
+                    "WHERE p.plugin_id IN (SELECT value FROM json_each(?)) AND CAST(a.acr AS REAL)>7" + frag,
+                    (json.dumps(pids),) + tuple(fargs), path=db_path)
 
 
-def cve_assets(db_path=None, only=None) -> dict:
-    """CVE → set(asset_uuid) from navi.db findings (vulns.cves); `only` limits the CVEs kept."""
+def cve_assets(db_path=None, only=None, tag_key=None, tag_value=None) -> dict:
+    """CVE → set(asset_uuid) from navi.db findings (vulns.cves); `only` limits the CVEs kept.
+    tag_key/tag_value (build 489 tag scope): only the assets carrying that tag."""
     out = {}
+    frag, fargs = tagscope.sql(tag_key, tag_value, "asset_uuid")
     if _hx(db_path):
         try:
-            return _hx_cve_assets(db_path, None if only is None else set(only))
+            return _hx_cve_assets(db_path, None if only is None else set(only), tag_key, tag_value)
         except Exception:
             pass                                    # fall back to the row scan below
     try:
-        for row in db.query("SELECT asset_uuid, cves FROM vulns WHERE TRIM(COALESCE(cves,''))<>''", path=db_path):
+        for row in db.query("SELECT asset_uuid, cves FROM vulns WHERE TRIM(COALESCE(cves,''))<>''" + frag,
+                            tuple(fargs), path=db_path):
             for c in _CVE.findall(row.get("cves") or ""):
                 c = c.upper()
                 if only is not None and c not in only:
@@ -210,12 +216,19 @@ def navi_cves(db_path=None) -> set:
 
 
 def build_plan(db_path=None, scope: str = "navidb", url: str = CSV_URL,
-               csv_text: str = "", allow_live: bool = True) -> dict:
+               csv_text: str = "", allow_live: bool = True,
+               tag_key=None, tag_value=None) -> dict:
     """Build the per-CVE tag plan. Mapping source: user upload (csv_text) →
     live download (only when allow_live) → baked snapshot. scope='navidb' (default)
-    keeps only CVEs present in navi.db; scope='all' is the full mapping."""
+    keeps only CVEs present in navi.db; scope='all' is the full mapping.
+
+    tag_key/tag_value (build 489): the plan over ONE tag's assets — "CVEs in navi.db" becomes
+    the CVEs on that tag's assets, and every asset count, technique, role and the ACR > 7 list
+    covers only those assets. With no tag the plan is exactly the whole-estate plan."""
+    scoped = bool(tag_key and tag_value)
     mapping, source = fetch_mapping(url, csv_text=csv_text, allow_live=allow_live)
-    nv = navi_cves(db_path)
+    ca_scoped = cve_assets(db_path, None, tag_key, tag_value) if scoped else None
+    nv = set(ca_scoped) if scoped else navi_cves(db_path)
     actions, matched = [], set()
     for r in mapping:
         if scope == "navidb" and r["cve"] not in nv:
@@ -234,11 +247,13 @@ def build_plan(db_path=None, scope: str = "navidb", url: str = CSV_URL,
     # assets with ACR > 7 that carry ATT&CK-mapped CVEs (aligns w/ the insights tile)
     cset = {r["cve"] for r in mapping}
     high = {}
+    vfrag, vargs = tagscope.sql(tag_key, tag_value, "v.asset_uuid")
     try:
-        for r in (_hx_high_acr_rows(db_path, cset) if _hx(db_path) else
+        for r in (_hx_high_acr_rows(db_path, cset, tag_key, tag_value) if _hx(db_path) else
                   db.query("SELECT v.asset_uuid, a.hostname, a.ip_address, a.acr, v.cves "
                            "FROM vulns v LEFT JOIN assets a ON a.uuid=v.asset_uuid "
-                           "WHERE CAST(a.acr AS REAL)>7 AND TRIM(COALESCE(v.cves,''))<>''", path=db_path)):
+                           "WHERE CAST(a.acr AS REAL)>7 AND TRIM(COALESCE(v.cves,''))<>''" + vfrag,
+                           tuple(vargs), path=db_path)):
             ms = [c.upper() for c in _CVE.findall(r.get("cves") or "") if c.upper() in cset]
             if not ms:
                 continue
@@ -253,7 +268,8 @@ def build_plan(db_path=None, scope: str = "navidb", url: str = CSV_URL,
     high_acr.sort(key=lambda x: -(float(x["acr"]) if x["acr"] else 0))
 
     # ---- assets behind each CVE (the tag lands on these) + metrics + ATT&CK view ----
-    ca = cve_assets(db_path, only=matched)
+    ca = ({c: ca_scoped[c] for c in matched if c in ca_scoped} if scoped
+          else cve_assets(db_path, only=matched))
     for a in actions:
         a["assets"] = len(ca.get(a["cve"], ()))
     assets_all = set().union(*ca.values()) if ca else set()
@@ -299,4 +315,5 @@ def build_plan(db_path=None, scope: str = "navidb", url: str = CSV_URL,
             "matched_cves": len(matched), "actions": actions, "scope": scope,
             "mapping_source": source, "url": CSV_URL, "high_acr": high_acr,
             "metrics": metrics, "techniques": tech_rows,
-            "attack": {"tactics": A.get("tactics", []), "modified": A.get("modified")}}
+            "attack": {"tactics": A.get("tactics", []), "modified": A.get("modified")},
+            **({"tag_scope": tagscope.describe(tag_key, tag_value, db_path)} if scoped else {})}

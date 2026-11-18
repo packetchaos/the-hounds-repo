@@ -148,13 +148,15 @@ async function run(){
   render();
 }
 
+/* build 489: every confirm names the tag filter — a write from a tag view only touches that tag's assets */
+const scopeAsk=()=>tagScope()?'\n\nTag filter'+tagScopeNote()+': only assets carrying that tag are written — the server re-reads them from navi.db.':'';
 /* ---- gated writes: one line of feedback; detail lives in the Tagging log ---- */
 /* ask = the plain-text question (names the exact tag + how many assets); every write asks first */
 async function gated(btn,label,call,okMsg,el,ask){
   el=el||'flash';
   if(btn&&btn.disabled) return null;
   await testRunStatus();
-  if(!confirm((typeof ask==='function'?ask():ask)+(WRITES?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.'))) return null;
+  if(!confirm((typeof ask==='function'?ask():ask)+scopeAsk()+(WRITES?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.'))) return null;
   if(btn&&btn.disabled) return null;
   const fb=document.getElementById(el); const scroll=()=>{ if(fb) fb.scrollIntoView({behavior:'smooth',block:'center'}); };
   if(btn){ btn.dataset.label=btn.dataset.label||btn.textContent; btn.disabled=true; btn.textContent='⏳'; }
@@ -185,7 +187,7 @@ function renderMetrics(){
   document.getElementById('metrics').innerHTML='<p class="sub" style="margin:2px 0 0">Click a number to filter the asset list.</p><div id="glxAi"></div>';
   renderGlance('glxAi', [
     {title:'Footprint', t:'Evidence bar: assets per detection source; an asset can appear in several.',
-     hero:{v:N(DATA.asset_count), l:'assets running AI/ML', u:(m.ai_pct!=null?m.ai_pct+'%':'')+(m.estate?(m.ai_pct!=null?' ':'')+`of ${N(m.estate)} assets in navi.db`:''), href:'#secAssets'},
+     hero:{v:N(DATA.asset_count), l:'assets running AI/ML', u:(m.ai_pct!=null?m.ai_pct+'%':'')+(m.estate?(m.ai_pct!=null?' ':'')+(tagScope()?`of the ${N(m.estate)} assets tagged ${tagScopeLabel()}`:`of ${N(m.estate)} assets in navi.db`):''), href:'#secAssets'},
      bar:n?Object.keys(SRC).filter(s=>srcN[s]).map(s=>({label:SRC[s][0], value:srcN[s]})):null,
      chips:[{v:N(m.content_only), l:'found beyond the Tenable AI plugins', u:`${N(m.plugin_found)} flagged by the AI plugin family · the rest detected only through software, CPE, plugin-output or endpoint evidence`, sev:'ok', filter:'f:content'},
             {v:N(m.frameworks), l:'AI products and frameworks', u:`across ${N(m.roles)} role${m.roles===1?'':'s'}`, href:'#secSoft'},
@@ -266,7 +268,7 @@ async function renderTable(){
   const tr=document.getElementById('tagRole'); if(tr) tr.onclick=async function(){ const by=k.by_role||{};
     const rs=Object.keys(by); if(this.disabled) return; await testRunStatus();
     if(!confirm('Tag '+tagCat('AI Role')+' : <role> on '+k.total+' asset'+(k.total===1?'':'s')+' ('+rs.length+' role value'+(rs.length===1?'':'s')+')?\n\n'
-      +rs.map(r=>'• '+tagCat('AI Role')+' : '+r+' ('+by[r]+' asset'+(by[r]===1?'':'s')+')').join('\n')+(WRITES?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.'))) return;
+      +rs.map(r=>'• '+tagCat('AI Role')+' : '+r+' ('+by[r]+' asset'+(by[r]===1?'':'s')+')').join('\n')+scopeAsk()+(WRITES?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.'))) return;
     if(this.disabled) return;
     let ok=0, f=0; this.disabled=true; for(const r of rs){ try{ const o=await API.post('tag',{category:'AI Role',value:r,run:RUN,key:{filter:flags.filter(x=>!x.startsWith('role:')).concat(['role:'+r])},confirm:true}); if(o&&o.ok) ok++; else f++; }catch(e){ f++; } } this.disabled=false;
     flash('flash',(ok?'✓ queued '+N(ok)+' AI Role tag(s) across '+N(k.total)+' asset(s)':'✗ nothing queued')+(f?' · '+f+' failed':'')+' — sent to the <a href="/web/tags-log.html">Tagging log</a>.'+(ok&&!WRITES?' Writes are gated, so nothing reaches Tenable until NAVI_ALLOW_WRITES=1.':''),ok?'ok':'crit'); };
@@ -306,7 +308,8 @@ function acrSync(){ const ra=(DATA&&DATA.role_acr)||{};
 document.getElementById('acrSet').onclick=function(){
   const ra=(DATA&&DATA.role_acr)||{}, sel=[..._acrSel];
   gated(this,'setting ACR by AI ACR Raise',()=>API.post('acr_roles',{roles:sel,confirm:true}),o=>`set ACR on ${N(o.applied)} AI role(s)`,'flash',
-    ()=>`Set ACR on the assets tagged ${tagCat('AI ACR Raise')} : <role> for ${sel.length} AI role${sel.length===1?'':'s'}?\n\n`+sel.map(r=>`• ${tagCat('AI ACR Raise')} : ${r} → ACR ${ra[r]||7}`).join('\n'));
+    ()=>`Set ACR on the assets tagged ${tagCat('AI ACR Raise')} : <role> for ${sel.length} AI role${sel.length===1?'':'s'}?\n\n`+sel.map(r=>`• ${tagCat('AI ACR Raise')} : ${r} → ACR ${ra[r]||7}`).join('\n')
+      +(tagScope()?`\n\nTag filter${tagScopeNote()}: navi sets ACR on every asset carrying the AI ACR Raise tag, so a role is only sent when all of those assets also carry ${tagScopeLabel()} (checked in navi.db); otherwise set it from the whole estate.`:''));
 };
 
 function why(x){
@@ -434,11 +437,12 @@ function render(){ if(!DATA) return; renderMetrics(); renderTable(); renderSoft(
 document.getElementById('run').onclick=run;
 document.getElementById('tagAll').onclick=function(){ if(DATA&&DATA.asset_count) aiTag('AI','Present',{all:true},DATA.asset_count,this); };
 mountAgentHeader({id:'ai',icon:'🧠',name:'AI Inventory',sub:'Pythia · content-first AI/ML discovery'});
+mountTagScope({agent:'ai', note:'the AI assets found among them, with each asset\'s role, exposure, risk and ACR exactly as in the whole estate'});
 mountSectionNav();
 // ⛶ full screen + 📧 picture & list (Gabriel) on the ATLAS map
 hWidget('secAtlas',{title:'MITRE ATLAS — AI threat map', visual:()=>document.getElementById('atlMx'),
   columns:['technique','name','tactic','ai assets','why'],
-  note:()=>DATA?(N(DATA.asset_count||0)+' AI asset(s) · capability-based, not observed'):'',
+  note:()=>DATA?(N(DATA.asset_count||0)+' AI asset(s)'+tagScopeNote()+' · capability-based, not observed'):'',
   rows:()=>DATA?Object.values(atlasIndex()).sort((a,b)=>b.assets-a.assets||String(a.id).localeCompare(String(b.id)))
     .map(d=>({technique:d.id, name:d.name||'', tactic:d.tactic||'', 'ai assets':d.assets, why:Object.keys(d.whys||{}).join(' · ')})):[]});
 try{ hMailAuto(); }catch(e){}

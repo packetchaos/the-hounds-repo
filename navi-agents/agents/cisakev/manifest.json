@@ -16,5 +16,9 @@
     "tag_ransomware",
     "nl"
   ],
-  "codename": "Laelaps Hound"
+  "codename": "Laelaps Hound",
+  "tag_scope": {
+    "actions": ["run", "tag_vulnerable", "tag_dates", "tag_due", "tag_ransomware"],
+    "ignore": ["source", "nl"]
+  }
 }

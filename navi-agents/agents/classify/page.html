@@ -161,19 +161,27 @@
 </div>
 <script src="/static/console.js"></script>
 <script>
-const API=agentApi('classify');
+/* build 489: jpost adds tag_scope only while window.__AGENT_ID is this hound, but hMailAuto's
+   agentApi('email') re-points it — so this page's API adds the scope itself (same shape) */
+const API=(()=>{ const A=agentApi('classify');
+  return {post:(action,body)=>{ const ts=tagScope();
+    if(ts && !(body && Object.prototype.hasOwnProperty.call(body,'tag_scope'))) body=Object.assign({}, body||{}, {tag_scope:{key:ts.key, value:ts.value}});
+    return A.post(action, body); }}; })();
 let DATA=null, CUR=null;
 const COL={"Windows":"var(--cx-6ea8ff)","Linux":"var(--cx-e7c66b)","macOS":"#9aa7b8","IoT":"var(--cx-a78bfa)","OT":"var(--cx-f43f5e)","Network":"var(--cx-3fb0c9)","Virtual Infrastructure":"var(--ok)","Cloud":"#38bdf8","Server":"var(--cx-4a6fd0)","Workstation":"var(--cx-2fa06e)","Mobile":"var(--cx-e0913a)","Unclassified":"var(--cx-f43f5e)"};
 const col=c=>COL[c]||"#8a99ad";
 
 const fnum=n=>(n==null?'—':Number(n).toLocaleString());
+/* build 489 tag filter: what the counts cover, in plain words */
+const SC=()=>tagScope();
+const popAssets=()=>SC()?('assets tagged '+SC().key+' : '+SC().value):'assets in navi.db';
 let SIGRES=null, OSBRES=null;   // the ▶ Run's signals + os_breakdown reads (fill At a glance as they land)
 /* sections stay out of the jump nav until they are shown (no chip that scrolls to nothing) */
 function showSec(id, label){ const s=document.getElementById(id); if(!s) return;
   s.style.display=''; s.dataset.nav=label||s.dataset.navLabel||id; mountSectionNav(); }
 async function run(){
   SIGRES=null; OSBRES=null;
-  document.getElementById('run').disabled=true; flash('flash','<span class="spin"></span> classifying every asset from navi.db…','run');
+  document.getElementById('run').disabled=true; flash('flash','<span class="spin"></span> classifying '+esc(SC()?('the assets tagged '+SC().key+' : '+SC().value):'every asset')+' from navi.db…','run');
   let o; try{ o=await API.post('run'); }catch(e){ o={ok:false,error:e.message}; }
   document.getElementById('run').disabled=false;
   if(!o||!o.ok||!o.result){ flash('flash','✗ '+esc((o&&(o.error||o.message))||'failed'),'crit'); return; }
@@ -187,7 +195,7 @@ async function run(){
 function render(){
   const tot=DATA.total||0;
   document.getElementById('cov').innerHTML=
-    `<div style="width:100%;margin-top:4px"><div class="sub" style="margin-bottom:4px"><b style="color:var(--ink)">${fnum(DATA.classified)}</b> of ${fnum(tot)} assets classified · <b style="color:var(--ink)">${esc(String(DATA.coverage_pct||0))}%</b> coverage</div>`
+    `<div style="width:100%;margin-top:4px"><div class="sub" style="margin-bottom:4px"><b style="color:var(--ink)">${fnum(DATA.classified)}</b> of ${fnum(tot)} ${SC()?esc(popAssets()):'assets'} classified · <b style="color:var(--ink)">${esc(String(DATA.coverage_pct||0))}%</b> coverage${SC()?' of this tag':''}</div>`
     +`<div class="cbar">${(DATA.classes||[]).map(c=>`<i style="width:${tot?(c.count/tot*100).toFixed(2):0}%;background:${col(c.cls)}" title="${esc(c.cls)}: ${fnum(c.count)}"></i>`).join('')}</div>`
     +`<div class="covleg">${(DATA.classes||[]).map(c=>`<span><i style="background:${col(c.cls)}"></i>${esc(c.cls)} · ${fnum(c.count)}</span>`).join('')}</div></div>`
     +(!DATA.tagged_any?`<div class="callbox" style="width:100%;border-left:3px solid var(--warn,var(--cx-e7c66b));margin-top:10px"><b style="color:var(--warn,var(--cx-e7c66b))">No classification tags yet.</b> Classification is driven only by tags. Use <b>📡 OS Signals</b> below to detect and tag your environment — everything fills in as you tag.</div>`:'');
@@ -229,15 +237,15 @@ function renderPageGlance(){
     return m; };
   const pend='…';
   const sig=SIGRES&&SIGRES.ok?SIGRES:null, osb=OSBRES&&OSBRES.ok?OSBRES:null;
-  const lead=(x,what,sev)=>x?mk(fnum(x.n),what+' in '+x.cls+' — the most of any class ('+fnum(x.of)+' assets)',{cls:x.cls,sev})
+  const lead=(x,what,sev)=>x?mk(fnum(x.n),what+' in '+x.cls+' — the most of any class'+(SC()?' in this tag':'')+' ('+fnum(x.of)+' assets)',{cls:x.cls,sev})
                             :mk('0',what+' on classified assets',{j:'classCard',sev,u:'classes ↓'});
   const ru=g.riskiest_unclassified;
   renderGlance(host, [
     {title:'Classification',
-     hero:mk(fnum(DATA.classified),'classified · '+(DATA.coverage_pct||0)+'% coverage',{j:'sunCard',sev:'ok',u:'🌐 Environment Explorer ↓',t:'Assets carrying a classification tag (or cloud metadata)'}),
+     hero:mk(fnum(DATA.classified),'classified · '+(DATA.coverage_pct||0)+'% coverage'+(SC()?' of this tag':''),{j:'sunCard',sev:'ok',u:'🌐 Environment Explorer ↓',t:'Assets carrying a classification tag (or cloud metadata)'}),
      bar:[{label:'Classified',value:DATA.classified||0,color:'ok'},{label:'Unclassified',value:DATA.unclassified||0,color:'crit'}], legend:false,
-     chips:[mk(fnum(DATA.total),'assets in navi.db',{j:'classCard',sev:'info',u:'🗂 classes ↓'}),
-            mk(fnum(DATA.unclassified),'unclassified · '+(s.unclassified_pct||0)+'% — the worklist',{cls:'Unclassified',sev:'crit',u:'🖥 classify them by hand ↓'}),
+     chips:[mk(fnum(DATA.total),popAssets(),{j:'classCard',sev:'info',u:'🗂 classes ↓'}),
+            mk(fnum(DATA.unclassified),'unclassified · '+(s.unclassified_pct||0)+'%'+(SC()?' of this tag':'')+' — the worklist',{cls:'Unclassified',sev:'crit',u:'🖥 classify them by hand ↓'}),
             mk(sig?fnum(sig.assets_with_signal):pend,'untagged assets with an OS / device signal',{j:'signalsCard',sev:'info',u:'📡 tag them in OS Signals ↓',zero:sig?undefined:false}),
             mk(fnum(g.cloud_detected),'cloud assets from navi metadata',{cls:'Cloud',sev:'info',t:'AWS / Azure / GCP provenance columns — no tag needed'})]},
     {title:'Class breakdown',
@@ -248,7 +256,7 @@ function renderPageGlance(){
             mk(fnum(s.ot),'OT devices',{cls:'OT'}),
             mk(fnum(s.virtual),'hypervisors',{cls:'Virtual Infrastructure'})]},
     {title:'Operating systems',
-     hero:mk(fnum(g.eol_os),'on an unsupported / EOL OS · '+(g.eol_os_pct||0)+'% of assets',{href:'/agents/eol/page.html',sev:'crit',u:'🐾 EOL / Unsupported →',t:'Open unsupported / end-of-life operating-system findings (same selector as Charon)'}),
+     hero:mk(fnum(g.eol_os),'on an unsupported / EOL OS · '+(g.eol_os_pct||0)+'% of '+(SC()?'this tag':'assets'),{href:'/agents/eol/page.html',sev:'crit',u:'🐾 EOL / Unsupported →',t:'Open unsupported / end-of-life operating-system findings (same selector as Charon)'}),
      chips:['Windows','Linux','macOS'].map(f=>mk(fnum(cls(f)),f+' (classified)',{cls:f}))
        .concat([mk(osb?fnum(osb.total_detected):pend,'untagged OS hosts detected'+(osb&&osb.families&&osb.families.length?' · '+osb.families.map(f=>f.family).join(' / '):''),{j:'signalsCard',sev:'info',u:'📡 OS pies ↓',zero:osb?undefined:false}),
                 mk(fnum(g.low_conf),'low-confidence OS fingerprints (< '+(g.low_conf_threshold||70)+'%) · '+fnum(g.os_fingerprinted)+' fingerprinted',{j:'osAsk',sev:'med',prompt:'tag all my assets by OS with a confidence of at least '+(g.low_conf_threshold||70)+'%',u:'✨ Ask with a '+(g.low_conf_threshold||70)+'% floor ↓',t:'Plugin 11936 confidence — tag only the confident ones'})])},
@@ -354,7 +362,7 @@ async function pollJobs(ids, timeoutMs=25000){
 }
 async function tagClass(cls){
   const n=((DATA&&DATA.classes||[]).find(x=>x.cls===cls)||{}).count;
-  if(!confirm('Write the tag "'+tagCat('Asset Inventory')+' : Class: '+cls+'" to '+(n!=null?fnum(n)+' ':'')+'asset(s) in Tenable?\n\nWrites go through the gated tag queue — if NAVI_ALLOW_WRITES is not set, the job queues but is blocked.')) return;
+  if(!confirm('Write the tag "'+tagCat('Asset Inventory')+' : Class: '+cls+'" to '+(n!=null?fnum(n)+' ':'')+'asset(s)'+tagScopeNote()+' in Tenable?\n\nWrites go through the gated tag queue — if NAVI_ALLOW_WRITES is not set, the job queues but is blocked.')) return;
   flash('tagFlash','<span class="spin"></span> queueing gated tag for '+esc(cls)+'…','run');
   let o; try{ o=await API.post('tag',{cls,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
   if(!(o.ok||o.queued||o.warning)){ flash('tagFlash','✗ '+esc(o.error||o.message||'rejected')+(o.write_gate_reason?(' — '+esc(o.write_gate_reason)):''),'crit'); return; }
@@ -439,9 +447,9 @@ function paintPie(host, nodes, opts){
 function renderPies(){
   const all=(TREE&&TREE.children)||[];
   const byClass=(GROUPBY==='class');
-  document.getElementById('titleA').textContent=(byClass?'Classification':'Subnet')+' — total inventory';
+  document.getElementById('titleA').textContent=(byClass?'Classification':'Subnet')+(SC()?' — this tag':' — total inventory');
   paintPie(document.getElementById('pieA'), all, {greyMsg:'run classify',
-    centerTotal:(DATA&&DATA.total)||all.reduce((s,n)=>s+(n.value||0),0), centerLabel:'total assets',
+    centerTotal:(DATA&&DATA.total)||all.reduce((s,n)=>s+(n.value||0),0), centerLabel:SC()?'tagged assets':'total assets',
     exclude:byClass?['Unclassified']:null, color:byClass?(nm=>col(nm)):null, activeName:SELA&&SELA.name,
     onHover:n=>paintB(n), onLeave:()=>paintB(SELA),
     onClick:n=>{ SELA=(SELA&&SELA.name===n.name)?null:n; SELB=null; paintB(SELA); renderTagBar();
@@ -467,7 +475,7 @@ function renderTagBar(){
 }
 async function invTag(facet,value,lvl){
   const n=(lvl==='a'?SELA:SELB||SELA); 
-  if(!confirm('Write the tag "'+tagCat('Asset Inventory')+' : '+facet+': '+value+'" to '+(n&&n.value!=null?fnum(n.value)+' ':'')+'asset(s) in Tenable?\n\nWrites go through the gated tag queue — if NAVI_ALLOW_WRITES is not set, the job queues but is blocked.')) return;
+  if(!confirm('Write the tag "'+tagCat('Asset Inventory')+' : '+facet+': '+value+'" to '+(n&&n.value!=null?fnum(n.value)+' ':'')+'asset(s)'+tagScopeNote()+' in Tenable?\n\nWrites go through the gated tag queue — if NAVI_ALLOW_WRITES is not set, the job queues but is blocked.')) return;
   const res=document.getElementById('tagRes'); res.innerHTML='<span class="spin"></span> queueing…';
   const path={}; if(GROUPBY==='class'){ if(SELA)path.cls=SELA.name; if(lvl!=='a'&&SELB)path.sub=SELB.name; }
   else { if(SELA)path.subnet=SELA.name; if(lvl!=='a'&&SELB)path.cls=SELB.name; }
@@ -617,7 +625,7 @@ async function osApplyOne(i){
 async function osApplyAll(){
   if(!OSPLAN||!OSPLAN.cohorts||!OSPLAN.cohorts.length) return;
   const nA=OSPLAN.cohorts.reduce((t,c)=>t+(c.count||0),0);
-  if(!confirm('Write '+OSPLAN.cohorts.length+' "'+tagCat('Asset Inventory')+' : OS: …" tag(s) to '+fnum(nA)+' asset(s) in Tenable?\n\nWrites go through the gated tag queue — if NAVI_ALLOW_WRITES is not set, the job queues but is blocked.')) return;
+  if(!confirm('Write '+OSPLAN.cohorts.length+' "'+tagCat('Asset Inventory')+' : OS: …" tag(s) to '+fnum(nA)+' asset(s)'+tagScopeNote()+' in Tenable?\n\nWrites go through the gated tag queue — if NAVI_ALLOW_WRITES is not set, the job queues but is blocked.')) return;
   const btn=document.getElementById('osApplyAll'); btn.disabled=true;
   // fire every tag at once — each queues immediately, so all land in the Tagging log
   // together instead of waiting for the previous one's job to finish.
@@ -633,7 +641,7 @@ function _tagBody(facet,value,uuids){ if(uuids&&!Array.isArray(uuids)){ for(cons
 async function writeTag(facet,value,uuids,resEl,count){
   value=(value||'').trim();
   if(!value){ if(resEl)resEl.innerHTML='<span style="color:var(--crit)">✗ tag name can\'t be empty</span>'; return false; }
-  if(!confirm('Write the tag "'+tagCat('Asset Inventory')+' : '+facet+': '+value+'" to '+fnum(count||uuids.length)+' asset(s) in Tenable?\n\nWrites are gated (NAVI_ALLOW_WRITES).')) return false;
+  if(!confirm('Write the tag "'+tagCat('Asset Inventory')+' : '+facet+': '+value+'" to '+fnum(count||uuids.length)+' asset(s)'+tagScopeNote()+' in Tenable?\n\nWrites are gated (NAVI_ALLOW_WRITES).')) return false;
   if(resEl)resEl.innerHTML='<span class="spin"></span> queueing '+(count||uuids.length)+'…';
   let o; try{ o=await API.post('tag',_tagBody(facet,value,uuids)); }catch(e){ o={ok:false,error:e.message}; }
   if(!(o.ok||o.queued||o.warning)){ if(resEl)resEl.innerHTML='<span style="color:var(--crit)">✗ '+esc(o.error||o.message||'rejected')+'</span>'; return false; }
@@ -723,7 +731,7 @@ async function bulkTag(level){
     else (f.versions||[]).forEach(v=>jobs.push({facet:'OS',value:v.name,uuids:{os:{family:f.family,version:v.name}},count:v.count})); });
   if(!jobs.length){ res.textContent='nothing to tag'; return; }
   const nB=jobs.reduce((t,j)=>t+(j.count||0),0);
-  if(!confirm('Write '+jobs.length+' "'+tagCat('Asset Inventory')+' : OS: …" tag(s) to '+fnum(nB)+' asset(s) in Tenable?\n\nWrites go through the gated tag queue — if NAVI_ALLOW_WRITES is not set, the job queues but is blocked.')) return;
+  if(!confirm('Write '+jobs.length+' "'+tagCat('Asset Inventory')+' : OS: …" tag(s) to '+fnum(nB)+' asset(s)'+tagScopeNote()+' in Tenable?\n\nWrites go through the gated tag queue — if NAVI_ALLOW_WRITES is not set, the job queues but is blocked.')) return;
   if(btn){ btn.disabled=true; btn.innerHTML='⏳ Sending…'; btn.style.opacity='.6'; btn.style.transform='translateY(1px)'; btn.style.cursor='default'; }
   res.innerHTML=`<span style="color:var(--ok);font-weight:600"><span class="spin"></span> Sending ${jobs.length} OS tag(s) to the Tagging log…</span>`; scroll();
   // fire all at once so they queue together and appear in the log immediately
@@ -769,6 +777,7 @@ document.querySelectorAll('.grpby').forEach(b=>b.onclick=()=>{ document.querySel
 
 document.getElementById('run').onclick=run;
 mountAgentHeader({id:'classify',icon:'📇',name:'Asset Classification',sub:'Linnaeus · close the detection loop'});
+mountTagScope({agent:'classify', note:'Classifies only the assets carrying this tag. Each asset keeps the class it has in the whole estate, and tags written here touch only this tag\'s assets'});
 try{ hMailAuto(); }catch(e){}
 /* explicit-run: nothing scans navi.db until ▶ Run */
 </script>

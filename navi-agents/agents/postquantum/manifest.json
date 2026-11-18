@@ -16,5 +16,9 @@
     "roadmap",
     "roadmap_tag"
   ],
-  "codename": "Heimdall"
+  "codename": "Heimdall",
+  "tag_scope": {
+    "actions": ["run", "tag", "tag_uuids", "tag_signal", "cert", "transport", "roadmap"],
+    "ignore": []
+  }
 }

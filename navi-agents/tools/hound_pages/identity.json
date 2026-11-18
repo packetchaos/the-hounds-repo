@@ -1,42 +1,46 @@
 {
-  "codename": "Janus",
-  "discipline": "Identity Inventory",
-  "category": "Identity",
-  "tagline": "Inventory every account on every host — and the weaknesses each opens.",
-  "lore": "Janus, the two-faced god of doorways — here he guards the doorways of your estate: accounts human and non-human, and the doors each one opens.",
-  "problem": "Service accounts, machine identities, reused local admins and default credentials are what attackers ride across an estate — and they never appear on a list sorted by CVE severity. Most teams can't say which accounts exist on which hosts.",
-  "does": "Janus builds an inventory of the accounts Tenable found on your hosts and classifies each as human, service / non-human (NHI) or machine. He flags privileged and non-expiring accounts, the same account on many hosts, SSH password logins and default credentials, ranks identities sitting on KEV, critical or crown-jewel hosts, and shows the hosts he can't see into because the scan had no credentials.",
-  "glance": {
-    "caption": "Janus's At a glance on a 128-asset lab: 22 identities on 44 hosts (8 human, 12 service / NHI, 2 machine); 44.5% credential coverage — 71 hosts the scan couldn't see into; 5 accounts reused across hosts and 12 hosts accepting SSH passwords; 15 identities on a CISA KEV host."
-  },
-  "capabilities": [
-    [
-      "Identities from the scan",
-      "local-user enumeration plugins (Linux user list, SMB local users and more) parsed into accounts, each with the hosts it lives on."
-    ],
-    [
-      "Classified",
-      "human, service / NHI or machine — from well-known Windows SIDs, AD machine accounts ($), Linux UID conventions and known service names."
-    ],
-    [
-      "Risk flags",
-      "privileged, non-expiring passwords, account reuse across five or more hosts, SSH password auth, default credentials, on a KEV, critical or crown-jewel host."
-    ],
-    [
-      "Honest about reuse",
-      "the same account name on many hosts is reported as account reuse — never claimed as a shared password."
-    ],
-    [
-      "Coverage",
-      "credentialed vs blind hosts by the pack's single credentialed rule, and the scan credentials themselves."
-    ],
-    [
-      "Tags that route the work",
-      "Identity / NHI / Machine ID : <account> on its hosts, Identity Risk : Account Reuse, Identity Coverage : No Credentials, Owner : <name>; an AI model can propose more."
-    ]
+ "codename": "Janus",
+ "discipline": "Identity Inventory",
+ "category": "Identity",
+ "tagline": "Inventory every account on every host — and the weaknesses each opens.",
+ "lore": "Janus, the two-faced god of doorways — here he guards the doorways of your estate: accounts human and non-human, and the doors each one opens.",
+ "problem": "Service accounts, machine identities, reused local admins and default credentials are what attackers ride across an estate — and they never appear on a list sorted by CVE severity. Most teams can't say which accounts exist on which hosts.",
+ "does": "Janus builds an inventory of the accounts Tenable found on your hosts and classifies each as human, service / non-human (NHI) or machine. He flags privileged and non-expiring accounts, the same account on many hosts, SSH password logins and default credentials, ranks identities sitting on KEV, critical or crown-jewel hosts, and shows the hosts he can't see into because the scan had no credentials.",
+ "glance": {
+  "caption": "Janus's At a glance on a 128-asset lab: 22 identities on 44 hosts (8 human, 12 service / NHI, 2 machine); 44.5% credential coverage — 71 hosts the scan couldn't see into; 5 accounts reused across hosts and 12 hosts accepting SSH passwords; 15 identities on a CISA KEV host."
+ },
+ "capabilities": [
+  [
+   "Identities from the scan",
+   "local-user enumeration plugins (Linux user list, SMB local users and more) parsed into accounts, each with the hosts it lives on."
   ],
-  "how": "Janus reads plugin output and identity plugins in your local navi.db; with Optimize his output search runs inside the database. The identity list pages and searches on the server. Tagging rebuilds the exact host list on the server from navi.db, behind the write gate and a confirm.",
-  "who": "IAM and identity-security teams who need visibility beyond the directory, AD and Linux admins hunting reuse and default credentials, and threat teams tracing the accounts an attacker would use.",
-  "better": "Fenrir turns Janus's accounts into lateral-movement pivots, Nemesis counts identity exposure in its score, and Chronos explains why a host is blind. Covenant re-applies his Identity, Identity Risk and Identity Coverage tags on its schedule.",
-  "cta": "Ask Janus who can walk through your doors — before an attacker does."
+  [
+   "Classified",
+   "human, service / NHI or machine — from well-known Windows SIDs, AD machine accounts ($), Linux UID conventions and known service names."
+  ],
+  [
+   "Risk flags",
+   "privileged, non-expiring passwords, account reuse across five or more hosts, SSH password auth, default credentials, on a KEV, critical or crown-jewel host."
+  ],
+  [
+   "Honest about reuse",
+   "the same account name on many hosts is reported as account reuse — never claimed as a shared password."
+  ],
+  [
+   "Coverage",
+   "credentialed vs blind hosts by the pack's single credentialed rule, and the scan credentials themselves."
+  ],
+  [
+   "Tags that route the work",
+   "Identity / NHI / Machine ID : <account> on its hosts, Identity Risk : Account Reuse, Identity Coverage : No Credentials, Owner : <name>; an AI model can propose more."
+  ],
+  [
+   "By tag",
+   "run over one tag's assets: the identities found on them, with host counts, privilege and host signals counted over the tag only, while each account keeps its estate-wide class and reach (account reuse ×N); tag writes stay inside the tag. Switch between the whole estate and your last 5 tags without re-running."
+  ]
+ ],
+ "how": "Janus reads plugin output and identity plugins in your local navi.db; with Optimize his output search runs inside the database. The identity list pages and searches on the server. Tagging rebuilds the exact host list on the server from navi.db, behind the write gate and a confirm.",
+ "who": "IAM and identity-security teams who need visibility beyond the directory, AD and Linux admins hunting reuse and default credentials, and threat teams tracing the accounts an attacker would use.",
+ "better": "Fenrir turns Janus's accounts into lateral-movement pivots, Nemesis counts identity exposure in its score, and Chronos explains why a host is blind. Covenant re-applies his Identity, Identity Risk and Identity Coverage tags on its schedule.",
+ "cta": "Ask Janus who can walk through your doors — before an attacker does."
 }

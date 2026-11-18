@@ -37,6 +37,7 @@ from core.security import private_open as _popen
 
 MAX_BYTES = int(os.environ.get("NAVI_PAGECACHE_MAX_BYTES", str(64 * 1024 * 1024)))   # one entry, raw JSON
 MAX_PAGES = int(os.environ.get("NAVI_PAGECACHE_MAX_PAGES", "200"))
+TAG_VIEWS = 5                     # build 489: tag views kept per hound (core/tagscope.MAX_TAGS)
 _LOCK = threading.Lock()
 
 
@@ -260,6 +261,13 @@ def _prune():
         # build 484: a hound's own page (/agents/<id>/page.html, no query string) is NEVER pruned —
         # its last run stays until a newer run replaces it or someone presses ✕ Clear. Only
         # per-target variants (?target=… / ?q=…) are capped at MAX_PAGES, oldest first.
+        def _key(fp):
+            try:
+                with open(fp[:-len(".json.gz")] + ".meta.json", encoding="utf-8") as fh:
+                    return str(json.load(fh).get("key") or "")
+            except Exception:
+                return ""
+
         def _variant(fp):
             try:
                 with open(fp[:-len(".json.gz")] + ".meta.json", encoding="utf-8") as fh:
@@ -268,8 +276,19 @@ def _prune():
                 return False                       # unknown → keep it
         fs = sorted((os.path.join(d, n) for n in names if n.endswith(".json.gz")),
                     key=os.path.getmtime, reverse=True)
-        fs = [fp for fp in fs if _variant(fp)]
-        for fp in fs[MAX_PAGES:]:
+        # build 489: a hound's tag views (?tk=…&tv=…) are capped at TAG_VIEWS per hound (newest
+        # kept), outside the MAX_PAGES pool, so one hound's tags never push out another's
+        keys = {fp: _key(fp) for fp in fs}
+        tagged, per = [], {}
+        for fp in fs:
+            k = keys[fp]
+            if "?tk=" in k:
+                path = k.split("?", 1)[0]
+                per[path] = per.get(path, 0) + 1
+                if per[path] > TAG_VIEWS:
+                    tagged.append(fp)
+        fs = [fp for fp in fs if _variant(fp) and "?tk=" not in keys[fp]]
+        for fp in tagged + fs[MAX_PAGES:]:
             for x in (fp, fp[:-len(".json.gz")] + ".meta.json"):
                 try:
                     os.remove(x)

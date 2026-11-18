@@ -17,5 +17,9 @@
     "tag_underrated",
     "tag_atlas"
   ],
-  "codename": "Pythia"
+  "codename": "Pythia",
+  "tag_scope": {
+    "actions": ["run", "drill", "counts", "tag", "tag_underrated", "acr_roles", "tag_atlas"],
+    "ignore": []
+  }
 }

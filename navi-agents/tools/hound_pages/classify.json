@@ -1,46 +1,50 @@
 {
-  "codename": "Linnaeus",
-  "discipline": "Asset Classification",
-  "category": "Discovery",
-  "tagline": "Know what every asset is — so someone can own it.",
-  "lore": "Carl Linnaeus, the father of taxonomy, gave every living thing its name and rank — here he names every asset by what it is: server, desktop, camera, printer, switch, PLC, cloud instance.",
-  "problem": "You can't own, scope or prioritize an asset you can't name. In most estates a large share of assets carry no class at all, so they fall out of ownership, scan policy and reporting — and nobody can say whether they are servers, printers or PLCs.",
-  "does": "Linnaeus classifies every asset from the tags the pack has written, and shows exactly what is still unclassified. From operating-system fingerprints and device signals he suggests classes for the untagged assets, groups them into cohorts you can approve, and writes the tags.",
-  "glance": {
-    "caption": "Linnaeus's At a glance on a 128-asset lab: only 6 assets classified (4.7%) and 122 unclassified — 40 of them with an OS or device signal ready to tag; 34 on an unsupported OS; 29 unclassified assets with an open critical, and the riskiest one named."
-  },
-  "capabilities": [
-    [
-      "Classes from tags",
-      "the pack's own taxonomy — Asset Inventory, IoT, Device Type, OS — rolled up into Windows, Linux, macOS, Server, Workstation, Mobile, IoT, OT, network, hypervisor, cloud and Unclassified."
-    ],
-    [
-      "Standard device types",
-      "Server, Desktop, Laptop, Workstation, Phone / Tablet, Camera, Printer, NAS, VoIP, UPS / Power, Badge Reader, Switch, Router, Firewall, Wireless Access Point, Load Balancer, Hypervisor, PLC, HMI, RTU — offered as you tag, and each maps to its class."
-    ],
-    [
-      "OS and device signals",
-      "untagged assets grouped by Nessus's own device type (printer, camera, switch, firewall …) or by detected OS (\"Windows Server 2022 — 40 assets\"), each cohort one approval away from a tag."
-    ],
-    [
-      "OS explorer",
-      "OS families and versions for the untagged assets, with a confidence rating for each fingerprint."
-    ],
-    [
-      "Tag by OS in plain English",
-      "\"tag all my assets by OS with a confidence over 70\" becomes a plan you review before anything is written."
-    ],
-    [
-      "Environment Explorer",
-      "a zoomable sunburst of class → subnet → software and Docker, down to each asset (which opens in Argos)."
-    ],
-    [
-      "Risk and ownership per class",
-      "KEV and critical findings, cloud assets, and classified assets with no owner — so the unclassified bucket becomes a ranked worklist."
-    ]
+ "codename": "Linnaeus",
+ "discipline": "Asset Classification",
+ "category": "Discovery",
+ "tagline": "Know what every asset is — so someone can own it.",
+ "lore": "Carl Linnaeus, the father of taxonomy, gave every living thing its name and rank — here he names every asset by what it is: server, desktop, camera, printer, switch, PLC, cloud instance.",
+ "problem": "You can't own, scope or prioritize an asset you can't name. In most estates a large share of assets carry no class at all, so they fall out of ownership, scan policy and reporting — and nobody can say whether they are servers, printers or PLCs.",
+ "does": "Linnaeus classifies every asset from the tags the pack has written, and shows exactly what is still unclassified. From operating-system fingerprints and device signals he suggests classes for the untagged assets, groups them into cohorts you can approve, and writes the tags.",
+ "glance": {
+  "caption": "Linnaeus's At a glance on a 128-asset lab: only 6 assets classified (4.7%) and 122 unclassified — 40 of them with an OS or device signal ready to tag; 34 on an unsupported OS; 29 unclassified assets with an open critical, and the riskiest one named."
+ },
+ "capabilities": [
+  [
+   "Classes from tags",
+   "the pack's own taxonomy — Asset Inventory, IoT, Device Type, OS — rolled up into Windows, Linux, macOS, Server, Workstation, Mobile, IoT, OT, network, hypervisor, cloud and Unclassified."
   ],
-  "how": "Linnaeus reads tags, OS fields, OS-identification and Nessus Device Type plugin output, and device signals from your local navi.db. An asset counts as cloud only when navi holds a real AWS, Azure or GCP id for it — navi stores a missing one as a blank, which is not cloud. Class lists page on the server. Tags use the scheme Asset Inventory : <facet>: <value> (Class, OS, Device Type, App), written behind the write gate and a confirm.",
-  "who": "Asset and CMDB owners, vulnerability management teams scoping scans and policies, and anyone closing the gap between \"discovered\" and \"owned\".",
-  "better": "Cerberus's IoT tags and Linnaeus's classes share one inventory scheme. Classified assets are what Terminus assigns owners to and Anubis calibrates; On the Scent's unclassified card opens Linnaeus on that list, and Covenant re-applies the class tags on its schedule.",
-  "cta": "Let Linnaeus name your estate — you can't own what you can't classify."
+  [
+   "Standard device types",
+   "Server, Desktop, Laptop, Workstation, Phone / Tablet, Camera, Printer, NAS, VoIP, UPS / Power, Badge Reader, Switch, Router, Firewall, Wireless Access Point, Load Balancer, Hypervisor, PLC, HMI, RTU — offered as you tag, and each maps to its class."
+  ],
+  [
+   "OS and device signals",
+   "untagged assets grouped by Nessus's own device type (printer, camera, switch, firewall …) or by detected OS (\"Windows Server 2022 — 40 assets\"), each cohort one approval away from a tag."
+  ],
+  [
+   "OS explorer",
+   "OS families and versions for the untagged assets, with a confidence rating for each fingerprint."
+  ],
+  [
+   "Tag by OS in plain English",
+   "\"tag all my assets by OS with a confidence over 70\" becomes a plan you review before anything is written."
+  ],
+  [
+   "Environment Explorer",
+   "a zoomable sunburst of class → subnet → software and Docker, down to each asset (which opens in Argos)."
+  ],
+  [
+   "Risk and ownership per class",
+   "KEV and critical findings, cloud assets, and classified assets with no owner — so the unclassified bucket becomes a ranked worklist."
+  ],
+  [
+   "By tag",
+   "run over one tag's assets: every class count, coverage %, OS signals cohort and Explorer view covers just that tag, each asset keeps its whole-estate class, and classification tags written from that view touch only its assets. Switch between the whole estate and your last 5 tags without re-running."
+  ]
+ ],
+ "how": "Linnaeus reads tags, OS fields, OS-identification and Nessus Device Type plugin output, and device signals from your local navi.db. An asset counts as cloud only when navi holds a real AWS, Azure or GCP id for it — navi stores a missing one as a blank, which is not cloud. Class lists page on the server. Tags use the scheme Asset Inventory : <facet>: <value> (Class, OS, Device Type, App), written behind the write gate and a confirm.",
+ "who": "Asset and CMDB owners, vulnerability management teams scoping scans and policies, and anyone closing the gap between \"discovered\" and \"owned\".",
+ "better": "Cerberus's IoT tags and Linnaeus's classes share one inventory scheme. Classified assets are what Terminus assigns owners to and Anubis calibrates; On the Scent's unclassified card opens Linnaeus on that list, and Covenant re-applies the class tags on its schedule.",
+ "cta": "Let Linnaeus name your estate — you can't own what you can't classify."
 }

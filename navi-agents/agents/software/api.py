@@ -19,12 +19,13 @@ Payload contract (build 455): the page no longer pulls raw tables through run_sq
   run_sql    the ✨ Ask box only: capped at 200 rows per page, 10,000 rows in all, paged
              with a signed token; never used for bulk data.
 """
+import hashlib
 import json
 import os
 import re
 import time
 
-from core import activity, db, downloads, llm, navi_cli, payload, software
+from core import activity, db, downloads, llm, navi_cli, payload, software, tagscope
 from .agent import SoftwareAgent
 from core.gates import confirmed
 
@@ -77,31 +78,82 @@ VIEWS = {"sprawl": ("sprawl", ["multi"]), "common": ("common", []), "single": ("
          "eol": ("eol", ["eol"]), "delta": ("delta", ["delta"]), "all": ("all", [])}
 
 
+# ── tag filter (build 489) ─────────────────────────────────────────────────────────────────
+# A request may carry tag_scope {key, value}: the whole analysis then covers only the assets
+# carrying that tag (re-read from navi.db). Each tag's runs live in the result store under their
+# OWN hound name ("software_t<hash>"), so a run id is only valid for the scope it was built for
+# (an estate run id sent with a tag — or the reverse — answers "no longer on the server"), and
+# tag runs never evict the estate's last runs. The newest MAX_TAGS tags are kept.
+def _scope(p):
+    k, v = tagscope.parse(p or {})
+    return (k, v) if k else None
+
+
+def _hound(scope):
+    if not scope:
+        return "software"
+    return "software_t" + hashlib.sha1(("%s\x1f%s" % scope).encode("utf-8")).hexdigest()[:16]
+
+
+def _scoped(body, scope):
+    """Add "scope" to a scoped result — the whole estate's bodies stay exactly as before."""
+    if scope and isinstance(body, dict):
+        body["scope"] = tagscope.describe(*scope)
+    return body
+
+
+def _prune_tag_runs(keep_hound):
+    """Keep the runs of the newest MAX_TAGS tag scopes; drop every older tag's runs."""
+    con = payload.STORE._connect()
+    try:
+        hs = [r[0] for r in con.execute(
+            "SELECT hound FROM runs WHERE hound LIKE 'software\\_t%' ESCAPE '\\' "
+            "GROUP BY hound ORDER BY MAX(built_at) DESC")]
+        old = [h for h in hs if h != keep_hound][max(0, tagscope.MAX_TAGS - 1):]
+        runs = [r[0] for h in old for r in con.execute("SELECT run FROM runs WHERE hound=?", (h,))]
+    finally:
+        con.close()
+    for r in runs:
+        payload.STORE.drop(r)
+
+
 def _run_ok(p):
     run = (p or {}).get("run")
-    return run if payload.STORE.run_info(run, "software") else None
+    return run if payload.STORE.run_info(run, _hound(_scope(p))) else None
 
 
 _GONE = ({"ok": False, "expired": True, "error": "this run is no longer on the server — press ▶ Run again"}, 200)
 
 
 def inventory(p):
-    """▶ Run — the inventory KPIs and page 1 of the version-sprawl view (contract response)."""
+    """▶ Run — the inventory KPIs and page 1 of the version-sprawl view (contract response).
+    With a tag_scope: the same analysis over only the tag's assets."""
+    scope = _scope(p)
+    hound = _hound(scope)
+    if scope and not tagscope.count(*scope):
+        return {"ok": False, "error": "no assets carry the tag %s — pick another tag, or run "
+                                      "navi config update assets if it is new" % tagscope.label(*scope),
+                "scope": tagscope.describe(*scope)}, 200
     try:
-        inv = software.inventory()
+        inv = software.inventory(scope=scope, hound=hound) if scope else software.inventory()
     except Exception as e:
         msg = str(e)
         return {"ok": False, "error": msg + (" — populate it with a navi software sync first."
                                              if re.search(r"no such table", msg) else "")}, 200
+    if scope:
+        try:
+            _prune_tag_runs(hound)
+        except Exception:
+            pass
     sm = inv["summary"]
     view = (p or {}).get("view") if (p or {}).get("view") in VIEWS else "sprawl"
     srt, flt = VIEWS[view]
-    b, _c = payload.drill("software", {"run": inv["run"], "section": "products", "sort": srt, "filter": flt,
-                                       "limit": 50}, SECTIONS)
-    return payload.response(summary=sm, top=b.get("top") or [], total_=b.get("total"), page=b.get("page"),
-                            drill={"action": "drill", "run": inv["run"], "section": "products", "view": view},
-                            tag={"key": "product", "count": sm["nprod"]},
-                            crown=inv["crown"], agent=AGENT.meta()), 200
+    b, _c = payload.drill(hound, {"run": inv["run"], "section": "products", "sort": srt, "filter": flt,
+                                  "limit": 50}, SECTIONS)
+    return _scoped(payload.response(summary=sm, top=b.get("top") or [], total_=b.get("total"), page=b.get("page"),
+                                    drill={"action": "drill", "run": inv["run"], "section": "products", "view": view},
+                                    tag={"key": "product", "count": sm["nprod"]},
+                                    crown=inv["crown"], agent=AGENT.meta()), scope), 200
 
 
 def run(p):
@@ -112,11 +164,14 @@ def run(p):
 
 def drill(p):
     """Page the products. A `view` (sprawl/common/single/eol/delta/all) sets the sort + filter."""
+    scope = _scope(p)
     q = dict(p or {})
+    q.pop("tag_scope", None)
     view = q.pop("view", None)
     if view in VIEWS:
         q["sort"], q["filter"] = VIEWS[view][0], list(VIEWS[view][1])
-    return payload.drill("software", q, SECTIONS)
+    b, c = payload.drill(_hound(scope), q, SECTIONS)
+    return _scoped(b, scope), c
 
 
 def product(p):
@@ -127,7 +182,8 @@ def product(p):
     row = payload.STORE.row(run, "products", name.lower())
     if not row:
         return {"ok": False, "error": "no such product in this run"}, 200
-    return payload.response(summary={}, top=[], total_=payload.total(len(row.get("vers") or [])), product=row), 200
+    return _scoped(payload.response(summary={}, top=[], total_=payload.total(len(row.get("vers") or [])), product=row),
+                   _scope(p)), 200
 
 
 def eol_plan(p):
@@ -144,8 +200,8 @@ def eol_plan(p):
     chunk = [dict({k: v for k, v in x.items() if k != "versions"}, vers="\n".join(x.get("versions") or []))
              for x in pl[start:start + EOL_PLAN_PAGE]]
     nxt = start + EOL_PLAN_PAGE if start + EOL_PLAN_PAGE < len(pl) else None
-    return payload.response(summary={"products": len(pl)}, top=[], total_=payload.total(len(pl)),
-                            plan=chunk, start=start, next_start=nxt), 200
+    return _scoped(payload.response(summary={"products": len(pl)}, top=[], total_=payload.total(len(pl)),
+                                    plan=chunk, start=start, next_start=nxt), _scope(p)), 200
 
 
 EOL_PLAN_PAGE = 150
@@ -157,36 +213,41 @@ def lifecycle(p):
     run = _run_ok(p)
     if not run:
         return _GONE
+    scope = _scope(p)
     res = p.get("results") if isinstance(p.get("results"), list) else []
-    eol = software.lifecycle(run, res[:5000])
-    b, _c = payload.drill("software", {"run": run, "section": "products", "sort": "eol", "filter": ["eol"], "limit": 50},
-                          SECTIONS)
-    return payload.response(summary=eol, top=b.get("top") or [], total_=b.get("total"), page=b.get("page"),
-                            drill={"action": "drill", "run": run, "section": "products", "view": "eol"}), 200
+    eol = software.lifecycle(run, res[:5000], scope=scope) if scope else software.lifecycle(run, res[:5000])
+    b, _c = payload.drill(_hound(scope), {"run": run, "section": "products", "sort": "eol", "filter": ["eol"],
+                                          "limit": 50}, SECTIONS)
+    return _scoped(payload.response(summary=eol, top=b.get("top") or [], total_=b.get("total"), page=b.get("page"),
+                                    drill={"action": "drill", "run": run, "section": "products", "view": "eol"}),
+                   scope), 200
 
 
 def crown(p):
     run = _run_ok(p)
     if not run:
         return _GONE
-    info = payload.STORE.run_info(run, "software")
+    scope = _scope(p)
+    info = payload.STORE.run_info(run, _hound(scope))
     c = (info["meta"] or {}).get("crown") or {"roles": [], "assets": 0}
-    return payload.response(summary={"assets": c.get("assets", 0), "roles": len(c.get("roles") or [])},
-                            top=c.get("roles") or [], total_=payload.total(len(c.get("roles") or []))), 200
+    return _scoped(payload.response(summary={"assets": c.get("assets", 0), "roles": len(c.get("roles") or [])},
+                                    top=c.get("roles") or [], total_=payload.total(len(c.get("roles") or []))),
+                   scope), 200
 
 
 def risk(p):
     run = _run_ok(p)
     if not run:
         return _GONE
+    scope = _scope(p)
     try:
-        r = software.risk(run)
+        r = software.risk(run, scope=scope) if scope else software.risk(run)
     except db.QueryTimeout:
         raise
     except Exception as e:                          # an older / partial navi.db: say why, don't 500
         return {"ok": False, "error": "risk leaderboard unavailable: %s" % e}, 200
-    return payload.response(summary={"total": r["total"], "named": r["named"]}, top=r["rows"],
-                            total_=payload.total(r["total"])), 200
+    return _scoped(payload.response(summary={"total": r["total"], "named": r["named"]}, top=r["rows"],
+                                    total_=payload.total(r["total"])), scope), 200
 
 
 # navi's installed-software enumeration plugins (Windows / Unix-SSH / macOS). When a
@@ -212,6 +273,7 @@ def tag(p):
         return {"ok": False, "error": f"category '{category}' is not one this agent writes"}, 400
     value = (p.get("value") or "").strip()
     name = (p.get("name") or "").strip()
+    scope = _scope(p)
     if isinstance(p.get("key"), dict):
         # the page's form: a KEY — the server rebuilds the asset set from navi.db
         uuids, err = _key_uuids(p)
@@ -223,31 +285,40 @@ def tag(p):
             return {"ok": False, "error": "no assets match that key"}, 200
     else:
         uuids = [u for u in (p.get("uuids") or []) if u]       # server-side callers (Contract, tests)
+        if scope:                                              # a tag view: only that tag's assets
+            inside = tagscope.uuids(*scope)
+            uuids = [u for u in uuids if u in inside]
     if not value or not uuids:
-        return {"ok": False, "error": "value and uuids are required"}, 400
-    fallbacks = _software_fallbacks(name)
+        return {"ok": False, "error": "value and uuids are required"
+                + (" (none of them carry the tag %s)" % tagscope.label(*scope) if scope else "")}, 400
+    # a tag view never uses the built-in fallbacks: a plugin-output regex would tag the product's
+    # assets OUTSIDE the tag too — the exact UUID set is paged (≤1,999 per navi job) instead
+    fallbacks = [] if scope else _software_fallbacks(name)
     # ≤ cap: the exact assets in ≤1,999-UUID batches; over it: navi built-ins (see above)
     jobs = navi_cli.tag_capped(category, value, uuids=uuids, fallbacks=fallbacks, agent="software")
     over = len(uuids) > navi_cli.UUID_CAP and bool(fallbacks)
     job_ids = [j.get("job_id") for j in jobs if j.get("job_id") is not None]
-    return {"ok": True, "category": category, "value": value,
-            "count": len(uuids), "commands": len(jobs),
-            "mode": "builtin" if over else "query", "over_cap": over,
-            "job_ids": job_ids, "job_id": (job_ids[0] if job_ids else None),
-            "result": (jobs[0] if jobs else {}),
-            "writes_enabled": navi_cli.writes_enabled(),
-            "write_gate_reason": navi_cli.write_gate_reason()}, 200
+    return _scoped({"ok": True, "category": category, "value": value,
+                    "count": len(uuids), "commands": len(jobs),
+                    "mode": "builtin" if over else "query", "over_cap": over,
+                    "job_ids": job_ids, "job_id": (job_ids[0] if job_ids else None),
+                    "result": (jobs[0] if jobs else {}),
+                    "writes_enabled": navi_cli.writes_enabled(),
+                    "write_gate_reason": navi_cli.write_gate_reason()}, scope), 200
 
 
 def _key_uuids(p):
     """(uuids, error) for a tag KEY: {product, version?} · {product, kind:'eol'|'behind'} ·
-    {role}. EOL / behind sets use the run's stored lifecycle verdicts."""
+    {role}. EOL / behind sets use the run's stored lifecycle verdicts. In a tag view (tag_scope)
+    every set is rebuilt over only that tag's assets."""
+    scope = _scope(p)
+    sk = {"scope": scope} if scope else {}
     k = p.get("key") or {}
     role = k.get("role")
     if isinstance(role, str) and role:
         if role not in {r for r, _a, _k in software.CROWN_ROLES}:
             return [], "unknown crown-jewel role"
-        return software.assets_for(role=role), None
+        return software.assets_for(role=role, **sk), None
     prod = k.get("product")
     if not isinstance(prod, str) or not prod.strip():
         return [], "key needs a product or a role"
@@ -267,13 +338,13 @@ def _key_uuids(p):
             lat = e.get("latest") or ""
             vers = [v["v"] for v in row.get("vers") or [] if v["v"] and v["v"] not in ev and lat
                     and software.ver_cmp(v["v"], lat) < 0]
-        return software.assets_for(product=prod, versions=vers), None
+        return software.assets_for(product=prod, versions=vers, **sk), None
     if "version" in k:
         v = k.get("version")
         if not isinstance(v, str):
             return [], "bad version"
-        return software.assets_for(product=prod, version=v), None
-    return software.assets_for(product=prod), None
+        return software.assets_for(product=prod, version=v, **sk), None
+    return software.assets_for(product=prod, **sk), None
 
 
 def nl_translate(p):

@@ -59,7 +59,7 @@
 
   <section class="card" id="secIssues" data-nav="Cert issues" data-nav-icon="🧩">
     <h2>Certificate issues by plugin <span class="sub" id="issCount"></span></h2>
-    <p class="sub">Every certificate-related plugin and how many assets it fired on. Tag those assets <span class="tagval">Cert Issue : &lt;plugin name&gt;</span> (navi <span class="mono">--plugin &lt;id&gt;</span>).</p>
+    <p class="sub" id="issSub">Every certificate-related plugin and how many assets it fired on. Tag those assets <span class="tagval">Cert Issue : &lt;plugin name&gt;</span> (navi <span class="mono">--plugin &lt;id&gt;</span>).</p>
     <div class="toolbar"><button class="btn sm" id="tagIssues" disabled>🏷️ Tag selected cert issues</button><span class="chip" id="iSel">0 selected</span>
       <span style="margin-left:auto;display:flex;gap:6px"><button class="btn ghost sm" id="iAll">All</button><button class="btn ghost sm" id="iNone">None</button></span></div>
     <table id="issTbl"><thead><tr><th style="width:34px"></th><th>Plugin</th><th>ID</th><th>Assets</th><th>Share of cert-issue assets</th></tr></thead><tbody></tbody></table>
@@ -105,7 +105,7 @@ async function run(){
   document.querySelectorAll('#stF button').forEach(x=>x.classList.toggle('on',x.dataset.b===''));
   ['issTbl'].forEach(hPageReset);
   flashClear('flash'); render();
-  if(!M.cert_rows) flash('flash','No rows in the navi.db certs table. Populate it with a navi update (certs), then run again.','warn');
+  if(!M.cert_rows) flash('flash',tagScope()?'No certificates in navi.db on the assets tagged '+esc(tagScopeLabel())+'.':'No rows in the navi.db certs table. Populate it with a navi update (certs), then run again.','warn');
   // evidence deep link (On the Scent): ?view=expired → the certificate list filtered to it
   hViewOnce('view', v=>{ if(!FILTERS[v]) return; FILTER=v; renderMetrics(); renderCerts();
     setTimeout(()=>document.getElementById('secCerts').scrollIntoView({behavior:'smooth',block:'start'}),60); });
@@ -127,6 +127,10 @@ function renderTimeline(){
     if(SCOPE) document.getElementById('secCerts').scrollIntoView({behavior:'smooth',block:'start'}); });
 }
 
+/* build 489: wording for a tag view — the population is the tag's assets, not navi.db */
+const SC=()=>!!tagScope();
+const inDb=()=>SC()?'on the assets tagged '+tagScopeLabel():'in navi.db';
+const allCerts=()=>SC()?'across all certs on this tag':'across all certs';
 function renderMetrics(){
   const m=M.metrics||{};
   const as=n=>`${N(n)} asset${n===1?'':'s'}`;
@@ -134,7 +138,7 @@ function renderMetrics(){
   el.innerHTML='<p class="sub" style="margin:2px 0 0">Click a number to filter the certificate list.</p><div id="glxCert"></div>';
   renderGlance('glxCert', [
     {title:'Expired',
-     hero:{v:N(m.expired), l:'certificates expired', u:as(m.expired_assets), t:'every certificate in navi.db past its not-valid-after date', href:'#secCerts'},
+     hero:{v:N(m.expired), l:'certificates expired', u:as(m.expired_assets), t:'every certificate '+inDb()+' past its not-valid-after date', href:'#secCerts'},
      bar:[{label:'Expired · last 12 months', value:m.expired_12||0, color:'var(--st-exp)'},{label:'Expired · over 12 months ago', value:m.expired_older||0, color:'var(--st-old)'}], legend:false,
      chips:[{v:N(m.expired_12), l:'expired in the last 12 months', u:as(m.expired_12_assets), sev:'crit', filter:'last12'},
             {v:N(m.expired_older), l:'expired over 12 months ago', u:as(m.expired_older_assets)+' · still deployed', sev:'crit', filter:'older'},
@@ -145,11 +149,11 @@ function renderMetrics(){
             {v:N(m.failing), l:'failing within 12 months', u:as(m.failing_assets), sev:'low', filter:'failing'}]},
     {title:'Risk context',
      hero:m.has_acr?{v:N(m.crown_assets), l:'crown jewels affected', u:`ACR > 7 · ${N(m.crown_expired_assets)} with an expired cert`, sev:'crit', filter:'crown'}
-                  :{v:N(m.cert_rows), l:'certificates in navi.db', u:`on ${as(m.cert_assets)} · ${N(m.common_names)} common names`+(m.unparsed?` · ${N(m.unparsed)} unreadable date${m.unparsed===1?'':'s'}`:''), href:'#secCerts'},
-     chips:[{v:N(m.weak_inscope), l:'expired/failing certs with weak crypto', u:`SHA-1 / MD5 or RSA < 2048 · ${N(m.weak)} across all certs`, sev:'info', filter:'weak'},
-            {v:N(m.self_signed_inscope), l:'expired/failing certs that are self-signed', u:`${N(m.self_signed)} across all certs`, sev:'low', filter:'self'},
+                  :{v:N(m.cert_rows), l:'certificates '+(SC()?'on this tag':'in navi.db'), u:`on ${as(m.cert_assets)} · ${N(m.common_names)} common names`+(m.unparsed?` · ${N(m.unparsed)} unreadable date${m.unparsed===1?'':'s'}`:''), href:'#secCerts'},
+     chips:[{v:N(m.weak_inscope), l:'expired/failing certs with weak crypto', u:`SHA-1 / MD5 or RSA < 2048 · ${N(m.weak)} ${allCerts()}`, sev:'info', filter:'weak'},
+            {v:N(m.self_signed_inscope), l:'expired/failing certs that are self-signed', u:`${N(m.self_signed)} ${allCerts()}`, sev:'low', filter:'self'},
             {v:N(m.issue_plugins), l:'cert-issue plugins firing', u:`${N(m.issue_assets)} plugin hits on assets`, href:'#secIssues'},
-            m.has_acr?{v:N(m.cert_rows), l:'certificates in navi.db', u:`on ${as(m.cert_assets)} · ${N(m.common_names)} common names`+(m.unparsed?` · ${N(m.unparsed)} unreadable date${m.unparsed===1?'':'s'}`:''), href:'#secCerts'}:null]}
+            m.has_acr?{v:N(m.cert_rows), l:'certificates '+(SC()?'on this tag':'in navi.db'), u:`on ${as(m.cert_assets)} · ${N(m.common_names)} common names`+(m.unparsed?` · ${N(m.unparsed)} unreadable date${m.unparsed===1?'':'s'}`:''), href:'#secCerts'}:null]}
   ], {active:FILTER, onFilter:(f,_el,on)=>{ FILTER=on?f:null; renderMetrics(); renderCerts();
     if(FILTER) document.getElementById('secCerts').scrollIntoView({behavior:'smooth',block:'start'}); }});
 }
@@ -177,7 +181,7 @@ function renderCerts(){
   setNavCount('secCerts', N(inScope()));
   const flags=certFlags(), q=(document.getElementById('certQ').value||'').trim();
   const opts={api:API, table:'certTbl', run:RUN, section:'certs', sort:'near', cols:8, row:certRow, search:'certQ',
-    empty:'<tr><td colspan="8" class="sub">'+(inScope()?'Nothing in this view.':'No certificates are expired or failing within 12 months.')+'</td></tr>',
+    empty:'<tr><td colspan="8" class="sub">'+(inScope()?'Nothing in this view.':'No certificates '+esc(SC()?inDb()+' ':'')+'are expired or failing within 12 months.')+'</td></tr>',
     wire:tb=>tb.querySelectorAll('input.csel').forEach(x=>x.onchange=()=>{ if(x.checked)_sel.add(x.dataset.v); else _sel.delete(x.dataset.v);
       tb.querySelectorAll('input.csel').forEach(y=>{ y.checked=_sel.has(y.dataset.v); }); selSync(); }),
     onRender:T=>{ const t=T.total, all=inScope(); const n=t?t.value:0;
@@ -204,7 +208,7 @@ function renderIssues(){
   hPaginate('issTbl', rows, r=>`<tr><td><input type="checkbox" class="isel" data-p="${esc(String(r.plugin_id))}"${_isel.has(String(r.plugin_id))?' checked':''}></td>`+
       `<td><a class="plink" href="/web/vuln.html?plugin=${encodeURIComponent(r.plugin_id)}">${esc(r.plugin_name)}</a></td><td class="mono">${esc(String(r.plugin_id))}</td><td><b>${N(r.asset_count)}</b></td>`+
       `<td><div style="height:8px;border-radius:4px;background:var(--accent);width:${Math.max(3,100*(r.asset_count||0)/tot).toFixed(0)}%;max-width:220px"></div></td></tr>`,
-    {cols:5, empty:'<tr><td colspan="5" class="sub">No certificate-issue plugins found in navi.db.</td></tr>',
+    {cols:5, empty:'<tr><td colspan="5" class="sub">No certificate-issue plugins found '+esc(inDb())+'.</td></tr>',
      wire:tb=>tb.querySelectorAll('input.isel').forEach(x=>x.onchange=()=>{ if(x.checked)_isel.add(x.dataset.p); else _isel.delete(x.dataset.p); iSync(); })});
   iSync();
 }
@@ -216,7 +220,7 @@ function renderCrown(){
   const row=a=>`<tr><td><a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(a.asset_uuid)}">${esc(a.host)}</a></td><td class="mono">${esc(a.ip||'')}</td>`+
     `<td><b style="color:var(--crit)">${esc(String(a.acr))}</b></td><td>${a.expired?`<b style="color:var(--st-exp)">${N(a.expired)}</b>`:'0'}</td><td>${N(a.failing)}</td>`+
     `<td>${a.soonest==null?'—':N(a.soonest)+' d'}</td><td>${(a.cns||[]).map(c=>`<span class="tagval">${esc(c)}</span>`).join(' ')}</td></tr>`;
-  const empty='<tr><td colspan="7" class="sub">'+((M.metrics||{}).has_acr?'No crown-jewel (ACR &gt; 7) assets have an expired or failing certificate.':'navi.db has no ACR column on assets — run a navi update with ACR.')+'</td></tr>';
+  const empty='<tr><td colspan="7" class="sub">'+((M.metrics||{}).has_acr?'No crown-jewel (ACR &gt; 7) assets'+esc(tagScopeNote())+' have an expired or failing certificate.':'navi.db has no ACR column on assets — run a navi update with ACR.')+'</td></tr>';
   TCR=hDrill({api:API, table:'crownTbl', run:RUN, section:'crown', cols:7, row, empty});
 }
 
@@ -252,7 +256,7 @@ document.getElementById('tagDates').onclick=async()=>{
   const vals=[..._sel], nA=_selN?_selN.assets:'?';
   const o=await gated(document.getElementById('tagDates'),'queuing Cert failure tags',()=>API.post('tags_apply',{values:vals,confirm:true}),
     o=>`queued ${N(o.queued)} Cert failure tag${o.queued===1?'':'s'}`+(o.missing&&o.missing.length?` (${N(o.missing.length)} date(s) no longer match)`:''),
-    ()=>`Tag ${tagCat('Cert failure')} : <date> for ${vals.length} expiry date${vals.length===1?'':'s'} on ~${nA} asset${nA===1?'':'s'}?\n\n`+vals.slice(0,12).map(v=>`• ${tagCat('Cert failure')} : ${v}`).join('\n')+(vals.length>12?`\n• … +${vals.length-12} more`:''));
+    ()=>`Tag ${tagCat('Cert failure')} : <date> for ${vals.length} expiry date${vals.length===1?'':'s'} on ~${nA} asset${nA===1?'':'s'}${tagScopeNote()}?\n\n`+vals.slice(0,12).map(v=>`• ${tagCat('Cert failure')} : ${v}`).join('\n')+(vals.length>12?`\n• … +${vals.length-12} more`:''));
   if(o&&o.ok){ _sel.clear(); if(TC) TC.reload(); selSync(); }
 };
 document.getElementById('tagIssues').onclick=async()=>{
@@ -260,7 +264,7 @@ document.getElementById('tagIssues').onclick=async()=>{
   const nA=(M.cert_issue_matrix||[]).filter(r=>_isel.has(String(r.plugin_id))).reduce((a,r)=>a+(r.asset_count||0),0);
   const o=await gated(document.getElementById('tagIssues'),'queuing Cert Issue tags',()=>API.post('tags_issues',{issues:picks,confirm:true}),
     o=>`queued ${N(o.queued)} Cert Issue tag${o.queued===1?'':'s'}`,
-    ()=>`Tag ${tagCat('Cert Issue')} : <plugin name> on the assets of ${picks.length} certificate plugin${picks.length===1?'':'s'} (~${nA} asset-tag pair${nA===1?'':'s'})?\n\n`+picks.slice(0,12).map(p=>`• ${tagCat('Cert Issue')} : ${p.plugin_name}`).join('\n')+(picks.length>12?`\n• … +${picks.length-12} more`:''));
+    ()=>`Tag ${tagCat('Cert Issue')} : <plugin name> on the assets of ${picks.length} certificate plugin${picks.length===1?'':'s'} (~${nA} asset-tag pair${nA===1?'':'s'})${tagScopeNote()}?\n\n`+picks.slice(0,12).map(p=>`• ${tagCat('Cert Issue')} : ${p.plugin_name}`).join('\n')+(picks.length>12?`\n• … +${picks.length-12} more`:''));
   if(o&&o.ok){ _isel.clear(); renderIssues(); }
 };
 
@@ -278,6 +282,9 @@ document.getElementById('iNone').onclick=()=>{ _isel.clear(); renderIssues(); };
 document.querySelectorAll('#iotFilter button').forEach(b=>b.onclick=()=>{ document.querySelectorAll('#iotFilter button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); iotF=b.dataset.f; if(M) renderIot(); });
 document.getElementById('run').onclick=run;
 mountAgentHeader({id:'certificate',icon:'🔐',name:'Certificate Agent',sub:'Certania · expired by month · failing in 12 months · tags assets'});
+mountTagScope({agent:'certificate', note:'the certificates on those assets, and the cert-issue plugins that fired on them'});
+if(tagScope()){ document.getElementById('issSub').innerHTML='Every certificate-related plugin and how many of the assets tagged <b>'+esc(tagScopeLabel())+'</b> it fired on. Tagging tags <span class="tagval">Cert Issue : &lt;plugin name&gt;</span> on those assets only.';
+  document.querySelector('#secCrown p.sub').textContent='The most critical assets tagged '+tagScopeLabel()+' with a certificate that has expired or fails in the next 12 months, highest ACR first.'; }
 mountSectionNav();
 try{ hMailAuto(); }catch(e){}
 jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});

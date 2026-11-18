@@ -15,7 +15,7 @@ import datetime
 import re
 import statistics
 
-from core import db
+from core import db, tagscope
 
 SCAN_INFO_PLUGIN = "19506"
 CRED_FAIL_PLUGIN = "104410"
@@ -101,8 +101,16 @@ def _yes(v):
     return None if not v else v.startswith("yes")
 
 
-def evaluate(db_path=None, keep_uuids=False, all_rows=False):
+def evaluate(db_path=None, keep_uuids=False, all_rows=False, scope=None):
+    """scope = (tag_key, tag_value) — build 489: evaluate only the assets carrying that tag
+    (every navi.db read gets core.tagscope's SQL fragment). Each asset's own values are the
+    whole-estate values (they depend only on that asset's rows); population stats (averages,
+    shares, "slow" = 1.5× the average, feed lag vs the newest feed) are of the tag's assets.
+    None = the whole estate, exactly as before."""
     today = datetime.date.today()
+    sk, sv = scope if (isinstance(scope, (tuple, list)) and len(scope) == 2) else (None, None)
+    vf, va = tagscope.sql(sk, sv, "v.asset_uuid")      # ('', ()) for the whole estate
+    af, aa = tagscope.sql(sk, sv, "uuid")
     vc = _cols("vulns", db_path)
     open_only = (" AND lower(COALESCE(v.state,'open')) IN ('open','reopened')" if "state" in vc else "")
     lf = ", v.last_found AS last_found" if "last_found" in vc else ""
@@ -110,8 +118,8 @@ def evaluate(db_path=None, keep_uuids=False, all_rows=False):
         f"SELECT v.asset_uuid, v.output{lf}, a.hostname, a.ip_address"
         + (", a.url AS url" if _has_col("assets", "url", db_path) else "")
         + f" FROM vulns v LEFT JOIN assets a ON a.uuid=v.asset_uuid "
-        f"WHERE v.plugin_id='{SCAN_INFO_PLUGIN}' AND v.output IS NOT NULL AND v.output<>'';",
-        path=db_path)
+        f"WHERE v.plugin_id='{SCAN_INFO_PLUGIN}' AND v.output IS NOT NULL AND v.output<>''{vf};",
+        va, path=db_path)
     by_scanner, by_policy, by_scan = {}, {}, {}
     all_durs = []
     latest = {}                                    # asset -> its most recent 19506 parse
@@ -170,13 +178,13 @@ def evaluate(db_path=None, keep_uuids=False, all_rows=False):
     newest_feed = max((b["feed"] for b in by_scanner.values() if b["feed"]), default=None)
 
     # credential coverage (kept for Alerts / Contract) — plugin 104410
-    total_assets = db.scalar("SELECT COUNT(uuid) FROM assets", path=db_path) or 0
+    total_assets = db.scalar("SELECT COUNT(uuid) FROM assets" + (" WHERE 1=1" + af if af else ""), aa, path=db_path) or 0
     a_url = (", v.url AS url" if _has_col("vulns", "url", db_path)
              else (", a.url AS url" if _has_col("assets", "url", db_path) else ""))
     cred = db.query(
         f"SELECT DISTINCT v.asset_uuid, a.hostname, a.ip_address{a_url} "
         f"FROM vulns v LEFT JOIN assets a ON a.uuid=v.asset_uuid "
-        f"WHERE v.plugin_id='{CRED_FAIL_PLUGIN}'{open_only};", path=db_path)
+        f"WHERE v.plugin_id='{CRED_FAIL_PLUGIN}'{open_only}{vf};", va, path=db_path)
     cred_assets = [{"asset_uuid": c.get("asset_uuid"),
                     "host": (c.get("hostname") or "").strip() or c.get("ip_address") or "(none)",
                     "ip": c.get("ip_address"), "url": c.get("url")} for c in cred if c.get("asset_uuid")]
@@ -186,7 +194,7 @@ def evaluate(db_path=None, keep_uuids=False, all_rows=False):
     signals = {}
     try:
         for r in db.query("SELECT DISTINCT v.asset_uuid, v.plugin_id FROM vulns v WHERE v.plugin_id IN ("
-                          + ",".join("'" + p + "'" for p in pids) + ")" + open_only, path=db_path):
+                          + ",".join("'" + p + "'" for p in pids) + ")" + open_only + vf, va, path=db_path):
             if r.get("asset_uuid"):
                 signals.setdefault(r["asset_uuid"], set()).add(str(r["plugin_id"]))
     except Exception:
@@ -195,7 +203,8 @@ def evaluate(db_path=None, keep_uuids=False, all_rows=False):
     try:
         cols = _cols("assets", db_path)
         for a in db.query("SELECT uuid, hostname, ip_address" + (", acr" if "acr" in cols else "")
-                          + (", url" if "url" in cols else "") + " FROM assets", path=db_path):
+                          + (", url" if "url" in cols else "") + " FROM assets"
+                          + (" WHERE 1=1" + af if af else ""), aa, path=db_path):
             amap[a["uuid"]] = a
     except Exception:
         pass
@@ -322,6 +331,8 @@ def evaluate(db_path=None, keep_uuids=False, all_rows=False):
         "assets_truncated": (not all_rows) and len(assets) > ROW_CAP,
         "slowest": slowest, "slow_sec": SLOW_SEC, "feed_lag_days": FEED_LAG_DAYS, "today": today.isoformat(),
     }
+    if sk:
+        res["scope"] = tagscope.describe(sk, sv, db_path)
     if keep_uuids:
         res["_sets"] = sets
         res["_dim_uuids"] = {"scanner": {k: b["assets"] for k, b in by_scanner.items()},

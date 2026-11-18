@@ -56,7 +56,7 @@ _NOCACHE_AGENTS = {"settings", "hub", "argos", "explore", "ex_apps", "ex_assets"
                    "c2"}
 _LIVE = {"status", "log", "loop_log", "history", "scheduler", "list", "get", "metrics", "release_get",
          "tag_jobs", "navi_poll", "navi_jobs", "db_checks", "sla_get", "activity", "bg_status",
-         "scopes"}
+         "scopes", "tag_scopes"}
 # actions with their own server-side snapshot (or a peek of one): the short result cache
 # would only serve a stale "building…" / old summary. Still counted as runs (unlike _LIVE).
 _OWN_CACHE = {"snapshot", "scent"}
@@ -265,7 +265,7 @@ _OPEN_ACTIONS = {
     ("settings", "navi_jobs"), ("settings", "sla_get"), ("settings", "status"),
     ("hub", "pc_get"), ("hub", "pc_put"), ("hub", "pc_list"), ("hub", "roster"),
     ("hub", "release_plan"), ("hub", "release_status"), ("hub", "release_start"),
-    ("hub", "release_cancel"), ("hub", "bg_status"), ("fused_score", "scopes"),
+    ("hub", "release_cancel"), ("hub", "bg_status"), ("fused_score", "scopes"), ("hub", "tag_scopes"),
     ("contract", "release_get"), ("contract", "release_save"), ("contract", "release_run"),
     ("contract", "release_cancel"),
 }
@@ -480,9 +480,14 @@ def dispatch(agent_id: str, action: str, payload: dict, peer=None, http=False, *
     request for the same tab+agent+action cancels this one. Reads run under
     db.budget_scope(request_scope(...)) + db.cancel_scope(cancel); a query stopped by its
     budget / cancel / row cap answers 200 {ok:false, budget:true, message} (db.budget_payload)."""
-    from . import gates
+    from . import gates, tagscope
     tok = gates.set_client(peer, http=http)
     try:
+        # build 489: a tag scope only reaches an action that declares it (manifest "tag_scope"),
+        # so no action can silently ignore a filter the operator believes is applied
+        _ts = tagscope.check(agent_id, action, payload)
+        if _ts is not None:
+            return _ts
         if isinstance(payload, dict) and payload.get("_cacheonly"):
             # a page-cache replay of a ▶ step whose answer the browser no longer has (console.js
             # HC): opening a page must never start a hound — serve the server's cached answer, or

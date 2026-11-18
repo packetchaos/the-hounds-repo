@@ -34,7 +34,7 @@ a.barlink:hover{background:var(--panel-2)} a.barlink:hover .bl{color:var(--accen
 <div class="wrap">
   <header class="top" id="app-header"></header>
   <section class="card">
-    <div class="toolbar"><div><h2 style="margin:0">⚖️ Compliance <span class="sub" style="font-weight:400">· Minos weighs the estate</span></h2>
+    <div class="toolbar"><div><h2 style="margin:0">⚖️ Compliance <span class="sub" style="font-weight:400" id="weighs">· Minos weighs the estate</span></h2>
       <p class="sub" style="margin:2px 0 0">Every asset judged against its audit benchmarks: pass / fail / warning, the controls failing the most assets, framework coverage, and per-asset scorecards. Click an asset for its full <b>deep-dive</b>.</p></div>
       <span style="margin-left:auto;display:flex;gap:6px;align-items:center;flex-wrap:wrap">
         <a class="btn ghost sm" href="/agents/compliance_asset/page.html" title="Per-asset checks + audit↔vuln correlation">🔍 Asset deep-dive →</a>
@@ -48,6 +48,9 @@ a.barlink:hover{background:var(--panel-2)} a.barlink:hover .bl{color:var(--accen
 <script>
 const API=agentApi('compliance');
 let OV=null, WRITES=null;
+/* build 489 tag filter: wording for the population this page covers */
+const POP=()=>tagScope()?'the assets tagged '+tagScopeLabel():'the estate';
+const OFTAG=()=>tagScope()?' of this tag':'';
 const STAT=[['passed','Passed','var(--ok)'],['failed','Failed','var(--crit)'],['warning','Warning','var(--med)'],['unknown','Unknown','var(--ink-3)']];
 const fnum=n=>(n==null?'—':Number(n).toLocaleString());
 function bar(label,val,max,color,right){ const w=Math.max(2,Math.round((val/(max||1))*100));
@@ -59,7 +62,7 @@ function ctrlShort(name){ return String(name||'').replace(/\s+/g,' ').trim(); }
 
 async function run(){
   const rb=document.getElementById('refresh'); rb.disabled=true;
-  flash('flash','<span class="spin"></span> weighing the estate against its benchmarks…','run');
+  flash('flash','<span class="spin"></span> weighing '+esc(POP())+' against their benchmarks…','run');
   let o; try{ o=await API.post('overview'); }catch(e){ o={ok:false,error:e.message}; }
   rb.disabled=false;
   if(!o||!o.ok){ flash('flash','✗ '+esc((o&&o.error)||'failed'),'crit'); return; }
@@ -67,6 +70,11 @@ async function run(){
 }
 function render(){
   const B=document.getElementById('body');
+  if(!OV.available && OV.scoped_empty){
+    B.innerHTML=`<section class="card"><div class="setupcard"><div class="big">⚖️ No audit results for this tag</div>
+      <p class="sub">None of the assets tagged <b>${esc(tagScopeLabel())}</b> have compliance results in navi.db. Pick another tag, or go back to 🌐 Whole estate.</p></div></section>`;
+    return;
+  }
   if(!OV.available){
     B.innerHTML=`<section class="card"><div class="setupcard"><div class="big">⚖️ No compliance data yet</div>
       <p class="sub">Minos reads the <b>compliance</b> table. Populate it with <span class="mono">navi config update compliance</span> (needs audit/benchmark scans in Tenable), then refresh.</p></div></section>`;
@@ -77,16 +85,19 @@ function render(){
   const nFail=cnt(a=>+a.failed>0), nWarn=cnt(a=>+a.warning>0), nClean=cnt(a=>!(+a.failed)&&!(+a.warning)), nLow=cnt(a=>{ const p=+a.passed||0, f=+a.failed||0; return p+f>0&&p/(p+f)<0.5; });   // exact ratio, as the server's pct:lt50 (pass_pct is rounded)
   const nTxt=n=>fnum(n)+' asset'+(n===1?'':'s');
   // a glance metric: opens the matching assets in the Deep-Dive (f) or jumps to a section (j); dimmed when no asset matches
-  const mk=(v,l,o)=>{ o=o||{}; const href=o.j?('#'+o.j):deepFor(o.f||'');
+  const SC=tagScope();
+  const mk=(v,l,o)=>{ o=o||{}; if(SC&&o.f&&!o.j){ o=Object.assign({},o,{j:'secAssets',u:'this tag\'s assets ↓'}); }
+    const href=o.j?('#'+o.j):deepFor(o.f||'');
     const u=o.j?(o.u||'jump to it ↓'):('🔍 '+(o.n!=null?nTxt(o.n)+' in Deep-Dive':'open in Deep-Dive')+' →');
     const m={v, l, u, sev:o.c||'none', href, t:(o.t?o.t+' · ':'')+u};
     if(o.n!=null) m.zero=o.n===0;
     return m; };
   h+='<section class="card" id="secMetrics" data-nav="At a glance" data-nav-icon="📊"><h2 style="margin:0 0 2px;font-size:17px">📊 At a glance</h2>'
-    +'<p class="sub" style="margin:2px 0 0">Numbers, bars and controls open the matching assets in <b>🔍 Compliance Deep-Dive</b> — its asset list is narrowed to that group, worst first.</p>'
+    +(SC?'<p class="sub" style="margin:2px 0 0">Every number here covers only the assets tagged <b>'+esc(tagScopeLabel(SC))+'</b>. Asset numbers jump to this tag\'s asset table below. The 🔍 Deep-Dive has no tag filter, so its group links (bars, controls, frameworks, benchmarks) open that group across the <b>whole estate</b>; an asset\'s own 🔍 link is unaffected.</p>'
+        :'<p class="sub" style="margin:2px 0 0">Numbers, bars and controls open the matching assets in <b>🔍 Compliance Deep-Dive</b> — its asset list is narrowed to that group, worst first.</p>')
     +'<div id="glxComp"></div></section>';
   const glance=[
-    {title:'Assets', hero:mk(fnum(OV.assets),'assets audited',{n:rows.length}),
+    {title:SC?'Assets (this tag)':'Assets', hero:mk(fnum(OV.assets),SC?'tagged assets audited':'assets audited',{n:rows.length}),
      chips:[mk(fnum(nFail),'assets failing a check',{f:'st:failed',n:nFail,c:'crit'}),
             mk(fnum(nWarn),'assets with warnings',{f:'st:warning',n:nWarn,c:'med'}),
             mk(fnum(nLow),'assets under 50% pass',{f:'pct:lt50',n:nLow,c:'crit',t:'Passing under half of their checks'}),
@@ -104,7 +115,7 @@ function render(){
   // status distribution — each bar opens the assets behind it
   const smax=Math.max(1,...STAT.map(([k])=>bs[k]||0));
   const SLINK={failed:['st:failed',nFail],warning:['st:warning',nWarn]};   // passed/unknown cover every asset — no narrower group
-  h+='<section class="card" id="secStatus" data-nav="Results by status" data-nav-icon="🚦"><h2 style="margin:0 0 2px;font-size:17px">🚦 Results by status</h2><p class="seclbl">every check × asset · click a bar to open those assets in the Deep-Dive</p>';
+  h+='<section class="card" id="secStatus" data-nav="Results by status" data-nav-icon="🚦"><h2 style="margin:0 0 2px;font-size:17px">🚦 Results by status</h2><p class="seclbl">every check × asset'+esc(OFTAG())+' · click a bar to open those assets in the Deep-Dive'+(SC?' (whole estate)':'')+'</p>';
   STAT.forEach(([k,lbl,c])=>{ const L=SLINK[k];
     const line=bar(lbl,bs[k]||0,smax,c,fnum(bs[k]||0)+(L?' · '+nTxt(L[1]):''));
     h+=L?`<a class="barlink" href="${esc(deepFor(L[0]))}" title="${esc('Open the '+nTxt(L[1])+' with '+lbl.toLowerCase()+' checks in the Deep-Dive')}">${line}</a>`:line; });
@@ -113,13 +124,13 @@ function render(){
   // controls by asset failures + frameworks (two cards)
   h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px">';
   const tf=OV.top_failing||[];
-  h+='<section class="card" id="secCtrl" data-nav="Failing controls" data-nav-icon="❌" style="margin:0"><h2 style="margin:0 0 2px;font-size:17px">❌ Controls failing the most assets</h2><p class="seclbl">top failing audit checks · click one for the assets failing it</p>'
+  h+='<section class="card" id="secCtrl" data-nav="Failing controls" data-nav-icon="❌" style="margin:0"><h2 style="margin:0 0 2px;font-size:17px">❌ Controls failing the most assets'+esc(OFTAG())+'</h2><p class="seclbl">top failing audit checks'+esc(OFTAG())+' · click one for the assets failing it'+(SC?' (Deep-Dive: whole estate)':'')+'</p>'
     +(tf.length?'<div style="overflow-x:auto"><table class="nocsv"><thead><tr><th>Control</th><th>Failed</th><th>Pass</th><th>Warn</th></tr></thead><tbody>'
       +tf.slice(0,15).map(c=>`<tr><td class="ctrlname" title="${esc(c.check_name)}"><a class="applink" href="${esc(deepFor('check:'+c.check_id))}" title="Open the assets failing this control in the Deep-Dive">${esc(ctrlShort(c.check_name))}</a></td>`
         +`<td class="mono" style="color:var(--crit);font-weight:700">${fnum(c.failed)}</td><td class="mono">${fnum(c.passed)}</td><td class="mono">${fnum(c.warning)}</td></tr>`).join('')
       +'</tbody></table></div>':'<p class="sub">No failing controls.</p>')+'</section>';
   const fw=OV.frameworks||[]; const fmax=Math.max(1,...fw.map(f=>f.failed||0));
-  h+='<section class="card" id="secFw" data-nav="Frameworks" data-nav-icon="🏛" style="margin:0"><h2 style="margin:0 0 2px;font-size:17px">🏛 Framework exposure</h2><p class="seclbl">failed control-instances per framework · click for the failing assets · ↗ for its dashboard</p>'
+  h+='<section class="card" id="secFw" data-nav="Frameworks" data-nav-icon="🏛" style="margin:0"><h2 style="margin:0 0 2px;font-size:17px">🏛 Framework exposure'+esc(OFTAG())+'</h2><p class="seclbl">failed control-instances per framework'+esc(OFTAG())+' · click for the failing assets · ↗ for its dashboard'+(SC?' (both: whole estate)':'')+'</p>'
     +(fw.length?fw.slice(0,12).map(f=>
       `<div class="fwline"><a class="barlink" href="${esc(deepFor('fw:'+f.framework))}" title="Open the assets failing a ${esc(f.framework)} control in the Deep-Dive">${bar(f.framework,f.failed,fmax,'var(--accent)',fnum(f.failed))}</a>`
       +`<a class="rlink" href="/web/compliancedash.html?framework=${encodeURIComponent(f.framework)}" title="Open the Compliance Dashboard focused on ${esc(f.framework)}">↗</a></div>`).join('')
@@ -127,7 +138,7 @@ function render(){
   h+='</div>';
   // audit files
   const af=OV.audit_files||[];
-  if(af.length){ h+='<section class="card" id="secAudit" data-nav="Benchmarks" data-nav-icon="📄" style="margin-top:16px"><h2 style="margin:0 0 2px;font-size:17px">📄 Audit benchmarks</h2><p class="seclbl">the .audit policies run — click one for its deep-dive, or 🔍 for the assets failing it</p>'
+  if(af.length){ h+='<section class="card" id="secAudit" data-nav="Benchmarks" data-nav-icon="📄" style="margin-top:16px"><h2 style="margin:0 0 2px;font-size:17px">📄 Audit benchmarks'+esc(OFTAG())+'</h2><p class="seclbl">the .audit policies run'+esc(OFTAG())+' — click one for its deep-dive, or 🔍 for the assets failing it'+(SC?' (Deep-Dive: whole estate)':'')+'</p>'
     +'<div style="overflow-x:auto"><table class="nocsv"><thead><tr><th>Benchmark</th><th>Controls</th><th>Assets</th><th>Failed</th><th>Passed</th><th>Failing assets</th></tr></thead><tbody>'
     +af.map(a=>{ const bm=a.audit_file
         ?`<a class="applink" href="/agents/compliance_asset/page.html?audit=${encodeURIComponent(a.audit_file)}" title="Tiresias — this benchmark's adherence, checks, assets and audit↔vuln links">${esc(a.audit_file)}</a>`
@@ -136,7 +147,7 @@ function render(){
         +`<td>${+a.failed?`<a class="rlink" href="${esc(deepFor('audit:'+(a.audit_file||'')))}" title="Open the assets failing a check in this benchmark">🔍 open</a>`:'<span class="sub">—</span>'}</td></tr>`; }).join('')
     +'</tbody></table></div></section>'; }
   // assets by compliance
-  h+='<section class="card" id="secAssets" data-nav="Assets" data-nav-icon="🖥" style="margin-top:16px"><div class="toolbar"><h2 style="margin:0;font-size:17px">🖥 Assets by compliance</h2><span class="chip" style="margin-left:auto">'+rows.length+' asset'+(rows.length===1?'':'s')+'</span></div>'
+  h+='<section class="card" id="secAssets" data-nav="Assets" data-nav-icon="🖥" style="margin-top:16px"><div class="toolbar"><h2 style="margin:0;font-size:17px">🖥 Assets by compliance'+esc(OFTAG())+'</h2><span class="chip" style="margin-left:auto">'+rows.length+' asset'+(rows.length===1?'':'s')+(SC?' tagged '+esc(tagScopeLabel(SC)):'')+'</span></div>'
     +'<div style="overflow-x:auto"><table class="nocsv"><thead><tr><th>Asset</th><th>Pass %</th><th>Passed</th><th>Failed</th><th>Warn</th><th>Deep-dive</th></tr></thead><tbody>'
     +rows.map(a=>{ const nm=a.hostname||a.ip||(String(a.asset_uuid||'').slice(0,12)+'…');
       const dd=deepFor('',a.asset_uuid);
@@ -164,7 +175,7 @@ function tagCardHTML(){
     +`<input class="fld ownin" data-cid="${esc(c.check_id)}" placeholder="owner (e.g. platform-team)" style="min-width:180px;padding:6px 9px">`
     +`<button class="btn sm tagbtn" data-cid="${esc(c.check_id)}" data-fa="${esc(c.failed_assets!=null?c.failed_assets:c.failed)}" data-name="${esc(c.check_name||c.check_id)}">🏷️ Tag owner</button></div>`).join('');
   return '<section class="card" id="tagcard" data-nav="Tag owners" data-nav-icon="🏷️" style="margin-top:16px"><div class="toolbar"><div><h2 style="margin:0;font-size:17px">🏷️ Tag an Audit Owner</h2>'
-    +'<p class="sub" style="margin:2px 0 0">Pick a failing control, type who owns it, and tag its failing assets — category <span class="mono">Audit Owner</span> on each asset UUID, via navi (gated). Same mechanism as VM/WAS tags.</p></div></div>'
+    +'<p class="sub" style="margin:2px 0 0">Pick a failing control, type who owns it, and tag its failing assets'+esc(tagScopeNote())+' — category <span class="mono">Audit Owner</span> on each asset UUID, via navi (gated). Same mechanism as VM/WAS tags.'+(tagScope()?' Only assets carrying this tag are tagged; the server re-reads them from navi.db.':'')+'</p></div></div>'
     +gate+rows+'<p class="sub" style="margin:10px 0 0">Applied tags land in the <a class="applink" href="/web/tags-log.html">Tagging log</a>.</p></section>';
 }
 function wireTag(){
@@ -180,7 +191,7 @@ async function applyTag(btn){
   if(btn.disabled) return;
   await testRunStatus();
   const nfa=+btn.getAttribute('data-fa')||0, cname=btn.getAttribute('data-name')||cid;
-  if(!confirm('Tag '+tagCat('Audit Owner')+' : '+owner+' on the '+nfa+' asset'+(nfa===1?'':'s')+' failing "'+cname+'"?'
+  if(!confirm('Tag '+tagCat('Audit Owner')+' : '+owner+' on the '+nfa+' asset'+(nfa===1?'':'s')+' failing "'+cname+'"'+tagScopeNote()+'?'
     +((WRITES&&WRITES.enabled)?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.'))) return;
   btn.disabled=true; btn.textContent='⏳ tagging…'; res.innerHTML='';
   let o; try{ o=await API.post('tag',{confirm:true,check_id:cid,owner}); }catch(e){ o={ok:false,error:e.message}; }
@@ -191,8 +202,10 @@ async function applyTag(btn){
 }
 document.getElementById('refresh').onclick=run;
 mountAgentHeader({id:'compliance',icon:'⚖️',name:'Compliance',sub:'Minos · audit benchmarks, judged'});
+mountTagScope({agent:'compliance', note:'pass rates, failing controls, frameworks and benchmarks are rebuilt from their audit results; each asset\'s own scorecard is the same as in the whole estate'});
+if(tagScope()) document.getElementById('weighs').textContent='· Minos weighs '+POP();
 try{ hMailAuto(); }catch(e){}   /* pack-wide widget + dashboard email (Gabriel) */
 /* explicit-run like every hound — returning visits are restored by the shared page cache */
-document.getElementById('body').innerHTML='<section class="card"><div class="setupcard"><div class="big">Press ▶ Run</div><p class="sub">Weighs every compliance audit in navi.db against its benchmark — framework coverage, failing checks and owners. Your last run is kept on the server, so coming back restores it instantly (and 🐾 Release the Hounds can run it for you).</p></div></section>';
+document.getElementById('body').innerHTML='<section class="card"><div class="setupcard"><div class="big">Press ▶ Run</div><p class="sub">Weighs every compliance audit'+(tagScope()?' of the assets tagged <b>'+esc(tagScopeLabel())+'</b>':' in navi.db')+' against its benchmark — framework coverage, failing checks and owners. Your last run is kept on the server, so coming back restores it instantly (and 🐾 Release the Hounds can run it for you).</p></div></section>';
 </script>
 </body></html>

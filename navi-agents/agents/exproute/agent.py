@@ -15,11 +15,20 @@ import re
 import threading
 import time as _time
 
-from core import db, navi_cli, tagname, hx_summary
+from core import db, navi_cli, tagname, hx_summary, tagscope, snapcache
 from core.agents.base import Agent
 from core.security import private_open as _popen
 
 _SPLIT = re.compile(r"\s{2,}")
+
+
+def _sf(scope, col):
+    """Build 489 tag filter: (' AND col IN (SELECT asset_uuid FROM tags WHERE …)', (k, v)) for a
+    scope=(tag_key, tag_value); ('', ()) for the whole estate (None), so every estate query
+    stays exactly what it was."""
+    if not scope:
+        return "", ()
+    return tagscope.sql(scope[0], scope[1], col)
 _DIV = re.compile(r"^-{5,}$")
 
 # ---- Dispositions: mark a route/path as handled WITHOUT an owner ------------------
@@ -317,9 +326,39 @@ def resolve_owner(query, owners_list=None):
     return None, f"'{q}' didn't match any user or group — pick one from the list."
 
 
-def routes(db_path=None) -> list[dict]:
-    return db.query("SELECT route_id, app_name, vuln_type, total_vulns, plugin_list "
-                    "FROM vuln_route ORDER BY total_vulns DESC LIMIT 1000;", path=db_path)
+def routes(db_path=None, scope=None) -> list[dict]:
+    if not scope:
+        return db.query("SELECT route_id, app_name, vuln_type, total_vulns, plugin_list "
+                        "FROM vuln_route ORDER BY total_vulns DESC LIMIT 1000;", path=db_path)
+    # a tag view: only the routes with a finding on the tag's assets. navi's total_vulns is a
+    # tenant-wide figure, so it is kept as total_vulns_estate and total_vulns becomes the count
+    # of the route's findings (its plugins) on the tag's assets in navi.db.
+    rows = list(db.query("SELECT route_id, app_name, vuln_type, total_vulns, plugin_list FROM vuln_route",
+                         path=db_path))
+    n_by = _route_findings(rows, db_path, scope)
+    out = []
+    for r in rows:
+        n = n_by.get(r.get("route_id"), 0)
+        if n > 0:
+            r = dict(r)
+            r["total_vulns_estate"] = r.get("total_vulns")
+            r["total_vulns"] = n
+            out.append(r)
+    out.sort(key=lambda r: -(r["total_vulns"] or 0))
+    return out[:1000]
+
+
+def _route_findings(rows, db_path, scope) -> dict:
+    """route_id -> findings (vulns rows) of the route's plugins on the scope's assets."""
+    pids = sorted({p for r in rows for p in _plugin_ids(r.get("plugin_list"))})
+    if not pids:
+        return {}
+    frag, args = _sf(scope, "asset_uuid")
+    per = {str(r["plugin_id"]): int(r["n"] or 0) for r in db.query(
+        "SELECT plugin_id, COUNT(*) n FROM vulns" + db.indexed_by("hx_v_plugin", db_path) +
+        " WHERE plugin_id IN (SELECT value FROM json_each(?))" + frag + " GROUP BY plugin_id",
+        (_json.dumps(pids),) + tuple(args), path=db_path, budget="job")}
+    return {r.get("route_id"): sum(per.get(p, 0) for p in set(_plugin_ids(r.get("plugin_list")))) for r in rows}
 
 
 def _plugin_ids(pl) -> list[str]:
@@ -331,13 +370,18 @@ def _plugin_ids(pl) -> list[str]:
         return [s for s in re.sub(r"[\[\]'\s]", "", str(pl or "")).split(",") if s]
 
 
-def paths(db_path=None) -> list[dict]:
+def paths(db_path=None, scope=None) -> list[dict]:
+    if not scope:
+        return db.query("SELECT path, MAX(plugin_id) plugin_id, "
+                        "COUNT(DISTINCT asset_uuid) assets FROM vuln_paths "
+                        "GROUP BY path ORDER BY assets DESC LIMIT 1000;", path=db_path)
+    frag, args = _sf(scope, "asset_uuid")
     return db.query("SELECT path, MAX(plugin_id) plugin_id, "
-                    "COUNT(DISTINCT asset_uuid) assets FROM vuln_paths "
-                    "GROUP BY path ORDER BY assets DESC LIMIT 1000;", path=db_path)
+                    "COUNT(DISTINCT asset_uuid) assets FROM vuln_paths WHERE 1=1" + frag +
+                    " GROUP BY path ORDER BY assets DESC LIMIT 1000;", args, path=db_path)
 
 
-def tag_owner(owner: str, route_id=None, path=None, app=None, db_path=None) -> dict:
+def tag_owner(owner: str, route_id=None, path=None, app=None, db_path=None, scope=None) -> dict:
     """Apply a persistent Owner tag (NO remove) to the assets on a route or path.
 
     Value scheme: ``<App/technology>: <owner>`` so the tag records WHAT is owned, not
@@ -348,7 +392,15 @@ def tag_owner(owner: str, route_id=None, path=None, app=None, db_path=None) -> d
     worker, so the old "route_id is slow / times out the MCP bridge" concern no longer
     applies (the call returns a job stub immediately). If a route_id can't be resolved,
     fall back to the plugin-membership query.
+
+    scope=(tag_key, tag_value) (build 489, a tag view): only the tag's assets on the route/path
+    are tagged. The set is re-read here from navi.db — the route's plugins (every vuln_route row
+    with this name) on assets carrying the tag, or the path's assets carrying it — and paged
+    through navi_cli.tag_set (≤ 1,999 UUIDs per navi job). navi's --route_id can't be narrowed
+    to a tag, so a scoped route tag uses navi.db's route membership instead.
     """
+    if scope:
+        return _tag_owner_scoped(owner, route_id, path, app, db_path, scope)
     # A route can be identified by route_id (from the NL mapping) OR by its app NAME
     # (the Ownership Map hands off names, not ids) — resolve either to its route_id.
     if (route_id not in (None, "")) or (app and not path):
@@ -390,6 +442,45 @@ def tag_owner(owner: str, route_id=None, path=None, app=None, db_path=None) -> d
     return {"ok": False, "message": "no route_id or path supplied"}
 
 
+def _tag_owner_scoped(owner, route_id, path, app, db_path, scope) -> dict:
+    frag, args = _sf(scope, "asset_uuid")
+    if (route_id not in (None, "")) or (app and not path):
+        if route_id not in (None, ""):
+            rows = db.query("SELECT route_id, app_name, plugin_list FROM vuln_route WHERE route_id=?",
+                            (route_id,), path=db_path)
+        else:
+            rows = db.query("SELECT route_id, app_name, plugin_list FROM vuln_route "
+                            "WHERE app_name=? COLLATE NOCASE LIMIT 1", (app,), path=db_path)
+        if not rows:
+            return {"ok": False, "message": f"route {app or route_id!r} not found"}
+        name = app or rows[0].get("app_name") or str(rows[0].get("route_id"))
+        allr = db.query("SELECT route_id, plugin_list FROM vuln_route WHERE app_name=? COLLATE NOCASE",
+                        (rows[0].get("app_name") or name,), path=db_path) or rows
+        pids = sorted({p for r in allr for p in _plugin_ids(r.get("plugin_list"))})
+        if not pids:
+            return {"ok": False, "message": "route has no plugins to tag"}
+        sql = ("SELECT DISTINCT asset_uuid FROM vulns WHERE plugin_id IN (SELECT value FROM json_each(?))" + frag)
+        params = (_json.dumps(pids),) + tuple(args)
+        sel = {"route_ids": [r.get("route_id") for r in allr]}
+    elif path:
+        name = app or path
+        sql = "SELECT DISTINCT asset_uuid FROM vuln_paths WHERE path=?" + frag
+        params = (str(path),) + tuple(args)
+        sel = {"path": path}
+    else:
+        return {"ok": False, "message": "no route_id or path supplied"}
+    sc = tagscope.describe(scope[0], scope[1], db_path)
+    jobs = navi_cli.tag_set("Owner", f"{name}: {owner}", sql=sql, params=params, agent="exproute", path=db_path)
+    if not jobs:
+        return {"ok": False, "message": f"no asset tagged {sc['label']} is on {name!r} — nothing to tag",
+                "scope": sc, "assets": 0, **sel}
+    out = dict(jobs[0]) if isinstance(jobs[0], dict) else {}
+    out.update(navi_cli.jobs_summary(jobs))
+    out["job_id"] = out.get("job_id") if out.get("job_id") is not None else (out["job_ids"][0] if out["job_ids"] else None)
+    out.update(sel, scope=sc)
+    return out
+
+
 # Route↔asset membership: an asset is "on" a route when it carries a vuln whose plugin id
 # is in that route's plugin_list (stored like ['51192','187315']). We match the id wrapped
 # in quotes ('%'<id>'%') so 519 doesn't match 51192.
@@ -405,8 +496,11 @@ def _nk(s):
     return " ".join((s or "").strip().lower().split())
 
 
-def _base(db_path=None) -> dict:
+def _base(db_path=None, scope=None) -> dict:
     """One pass over navi.db shared by ownership_map() and coverage().
+    scope=(tag_key, tag_value) (build 489): every asset set below is cut to the tag's assets in
+    SQL (findings, paths, Owner tags), and only the routes that touch them are kept. Route/path
+    NAMES (for parsing Owner tags) stay estate-wide, so a tag parses the same in every view.
 
     The same relationships the old SQL computed, without the quadratic LIKE joins:
       route (app_name) → plugin ids   parsed from vuln_route.plugin_list
@@ -421,6 +515,8 @@ def _base(db_path=None) -> dict:
         except Exception:
             return []
     b = {"has_routes": bool(q("SELECT name FROM sqlite_master WHERE type='table' AND name='vuln_route'"))}
+    if scope:
+        b["scope"] = tuple(scope)
     if not b["has_routes"]:
         return b
     # `if r[...]`: navi's " " placeholder reads as None (core.db._row) — IS NOT NULL doesn't drop it
@@ -449,7 +545,8 @@ def _base(db_path=None) -> dict:
     # user_assets       (name, user) -> assets, so an owner's workload is only their own assets
     name_owners, name_assets, name_display, tagged = {}, {}, {}, set()
     owned_assets, disp_assets, user_assets, asset_owned = {}, {}, {}, {}
-    for r in q("SELECT asset_uuid, tag_value FROM tags WHERE " + tagname.sql_lit("tag_key", "Owner") + " AND tag_value IS NOT NULL"):
+    _tf, _ta = _sf(scope, "asset_uuid")
+    for r in q("SELECT asset_uuid, tag_value FROM tags WHERE " + tagname.sql_lit("tag_key", "Owner") + " AND tag_value IS NOT NULL" + _tf, _ta):
         val = (r.get("tag_value") or "").strip()
         au = r.get("asset_uuid")
         name, user = split(val)
@@ -485,10 +582,11 @@ def _base(db_path=None) -> dict:
     if plugin_apps:
         ib = db.indexed_by("hx_v_plugin", db_path)
         try:
+            _vf, _va = _sf(scope, "asset_uuid")
             it = db.iter("SELECT DISTINCT plugin_id, asset_uuid FROM vulns" + ib +
-                         " WHERE plugin_id IN (SELECT value FROM json_each(?))",
-                         (_json.dumps(sorted(plugin_apps)),), path=db_path,
-                         budget="run" if ib else "job", tuples=True)
+                         " WHERE plugin_id IN (SELECT value FROM json_each(?))" + _vf,
+                         (_json.dumps(sorted(plugin_apps)),) + tuple(_va), path=db_path,
+                         budget=("run" if ib else "job") if not scope else "job", tuples=True)
             for pid, au in it:
                 pid = str(pid)
                 plugin_asset_n[pid] = plugin_asset_n.get(pid, 0) + 1
@@ -499,13 +597,21 @@ def _base(db_path=None) -> dict:
         except Exception:
             route_assets, plugin_asset_n = {}, {}
     path_assets, path_plugin, path_rows = {}, {}, set()
-    for r in q("SELECT path, asset_uuid, plugin_id FROM vuln_paths WHERE path IS NOT NULL"):
+    _pf, _pa = _sf(scope, "asset_uuid")
+    for r in q("SELECT path, asset_uuid, plugin_id FROM vuln_paths WHERE path IS NOT NULL" + _pf, _pa):
         p, au, pid = r["path"], r.get("asset_uuid"), str(r.get("plugin_id"))
         if not p:                         # " " → None (core.db._row)
             continue
         path_assets.setdefault(p, set()).add(au)
         path_plugin.setdefault(p, set()).add(pid)
         path_rows.add((p, au))
+    if scope:
+        # the tag's attack surface: a route is in it when one of the tag's assets is on it, or
+        # carries an Owner tag / decision for it (a disposition-only route)
+        apps = [a for a in apps if route_assets.get(a) or name_assets.get(_nk(a))]
+        _in = set(apps)
+        app_plugins = {a: ps for a, ps in app_plugins.items() if a in _in}
+        plugin_apps = {pid: {a for a in aps if a in _in} for pid, aps in plugin_apps.items()}
     route_paths, path_routes = {}, {}
     for p, pids in path_plugin.items():
         for pid in pids:
@@ -527,6 +633,13 @@ def plugin_assets(b, pid, db_path=None) -> int:
     n = (b.get("plugin_asset_n") or {}).get(pid)
     if n is not None:
         return int(n)
+    if b.get("scope"):
+        frag, args = _sf(b["scope"], "asset_uuid")
+        try:
+            return int(db.scalar("SELECT COUNT(DISTINCT asset_uuid) FROM vulns" + db.indexed_by("hx_v_plugin", db_path) +
+                                 " WHERE plugin_id=?" + frag, (pid,) + tuple(args), path=db_path, budget="job") or 0)
+        except Exception:
+            return 0
     try:
         if hx_summary.usable(db_path):
             # hx_plugin.assets = COUNT(DISTINCT asset_uuid) (NULL not counted) — add the NULL the
@@ -549,11 +662,14 @@ def _has_owner_tag(b, au, name):
     return _nk(name) in b["asset_owned"].get(au, ())
 
 
-def retag_owner_tags(from_name, to_name, db_path=None) -> dict:
+def retag_owner_tags(from_name, to_name, db_path=None, scope=None) -> dict:
     """Move the Owner tags written for an UNMATCHED name ('WEB SERVER: alice') onto an exact
     route/path name ('WEB SERVER ALLOWS: alice') — on exactly the assets that carry the old
     tag, per owner. (Tagging the whole route by --route_id put every asset on the route under
-    every owner of the old name.) Never removes the old tag."""
+    every owner of the old name.) Never removes the old tag.
+    scope=(tag_key, tag_value): only the tag's assets that carry the old tag (re-read here)."""
+    _rf, _ra = _sf(scope, "asset_uuid")
+    _uf, _ua = _sf(scope, "uuid")
     rt = {_nk(r["app_name"]): r["app_name"] for r in db.query(
         "SELECT DISTINCT app_name FROM vuln_route WHERE app_name IS NOT NULL", path=db_path)}
     pa = {_nk(r["path"]): r["path"] for r in db.query(
@@ -566,8 +682,8 @@ def retag_owner_tags(from_name, to_name, db_path=None) -> dict:
         return {"ok": False, "message": f"'{from_name}' already matches a route/path — nothing to move"}
     by_user, raw_vals = {}, {}
     owner_key = tagname.sql_lit("tag_key", "Owner")
-    for r in db.query("SELECT asset_uuid, tag_value FROM tags WHERE " + owner_key + " AND tag_value IS NOT NULL",
-                      path=db_path):
+    for r in db.query("SELECT asset_uuid, tag_value FROM tags WHERE " + owner_key + " AND tag_value IS NOT NULL" + _rf,
+                      tuple(_ra), path=db_path):
         val = (r.get("tag_value") or "").strip()
         if ": " not in val or not r.get("asset_uuid"):
             continue
@@ -576,7 +692,8 @@ def retag_owner_tags(from_name, to_name, db_path=None) -> dict:
             by_user.setdefault(user.strip(), set()).add(r["asset_uuid"])
             raw_vals.setdefault(user.strip(), set()).add(r["tag_value"])
     if not by_user:
-        return {"ok": False, "message": f"no Owner tags named '{from_name}: …' in navi.db"}
+        return {"ok": False, "message": f"no Owner tags named '{from_name}: …' in navi.db"
+                + (f" on the assets tagged {scope[0]} : {scope[1]}" if scope else "")}
     jobs, out = [], []
     for user, aus in sorted(by_user.items()):
         uu = sorted(aus)
@@ -584,24 +701,33 @@ def retag_owner_tags(from_name, to_name, db_path=None) -> dict:
         # computed here and paged (≤1,999 per navi job)
         vals = ",".join("'" + str(v).replace("'", "''") + "'" for v in sorted(raw_vals.get(user, ())))
         q = ("SELECT uuid AS asset_uuid FROM assets WHERE uuid IN (SELECT asset_uuid FROM tags WHERE "
-             + owner_key + " AND tag_value IN (" + vals + "))")
-        js = navi_cli.tag_set("Owner", f"{target}: {user}", sql=q, agent="exproute", path=db_path)
+             + owner_key + " AND tag_value IN (" + vals + "))" + _uf)
+        if scope:
+            js = navi_cli.tag_set("Owner", f"{target}: {user}", sql=q, params=tuple(_ua), agent="exproute", path=db_path)
+        else:
+            js = navi_cli.tag_set("Owner", f"{target}: {user}", sql=q, agent="exproute", path=db_path)
         jobs += [j.get("job_id") for j in js if j.get("job_id") is not None]
         out.append({"owner": user, "assets": len(uu)})
-    return {"ok": True, "target": target, "owners": out, "job_ids": jobs,
-            "assets": sum(x["assets"] for x in out)}
+    res = {"ok": True, "target": target, "owners": out, "job_ids": jobs,
+           "assets": sum(x["assets"] for x in out)}
+    if scope:
+        res["scope"] = tagscope.describe(scope[0], scope[1], db_path)
+    return res
 
 
-def coverage(db_path=None, base=None, om=None, users_total=None) -> dict:
+def coverage(db_path=None, base=None, om=None, users_total=None, scope=None) -> dict:
     """How much of the attack surface has an owner assigned. An asset is CLOSED only when
     EVERY route it sits on is owned (an Owner:'<app>: <user>' tag for each route). Read-only.
     Pass `base` / `om` (from _base / ownership_map) to reuse one pass instead of re-reading."""
-    def sc(sql):
+    def sc(sql, args=()):
         try:
-            return db.scalar(sql, path=db_path) or 0
+            return (db.scalar(sql, args, path=db_path) if args else db.scalar(sql, path=db_path)) or 0
         except Exception:
             return 0
-    b = base if base is not None else _base(db_path)
+    b = base if base is not None else _base(db_path, scope)
+    scope = scope or b.get("scope")
+    _f, _a = _sf(scope, "asset_uuid")
+    _w = " WHERE 1=1" + _f if scope else ""
     if not b.get("has_routes"):
         return {"ok": True, "owned": 0, "assets_with_routes": 0, "avg_routes": 0.0,
                 "closed": 0, "total_routes": 0, "total_paths": 0, "owned_paths": 0,
@@ -610,7 +736,7 @@ def coverage(db_path=None, base=None, om=None, users_total=None) -> dict:
     # distinct people/groups actually assigned in Owner tags (the '<app>: <user>' scheme) —
     # what the operator means by "my owners", independent of the navi user directory.
     owner_count = sc("SELECT COUNT(DISTINCT TRIM(substr(tag_value, instr(tag_value, ': ')+2))) "
-                     "FROM tags WHERE " + tagname.sql_lit("tag_key", "Owner") + " AND tag_value LIKE '%: %'")
+                     "FROM tags WHERE " + tagname.sql_lit("tag_key", "Owner") + " AND tag_value LIKE '%: %'" + _f, _a)
     ra = b["route_assets"]
     asset_apps = {}
     for app, aus in ra.items():
@@ -619,17 +745,24 @@ def coverage(db_path=None, base=None, om=None, users_total=None) -> dict:
     assets_with_routes = len(asset_apps)
     avg_routes = (sum(len(x) for x in asset_apps.values()) / len(asset_apps)) if asset_apps else 0
     total_routes = len(b["apps"])              # distinct route names — what the map counts
-    total_paths = sc("SELECT COUNT(DISTINCT path) FROM vuln_paths")
+    total_paths = sc("SELECT COUNT(DISTINCT path) FROM vuln_paths" + _w, _a)
     # workload reduction: raw path findings (every asset×path row) collapse to distinct
     # paths you actually assign; sum of route vulns collapse to a handful of routes.
-    path_findings = sc("SELECT COUNT(*) FROM vuln_paths")
-    route_findings = sc("SELECT COALESCE(SUM(total_vulns),0) FROM vuln_route")
+    path_findings = sc("SELECT COUNT(*) FROM vuln_paths" + _w, _a)
+    if not scope:
+        route_findings = sc("SELECT COALESCE(SUM(total_vulns),0) FROM vuln_route")
+    else:   # navi's total_vulns is tenant-wide — count the routes' findings on the tag's assets
+        try:
+            route_findings = sum(_route_findings(list(db.query("SELECT route_id, plugin_list FROM vuln_route",
+                                                                path=db_path)), db_path, scope).values())
+        except Exception:
+            route_findings = 0
     # Owner-tag matching is CASE-INSENSITIVE, the same as ownership_map(): an asset is
     # owned for a route/path when it carries an Owner '<name>: …' tag for that name.
     # Route and path ownership come from the map's statuses, so the two widgets can't
     # disagree: a route is owned when every asset on it has a real owner tag for it; a path
     # when every asset does OR the route covering it is owned.
-    om = om if om is not None else ownership_map(db_path, base=b)
+    om = om if om is not None else ownership_map(db_path, base=b, scope=scope)
     routes_owned = sum(1 for r in om.get("routes", []) if r.get("status") == "owned")
     owned_paths = sum(1 for p in om.get("paths", []) if p.get("status") == "owned")
     # an ASSET is closed when every route it sits on has a real owner FOR THAT ASSET.
@@ -671,7 +804,7 @@ def coverage(db_path=None, base=None, om=None, users_total=None) -> dict:
     def _p(n, d):
         return round(100.0 * n / d, 1) if d else 0.0
 
-    return {"ok": True, "owned": int(owned), "owner_count": int(owner_count),
+    out = {"ok": True, "owned": int(owned), "owner_count": int(owner_count),
             "users_total": int(users_total),
             "assets_with_routes": int(assets_with_routes),
             "avg_routes": round(float(avg_routes or 0), 1), "closed": int(closed),
@@ -686,9 +819,12 @@ def coverage(db_path=None, base=None, om=None, users_total=None) -> dict:
             "mitigated": int(mit), "mitigated_pct": _p(mit, surface_total),
             "accepted": int(acc), "accepted_pct": _p(acc, surface_total),
             "ignored": int(ign), "ignored_pct": _p(ign, surface_total)}
+    if scope:
+        out["scope"] = tagscope.describe(scope[0], scope[1], db_path)
+    return out
 
 
-def ownership_map(db_path=None, base=None) -> dict:
+def ownership_map(db_path=None, base=None, scope=None) -> dict:
     """The Ownership Map — every route/path with the owners assigned to it (the Owner
     tag scheme '<name>: <user>'), the assets behind it, and a coverage status:
       owned   — every asset on it carries that route/path's Owner tag
@@ -712,7 +848,8 @@ def ownership_map(db_path=None, base=None) -> dict:
     # vs the 'Siemens' route, 'APACHE TOMCAT' vs 'Apache Tomcat'. The value scheme is
     # '<name>: <user>' (split on the LAST ': ' so Windows paths like 'C:\...' survive).
     # Built once in _base() and shared with coverage().
-    b = base if base is not None else _base(db_path)
+    b = base if base is not None else _base(db_path, scope)
+    scope = scope or b.get("scope")
     name_owners, name_assets, name_display = b["name_owners"], b["name_assets"], b["name_display"]
     owned_by, disp_by = b["owned_assets"], b["disp_assets"]
     route_assets, path_assets = b["route_assets"], b["path_assets"]
@@ -764,8 +901,9 @@ def ownership_map(db_path=None, base=None) -> dict:
     # SEARCH by plugin_id), not a GROUP BY over every finding
     _score_pids = sorted(set().union(*b["app_plugins"].values(), *b["path_plugin"].values())) \
         if (b["app_plugins"] or b["path_plugin"]) else []
+    _vf, _va = _sf(scope, "asset_uuid")      # a tag view: the highest VPR among the tag's findings
     for r in (q("SELECT plugin_id, MAX(score) m FROM vulns WHERE plugin_id IN (SELECT value FROM json_each(?)) "
-                "AND score IS NOT NULL GROUP BY plugin_id", (_json.dumps(_score_pids),)) if _score_pids else []):
+                "AND score IS NOT NULL" + _vf + " GROUP BY plugin_id", (_json.dumps(_score_pids),) + tuple(_va)) if _score_pids else []):
         v = _fnum(r.get("m"))
         if v is not None:
             vpr_by_pid[str(r.get("plugin_id"))] = v
@@ -883,7 +1021,22 @@ def ownership_map(db_path=None, base=None) -> dict:
         # DISTINCT over the table, twice) and handed to both statements as a JSON list
         _ib = db.indexed_by("hx_v_plugin", db_path)
         _present = None
-        if hx_summary.usable(db_path):
+        _paths_sql, _routes_sql, _fa = "(SELECT COUNT(DISTINCT path) FROM vuln_paths)", "(SELECT COUNT(DISTINCT app_name) FROM vuln_route)", ()
+        if scope:
+            # a tag view: the funnel over the tag's findings, paths and routes only
+            _ff, _fa = _sf(scope, "asset_uuid")
+            try:
+                _present = _json.dumps([r["plugin_id"] for r in db.query(
+                    "SELECT DISTINCT plugin_id FROM vulns WHERE 1=1" + _ff, _fa, path=db_path, budget="job")])
+                _findings = "(SELECT %d)" % int(db.scalar("SELECT COUNT(*) FROM vulns WHERE 1=1" + _ff, _fa,
+                                                          path=db_path, budget="job") or 0)
+            except db.QueryTimeout:
+                raise
+            except Exception:
+                _present, _findings = "[]", "(SELECT 0)"
+            _paths_sql = "(SELECT COUNT(DISTINCT path) FROM vuln_paths WHERE 1=1" + _ff + ")"
+            _routes_sql = "(SELECT %d)" % len(b.get("apps") or [])
+        elif hx_summary.usable(db_path):
             # ⚡ Optimize's hx_plugin: the present plugins and their finding counts without a
             # DISTINCT over the index or a COUNT(*) over vulns. Rows whose plugin_id is NULL (not
             # in hx_plugin) are added back exactly — one covered range on hx_v_plugin.
@@ -904,10 +1057,10 @@ def ownership_map(db_path=None, base=None) -> dict:
         _pw = "WITH present AS (SELECT value AS plugin_id FROM json_each(?)) "
         fr = q(_pw +
                "SELECT " + _findings + " findings,(SELECT COUNT(*) FROM present) plugins,"
-               "(SELECT COUNT(DISTINCT path) FROM vuln_paths) paths,(SELECT COUNT(DISTINCT app_name) FROM vuln_route) routes,"
+               + _paths_sql + " paths," + _routes_sql + " routes,"
                "(SELECT SUM((length(p.cves)-length(replace(p.cves,'CVE-','')))/4) FROM plugins p "
                "JOIN present ON present.plugin_id=p.plugin_id WHERE p.cves IS NOT NULL AND p.cves NOT IN ('','[]','None')) cves",
-               (_present,))
+               (_present,) + tuple(_fa))
         if fr:
             row = fr[0]
             funnel = {"cves": int(row.get("cves") or 0), "findings": int(row.get("findings") or 0),
@@ -948,7 +1101,7 @@ def ownership_map(db_path=None, base=None) -> dict:
 
     _vpr_vals = [it["vpr"] for it in routes + paths if it.get("vpr") is not None]
     _cvss_vals = [it["cvss3"] for it in routes + paths if it.get("cvss3") is not None]
-    return {"ok": True, "routes": routes, "paths": paths,
+    out = {"ok": True, "routes": routes, "paths": paths,
             "owners": sorted({o for it in routes + paths for o in it["owners"]}),
             "owner_load": owner_load, "unmatched_owners": unmatched,
             "route_paths": route_paths_list, "orphan_paths": orphan_paths,
@@ -973,9 +1126,12 @@ def ownership_map(db_path=None, base=None) -> dict:
                     "routes_with_paths": sum(1 for r in routes if r.get("paths_on_route", 0) > 0),
                     "paths_orphan": len(orphan_paths),
                     "paths_covered": sum(1 for p in paths if p.get("on_route"))}}
+    if scope:
+        out["scope"] = tagscope.describe(scope[0], scope[1], db_path)
+    return out
 
 
-def path_detail(path):
+def path_detail(path, scope=None):
     """Drill-down for a single filesystem path (a newly-found gap): which assets carry it,
     their findings/plugins, and the owner(s) of the app(s) that cover it — so Gabriel can
     email the gap to the right person."""
@@ -990,9 +1146,10 @@ def path_detail(path):
         except Exception:
             return []
 
+    _sfr, _sar = _sf(scope, "vp.asset_uuid")
     rows = q("SELECT vp.asset_uuid au, vp.plugin_id pid, vp.finding_id fid, a.hostname host, "
              "a.ip_address ip, a.acr acr, a.url url FROM vuln_paths vp "
-             "LEFT JOIN assets a ON a.uuid=vp.asset_uuid WHERE vp.path=?", (path,))
+             "LEFT JOIN assets a ON a.uuid=vp.asset_uuid WHERE vp.path=?" + _sfr, (path,) + tuple(_sar))
     by, findings, plugins = {}, set(), set()
     for r in rows:
         u = r.get("au")
@@ -1019,15 +1176,19 @@ def path_detail(path):
             "ON r.plugin_list LIKE '%''' || vp.plugin_id || '''%' WHERE vp.path=?", (path,)) if r.get("app")]
     owners = set()
     apps_ci = {a.strip().lower() for a in apps}
-    for r in q("SELECT DISTINCT tag_value FROM tags WHERE " + tagname.sql_lit("tag_key", "Owner") + " AND tag_value IS NOT NULL"):
+    _tfr, _tar = _sf(scope, "asset_uuid")
+    for r in q("SELECT DISTINCT tag_value FROM tags WHERE " + tagname.sql_lit("tag_key", "Owner") + " AND tag_value IS NOT NULL" + _tfr, tuple(_tar)):
         val = (r.get("tag_value") or "").strip()
         if ": " in val:
             nm, us = val.rsplit(": ", 1)
             if nm.strip().lower() in apps_ci and us.strip():
                 owners.add(us.strip())
-    return {"ok": True, "path": path, "apps": sorted(apps), "owners": sorted(owners),
-            "assets": assets, "plugins": sorted(plugins), "findings": sorted(findings),
-            "asset_count": len(assets)}
+    out = {"ok": True, "path": path, "apps": sorted(apps), "owners": sorted(owners),
+           "assets": assets, "plugins": sorted(plugins), "findings": sorted(findings),
+           "asset_count": len(assets)}
+    if scope:
+        out["scope"] = tagscope.describe(scope[0], scope[1], dbp)
+    return out
 
 
 # ===================================================================================
@@ -1046,6 +1207,13 @@ SNAP_VERSION = 1
 _SNAP_MEM = {}            # key -> snapshot dict
 _BUILDING = {}            # key -> {"job_id", "started"}
 _SLOCK = threading.Lock()
+# Build 489: a tag view's snapshot is its own store — keyed by navi.db + the tag, the newest 5
+# kept — so a tag view never serves (or evicts) the whole estate's snapshot, nor the reverse.
+SNAP_TAG = snapcache.Snapshots("exproute_tag", version=SNAP_VERSION, keep=5)
+
+
+def _tag_extra(scope):
+    return {"scope": {"tag_key": scope[0], "tag_value": scope[1]}}
 
 
 def _cache_path(name):
@@ -1139,26 +1307,34 @@ def _save_snapshot(key, s):
         pass
 
 
-def build_snapshot(db_path=None, refresh_owners=False) -> dict:
+def build_snapshot(db_path=None, refresh_owners=False, scope=None) -> dict:
+    """The whole estate (saved to the estate store) or, with scope=(tag_key, tag_value), one
+    tag's assets (returned — SNAP_TAG saves it under the tag's own key)."""
     t0 = _time.time()
     sig = db_signature(db_path)
-    b = _base(db_path)
+    b = _base(db_path, scope)
     om = ownership_map(db_path, base=b)
     ow, ow_at = owners_cached(refresh_owners)
     cov = coverage(db_path, base=b, om=om, users_total=sum(1 for o in ow if o.get("type") == "user"))
-    rt, pa = routes(db_path), paths(db_path)
+    rt, pa = routes(db_path, scope), paths(db_path, scope)
     snap = {"load": {"owners": ow, "routes": rt, "paths": pa,
                      "counts": {"owners": len(ow), "routes": len(rt), "paths": len(pa)}},
             "coverage": cov, "map": om,
             "meta": {"v": SNAP_VERSION, "sig": sig, "db": _db_file(db_path),
                      "built_at": _iso(t0), "build_sec": round(_time.time() - t0, 2),
                      "owners_at": _iso(ow_at)}}
+    if scope:
+        snap["scope"] = snap["meta"]["scope"] = tagscope.describe(scope[0], scope[1], db_path)
+        return snap
     _save_snapshot(_snap_key(db_path), snap)
     return snap
 
 
-def snapshot_state(db_path=None) -> dict:
+def snapshot_state(db_path=None, scope=None) -> dict:
     """What the page can show right now without computing anything."""
+    if scope:
+        st = SNAP_TAG.state(db_path, _tag_extra(scope))
+        return {"snap": (st["snap"] or {}).get("result"), "building": st["building"], "key": st["key"]}
     key, sig = _snap_key(db_path), db_signature(db_path)
     s = _load_snapshot(key, sig)
     with _SLOCK:
@@ -1166,9 +1342,12 @@ def snapshot_state(db_path=None) -> dict:
     return {"snap": s, "building": bld or None, "key": key}
 
 
-def start_build(submit, db_path=None, refresh_owners=False) -> dict:
+def start_build(submit, db_path=None, refresh_owners=False, scope=None) -> dict:
     """Start (or join) the background build. `submit(fn)` puts fn on the job queue and
-    returns the job stub. One build per navi.db at a time."""
+    returns the job stub. One build per navi.db at a time (per tag, for a tag view)."""
+    if scope:
+        return SNAP_TAG.start(submit, lambda: build_snapshot(db_path, refresh_owners=refresh_owners, scope=scope),
+                              db_path, _tag_extra(scope), label=f"Ownership snapshot · {scope[0]} : {scope[1]}")
     key = _snap_key(db_path)
     with _SLOCK:
         if key in _BUILDING:

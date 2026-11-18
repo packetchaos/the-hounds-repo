@@ -12,5 +12,14 @@
     "run",
     "apply"
   ],
-  "codename": "Orthrus Hound"
+  "codename": "Orthrus Hound",
+  "tag_scope": {
+    "actions": [
+      "run",
+      "apply"
+    ],
+    "ignore": [
+      "source"
+    ]
+  }
 }

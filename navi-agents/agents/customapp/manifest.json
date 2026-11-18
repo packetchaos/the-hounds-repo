@@ -13,5 +13,19 @@
     "search",
     "tag"
   ],
-  "codename": "Cavall Hound"
+  "codename": "Cavall Hound",
+  "tag_scope": {
+    "actions": [
+      "run",
+      "search",
+      "tag"
+    ],
+    "ignore": [
+      "interpret",
+      "ignore_list",
+      "ignore_add",
+      "ignore_remove",
+      "ignore_import"
+    ]
+  }
 }

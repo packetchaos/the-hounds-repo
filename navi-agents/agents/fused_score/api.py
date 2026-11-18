@@ -38,8 +38,8 @@ from core.gates import confirmed
 
 AGENT = FusedScoreAgent()
 SNAP = snapcache.Snapshots("fused", version=4)   # 3: cert dates/PQ plugin, half-up rounding, tiebreak · 4: kpi.stack/cooccur
-SNAP_TAG = snapcache.Snapshots("fused_tag", version=1, keep=6)   # 488: one tag's assets — its own cache
-RECENT_MAX = 6
+SNAP_TAG = snapcache.Snapshots("fused_tag", version=1, keep=5)   # 488: one tag's assets — its own cache
+RECENT_MAX = 5
 _RLOCK = threading.Lock()
 PRIORITIES = ("P1", "P2", "P3", "P4")
 CHUNK = navi_cli.BATCH_UUIDS   # ≤1,999 UUIDs per navi job, byte-guarded (core.navi_cli.uuid_batches)

@@ -124,22 +124,25 @@ async function load(){
   ['dueTbl','cveTbl','crownTbl','vendTbl','dTbl'].forEach(hPageReset);
   if(K.ok===false) flash('flash','⚠ '+esc(K.error||'catalog unavailable')+' — showing the xref view only.','warn'); else flashClear('flash');
   render();
-  if(!(R.summary||{}).kev_assets && !(K.metrics||{}).kev_assets) flash('flash','No CISA KEV findings found — is navi.db fresh? Run a navi update.','warn');
+  if(!(R.summary||{}).kev_assets && !(K.metrics||{}).kev_assets) flash('flash', tagScope() ? 'No CISA KEV findings on the assets tagged '+esc(tagScopeLabel())+'.' : 'No CISA KEV findings found — is navi.db fresh? Run a navi update.','warn');
 }
 
+// a tag view: which population every number covers (R.scope is the server's own count of the tag)
+function scopeLine(){ const sc=tagScope(); if(!sc) return '';
+  const n=((R&&R.scope)||{}).assets; return 'Only the '+(n==null?'':N(n)+' ')+'assets tagged <b>'+esc(tagScopeLabel(sc))+'</b> — each asset\'s KEV facts are the same as in the whole estate. '; }
 function renderMetrics(){
   const m=K.metrics||{}, s=R.summary||{};
   const src={live:'● live from cisa.gov',mirror:'● CISA GitHub mirror',bundled:'◆ bundled snapshot',upload:'⬆ your upload',unavailable:'✗ catalog unavailable'}[K.source]||'';
   document.getElementById('counts').textContent=(m.catalog_total?`catalog ${m.catalog_version||''} · ${N(m.catalog_total)} KEVs · `:'')+src;
   const el=document.getElementById('metrics');
-  if(!m.catalog_total){ el.innerHTML='<div id="glxKev"></div>';
+  if(!m.catalog_total){ el.innerHTML=(tagScope()?'<p class="sub" style="margin:2px 0 0">'+scopeLine()+'</p>':'')+'<div id="glxKev"></div>';
     renderGlance('glxKev', [{title:'KEV exposure (Tenable xref)',
       hero:{v:N(s.kev_assets), l:'KEV assets (xref)'}, chips:[{v:N(s.kev_findings), l:'KEV findings (xref)'}]}]); return; }
   const pct=m.catalog_total?(100*m.kev_cves/m.catalog_total).toFixed(1):0;
-  el.innerHTML='<p class="sub" style="margin:2px 0 0">Click a number to filter the KEV list.</p><div id="glxKev"></div>';
+  el.innerHTML='<p class="sub" style="margin:2px 0 0">'+scopeLine()+'Click a number to filter the KEV list.</p><div id="glxKev"></div>';
   renderGlance('glxKev', [
     {title:'KEV exposure',
-     hero:{v:N(m.kev_assets), l:'assets with a KEV', u:m.has_state?'open findings only':'', t:'distinct assets in navi.db with at least one CISA Known Exploited Vulnerability', href:'#secCves'},
+     hero:{v:N(m.kev_assets), l:'assets with a KEV', u:(m.has_state?'open findings only':'')+(tagScope()?(m.has_state?' · ':'')+'of this tag':''), t:'distinct assets '+(tagScope()?'tagged '+tagScopeLabel():'in navi.db')+' with at least one CISA Known Exploited Vulnerability', href:'#secCves'},
      chips:[{v:N(m.kev_cves), l:'KEV CVEs on your assets', u:`${pct}% of CISA's ${N(m.catalog_total)}`, href:'#secCves'},
             {v:N(m.kev_findings), l:'KEV findings'},
             {v:N(m.crown_assets), l:'crown jewels with a KEV', u:`ACR > 7 · ${N(m.crown_overdue_assets)} overdue`, sev:'crit', filter:'crown'}]},
@@ -201,7 +204,7 @@ function renderCves(){
     `<td>${esc(v.vendor)} · ${esc(v.product)}</td><td style="max-width:320px">${esc(v.name)}</td><td class="mono">${esc(v.date_added||'')}</td><td class="mono">${esc(v.due_date||'')}</td>`+
     `<td>${stBadge(v.bucket,v.days_left)}</td><td><b>${N(v.assets)}</b></td><td>${v.crown_assets?`<b style="color:var(--crit)">${N(v.crown_assets)}</b>`:'0'}</td>`+
     `<td>${c2Link('remediate',{cve:v.cve,source:'CISA KEV'},'🛠')} ${v.ransomware?'<span title="CISA: known ransomware campaign use">🔒</span>':''}${v.xref_findings===0?' <span class="flag" title="no CISA-KNOWN-EXPLOITED xref on the finding">not xref\'d</span>':''}</td></tr>`,
-    {cols:9, empty:'<tr><td colspan="9" class="sub">'+((K.cves||[]).length?'Nothing matches the filter.':'No CISA KEV CVEs on assets in navi.db.')+'</td></tr>'});
+    {cols:9, empty:'<tr><td colspan="9" class="sub">'+((K.cves||[]).length?'Nothing matches the filter.':(tagScope()?'No CISA KEV CVEs on the assets tagged '+esc(tagScopeLabel())+'.':'No CISA KEV CVEs on assets in navi.db.'))+'</td></tr>'});
   setNavCount('secCves', N((K.cves||[]).length));
 }
 
@@ -210,7 +213,7 @@ function render(){
   renderMetrics(); renderTimeline(); renderDue(); renderCves();
   const cr=K.crown||[]; document.getElementById('crownCount').textContent=`(${N(cr.length)})`; setNavCount('secCrown', N(cr.length));
   hPaginate('crownTbl', cr, a=>`<tr><td><a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(a.asset_uuid)}">${esc(a.host)}</a></td><td><b style="color:var(--crit)">${esc(String(a.acr))}</b></td><td>${N(a.kev)}</td><td>${a.overdue?`<span class="stb over"><i style="background:var(--st-over)"></i>${N(a.overdue)}</span>`:'0'}</td><td>${a.ransomware?'🔒 '+N(a.ransomware):'—'}</td><td>${(a.cves||[]).map(c=>`<span class="tagval">${esc(c)}</span>`).join(' ')}</td></tr>`,
-    {cols:6, empty:'<tr><td colspan="6" class="sub">No crown-jewel (ACR &gt; 7) assets carry a KEV.</td></tr>'});
+    {cols:6, empty:'<tr><td colspan="6" class="sub">No crown-jewel (ACR &gt; 7) assets'+esc(tagScopeNote())+' carry a KEV.</td></tr>'});
   const vd=K.vendors||[]; document.getElementById('vendCount').textContent=`(${N(vd.length)})`; setNavCount('secVend', N(vd.length));
   hPaginate('vendTbl', vd, v=>`<tr><td>${esc(v.vendor)}</td><td>${esc(v.product)}</td><td>${N(v.cves)}</td><td><b>${N(v.assets)}</b></td><td>${v.overdue?`<span style="color:var(--st-over)">${N(v.overdue)}</span>`:'0'}</td><td>${v.ransomware?'🔒 '+N(v.ransomware):'—'}</td></tr>`,
     {cols:6, empty:'<tr><td colspan="6" class="sub">No vendors — no KEV CVEs on your assets.</td></tr>'});
@@ -228,7 +231,7 @@ function renderDates(){
   document.getElementById('addCount').textContent=`(${N(DATES.length)})`; setNavCount('datesCard', N(DATES.length));
   hPaginate('dTbl', DATES, d=>
     `<tr><td><input type="checkbox" class="dsel" data-d="${esc(d.kev_date)}"${_dSel.has(d.kev_date)?' checked':''}></td><td class="mono">${esc(d.kev_date)}</td><td><span class="tagval">CISA KEV : ${esc(d.value)}</span></td><td>${N(d.assets)}</td><td>${N(d.findings)}</td></tr>`,
-    {cols:5, empty:'<tr><td colspan="5" class="sub">No CISA KEV xrefs in navi.db.</td></tr>',
+    {cols:5, empty:'<tr><td colspan="5" class="sub">'+(tagScope()?'No CISA KEV xrefs on the assets tagged '+esc(tagScopeLabel())+'.':'No CISA KEV xrefs in navi.db.')+'</td></tr>',
      wire:tb=>{ tb.querySelectorAll('input.dsel').forEach(c=>c.onchange=()=>{ if(c.checked)_dSel.add(c.dataset.d); else _dSel.delete(c.dataset.d); dSync(); }); }});
   dSync();
 }
@@ -237,6 +240,8 @@ function renderDates(){
 async function gated(btn, label, call, okMsg, ask){   /* ask: plain-text question naming the exact tag + count */
   if(btn&&btn.disabled) return;
   await testRunStatus();
+  const sc=tagScope();   // a tag view writes ONLY that tag's assets (the server re-reads the set)
+  if(sc){ const a0=ask; ask=()=>'Tag view: only assets tagged '+tagScopeLabel(sc)+' are written.\n\n'+(typeof a0==='function'?a0():a0); }
   if(!confirm((typeof ask==='function'?ask():ask)+(WRITES?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.'))) return;
   if(btn&&btn.disabled) return;
   const fb=document.getElementById('flash'); const scroll=()=>{ if(fb) fb.scrollIntoView({behavior:'smooth',block:'center'}); };
@@ -249,16 +254,17 @@ async function gated(btn, label, call, okMsg, ask){   /* ask: plain-text questio
 }
 document.getElementById('tagVuln').onclick=()=>gated(document.getElementById('tagVuln'),'queuing CISA KEV : Vulnerable for every KEV asset',
   ()=>API.post('tag_vulnerable',{confirm:true}), ()=>'queued CISA KEV : Vulnerable (navi --xrefs CISA-KNOWN-EXPLOITED)',
-  ()=>`Tag ${tagCat('CISA KEV')} : Vulnerable on every asset with a CISA-KNOWN-EXPLOITED xref (${N((R&&R.summary||{}).kev_assets||0)} asset(s) in navi.db; one --xrefs selector)?`);
+  ()=>tagScope() ? `Tag ${tagCat('CISA KEV')} : Vulnerable on every asset${tagScopeNote()} with a CISA-KNOWN-EXPLOITED xref (${N((R&&R.summary||{}).kev_assets||0)} asset(s) of this tag)?`
+    : `Tag ${tagCat('CISA KEV')} : Vulnerable on every asset with a CISA-KNOWN-EXPLOITED xref (${N((R&&R.summary||{}).kev_assets||0)} asset(s) in navi.db; one --xrefs selector)?`);
 document.getElementById('tagRansom').onclick=()=>gated(document.getElementById('tagRansom'),'tagging the assets behind ransomware-linked KEVs',
   ()=>API.post('tag_ransomware',{approved:APPROVED,confirm:true}), o=>`queued CISA KEV : Ransomware for the assets behind ${N(o.cves)} CVE(s) (${N(o.queued)} job(s))`,
-  ()=>{ const m=(K&&K.metrics)||{}; return `Tag ${tagCat('CISA KEV')} : Ransomware on the ${N(m.ransomware_assets||0)} asset(s) behind ${N(m.ransomware_cves||0)} ransomware-linked KEV CVE(s)?`; });
+  ()=>{ const m=(K&&K.metrics)||{}; return `Tag ${tagCat('CISA KEV')} : Ransomware on the ${N(m.ransomware_assets||0)} asset(s)${tagScopeNote()} behind ${N(m.ransomware_cves||0)} ransomware-linked KEV CVE(s)?`; });
 document.getElementById('tagDue').onclick=()=>gated(document.getElementById('tagDue'),'tagging assets by CISA due date',
   ()=>API.post('tag_due',{dues:[..._dueSel],approved:APPROVED,confirm:true}), o=>`queued ${N(o.queued)} job(s) across ${N((o.results||[]).length)} due date(s) — CISA KEV Due : &lt;date&gt;`,
-  ()=>{ const sel=((K&&K.due_groups)||[]).filter(g=>_dueSel.has(g.due_date)); return `Tag ${tagCat('CISA KEV Due')} : <date> for ${sel.length} due date(s) — ${N(sel.reduce((s,g)=>s+g.cves.length,0))} CVE(s), ~${N(sel.reduce((s,g)=>s+g.assets,0))} asset(s)?\n\n`+sel.slice(0,12).map(g=>`• ${tagCat('CISA KEV Due')} : ${g.due_date} (${N(g.assets)} asset(s))`).join('\n')+(sel.length>12?`\n• … +${sel.length-12} more`:''); });
+  ()=>{ const sel=((K&&K.due_groups)||[]).filter(g=>_dueSel.has(g.due_date)); return `Tag ${tagCat('CISA KEV Due')} : <date> for ${sel.length} due date(s) — ${N(sel.reduce((s,g)=>s+g.cves.length,0))} CVE(s), ~${N(sel.reduce((s,g)=>s+g.assets,0))} asset(s)${tagScopeNote()}?\n\n`+sel.slice(0,12).map(g=>`• ${tagCat('CISA KEV Due')} : ${g.due_date} (${N(g.assets)} asset(s))`).join('\n')+(sel.length>12?`\n• … +${sel.length-12} more`:''); });
 document.getElementById('tagDates').onclick=()=>gated(document.getElementById('tagDates'),'tagging assets by KEV date added',
   ()=>API.post('tag_dates',{dates:dPicked(),confirm:true}), o=>`queued ${N(o.queued)} date-added tag(s)`,
-  ()=>{ const ds=DATES.filter(d=>_dSel.has(d.kev_date)); return `Tag ${tagCat('CISA KEV')} : <date added> for ${ds.length} date(s), ~${N(ds.reduce((s,d)=>s+(d.assets||0),0))} asset(s)?\n\n`+ds.slice(0,12).map(d=>`• ${tagCat('CISA KEV')} : ${d.value} (${N(d.assets)} asset(s))`).join('\n')+(ds.length>12?`\n• … +${ds.length-12} more`:''); });
+  ()=>{ const ds=DATES.filter(d=>_dSel.has(d.kev_date)); return `Tag ${tagCat('CISA KEV')} : <date added> for ${ds.length} date(s), ~${N(ds.reduce((s,d)=>s+(d.assets||0),0))} asset(s)${tagScopeNote()}?\n\n`+ds.slice(0,12).map(d=>`• ${tagCat('CISA KEV')} : ${d.value} (${N(d.assets)} asset(s))`).join('\n')+(ds.length>12?`\n• … +${ds.length-12} more`:''); });
 
 /* ---- wiring ---- */
 document.querySelectorAll('#dueF button').forEach(b=>b.onclick=()=>{ document.querySelectorAll('#dueF button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); DUEF=b.dataset.b; hPageReset('dueTbl'); renderDue(); });
@@ -295,6 +301,9 @@ async function kevNl(){
 }
 document.getElementById('kevNl').onclick=kevNl;
 mountAgentHeader({icon:'🛡️',name:'CISA KEV Tagging',sub:'Laelaps · KEV exposure by CISA due date · tags assets'});
+mountTagScope({agent:'cisakev', note:'KEV CVEs, due dates, crown jewels and vendors are counted over the findings on those assets'});
+if(tagScope()){ const tv=document.getElementById('tagVuln'); tv.title='Tags the assets tagged '+tagScopeLabel()+' that have a CISA-KNOWN-EXPLOITED xref';
+  tv.textContent='🏷️ Tag this tag\'s KEV assets → CISA KEV : Vulnerable'; }
 mountSectionNav();
 // ⛶ full screen + 📧 picture & list (Gabriel) on the remediation due dates
 hWidget('secDue',{title:'CISA KEV — remediation due dates', visual:()=>document.getElementById('dueVis'),

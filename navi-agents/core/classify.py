@@ -16,7 +16,7 @@ Two distinct layers — the same split the IoT squad uses (detect → HITL tag �
 """
 import re
 
-from core import db, hx_summary, software as _sw, tagname
+from core import db, hx_summary, software as _sw, tagname, tagscope
 from core import cloud as _cloud
 from core.iot_common import SOFTWARE_ENUM_PLUGINS
 
@@ -126,13 +126,31 @@ _OS_PLUGINS = ("11936", "45590", "25203", "35351", "38689", "55472")
 _OS_OUT_RE = re.compile(r"(?:remote operating system|operating system|\bos)\s*[:=]\s*(.+)", re.I)
 
 
-def _os_from_plugins(db_path=None):
+def _scope_sql(scope, col):
+    """Build 489 tag filter: scope = (tag_key, tag_value) or None (the whole estate).
+    → (' AND col IN (SELECT asset_uuid FROM tags …)', params), or ('', ()) — so an unscoped
+    query string stays exactly what it was."""
+    if not scope or not (scope[0] and scope[1]):
+        return "", ()
+    return tagscope.sql(scope[0], scope[1], col)
+
+
+def _assets_rows(cols, db_path=None, scope=None):
+    """The assets SELECT every entry point runs — whole estate (unchanged SQL) or one tag's."""
+    frag, args = _scope_sql(scope, "uuid")
+    if not frag:
+        return db.query(f"SELECT {cols} FROM assets;", path=db_path)
+    return db.query(f"SELECT {cols} FROM assets WHERE 1=1{frag};", args, path=db_path)
+
+
+def _os_from_plugins(db_path=None, scope=None):
     """{uuid: os_string} parsed from OS-identification plugin OUTPUT (works uncredentialed).
     Lets classification work when navi's operating_system column is empty."""
     out = {}
     inlist = ",".join("'" + p + "'" for p in _OS_PLUGINS)
+    frag, args = _scope_sql(scope, "asset_uuid")
     try:
-        rows = db.query(f"SELECT asset_uuid, output FROM vulns WHERE plugin_id IN ({inlist})", path=db_path)
+        rows = db.query(f"SELECT asset_uuid, output FROM vulns WHERE plugin_id IN ({inlist}){frag}", args, path=db_path)
     except Exception:
         return out
     for r in rows:
@@ -158,7 +176,7 @@ _OS_NAME_RE = re.compile(r"remote operating system\s*[:=]\s*(.+)", re.I)
 _OS_CONF_RE = re.compile(r"confidence level\s*[:=]\s*(\d{1,3})", re.I)
 
 
-def os_confidence(db_path=None):
+def os_confidence(db_path=None, scope=None):
     """Per-asset OS + confidence parsed from plugin 11936 (OS Identification) OUTPUT.
 
     Returns a list of dicts: ``uuid, os_raw, confidence (int 0-100), os_label, family``.
@@ -166,9 +184,10 @@ def os_confidence(db_path=None):
     'macOS') via the same helpers the classifier uses; ``family`` collapses to Windows /
     Linux / macOS / Other. An asset can fingerprint on several ports — we keep the HIGHEST
     confidence reading per asset."""
+    frag, args = _scope_sql(scope, "asset_uuid")        # build 489: one tag's assets (per-asset values unchanged)
     try:
         rows = db.query("SELECT asset_uuid, output FROM vulns WHERE plugin_id=? "
-                        "AND output IS NOT NULL AND output!=''", (_OS_CONF_PLUGIN,), path=db_path)
+                        "AND output IS NOT NULL AND output!=''" + frag, (_OS_CONF_PLUGIN,) + tuple(args), path=db_path)
     except Exception:
         return []
     best = {}
@@ -389,17 +408,21 @@ def _eol_os_assets(db_path=None):
             if r.get("asset_uuid") and _eol.kind_of(r.get("plugin_name") or "") == "Operating system"}
 
 
-def classify(db_path=None, glance=False):
+def classify(db_path=None, glance=False, scope=None):
     """GROUND TRUTH from tags. Untagged assets → Unclassified.
 
     glance=True (the agent's ▶ Run) adds the read-only "At a glance" extras: per-asset /
     per-class unsupported-OS counts and a ``glance`` summary (ownership, risk leaders,
-    OS-fingerprint confidence). topology / insights call it without them to stay cheap."""
+    OS-fingerprint confidence). topology / insights call it without them to stay cheap.
+
+    scope=(tag_key, tag_value) (build 489) classifies only that tag's assets. Every per-asset
+    value (class, sub, owned, KEV, critical, EOL OS) is decided exactly as for the whole estate —
+    only the population (and so every count / % built from it) changes."""
     acols = _asset_cols(db_path)
     if "uuid" not in acols:
         return {"ok": False, "error": "no assets table in navi.db"}
     cloud_cols = [c for c, _ in _CLOUD_COLS if c in acols]
-    assets = db.query(f"SELECT {_asset_select(acols, ['acr', 'aes'] + cloud_cols)} FROM assets;", path=db_path)
+    assets = _assets_rows(_asset_select(acols, ['acr', 'aes'] + cloud_cols), db_path, scope)
 
     tags = _read_tags(db_path)
     owned = _uuids("SELECT DISTINCT asset_uuid FROM tags WHERE " + tagname.sql_lit("tag_key", "Owner"), db_path)
@@ -494,17 +517,17 @@ def classify(db_path=None, glance=False):
            "tagged_any": classified > 0, "stats": stats, "classes": class_list, "assets": out,
            "unclassified_reasons": [{"reason": "not tagged", "count": unclassified}] if unclassified else []}
     if glance:
-        res["glance"] = _glance(out, class_list, db_path)
+        res["glance"] = _glance(out, class_list, db_path, scope)
     return res
 
 
-def _glance(out, class_list, db_path=None):
+def _glance(out, class_list, db_path=None, scope=None):
     """Read-only headline numbers for the page's 📊 At a glance section. The *_class
     leaders rank CLASSIFIED classes only (Unclassified has its own cards)."""
     def lead(key):
         c = max((c for c in class_list if c[key] and c["cls"] != "Unclassified"), key=lambda c: (c[key], c["count"]), default=None)
         return {"cls": c["cls"], "n": c[key], "of": c["count"]} if c else None
-    conf = {r["uuid"]: r for r in os_confidence(db_path)}
+    conf = {r["uuid"]: r for r in os_confidence(db_path, scope)}
     known = {r["uuid"] for r in out}
     fp = [r for u, r in conf.items() if u in known]
     low = [r for r in fp if r["confidence"] < LOW_CONF]
@@ -604,7 +627,7 @@ def _signal_class(a, S):
     return None
 
 
-def os_breakdown(db_path=None, only_untagged=True):
+def os_breakdown(db_path=None, only_untagged=True, scope=None):
     """OS families (Windows/Linux/macOS) → their versions, for the two-pie OS explorer.
 
     Reuses _signal_class so it stays consistent with os_signals AND honors the
@@ -614,10 +637,10 @@ def os_breakdown(db_path=None, only_untagged=True):
     acols = _asset_cols(db_path)
     if "uuid" not in acols:
         return {"ok": False, "error": "no assets table"}
-    assets = db.query(f"SELECT {_asset_select(acols)} FROM assets;", path=db_path)
+    assets = _assets_rows(_asset_select(acols), db_path, scope)
     tags = _read_tags(db_path) if only_untagged else {}
     S = _gather_signals(db_path, {a["uuid"] for a in assets})
-    plugin_os = _os_from_plugins(db_path)          # OS from uncredentialed OS-ID plugin output
+    plugin_os = _os_from_plugins(db_path, scope)   # OS from uncredentialed OS-ID plugin output
     fam = {}
     for a in assets:
         u = a.get("uuid")
@@ -646,16 +669,16 @@ def os_breakdown(db_path=None, only_untagged=True):
             "total_detected": sum(f["count"] for f in families)}
 
 
-def os_signals(db_path=None, only_untagged=True):
+def os_signals(db_path=None, only_untagged=True, scope=None):
     """Detected classification suggestions, grouped into taggable cohorts."""
     acols = _asset_cols(db_path)
     if "uuid" not in acols:
         return {"ok": False, "error": "no assets table"}
-    assets = db.query(f"SELECT {_asset_select(acols)} FROM assets;", path=db_path)
+    assets = _assets_rows(_asset_select(acols), db_path, scope)
     keep = {a["uuid"] for a in assets}
     tags = _read_tags(db_path) if only_untagged else {}
     S = _gather_signals(db_path, keep)
-    plugin_os = _os_from_plugins(db_path)
+    plugin_os = _os_from_plugins(db_path, scope)
     cohorts = {}
     uncovered = 0
     for a in assets:

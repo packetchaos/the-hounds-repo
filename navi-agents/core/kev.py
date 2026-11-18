@@ -22,7 +22,7 @@ import threading
 import time
 import urllib.request
 
-from core import db, downloads, hx_summary
+from core import db, downloads, hx_summary, tagscope
 
 FEED_URLS = (
     "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json",
@@ -159,7 +159,12 @@ def _kev_plugins(K, db_path=None):
 
 
 def analyze(db_path=None, json_text: str = "", force: bool = False, keep_uuids: bool = False,
-            allow_live: bool = True) -> dict:
+            allow_live: bool = True, scope=None) -> dict:
+    """scope=(tag_key, tag_value) (build 489): only findings on that tag's assets count — every
+    per-asset fact (KEV CVEs, ACR, crown, overdue) is the same as in the whole estate, the population
+    is the tag's. None (the default) = the whole estate, unchanged."""
+    sk, sv = scope if scope else (None, None)
+    frag, fargs = tagscope.sql(sk, sv, "asset_uuid")
     cat, source = fetch_catalog(json_text, force=force, allow_live=allow_live)
     K = {v["cveID"].upper(): v for v in cat.get("vulnerabilities", []) if v.get("cveID")}
     today = datetime.date.today()
@@ -185,10 +190,12 @@ def analyze(db_path=None, json_text: str = "", force: bool = False, keep_uuids: 
             for i in range(0, len(pids), 5000):
                 inl = ",".join("'" + p.replace("'", "''") + "'" for p in pids[i:i + 5000])
                 rows += db.query(f"SELECT rowid AS _rid, {', '.join(sel)} FROM vulns WHERE plugin_id IN ({inl}) "
-                                 f"AND (({where}) OR xrefs LIKE '%{XREF}%')", path=db_path)
+                                 f"AND (({where}) OR xrefs LIKE '%{XREF}%')" + frag, fargs, path=db_path)
             rows.sort(key=lambda r: r.pop("_rid"))
         else:
-            rows = db.query(f"SELECT {', '.join(sel)} FROM vulns WHERE ({where}) OR xrefs LIKE '%{XREF}%'", path=db_path)
+            rows = db.query(f"SELECT {', '.join(sel)} FROM vulns WHERE (({where}) OR xrefs LIKE '%{XREF}%')" + frag
+                            if frag else f"SELECT {', '.join(sel)} FROM vulns WHERE ({where}) OR xrefs LIKE '%{XREF}%'",
+                            fargs, path=db_path)
     except Exception:
         rows = []
     for r in rows:
@@ -309,10 +316,11 @@ def analyze(db_path=None, json_text: str = "", force: bool = False, keep_uuids: 
     # ---- remediated KEV (navi's `fixed` table, when present)
     remediated = None
     fc = _cols("fixed", db_path)
-    if {"cves", "last_fixed"} <= fc:
+    if {"cves", "last_fixed"} <= fc and (not frag or "asset_uuid" in fc):
         n = on_time = 0
         try:
-            for r in db.query("SELECT cves, last_fixed FROM fixed WHERE TRIM(COALESCE(cves,''))<>''", path=db_path):
+            for r in db.query("SELECT cves, last_fixed FROM fixed WHERE TRIM(COALESCE(cves,''))<>''" + frag,
+                              fargs, path=db_path):
                 fixed_on = _day(r.get("last_fixed"))
                 dues = [_date(K[c].get("dueDate")) for c in {c.upper() for c in _CVE.findall(r.get("cves") or "")} if c in K]
                 if dues:
@@ -342,4 +350,5 @@ def analyze(db_path=None, json_text: str = "", force: bool = False, keep_uuids: 
     }
     return {"ok": True, "source": source, "catalog_page": CATALOG_PAGE, "feed_url": FEED_URLS[0],
             "metrics": metrics, "cves": cves, "due_groups": due_groups, "timeline": timeline,
-            "vendors": vendors[:200], "crown": crown_rows, "today": today.isoformat()}
+            "vendors": vendors[:200], "crown": crown_rows, "today": today.isoformat(),
+            **({"scope": tagscope.describe(sk, sv, db_path)} if frag else {})}

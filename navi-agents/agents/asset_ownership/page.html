@@ -34,7 +34,7 @@
     <div id="flash" class="flash"></div>
   </section>
 
-  <section class="card" id="idleCard"><div class="setupcard"><div class="big">Press ▶ Run</div><p class="sub">Rolls up ownership for every asset in navi.db — the three owner layers, crown jewels, blind spots and who owns what. Your last run is kept on the server, so coming back restores it instantly (and 🐾 Release the Hounds can run it for you).</p></div></section>
+  <section class="card" id="idleCard"><div class="setupcard"><div class="big">Press ▶ Run</div><p class="sub">Rolls up ownership for <span id="idleWho">every asset in navi.db</span> — the three owner layers, crown jewels, blind spots and who owns what. Your last run is kept on the server, so coming back restores it instantly (and 🐾 Release the Hounds can run it for you).</p></div></section>
 
   <!-- At a glance -->
   <section class="card" id="secMetrics" data-nav="At a glance" data-nav-icon="📊" style="display:none">
@@ -87,7 +87,7 @@
   <!-- Per-asset ownership table -->
   <section class="card" id="tblCard" data-nav="Per-asset" data-nav-icon="🖥" style="display:none">
     <div class="toolbar" style="margin:0 0 8px"><div><h2 style="margin:0;font-size:17px">🖥 Per-asset ownership</h2>
-      <p class="sub" style="margin:2px 0 0">Every asset, how much is claimed, and by whom across the three layers. Assign a <b>single owner</b> inline — toggle <b>Everything</b> (all routes &amp; paths) or <b>The rest</b> (only what's unowned).</p></div>
+      <p class="sub" style="margin:2px 0 0"><span id="tblWho">Every asset</span>, how much is claimed, and by whom across the three layers. Assign a <b>single owner</b> inline — toggle <b>Everything</b> (all routes &amp; paths) or <b>The rest</b> (only what's unowned).</p></div>
       <span class="chip" id="tblPageInfo" style="margin-left:auto;display:none"></span></div>
     <div class="toolbar" style="margin:0 0 8px;gap:8px;flex-wrap:wrap">
       <input id="tblFilter" placeholder="filter host / ip / owner…" style="padding:6px 9px;border-radius:7px;border:1px solid var(--line);background:var(--bg-2);color:var(--ink)">
@@ -114,6 +114,10 @@ let DATA=null, WRITES=false, PLAN=null;
    the top owners and page 1 of the per-asset table; the table (and "more crown jewels") page, filter
    and search on the server (hDrill / the drill action). No asset list or uuid array reaches the page. */
 let RUN=null, FIRST=null, TT=null, SCOPE='all', SORT='acr', BLIND=[], CJ=[], CJNEXT=null;
+/* build 489 — tag filter: in a tag view (?tk=&tv=, mountTagScope below) every POST carries tag_scope;
+   the server rolls up only that tag's assets (each asset's row is its whole-estate row) and every
+   write stays inside the tag. OT = " of this tag" after a share of the population. */
+const TS=()=>tagScope(), OT=()=>(tagScope()?' of this tag':'');
 // deep-link from Exposure Score / Argos: ?focus=<uuid>&host=<host> — auto-load, filter, highlight, focus the owner input
 const Q=new URLSearchParams(location.search), FOCUS={uuid:Q.get('focus')||'', host:Q.get('host')||''};
 
@@ -174,22 +178,22 @@ function renderPageGlance(k){
     else if(o.s) m.onClick=()=>{ setScope(o.s,{sort:o.sort||null,clearText:true}); jumpTo(o.j||'tblCard'); };
     else m.href='#'+(o.j||'tblCard');
     return m; };
-  const P=x=>(x==null?'—':x+'%');
+  const P=x=>(x==null?'—':x+'%'), PO=x=>(x==null?'—':x+'%'+OT());
   const bad=(n,sev)=>n?sev:'ok';
   const hv=!!k.has_vulns, tu=k.top_unowned;
   const noV=l=>mk('—',l,{n:0,u:'no vulns table in navi.db'});
   renderGlance('glance', [
     {title:'Coverage',
-     hero:mk(fnum(k.owned),'owned at any layer · '+P(k.owned_pct),{s:'owned',n:k.owned,sev:'ok',t:'Business Owner, route/path Owner or a single Asset Owner'}),
+     hero:mk(fnum(k.owned),'owned at any layer · '+PO(k.owned_pct),{s:'owned',n:k.owned,sev:'ok',t:'Business Owner, route/path Owner or a single Asset Owner'}),
      bar:[{label:'Owned',value:k.owned||0,color:'ok'},{label:'No owner',value:k.no_owner||0,color:'crit'}], legend:false,
-     chips:[mk(fnum(k.assets),'assets in navi.db',{s:'all',n:k.assets,sev:'info',u:'all assets ↓',t:fnum(k.with_surface)+' sit on an exposure route or path'}),
-            mk(fnum(k.no_owner),'no owner at any layer · '+P(k.no_owner_pct),{s:'noowner',n:k.no_owner,sev:bad(k.no_owner,'crit'),u:'assign owners ↓'}),
+     chips:[mk(fnum(k.assets),TS()?'assets tagged '+tagScopeLabel():'assets in navi.db',{s:'all',n:k.assets,sev:'info',u:TS()?'all of them ↓':'all assets ↓',t:fnum(k.with_surface)+' sit on an exposure route or path'}),
+            mk(fnum(k.no_owner),'no owner at any layer · '+PO(k.no_owner_pct),{s:'noowner',n:k.no_owner,sev:bad(k.no_owner,'crit'),u:'assign owners ↓'}),
             mk(fnum(k.fully_claimed),'fully claimed · every route & path · '+P(k.fully_claimed_pct),{s:'full',n:k.fully_claimed,sev:'ok',t:'of the '+fnum(k.with_surface)+' assets on the exposure surface'}),
             mk(P(k.avg_claimed_pct),'average claimed per asset',{s:'all',sort:'claimed',sev:'info',u:'least-claimed first ↓'}),
             mk(fnum(k.unclaimed),'unclaimed on the surface · '+P(k.unclaimed_pct),{s:'unclaimed',n:k.unclaimed,sev:bad(k.unclaimed,'crit'),t:'Exposed (routes/paths) with no owner and no disposition'})]},
     {title:'Ownership layers',
-     hero:mk(fnum(k.business_owned),'with a Business Owner · '+P(k.business_owned_pct),{s:'biz',n:k.business_owned,sev:'info',t:'Business leaders accountable for groups of assets'}),
-     chips:[mk(fnum(k.no_business),'no Business Owner · '+P(k.no_business_pct),{s:'nobiz',n:k.no_business,sev:bad(k.no_business,'high'),u:'assign one with ✨ Ask ↓'}),
+     hero:mk(fnum(k.business_owned),'with a Business Owner · '+PO(k.business_owned_pct),{s:'biz',n:k.business_owned,sev:'info',t:'Business leaders accountable for groups of assets'}),
+     chips:[mk(fnum(k.no_business),'no Business Owner · '+PO(k.no_business_pct),{s:'nobiz',n:k.no_business,sev:bad(k.no_business,'high'),u:'assign one with ✨ Ask ↓'}),
             mk(fnum(k.asset_owned),'single Asset Owner',{s:'asset',n:k.asset_owned,sev:'info',t:'One owner for the whole asset — closes it at 100%'}),
             mk(fnum(k.asset_owned_complete)+' / '+fnum(k.asset_owned_remainder)+' rest','Asset Owner · everything / the rest',{s:k.asset_owned_remainder&&!k.asset_owned_complete?'remainder':'complete',n:k.asset_owned,t:'complete mode owns every route & path; remainder mode only what was unowned'}),
             mk(fnum(k.tech_owned),'with route/path owners',{h:'/agents/exproute/page.html',n:k.tech_owned,sev:'info',u:'🧭 Exposure Routes (Atlas) →',t:'Technology owners on routes & paths (Owner tags) — assigned in Atlas'}),
@@ -207,8 +211,8 @@ function renderPageGlance(k){
             hv?mk(fnum(k.unowned_kev),'no owner · CISA KEV finding',{s:'ukev',n:k.unowned_kev,sev:bad(k.unowned_kev,'crit'),u:'assign owners ↓',t:fnum(k.kev_finding_assets)+' assets have a known-exploited finding'}):noV('no owner · CISA KEV finding'),
             hv?mk(fnum(k.unowned_crit_findings),'critical findings nobody owns',{h:'/agents/sla/page.html',n:k.unowned_crit_findings,sev:bad(k.unowned_crit_findings,'high'),u:'⏱ who fixes them? SLA Adherence →'})
               :mk('—','critical findings nobody owns',{h:'/agents/sla/page.html',n:0,u:'⏱ SLA Adherence →'}),
-            tu?mk(String(tu.hostname||'').trim()||tu.ip||String(tu.uuid).slice(0,12),'highest-ACR asset with no owner · ACR '+(tu.acr==null?'—':tu.acr),{h:'/agents/argos/page.html?target='+encodeURIComponent(tu.uuid),sev:'high',u:'🔦 open in Argos →'})
-              :mk('—','highest-ACR asset with no owner',{h:'/agents/argos/page.html',n:0,u:'every asset has an owner · 🔦 Argos →'}),
+            tu?mk(String(tu.hostname||'').trim()||tu.ip||String(tu.uuid).slice(0,12),'highest-ACR asset with no owner'+(TS()?' in this tag':'')+' · ACR '+(tu.acr==null?'—':tu.acr),{h:'/agents/argos/page.html?target='+encodeURIComponent(tu.uuid),sev:'high',u:'🔦 open in Argos →'})
+              :mk('—','highest-ACR asset with no owner'+(TS()?' in this tag':''),{h:'/agents/argos/page.html',n:0,u:(TS()?'every asset in this tag':'every asset')+' has an owner · 🔦 Argos →'}),
             mk(fnum(k.no_owner),'unowned assets weigh in the Exposure Score',{h:'/agents/fused_score/page.html',n:k.no_owner,sev:'info',u:'🎯 Exposure Score →',t:'Nemesis ranks unowned exposure higher — owning them lowers it'}),
             mk(fnum(k.blind_no_signal),'no Hound signal · nothing known',{s:'nosig',n:k.blind_no_signal,t:'No non-ownership tags — the pack has not tagged these yet'})]}
   ]);
@@ -234,7 +238,7 @@ function renderCrown(cj,k){
   CJ=cj;
   document.getElementById('cjAcr').textContent=k.crown_acr;
   document.getElementById('cjCount').textContent=fnum(k.crown)+' jewels · '+fnum(k.crown_no_owner)+' with no owner';
-  if(!cj.length){ document.getElementById('cjBody').innerHTML='<p class="sub">No assets at ACR ≥ '+num(k.crown_acr)+'. Calibrate ACR in <a class="applink" href="/agents/acr/page.html">ACR Calibration (Anubis)</a> to mark your crown jewels.</p>'; return; }
+  if(!cj.length){ document.getElementById('cjBody').innerHTML='<p class="sub">No assets at ACR ≥ '+num(k.crown_acr)+(TS()?' in this tag':'')+'. Calibrate ACR in <a class="applink" href="/agents/acr/page.html">ACR Calibration (Anubis)</a> to mark your crown jewels.</p>'; return; }
   document.getElementById('cjBody').innerHTML=cj.map(r=>{
     const owned=r.has_owner;
     const sigs=Object.keys(r.signals||{});
@@ -302,7 +306,7 @@ function renderTable(){
 async function doAssign(uuid, owner, mode, btn){
   owner=(owner||'').trim(); if(!owner) return false;
   await testRunStatus();
-  if(!confirm('Tag “'+owner+'” as the '+(mode==='complete'?'COMPLETE owner of every route & path':'owner of the REMAINING unowned routes/paths')+' on this asset (1 asset)? This writes an '+tagCat('Asset Owner')+' tag and cascades '+tagCat('Owner')+' tags.'+(WRITES?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.'))) return false;
+  if(!confirm('Tag “'+owner+'” as the '+(mode==='complete'?'COMPLETE owner of every route & path':'owner of the REMAINING unowned routes/paths')+' on this asset (1 asset)'+tagScopeNote()+'? This writes an '+tagCat('Asset Owner')+' tag and cascades '+tagCat('Owner')+' tags.'+(WRITES?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.'))) return false;
   if(btn){ btn.disabled=true; }
   let o; try{ o=await API.post('assign',{uuid,owner,mode,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
   if(btn){ btn.disabled=false; }
@@ -321,7 +325,7 @@ async function claimAllBlind(){
   const nB=BLIND.length;
   if(!nB){ flash('flash','No unclaimed assets to claim.','warn'); return; }
   await testRunStatus();
-  if(!confirm('Tag '+tagCat('Asset Owner')+' “'+owner+'” on all '+nB+' unclaimed asset(s) as the COMPLETE owner (every route & path)?'+(WRITES?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.'))) return;
+  if(!confirm('Tag '+tagCat('Asset Owner')+' “'+owner+'” on all '+nB+' unclaimed asset(s)'+tagScopeNote()+' as the COMPLETE owner (every route & path)?'+(WRITES?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.'))) return;
   const btn=document.getElementById('claimAllBtn'); btn.disabled=true; btn.textContent='⏳ tagging…';
   // the server rebuilds "the blind spots shown" from this run — no uuid list leaves the page
   let o; try{ o=await API.post('apply',{owner,run:RUN,key:'blind',layer:'asset',mode:'complete',confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
@@ -345,7 +349,7 @@ async function previewPlan(){
     '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">'+
       '<span class="chip">Owner: <b>'+esc(o.owner)+'</b></span>'+
       '<span class="chip">Layer: '+layerlabel+'</span>'+ modeToggle +
-      '<span class="chip">Matches: <b>'+num(o.match_count)+'</b> assets</span>'+
+      '<span class="chip">Matches: <b>'+num(o.match_count)+'</b> assets'+esc(tagScopeNote())+'</span>'+
       '<span class="chip">Filter: '+esc((o.filter_desc||[]).join(' · '))+'</span></div>'+
     (o.owner_note?'<p class="sub" style="margin:6px 0 0;color:#e7c66b">⚠ '+esc(o.owner_note)+'</p>':'')+
     (o.match_count?'<div style="overflow-x:auto;margin-top:8px"><table><thead><tr><th>Host</th><th>IP</th><th>ACR</th><th>Tags</th></tr></thead><tbody>'+sample+'</tbody></table>'+(o.match_count>12?'<p class="sub">…and '+num(o.match_count-12)+' more.</p>':'')+'</div>':'<p class="sub" style="margin:6px 0 0">No assets matched that description.</p>')+
@@ -359,7 +363,7 @@ async function applyPlan(){
   const layer=PLAN.layer, owner=PLAN.owner, mode=PLAN.mode||'complete';
   await testRunStatus();
   const what=layer==='asset'?('the '+(mode==='remainder'?'REMAINING':'COMPLETE')+' owner of '+PLAN.match_count+' asset(s) ('+tagCat('Asset Owner')+' tag)'):(tagCat('Business Owner')+' of '+PLAN.match_count+' asset(s)');
-  if(!confirm('Tag “'+owner+'” as '+what+'?'+(WRITES?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.'))) return;
+  if(!confirm('Tag “'+owner+'” as '+what+tagScopeNote()+'?'+(WRITES?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.'))) return;
   const ap=document.getElementById('plApply'); if(ap){ap.dataset.label=ap.dataset.label||ap.textContent;ap.disabled=true;ap.textContent='⏳ tagging…';}
   let o; try{ o=await API.post('apply',{owner,filter:PLAN.filter||{},layer,mode,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
   if(!o.ok){ flash('flash','✗ '+esc(o.error||'failed'),'crit'); if(ap){ap.disabled=false;ap.textContent=ap.dataset.label||'🏷️ Tag';} return; }
@@ -374,7 +378,7 @@ async function applyPlan(){
 /* ---- load ---- */
 async function load(){
   const b=document.getElementById('load'); b.disabled=true;
-  flash('flash','<span class="spin"></span> rolling up ownership across every asset…','run');
+  flash('flash','<span class="spin"></span> rolling up ownership across '+(TS()?'the assets tagged <b>'+esc(tagScopeLabel())+'</b>':'every asset')+'…','run');
   let o; try{ o=await API.post('overview'); }catch(e){ o={ok:false,error:e.message}; }
   b.disabled=false;
   const res=o.result||o;
@@ -425,6 +429,11 @@ document.querySelectorAll('#tblScope button').forEach(b=>b.onclick=()=>setScope(
 document.getElementById('scopeClr').onclick=()=>setScope('all');
 document.querySelectorAll('#tblSort button').forEach(b=>b.onclick=()=>{ document.querySelectorAll('#tblSort button').forEach(x=>x.classList.remove('on')); b.classList.add('on'); SORT=b.dataset.o; renderTable(); });
 mountAgentHeader({id:'asset_ownership',icon:'📌',name:'Asset Ownership',sub:'Terminus · who owns each asset · crown jewels · blind spots'});
+mountTagScope({agent:'asset_ownership', runButton:'#load',
+  note:'each asset’s ownership is the same as in the whole estate, and owner tags written here go only on assets carrying this tag'});
+if(TS()){ SCOPES.all[0]='All assets in this tag';
+  document.getElementById('idleWho').textContent='the assets tagged '+tagScopeLabel();
+  document.getElementById('tblWho').textContent='Every asset tagged '+tagScopeLabel(); }
 try{ hMailAuto(); }catch(e){}
 jget('/api/health').then(h=>{ WRITES=!!h.writes_enabled; const c=document.getElementById('nlLlm'); if(c)c.textContent=h.llm?'✨ AI available':'rule-based (set ANTHROPIC_API_KEY for full NL)'; }).catch(()=>{});
 /* explicit-run: a deep link (?focus=&host= from Exposure Score) no longer starts the estate-wide

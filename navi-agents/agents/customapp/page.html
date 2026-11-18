@@ -46,7 +46,7 @@
 
   <section class="card" id="secIgnore" data-nav="Ignore list" data-nav-icon="🚫">
     <div class="toolbar"><div><h2 style="margin:0">🚫 Ignore list <span class="sub" id="cappIgnoreCount"></span></h2>
-      <p class="sub" style="margin:2px 0 0">False positives — web pages &amp; noise that show up as “apps”. Ignored terms are hidden from discovery on every run and persisted server-side (<span class="mono">agents/customapp/ignore.json</span>). Match is by candidate name/keyword or substring.</p></div></div>
+      <p class="sub" style="margin:2px 0 0">False positives — web pages &amp; noise that show up as “apps”. Ignored terms are hidden from discovery on every run and persisted server-side (<span class="mono">agents/customapp/ignore.json</span>). Match is by candidate name/keyword or substring. <span id="cappIgnoreScope"></span></p></div></div>
     <div class="toolbar"><input id="cappIgnoreInput" class="fld" style="flex:1;min-width:240px" placeholder="add a term to ignore (e.g. wordpress, /healthcheck, login)"><button class="btn sm" id="cappIgnoreAdd">+ Ignore</button>
       <button class="btn ghost sm" id="cappIgnoreExport" title="Download the ignore list as CSV">⤓ Export CSV</button>
       <label class="btn ghost sm" style="cursor:pointer" title="Import ignore terms from a CSV (merges with the current list)">⤒ Import CSV<input id="cappIgnoreImport" type="file" accept=".csv,text/csv,text/plain" style="display:none"></label></div>
@@ -77,7 +77,7 @@ function renderCappMatchTables(){
   const rtb=document.querySelector('#cRouteTbl tbody');
   if(rtb){ const pages=Math.max(1,Math.ceil(rShow.length/PER)); if(CUR_RP>=pages)CUR_RP=pages-1; if(CUR_RP<0)CUR_RP=0;
     const rc=document.getElementById('cRouteCount'); if(rc)rc.textContent='('+rShow.length+(rHid&&!SHOW_OWNED?' gaps · '+rHid+' owned hidden':'')+')';
-    rtb.innerHTML=rShow.length?rShow.slice(CUR_RP*PER,(CUR_RP+1)*PER).map(rt=>`<tr><td class="mono">${esc(String(rt.route_id))}</td><td><b>${esc(rt.app_name||'')}</b>${rt.owned?' '+_ownBadge:''}</td><td>${esc(rt.vuln_type||'')}</td><td>${esc(String(rt.total_vulns||''))}</td></tr>`).join(''):('<tr><td colspan="4" class="sub">'+(rHid?'All matching routes are already owned — toggle “Show owned” to see them.':'No route matches.')+'</td></tr>');
+    rtb.innerHTML=rShow.length?rShow.slice(CUR_RP*PER,(CUR_RP+1)*PER).map(rt=>`<tr><td class="mono">${esc(String(rt.route_id))}</td><td><b>${esc(rt.app_name||'')}</b>${rt.owned?' '+_ownBadge:''}</td><td>${esc(rt.vuln_type||'')}</td><td>${esc(String(rt.total_vulns||''))}</td>${tagScope()?`<td class="mono">${N(rt.scope_assets)}</td>`:''}</tr>`).join(''):('<tr><td colspan="'+(tagScope()?5:4)+'" class="sub">'+(rHid?'All matching routes are already owned — toggle “Show owned” to see them.':'No route matches.')+'</td></tr>');
     makePager(document.getElementById('cRoutePager'),rShow.length,CUR_RP,p=>{CUR_RP=p;renderCappMatchTables();}); }
   const ptb=document.querySelector('#cPathTbl tbody');
   if(ptb){ const pages=Math.max(1,Math.ceil(mShow.length/PER)); if(CUR_MP>=pages)CUR_MP=pages-1; if(CUR_MP<0)CUR_MP=0;
@@ -113,7 +113,10 @@ function renderMetrics(){ if(!CAPP) return; const m=CAPP.metrics||{}, ct=CAPP.co
              {label:'no owner',value:c.filter(x=>x.assets&&x.unowned===x.assets).length,color:'high'},{label:'no assets',value:c.filter(x=>!x.assets).length,color:'none'}];
   const has=c.length>0;   // the split bars + top list only once there are candidates (as before)
   const el=document.getElementById('metrics');
-  el.innerHTML='<p class="sub" style="margin:2px 0 0">Click a number to filter the candidates.</p><div id="glxCapp"></div>';
+  const sc=tagScope(), sd=CAPP.scope||null;
+  el.innerHTML=(sc?'<p class="sub" style="margin:2px 0 0">Only the candidates on the <b>'+N(sd?sd.assets:0)+'</b> asset(s) tagged <b>'+esc(tagScopeLabel(sc))+'</b>; asset counts cover only those assets. Whether an app is in the software inventory is still judged over the whole inventory.</p>':'')
+    +'<p class="sub" style="margin:2px 0 0">Click a number to filter the candidates.</p><div id="glxCapp"></div>';
+  const OF=sc?' of this tag':'';
   renderGlance('glxCapp', [
     {title:'Discovery', t:'Routes are named by Tenable; path names are tokens from vulnerable folders/files.',
      hero:{v:N(m.candidates), l:'apps outside the inventory', u:`${N(m.routes)} from routes · ${N(m.paths)} from paths`, sev:'info', href:'#secCand'},
@@ -122,18 +125,18 @@ function renderMetrics(){ if(!CAPP) return; const m=CAPP.metrics||{}, ct=CAPP.co
             {v:N(m.paths), l:'from filesystem paths', u:'folder / file names on vulnerable paths', sev:'info', filter:'path'},
             {v:N(CAPP.hidden), l:'hidden by the ignore list', u:`${N((CAPP.ignored||[]).length)} ignore term(s)`, href:'#secIgnore'}]},
     {title:'Exposure', t:'An app is owned when its assets carry an Owner tag.',
-     hero:{v:N(m.assets), l:'assets running custom software', u:`top candidate sits on ${N(m.top_assets)}`},
+     hero:{v:N(m.assets), l:'assets running custom software'+OF, u:`top candidate sits on ${N(m.top_assets)}`+(sc?' of this tag\'s assets':'')},
      bar:has?own:null,
      chips:[m.has_acr?{v:N(m.crown_candidates), l:'apps on crown jewels', u:`${N(m.crown_assets)} crown-jewel asset(s) (ACR ≥ 7)`, sev:'crit', filter:'crown'}:null,
-            {v:N(m.unowned_candidates), l:'apps with no owner at all', u:`${N(m.unowned_assets)} of their assets carry no Owner tag`, sev:'high', filter:'unowned',
+            {v:N(m.unowned_candidates), l:'apps with no owner at all', u:`${N(m.unowned_assets)} of their assets${OF} carry no Owner tag`, sev:'high', filter:'unowned',
              t:'every asset the app sits on lacks an Owner tag — hand off to Atlas (Exposure Routes)'},
-            {v:N(c.filter(x=>!x.assets).length), l:'candidates with no assets', u:'route plugins not found on any asset in navi.db', filter:'noassets'}],
+            sc?null:{v:N(c.filter(x=>!x.assets).length), l:'candidates with no assets', u:'route plugins not found on any asset in navi.db', filter:'noassets'}],
      ranked:has?{title:'Biggest by assets', items:top.map(x=>({label:x.name, value:x.assets, sev:'info', t:x.name+' ('+x.source+'): '+N(x.assets)+' assets'}))}:null},
     {title:'Naming progress',
      hero:{v:m.named_pct!=null?m.named_pct+'%':'—', l:'already named', u:`${N(m.named)} tagged Custom App · ${N(m.custom_app_tags)} Custom App value(s) in navi.db`, sev:'ok', filter:'named'},
      bar:has?[{label:'named (Custom App tag)',value:m.named||0,color:'ok'},{label:'still to name',value:m.unnamed||0,color:'high'}]:null,
      chips:[{v:N(m.unnamed), l:'still to name', u:'no Custom App tag with this name yet', sev:'high', filter:'unnamed'},
-            {v:N(ct.software), l:'software inventory entries', u:`compared against ${N(ct.routes)} routes and ${N(ct.paths)} path rows`}]}
+            {v:N(ct.software), l:'software inventory entries', u:`compared against ${N(ct.routes)} routes and ${N(ct.paths)} path rows`+(sc?' on this tag\'s assets':'')}]}
   ], {active:FILTER, onFilter:(f,_el,on)=>{ FILTER=on?f:null; CAPP_PAGE=0; renderMetrics(); renderCapp();
     if(FILTER) document.getElementById('secCand').scrollIntoView({behavior:'smooth',block:'start'}); }});
   if(has){ setNavCount('secCand', N(c.length)); setNavCount('secIgnore', N((CAPP.ignored||[]).length)); }
@@ -150,10 +153,10 @@ function renderCapp(){if(!CAPP)return;const tb=document.querySelector('#cappTbl 
   renderIgnore(CAPP.ignored||[]);
   const emptyMsg=CAPP.needs_setup
     ? '<tr><td colspan="7" class="sub" style="color:var(--warn)">⚠ '+esc(CAPP.setup_hint||'vuln_route / vuln_paths are empty — run navi config update route and navi config update paths, then re-sync navi.db.')+'</td></tr>'
-    : (all.length?'<tr><td colspan="7" class="sub">Nothing matches the filter.</td></tr>':'<tr><td colspan="7" class="sub">Nothing outside inventory. ✔</td></tr>');
+    : (all.length?'<tr><td colspan="7" class="sub">Nothing matches the filter.</td></tr>':'<tr><td colspan="7" class="sub">Nothing outside inventory'+esc(tagScopeNote(' on the assets tagged '))+'. ✔</td></tr>');
   const pages=Math.max(1,Math.ceil(cand.length/PER)); if(CAPP_PAGE>=pages)CAPP_PAGE=pages-1;
   const slice=cand.slice(CAPP_PAGE*PER,(CAPP_PAGE+1)*PER);
-  tb.innerHTML=cand.length?slice.map(c=>`<tr><td><span class="dtype ${c.source==='route'?'t-app':'t-iot'}">${esc(c.source)}</span></td><td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(c.name)}"><b>${esc(c.name)}</b></td><td class="mono" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(c.source==='route'?N(c.evidence)+' finding(s) on the route':N(c.evidence)+' asset(s) with this path token')}">${N(c.evidence)}</td>`+
+  tb.innerHTML=cand.length?slice.map(c=>`<tr><td><span class="dtype ${c.source==='route'?'t-app':'t-iot'}">${esc(c.source)}</span></td><td style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(c.name)}"><b>${esc(c.name)}</b></td><td class="mono" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(c.source==='route'?N(c.evidence)+' finding(s) on the route'+(tagScope()?' (whole estate — the route has no per-asset rows)':''):N(c.evidence)+' asset(s) with this path token'+(tagScope()?' (of this tag)':''))}">${N(c.evidence)}</td>`+
   `<td class="mono">${N(c.assets)}</td>`+
   `<td>${c.named?'<span class="pill" style="color:var(--ok)" title="a Custom App tag with this name exists">named</span> ':''}${c.crown?`<span class="pill" style="color:var(--crit)" title="${N(c.crown)} crown-jewel asset(s), ACR ≥ 7">👑 ${N(c.crown)}</span> `:''}${c.assets&&c.unowned===c.assets?'<span class="pill" style="color:#e0913a" title="none of its assets has an Owner tag">no owner</span>':(c.unowned?`<span class="pill" style="color:#c9a227" title="${N(c.unowned)} of ${N(c.assets)} assets have no Owner tag">${N(c.unowned)} unowned</span>`:'')}</td>`+
   `<td class="mono" style="font-size:11px;color:var(--mut);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(c.example)}">${esc(_shortPath(c.example))}</td><td><button class="btn sm" data-k="${esc(c.keyword)}" data-n="${esc(c.name)}">Search &amp; tag</button> <button class="btn ghost sm" data-ign="${esc(c.keyword||c.name)}" title="Hide from future runs">🚫 Ignore</button></td></tr>`).join(''):emptyMsg;
@@ -173,17 +176,17 @@ async function cappFind(){const prompt=document.getElementById('cappPrompt').val
 async function cappSearch(name,keyword,fb){flash('cappFlash',`<span class="spin"></span> searching routes + paths for “${esc(keyword)}”…`,'run');
   let o;try{o=await API.post('search',{keyword});}catch(e){o={ok:false}}
   const res=document.getElementById('cappResult');if(!o.ok){flashClear('cappFlash');res.innerHTML='<p class="sub">Search failed.</p>';return;}
-  const routes=o.routes||[]; const canTag=(o.asset_count||0)||routes.length;
+  const routes=o.routes||[]; const SC=tagScope(); const canTag=SC?(o.tag_assets||0):((o.asset_count||0)||routes.length);
   if(o.needs_setup){ flash('cappFlash','⚠ '+esc(o.setup_hint||'vuln_route / vuln_paths are empty — run navi config update route + paths, then re-sync.'),'crit');
     res.innerHTML='<div class="callbox" style="color:var(--warn)">This agent needs navi.db\'s <span class="mono">vuln_route</span> + <span class="mono">vuln_paths</span> tables. Populate them: <span class="mono">navi config update route</span> then <span class="mono">navi config update paths</span> (they are not part of a normal full sync).</div>'; return; }
-  flash('cappFlash',`Found <b>${N(o.path_count)}</b> path(s) on <b>${N(o.asset_count)}</b> asset(s) and <b>${N(o.route_count||0)}</b> route(s) for “${esc(keyword)}”.`+(fb?' <span class="sub">(name parsed locally; set ANTHROPIC_API_KEY for NL)</span>':''),'ok');
+  flash('cappFlash',`Found <b>${N(o.path_count)}</b> path(s) on <b>${N(o.asset_count)}</b> asset(s) and <b>${N(o.route_count||0)}</b> route(s) for “${esc(keyword)}”`+esc(tagScopeNote())+(SC?` — tagging here reaches <b>${N(o.tag_assets||0)}</b> of this tag's asset(s).`:'.')+(fb?' <span class="sub">(name parsed locally; set ANTHROPIC_API_KEY for NL)</span>':''),'ok');
   // keep the full result sets and paginate the (potentially huge) match tables to 50/page
-  CUR_ROUTES=routes; CUR_MATCHES=o.matches||[]; CUR_RP=0; CUR_MP=0; CAPP_LAST={keyword,assets:o.asset_count||0,routes:routes.length};
-  res.innerHTML=`<div style="display:flex;gap:10px;align-items:center;margin:12px 0;flex-wrap:wrap"><label class="sub">Tag value</label><input id="cN" class="fld" value="${esc(name)}"><label class="sub">keyword</label><input id="cK" class="fld" value="${esc(keyword)}"><button class="btn run sm" id="cT" title="Tag every matching route + path asset">🏷️ Tag Custom App:${esc(name)}</button>${canTag?'':'<span class="sub" style="color:var(--warn)">no matches for this keyword yet — edit it and click Tag to re-check</span>'}</div>
-    <div class="callbox">paths → navi_enrich_tag(category="Custom App", value="${esc(name)}", query="${esc(o.tag_query)}", confirm=True)${routes.length?`<br>routes → navi_enrich_tag(category="Custom App", value="${esc(name)}", route_id=&lt;each of ${routes.length}&gt;, confirm=True)`:''}</div>
+  CUR_ROUTES=routes; CUR_MATCHES=o.matches||[]; CUR_RP=0; CUR_MP=0; CAPP_LAST={keyword,assets:o.asset_count||0,routes:routes.length,tag_assets:o.tag_assets||0};
+  res.innerHTML=`<div style="display:flex;gap:10px;align-items:center;margin:12px 0;flex-wrap:wrap"><label class="sub">Tag value</label><input id="cN" class="fld" value="${esc(name)}"><label class="sub">keyword</label><input id="cK" class="fld" value="${esc(keyword)}"><button class="btn run sm" id="cT" title="${SC?'Tag the matching route + path assets that carry '+esc(tagScopeLabel(SC))+' (only those)':'Tag every matching route + path asset'}">🏷️ Tag Custom App:${esc(name)}</button>${canTag?'':'<span class="sub" style="color:var(--warn)">no matches for this keyword yet — edit it and click Tag to re-check</span>'}</div>
+    <div class="callbox">${SC?`tag view → the assets tagged ${esc(tagScopeLabel(SC))} with a path matching “${esc(keyword)}”${routes.length?` or a plugin of the ${routes.length} matching route(s)`:''} are re-read from navi.db on the server and tagged Custom App : ${esc(name)} by UUID (≤ 1,999 per navi job) — never --route_id, which would reach every asset on the route`:`paths → navi_enrich_tag(category="Custom App", value="${esc(name)}", query="${esc(o.tag_query)}", confirm=True)${routes.length?`<br>routes → navi_enrich_tag(category="Custom App", value="${esc(name)}", route_id=&lt;each of ${routes.length}&gt;, confirm=True)`:''}`}</div>
     <div class="toolbar" style="margin:12px 0 0;gap:8px;align-items:center;flex-wrap:wrap"><label class="sub" style="display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--ink)"><input type="checkbox" id="cShowOwned"> Show owned (claimed) routes &amp; paths</label><span class="chip" id="cGapNote"></span><span class="sub">— the hunt is for <b>gaps</b> nobody owns yet; owned routes/paths are hidden to cut the noise.</span></div>`
-    +(routes.length?`<h3 style="margin:14px 0 4px">Matching routes (tagged via --route_id) <span class="sub" id="cRouteCount"></span></h3><table class="nopage" id="cRouteTbl"><thead><tr><th>Route</th><th>App name</th><th>Type</th><th>Total vulns</th></tr></thead><tbody></tbody></table><div id="cRoutePager" class="toolbar" style="margin-top:8px;display:none"></div>`:'')
-    +`<h3 style="margin:14px 0 4px">Matching paths (tagged via --query) <span class="sub" id="cPathCount"></span></h3><table id="cPathTbl" class="nopage"><thead><tr><th>Path</th><th>Plugin</th><th>Host</th><th>IP</th></tr></thead><tbody></tbody></table><div id="cPathPager" class="toolbar" style="margin-top:8px;display:none"></div><div id="cR"></div>`;
+    +(routes.length?`<h3 style="margin:14px 0 4px">Matching routes (${SC?'on this tag\'s assets':'tagged via --route_id'}) <span class="sub" id="cRouteCount"></span></h3><table class="nopage" id="cRouteTbl"><thead><tr><th>Route</th><th>App name</th><th>Type</th><th>Total vulns</th>${SC?'<th title="assets of this tag carrying any of the route\'s plugins">Tag assets</th>':''}</tr></thead><tbody></tbody></table><div id="cRoutePager" class="toolbar" style="margin-top:8px;display:none"></div>`:'')
+    +`<h3 style="margin:14px 0 4px">Matching paths (${SC?'on this tag\'s assets':'tagged via --query'}) <span class="sub" id="cPathCount"></span></h3><table id="cPathTbl" class="nopage"><thead><tr><th>Path</th><th>Plugin</th><th>Host</th><th>IP</th></tr></thead><tbody></tbody></table><div id="cPathPager" class="toolbar" style="margin-top:8px;display:none"></div><div id="cR"></div>`;
   renderCappMatchTables();
   const so=document.getElementById('cShowOwned'); if(so){ so.checked=SHOW_OWNED; so.onchange=()=>{ SHOW_OWNED=so.checked; CUR_RP=0; CUR_MP=0; renderCappMatchTables(); }; }
   document.getElementById('cT').onclick=cappTag;
@@ -198,7 +201,11 @@ async function cappTag(){
   const name=(nEl&&nEl.value.trim())||'', keyword=(kEl&&kEl.value.trim())||'';
   if(!name||!keyword){ r.innerHTML='<div class="callbox" style="color:var(--warn)">Enter a tag value and a keyword first.</div>'; scroll(); return; }
   await testRunStatus(); const L=(CAPP_LAST&&CAPP_LAST.keyword===keyword)?CAPP_LAST:null;
-  if(!confirm('Tag '+tagCat('Custom App')+' : '+name+' on '+(L?(L.assets+' asset'+(L.assets===1?'':'s')+' with a path matching "'+keyword+'" + every asset on '+L.routes+' matching route'+(L.routes===1?'':'s')+' (--route_id)')
+  const SC=tagScope();
+  if(SC){ if(!confirm('Tag '+tagCat('Custom App')+' : '+name+' on '+(L&&L.keyword===keyword?(N(L.tag_assets)+' asset'+(L.tag_assets===1?'':'s')):'the assets')
+      +' with a path or route matching "'+keyword+'"'+tagScopeNote()+'? The set is re-read from navi.db on the server; no asset outside the tag is touched.'
+      +(WRITES?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.'))) return; }
+  else if(!confirm('Tag '+tagCat('Custom App')+' : '+name+' on '+(L?(L.assets+' asset'+(L.assets===1?'':'s')+' with a path matching "'+keyword+'" + every asset on '+L.routes+' matching route'+(L.routes===1?'':'s')+' (--route_id)')
       :('every asset with a path or route matching "'+keyword+'" (keyword changed since the search — matches are re-checked on the server)'))+'?'
     +(WRITES?'':'\n\nWrites are gated (NAVI_ALLOW_WRITES not set) — the job queues but is blocked.'))) return;
   if(btn&&btn.disabled)return;
@@ -207,7 +214,7 @@ async function cappTag(){
   scroll();
   let o; try{ o=await API.post('tag',{name,keyword,confirm:true}); }catch(e){ o={ok:false,error:e.message}; }
   o=o||{ok:false,error:'no response from server'};
-  const detail=o.ok?` — ${o.path_tags||0} path-tag + ${o.route_tags||0} route-tag call(s)`+(o.writes_enabled?'. Allow ~30 min for Tenable.':' (gated — set NAVI_ALLOW_WRITES=1 and put navi on PATH).'):'';
+  const detail=o.ok?(SC?` on ${N(o.scoped_assets||0)} asset(s)${esc(tagScopeNote())} — ${o.path_tags||0} navi job(s)`:` — ${o.path_tags||0} path-tag + ${o.route_tags||0} route-tag call(s)`)+(o.writes_enabled?'. Allow ~30 min for Tenable.':' (gated — set NAVI_ALLOW_WRITES=1 and put navi on PATH).'):'';
   const msg=o.message||o.error||o.stderr||'failed';
   r.innerHTML='<div class="callbox" style="color:'+(o.ok?'var(--ok)':'#ffb4c6')+'">'+(o.ok?`✓ Custom App:${esc(name)} tagged`+detail+' — in the <a href="/web/tags-log.html">Tagging log</a>':'✗ '+esc(msg))+'</div>'
     +((!o.ok&&o.needs_setup)?'<div class="sub" style="margin-top:6px;color:var(--warn)">Populate the routing tables first: <span class="mono">navi config update route</span> then <span class="mono">navi config update paths</span>, then re-sync navi.db.</div>':'');
@@ -254,6 +261,8 @@ async function ignImportCsv(file){
  if(ex)ex.onclick=ignExportCsv;
  if(im)im.onchange=e=>{const f=e.target.files&&e.target.files[0];ignImportCsv(f);e.target.value='';};}
 mountAgentHeader({id:'customapp',icon:'🧩',name:'Custom App Name Agent',sub:'Cavall Hound · routes/paths discovery · NL tagging'});
+mountTagScope({agent:'customapp', runButton:'#runCapp', note:'apps are found on those assets\' paths and routes; the software inventory check and the ignore list stay estate-wide'});
+if(tagScope()){ const is=document.getElementById('cappIgnoreScope'); if(is) is.textContent='The list is shared: an ignore added here also hides the term on the whole estate and every tag.'; }
 mountSectionNav();
 try{ hMailAuto(); }catch(e){}
 (async()=>{                       // explicit-run: nothing scans navi.db until ▶ Run

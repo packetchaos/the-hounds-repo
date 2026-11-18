@@ -359,12 +359,24 @@ def _like_lit(s):
     return str(s).replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
-def product_sets(db_path=None, only=None):
+def _scope_set(scope, db_path=None):
+    """The asset uuids of a tag scope (key, value) — re-read from navi.db — or None for the whole
+    estate (build 489)."""
+    if not scope or not scope[0] or not scope[1]:
+        return None
+    from core import tagscope
+    return tagscope.uuids(scope[0], scope[1], path=db_path)
+
+
+def product_sets(db_path=None, only=None, scope=None):
     """Stream `software` + `cpes` (db.iter) and aggregate products exactly as the page did.
     Returns (prod, info): prod = {lower name: {name, versions{v: set(int)}, assets set(int),
     installs, soft, cpe}} with asset ids as small ints; info = {ids (uuid→int), records, cpe_rows,
     soft_assets, cpe_assets, all_assets}. `only` = product keys to keep (rows are pre-filtered
-    in SQL by a LIKE on each name, then matched exactly after parsing)."""
+    in SQL by a LIKE on each name, then matched exactly after parsing).
+    `scope` = (tag key, tag value) — build 489: only that tag's assets count (a software row's
+    other assets are dropped from it, a row with none of them is skipped); None = whole estate."""
+    sset = _scope_set(scope, db_path)
     ids = {}
 
     def aid(u):
@@ -402,8 +414,13 @@ def product_sets(db_path=None, only=None):
     for asset, sstr in db.iter("SELECT asset_uuid, software_string FROM software WHERE software_string IS NOT NULL "
                                "AND software_string<>''" + where_s, tuple(args_s), path=db_path, tuples=True,
                                budget="job"):
+        if sset is None:
+            uu = [aid(u) for u in js_uuids(asset)]
+        else:
+            uu = [aid(u) for u in js_uuids(asset) if u in sset]
+            if not uu:
+                continue
         recs += 1
-        uu = [aid(u) for u in js_uuids(asset)]
         if only is None:
             all_a.update(uu)
             soft_a.update(uu)
@@ -422,10 +439,17 @@ def product_sets(db_path=None, only=None):
         has_cpes = bool(db.scalar("SELECT 1 FROM sqlite_master WHERE type='table' AND name='cpes'", path=db_path))
     except Exception:
         has_cpes = False
+    if has_cpes and sset is not None:
+        from core import tagscope
+        frag, fargs = tagscope.sql(scope[0], scope[1], "asset_uuid")
+        where_c += frag
+        args_c = list(args_c) + list(fargs)
     if has_cpes:
         for asset, cstr in db.iter("SELECT asset_uuid, cpe_string FROM cpes WHERE cpe_string IS NOT NULL "
                                    "AND cpe_string<>''" + where_c, tuple(args_c), path=db_path, tuples=True,
                                    budget="job"):
+            if sset is not None and asset not in sset:
+                continue
             cpe_rows += 1
             if not asset:
                 continue
@@ -481,14 +505,15 @@ def product_keys(row, eol=None):
             -((eol or {}).get("eolAssetCount") or 0), _SRC_ORDER.get(row["src"], 3))
 
 
-def inventory(db_path=None):
+def inventory(db_path=None, scope=None, hound="software"):
     """▶ Run: the inventory summary (the page's KPI row), every product written to the result
     store (one row each — versions with asset COUNTS, never uuids) and the crown-jewel roles.
-    Returns {run, summary, crown}."""
+    Returns {run, summary, crown}. `scope` (build 489) = (tag key, value): only that tag's
+    assets; such a run is stored under its own `hound` name so it never evicts the estate's."""
     from core import payload
-    prod, info = product_sets(db_path)
+    prod, info = product_sets(db_path, scope=scope)
     keys = _js_key_order(list(prod.keys()))
-    W = payload.STORE.begin("software")
+    W = payload.STORE.begin(hound)
     W.section("products")
     multi = single = only_soft = only_cpe = both = pairs = 0
     roles = {}
@@ -522,6 +547,8 @@ def inventory(db_path=None):
                    "onlySoft": only_soft, "onlyCpe": only_cpe, "both": both,
                    "cpeOnlyAssets": len(ca - sa), "softOnlyAssets": len(sa - ca), "haveCpe": info["cpe_rows"] > 0}
         W.meta = {"summary": summary, "crown": crown}
+        if scope:
+            W.meta["scope"] = {"key": scope[0], "value": scope[1]}
     except BaseException:
         W.close(ok=False)
         raise
@@ -529,11 +556,12 @@ def inventory(db_path=None):
     return {"run": W.run, "summary": summary, "crown": crown}
 
 
-def assets_for(db_path=None, product=None, version=None, role=None, versions=None):
+def assets_for(db_path=None, product=None, version=None, role=None, versions=None, scope=None):
     """The asset uuids behind a software tag KEY — rebuilt from navi.db, never taken from the
-    page: a product (optionally one version, or a list of versions), or a crown-jewel role."""
+    page: a product (optionally one version, or a list of versions), or a crown-jewel role.
+    `scope` = (tag key, value): only assets carrying that tag (build 489)."""
     if role:
-        prod, info = product_sets(db_path)
+        prod, info = product_sets(db_path, scope=scope)
         sel = set()
         for p in prod.values():
             cr = crown_role(p["name"])
@@ -543,7 +571,7 @@ def assets_for(db_path=None, product=None, version=None, role=None, versions=Non
         key = str(product or "").lower()
         if not key:
             return []
-        prod, info = product_sets(db_path, only={key})
+        prod, info = product_sets(db_path, only={key}, scope=scope)
         p = prod.get(key)
         if not p:
             return []
@@ -562,7 +590,7 @@ def assets_for(db_path=None, product=None, version=None, role=None, versions=Non
 _TEN_EOL_PATS = ("unsupported", "end of life", "end-of-life", "no longer supported", "obsolete", "seol")
 
 
-def tenable_eol_assets(db_path=None):
+def tenable_eol_assets(db_path=None, scope=None):
     """Assets Tenable flags as running EOL / unsupported software (plugin NAME match — the
     page's own query; one vulns scan that returns only uuids, streamed)."""
     from core import hx_summary
@@ -575,7 +603,8 @@ def tenable_eol_assets(db_path=None):
     for (u,) in db.iter(q, path=db_path, tuples=True, budget="job"):
         if u:
             out.add(u)
-    return out
+    sset = _scope_set(scope, db_path)
+    return out if sset is None else (out & sset)
 
 
 def eol_plan(run):
@@ -591,7 +620,7 @@ def eol_plan(run):
     return out
 
 
-def lifecycle(run, results, db_path=None):
+def lifecycle(run, results, db_path=None, scope=None):
     """Apply the browser's endoflife.date verdicts ([{name, slug, latest, eolVers, noData}]) to a
     stored inventory run: per product the assets on EOL versions and behind the latest release,
     unioned with Tenable's own EOL plugins. Updates the stored product rows (EOL view / column)
@@ -601,9 +630,9 @@ def lifecycle(run, results, db_path=None):
     for r in results or []:
         if isinstance(r, dict) and isinstance(r.get("name"), str):
             want[r["name"].lower()] = r
-    prod, info = product_sets(db_path, only=set(want)) if want else ({}, {"ids": {}})
+    prod, info = product_sets(db_path, only=set(want), scope=scope) if want else ({}, {"ids": {}})
     rev = {i: u for u, i in info["ids"].items()}
-    ten = tenable_eol_assets(db_path)
+    ten = tenable_eol_assets(db_path, scope=scope)
     ten_i = {info["ids"][u] for u in ten if u in info["ids"]}
     eol_assets, checked, eol_prod = set(), 0, 0
     for k, r in want.items():
@@ -641,16 +670,18 @@ def lifecycle(run, results, db_path=None):
     return eol
 
 
-def risk(run, db_path=None, top=40):
+def risk(run, db_path=None, top=40, scope=None):
     """The risk leaderboard, server-side: per product, host-level exposure (KEV / critical
     findings / max VPR on the hosts that run it) and package-level exposure (findings whose
     plugin NAME contains the product). Instead of shipping every (asset, plugin) pair to the
     browser: one per-plugin catalog pass (GROUP BY plugin_id — tens of thousands of rows), a
     per-ASSET rollup joined to it inside SQLite (covered by hx_v_asset when present), and the
     (plugin, asset) pairs of the NAMED plugins only (covered by hx_v_plugin).
-    Returns {rows (top N), total, named}."""
-    from core import payload
-    prod, info = product_sets(db_path)
+    Returns {rows (top N), total, named}. `scope` = (tag key, value): only that tag's assets —
+    each asset's own rollup is unchanged, the vulns reads just skip the other assets (build 489)."""
+    from core import payload, tagscope
+    prod, info = product_sets(db_path, scope=scope)
+    sfrag, sargs = tagscope.sql(scope[0], scope[1], "v.asset_uuid") if scope else ("", ())
     ids = info["ids"]
     eolc = {}
     for row in payload.STORE.iter_rows(run, "products", flags=["eol"]):
@@ -679,7 +710,7 @@ def risk(run, db_path=None, top=40):
         for u, kev, crit, vpr, n in con.execute(
                 "SELECT v.asset_uuid, MAX(c.kev), MAX(CASE WHEN lower(v.severity)='critical' OR v.severity='4' "
                 "THEN 1 ELSE 0 END), MAX(c.vpr), COUNT(*) FROM vulns v%s LEFT JOIN _cat c ON c.plugin_id=v.plugin_id "
-                "GROUP BY v.asset_uuid" % hv):
+                "%sGROUP BY v.asset_uuid" % (hv, ("WHERE 1=1" + sfrag + " ") if sfrag else ""), sargs):
             i = ids.get(u)
             if i is not None:
                 roll[i] = (kev or 0, crit or 0, vpr or 0.0, n or 0)
@@ -699,8 +730,8 @@ def risk(run, db_path=None, top=40):
             con.executemany("INSERT OR IGNORE INTO _np VALUES(?)", [(x,) for x in named_pids])
             for pid, u, crit, n in con.execute(
                     "SELECT v.plugin_id, v.asset_uuid, MAX(CASE WHEN lower(v.severity)='critical' OR v.severity='4' "
-                    "THEN 1 ELSE 0 END), COUNT(*) FROM vulns v%s WHERE v.plugin_id IN (SELECT plugin_id FROM _np) "
-                    "GROUP BY v.plugin_id, v.asset_uuid" % hp):
+                    "THEN 1 ELSE 0 END), COUNT(*) FROM vulns v%s WHERE v.plugin_id IN (SELECT plugin_id FROM _np)%s "
+                    "GROUP BY v.plugin_id, v.asset_uuid" % (hp, sfrag), sargs):
                 i = ids.get(u)
                 if i is None:
                     continue

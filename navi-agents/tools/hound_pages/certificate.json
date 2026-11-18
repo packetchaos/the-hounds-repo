@@ -1,56 +1,60 @@
 {
-  "codename": "Certania",
-  "discipline": "Certificates",
-  "category": "Tagging",
-  "tagline": "See every expiring certificate before it breaks something.",
-  "lore": "Coined from \"certificate\" and the loyal hound — Certania stands watch over the chain of trust and sniffs out certificates before they fail.",
-  "problem": "Certificate expiries cause outages and silent trust failures, and most teams find out when something breaks. The renewal that slipped takes a customer-facing service down at 2 a.m., and the post-mortem says \"we didn't know it was expiring.\"",
-  "does": "Certania finds every certificate that has already expired — month by month over the last 12 months, plus everything older that is still deployed — and every certificate expiring in the next 12 months, maps each to its assets, and lays them out on one timeline. Certania tags the assets with their exact expiry date so the renewal becomes routable work.",
-  "glance": {
-    "caption": "Certania's At a glance on a 128-asset lab: 104 expired certificates on 77 assets (46 expired over a year ago; median 326 days expired), 5 failing within 30 days and 45 within 12 months, 22 crown jewels affected, 35 with weak crypto, 29 self-signed, 11 certificate-issue plugins firing."
-  },
-  "capabilities": [
-    [
-      "Expired and expiring inventory",
-      "expired by month for the last 12 months and older, plus everything failing in the next 12 months, each with its assets."
-    ],
-    [
-      "One expiry timeline",
-      "older, the last 12 months and the next 12 months on one axis, so renewals are planned by month, not found by outage."
-    ],
-    [
-      "Risk context",
-      "crown jewels (ACR above 7) with an expired or expiring certificate, weak crypto (MD5 / SHA-1 signatures, RSA keys under 2048 bits), self-signed certificates, and days expired."
-    ],
-    [
-      "Cert failure : <date> tags",
-      "the assets behind each expiry date you choose, tagged with that exact date — a dated, routable work item."
-    ],
-    [
-      "Cert Issue tags by plugin",
-      "every certificate plugin firing in navi.db, with its asset count; tag its assets Cert Issue : <plugin name>."
-    ],
-    [
-      "Devices and apps from certificates",
-      "device and application names identified from certificate subjects."
-    ]
+ "codename": "Certania",
+ "discipline": "Certificates",
+ "category": "Tagging",
+ "tagline": "See every expiring certificate before it breaks something.",
+ "lore": "Coined from \"certificate\" and the loyal hound — Certania stands watch over the chain of trust and sniffs out certificates before they fail.",
+ "problem": "Certificate expiries cause outages and silent trust failures, and most teams find out when something breaks. The renewal that slipped takes a customer-facing service down at 2 a.m., and the post-mortem says \"we didn't know it was expiring.\"",
+ "does": "Certania finds every certificate that has already expired — month by month over the last 12 months, plus everything older that is still deployed — and every certificate expiring in the next 12 months, maps each to its assets, and lays them out on one timeline. Certania tags the assets with their exact expiry date so the renewal becomes routable work.",
+ "glance": {
+  "caption": "Certania's At a glance on a 128-asset lab: 104 expired certificates on 77 assets (46 expired over a year ago; median 326 days expired), 5 failing within 30 days and 45 within 12 months, 22 crown jewels affected, 35 with weak crypto, 29 self-signed, 11 certificate-issue plugins firing."
+ },
+ "capabilities": [
+  [
+   "Expired and expiring inventory",
+   "expired by month for the last 12 months and older, plus everything failing in the next 12 months, each with its assets."
   ],
-  "how": "Certania reads the certs table in your local navi.db (it understands every date format navi stores) and certificate plugins in vulns. It is deterministic — no AI reasoning. Lists page and search on the server; tags are written through navi's tag commands behind the write gate and a confirm.",
-  "who": "PKI owners who need a renewal calendar, ops and SRE teams tired of expiry-driven incidents, and vulnerability management teams closing the trust gap.",
-  "better": "Heimdall reads the same certificates for quantum-vulnerable crypto, Nemesis counts weak or expiring crypto in its score, Alert Raven can warn when certificates expire within 30 days, and On the Scent's expired card opens Certania already filtered. Covenant re-applies the Cert failure tags on its schedule.",
-  "different": [
-    [
-      "A calendar, not a list",
-      "expired and expiring certificates by month, readable in seconds."
-    ],
-    [
-      "Dated, gated tags",
-      "Cert failure : <date> turns an expiry into an assigned task, approved before it's written."
-    ],
-    [
-      "No guessing",
-      "deterministic rules from navi.db, so the same data always gives the same answer."
-    ]
+  [
+   "One expiry timeline",
+   "older, the last 12 months and the next 12 months on one axis, so renewals are planned by month, not found by outage."
   ],
-  "cta": "Ask Certania what expires next quarter — before the outage asks for you."
+  [
+   "Risk context",
+   "crown jewels (ACR above 7) with an expired or expiring certificate, weak crypto (MD5 / SHA-1 signatures, RSA keys under 2048 bits), self-signed certificates, and days expired."
+  ],
+  [
+   "Cert failure : <date> tags",
+   "the assets behind each expiry date you choose, tagged with that exact date — a dated, routable work item."
+  ],
+  [
+   "Cert Issue tags by plugin",
+   "every certificate plugin firing in navi.db, with its asset count; tag its assets Cert Issue : <plugin name>."
+  ],
+  [
+   "Devices and apps from certificates",
+   "device and application names identified from certificate subjects."
+  ],
+  [
+   "By tag",
+   "run over one tag's assets: expired and failing certificates, crown jewels, cert-issue plugins and IoT / app fingerprints for just those assets, with the same per-certificate verdicts; tags written from that view touch only them. Switch between the whole estate and your last 5 tags without re-running."
+  ]
+ ],
+ "how": "Certania reads the certs table in your local navi.db (it understands every date format navi stores) and certificate plugins in vulns. It is deterministic — no AI reasoning. Lists page and search on the server; tags are written through navi's tag commands behind the write gate and a confirm.",
+ "who": "PKI owners who need a renewal calendar, ops and SRE teams tired of expiry-driven incidents, and vulnerability management teams closing the trust gap.",
+ "better": "Heimdall reads the same certificates for quantum-vulnerable crypto, Nemesis counts weak or expiring crypto in its score, Alert Raven can warn when certificates expire within 30 days, and On the Scent's expired card opens Certania already filtered. Covenant re-applies the Cert failure tags on its schedule.",
+ "different": [
+  [
+   "A calendar, not a list",
+   "expired and expiring certificates by month, readable in seconds."
+  ],
+  [
+   "Dated, gated tags",
+   "Cert failure : <date> turns an expiry into an assigned task, approved before it's written."
+  ],
+  [
+   "No guessing",
+   "deterministic rules from navi.db, so the same data always gives the same answer."
+  ]
+ ],
+ "cta": "Ask Certania what expires next quarter — before the outage asks for you."
 }

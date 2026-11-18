@@ -262,9 +262,10 @@ def _unpack(b):
 class _Writer:
     """Streams one run's sections into the store. Use as a context manager."""
 
-    def __init__(self, store, hound, run):
+    def __init__(self, store, hound, run, keep=None):
         import queue
         self.store, self.hound, self.run = store, hound, run
+        self.keep = keep                    # runs of this hound kept (None = KEEP_RUNS)
         self.counts, self._buf, self._jbuf, self._mbuf = {}, [], [], []
         self.meta = {}
         self.con = store._connect()
@@ -340,7 +341,7 @@ class _Writer:
         finally:
             self.con.close()
         if ok and err is None:
-            self.store.prune(self.hound, keep_run=self.run)
+            self.store.prune(self.hound, keep_run=self.run, keep=self.keep)
         else:
             self.store.drop(self.run)
         if err is not None:
@@ -391,10 +392,13 @@ class ResultStore:
         return con
 
     # -- writing
-    def begin(self, hound) -> _Writer:
+    def begin(self, hound, keep=None) -> _Writer:
+        """keep = how many runs of `hound` survive pruning (default KEEP_RUNS) — build 489: a
+        hound's tag views write under their own name (e.g. "ai_tag", keep=5) so they never evict
+        the whole estate's run."""
         if not _NAME_RE.match(str(hound or "")):
             raise ValueError("bad hound id")
-        return _Writer(self, hound, "%s-%s" % (hound, secrets.token_hex(8)))
+        return _Writer(self, hound, "%s-%s" % (hound, secrets.token_hex(8)), keep=keep)
 
     def prune(self, hound, keep_run=None, keep=None):
         keep = KEEP_RUNS if keep is None else keep
@@ -406,6 +410,26 @@ class ResultStore:
             con.close()
         for r in old:
             self.drop(r)
+
+    def runs(self, hound):
+        """[{run, built_at, meta}] of `hound`'s finished runs, newest first (build 489: lets a
+        hound prune its tag-view runs per tag)."""
+        if not _NAME_RE.match(str(hound or "")):
+            return []
+        con = self._connect()
+        try:
+            rs = con.execute("SELECT run, built_at, meta FROM runs WHERE hound=? AND done=1 ORDER BY built_at DESC",
+                             (hound,)).fetchall()
+        finally:
+            con.close()
+        out = []
+        for run, at, meta in rs:
+            try:
+                m = json.loads(meta or "{}")
+            except Exception:
+                m = {}
+            out.append({"run": run, "built_at": at, "meta": m})
+        return out
 
     def drop(self, run):
         con = self._connect()

@@ -16,7 +16,7 @@ import datetime
 import functools
 import re
 
-from core import db, hx_summary
+from core import db, hx_summary, tagscope
 
 # label -> substrings searched in plugin_name (navi --name matches each, substring)
 DEFAULT_GROUPS = [
@@ -29,42 +29,64 @@ def _clause(pats, col="plugin_name"):
     return " OR ".join(col + " LIKE '%" + p.replace("'", "''") + "%'" for p in pats)
 
 
+def _scope(scope, col="asset_uuid"):
+    """(' AND col IN (tag's assets)', params) for scope=(tag_key, tag_value); ('', ()) for the
+    whole estate. Build 489: a tag view runs the same rules over only that tag's assets."""
+    k, v = scope if (isinstance(scope, (tuple, list)) and len(scope) == 2) else (None, None)
+    return tagscope.sql(k, v, col)
+
+
 def _fast(db_path=None):
     """Phase 1: the hx_plugin / hx_asset summaries exist and match this navi.db."""
     return hx_summary.usable(db_path)
 
 
-def _scan_fast(db_path, groups):
+def _scan_fast(db_path, groups, scope=None):
     """scan() over hx_plugin: the same name rule on hx_plugin.lname (LIKE is case-blind, so the
     patterns match exactly as on vulns.plugin_name), open_assets = assets with an OPEN finding of
     the plugin; the group's asset count is one covering hx_v_plugin range per plugin."""
     out = []
+    frag, fargs = _scope(scope)
     for label, pats in groups:
         cond = "(" + _clause(pats, "lname") + ")"
-        plugins = db.query(
-            "SELECT plugin_id, name AS plugin_name, open_assets AS assets FROM hx_plugin "
-            "WHERE " + cond + " AND open_assets > 0 ORDER BY assets DESC, plugin_id", path=db_path)
+        if frag:
+            # a tag view: the same plugins, each counted over the tag's assets with an OPEN finding
+            names = db.query("SELECT plugin_id, name AS plugin_name FROM hx_plugin WHERE " + cond
+                             + " AND open_assets > 0", path=db_path)
+            per = {str(r["plugin_id"]): r["assets"] for r in db.query(
+                "SELECT plugin_id, COUNT(DISTINCT asset_uuid) AS assets FROM vulns"
+                + db.indexed_by("hx_v_plugin", db_path) + " WHERE " + hx_summary.plugins_where(cond)
+                + " AND " + hx_summary._open("state") + frag + " GROUP BY plugin_id", fargs, path=db_path)}
+            plugins = [{"plugin_id": r["plugin_id"], "plugin_name": r["plugin_name"], "assets": per[str(r["plugin_id"])]}
+                       for r in names if per.get(str(r["plugin_id"]))]
+            plugins.sort(key=lambda r: (-r["assets"], r["plugin_id"]))
+        else:
+            plugins = db.query(
+                "SELECT plugin_id, name AS plugin_name, open_assets AS assets FROM hx_plugin "
+                "WHERE " + cond + " AND open_assets > 0 ORDER BY assets DESC, plugin_id", path=db_path)
         n = db.scalar("SELECT COUNT(asset_uuid) FROM (" + hx_summary.assets_with(cond, open_only=True, path=db_path)
-                      + ")", path=db_path) or 0
+                      + frag + ")", fargs, path=db_path) or 0
         out.append({"label": label, "patterns": pats, "category": "Lifecycle",
                     "plugins": plugins, "asset_count": n})
     return {"groups": out}
 
 
-def scan(db_path=None, groups=None):
+def scan(db_path=None, groups=None, scope=None):
+    """Lifecycle groups. scope=(tag_key, tag_value) counts only that tag's assets (build 489)."""
     groups = groups or DEFAULT_GROUPS
     if _fast(db_path):
-        return _scan_fast(db_path, groups)
+        return _scan_fast(db_path, groups, scope)
+    frag, fargs = _scope(scope)
     out = []
     open_only = (" AND lower(COALESCE(state,'open')) IN ('open','reopened')"
                  if "state" in _cols("vulns", db_path) else "")
     for label, pats in groups:
-        where = "(" + _clause(pats) + ")" + open_only
+        where = "(" + _clause(pats) + ")" + open_only + frag
         plugins = db.query(
             "SELECT plugin_id, plugin_name, COUNT(DISTINCT asset_uuid) AS assets "
             "FROM vulns WHERE " + where + " GROUP BY plugin_id, plugin_name "
-            "ORDER BY assets DESC", path=db_path)
-        n = db.scalar("SELECT COUNT(DISTINCT asset_uuid) FROM vulns WHERE " + where, path=db_path) or 0
+            "ORDER BY assets DESC", fargs, path=db_path)
+        n = db.scalar("SELECT COUNT(DISTINCT asset_uuid) FROM vulns WHERE " + where, fargs, path=db_path) or 0
         out.append({"label": label, "patterns": pats, "category": "Lifecycle",
                     "plugins": plugins, "asset_count": n})
     return {"groups": out}
@@ -116,7 +138,7 @@ def _raw_date(raw):
     return None
 
 
-def date_tag_query(group, db_path=None):
+def date_tag_query(group, db_path=None, scope=None):
     """navi --query that DEFINES an EOL-date group's assets (analyze()['date_groups'][i]): an
     OPEN finding of one of the group's EOL plugins whose output states that date in the exact
     words analyze() parsed it from. Size grows with the date's plugins/phrasings, never with
@@ -132,6 +154,9 @@ def date_tag_query(group, db_path=None):
     if "state" in _cols("vulns", db_path):
         w.append("lower(COALESCE(state,'open')) IN ('open','reopened')")
     w.append("(" + " OR ".join(like(t) for t in texts) + ")")
+    k, v = scope if (isinstance(scope, (tuple, list)) and len(scope) == 2) else (None, None)
+    if k and v:                          # a tag view: only that tag's assets (build 489)
+        w.append("asset_uuid IN (SELECT asset_uuid FROM tags WHERE tag_key=" + lit(k) + " AND tag_value=" + lit(v) + ")")
     return "SELECT DISTINCT asset_uuid FROM vulns WHERE " + " AND ".join(w)
 
 
@@ -176,8 +201,12 @@ def _cols(table, path=None):
 CROWN_ACR = 7
 
 
-def analyze(db_path=None, groups=None, keep_uuids=False):
+def analyze(db_path=None, groups=None, keep_uuids=False, scope=None):
+    """The product view. scope=(tag_key, tag_value) builds it over only that tag's assets
+    (build 489): every per-asset fact is read from the asset's own findings, so it is identical
+    to the whole estate's; only the population (and so the counts) changes."""
     groups = groups or DEFAULT_GROUPS
+    frag, fargs = _scope(scope)
     pats = sorted({p for _, ps in groups for p in ps})
     where = _clause(pats)
     vc = _cols("vulns", db_path)
@@ -193,10 +222,10 @@ def analyze(db_path=None, groups=None, keep_uuids=False):
             # rows are put back in rowid order so every tie below breaks exactly as before.
             pw = hx_summary.plugins_where("(" + _clause(pats, "lname") + ")")
             rows = db.query(f"SELECT rowid AS _rid, {', '.join(sel)} FROM vulns WHERE {pw}"
-                            " AND lower(COALESCE(state,'open')) IN ('open','reopened')", path=db_path)
+                            " AND lower(COALESCE(state,'open')) IN ('open','reopened')" + frag, fargs, path=db_path)
             rows.sort(key=lambda r: r.pop("_rid"))
         else:
-            rows = db.query(f"SELECT {', '.join(sel)} FROM vulns WHERE {w}", path=db_path)
+            rows = db.query(f"SELECT {', '.join(sel)} FROM vulns WHERE {w}{frag}", fargs, path=db_path)
     except Exception:
         rows = []
     today = datetime.date.today()
@@ -250,8 +279,8 @@ def analyze(db_path=None, groups=None, keep_uuids=False):
                               # with hx_v_asset the planner would fetch every finding of every EOL asset
                               # by random row reads (xrefs isn't in the index) — 41 s → 130 s at 16M rows.
                               # One sequential scan is cheaper. Phase 1's hx_asset summary replaces this.
-                              f"FROM vulns NOT INDEXED WHERE asset_uuid IN (SELECT asset_uuid FROM vulns WHERE {where}){sw} "
-                              "GROUP BY asset_uuid", path=db_path)):
+                              f"FROM vulns NOT INDEXED WHERE asset_uuid IN (SELECT asset_uuid FROM vulns WHERE {where}){sw}{frag} "
+                              "GROUP BY asset_uuid", fargs, path=db_path)):
                 if kq and r.get("asset_uuid") not in eol_assets:
                     continue
                 if r.get("kev"):

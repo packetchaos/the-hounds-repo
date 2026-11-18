@@ -344,7 +344,7 @@ def _scalar0(sql, db_path):
         return 0
 
 
-def scan(db_path=None):
+def scan(db_path=None, keep=False):
     """Content-based identity inventory (repo-native port of the live console).
 
     Discovers identities by CONTENT — plugin-name sweep + output markers + the
@@ -355,6 +355,10 @@ def scan(db_path=None):
     Returns {accounts, counts, blind, fresh, sshHosts, weakHosts, kevHostN,
     critHostN, dcHosts, adHosts}. Each account: {user, klass, hosts[],
     asset_uuids[], url, flags[], plugins[]}.
+
+    keep=True (build 489, the tag view) also keeps the per-host evidence project() needs to
+    re-cut the result to one tag's assets: each privileged account's "priv_uuids", and
+    res["_keep"] = {"scan_uu": {account key: [uuid…]}, "cred": [uuid…]}. Default: unchanged.
     """
     has_url = "url" in _cols("assets", db_path)
     amap = {}
@@ -715,7 +719,10 @@ def scan(db_path=None):
                 _priv(a, au, "built-in Administrator (well-known RID 500)")
         if a.get("privilege"):
             _flag(a, "privileged")
-            a["privileged_hosts"] = len(a.pop("_priv_uu", ()) or ())
+            _pu = a.pop("_priv_uu", ()) or ()
+            a["privileged_hosts"] = len(_pu)
+            if keep:
+                a["priv_uuids"] = sorted(_pu)
         a.pop("_priv_uu", None)
         a["groups"] = sorted(a.get("groups") or {})
     # Windows account-status lists (10911–10916 local, 10895–10900 domain)
@@ -879,12 +886,126 @@ def scan(db_path=None):
               "scan_creds": sum(1 for a in accounts if a.get("scan_credential")),
               "reused": sum(1 for a in accounts if _is_reused(a)),
               "reused_hosts": len(reused_hosts)}
-    return {"accounts": accounts, "counts": counts, "blind": blind, "fresh": fresh,
-            "sshHosts": sshHosts, "weakHosts": weakHosts, "kevHostN": kevHostN,
-            "critHostN": critHostN, "dcHosts": dcHosts, "adHosts": adHosts,
-            "scan_creds": scan_creds, "host_sets": host_sets,
-            "credentialed": len(cred_set - blind_set), "nested_admin_groups": nested_groups,
-            "identity_hosts": len({u for a in accounts for u in a["asset_uuids"]})}
+    out = {"accounts": accounts, "counts": counts, "blind": blind, "fresh": fresh,
+           "sshHosts": sshHosts, "weakHosts": weakHosts, "kevHostN": kevHostN,
+           "critHostN": critHostN, "dcHosts": dcHosts, "adHosts": adHosts,
+           "scan_creds": scan_creds, "host_sets": host_sets,
+           "credentialed": len(cred_set - blind_set), "nested_admin_groups": nested_groups,
+           "identity_hosts": len({u for a in accounts for u in a["asset_uuids"]})}
+    if keep:
+        out["_keep"] = {"scan_uu": {k: sorted(v) for k, v in scan_hosts_by_user.items()},
+                        "cred": sorted(cred_set)}
+    return out
+
+
+# ── build 489: one tag's assets ──────────────────────────────────────────────────────────────
+# The tag view is the whole-estate scan re-cut to the tag's assets — never a scan of fewer rows,
+# so every account keeps the class, authority and identity-wide flags the estate gives it.
+#   · an account is in the view when it was enumerated on at least one of the tag's assets;
+#   · its hosts / assets / max ACR / crown-jewel / privileged-host counts cover only those assets;
+#   · a flag that is evidence ON A HOST ("privileged", and the host signals below) stays only when
+#     that host is one of the tag's — "on KEV host" in a tag view means one of the tag's hosts;
+#   · flags about the account itself (non-expiring pw, Windows status lists, guest enabled, scan
+#     credential, "account reuse ×N") are unchanged: reuse ×N is the account's reach ACROSS THE
+#     ESTATE, the lateral-movement path into the tag; its reuse hosts (the tag button) are the tag's.
+# Host-level sets (signals, uncredentialed, credentialed) are the estate's sets ∩ the tag.
+# (the estate already set each only on the classes it applies to — the tag view only drops them)
+HOST_FLAGS = ("ssh password auth", "weak pw policy", "on KEV host", "on critical host",
+              "default/blank cred", "AD attack path")
+
+
+def _bare(user):
+    return user.split("\\")[-1].strip().lower()
+
+
+def project(res, scope, db_path=None):
+    """The scan result `res` (scan(keep=True)) cut to the asset uuids in `scope` (a set)."""
+    scope = set(scope or ())
+    keep = res.pop("_keep", None) or {}
+    scan_uu = {k: set(v) for k, v in (keep.get("scan_uu") or {}).items()}
+    hs_full = res.get("host_sets") or {}
+    hs = {k: [u for u in (v or []) if u in scope] for k, v in hs_full.items()}
+    hs_set = {k: set(v) for k, v in hs.items()}
+    names = {}
+    if scope:
+        try:
+            ul = sorted(scope)
+            for i in range(0, len(ul), 900):
+                part = ul[i:i + 900]
+                for r in db.query("SELECT uuid, hostname, ip_address FROM assets WHERE uuid IN ("
+                                  + ",".join("?" * len(part)) + ")", tuple(part), path=db_path):
+                    names[r["uuid"]] = (r.get("hostname") or r.get("ip_address") or "").strip() or "host"
+        except (db.QueryTimeout, db.TooManyRows):
+            raise
+        except Exception:
+            pass
+    accounts = []
+    for a in res.get("accounts") or []:
+        uu = [u for u in (a.get("asset_uuids") or []) if u in scope]
+        if not uu:
+            continue
+        b = dict(a)
+        b["asset_uuids"] = uu
+        hosts = list(dict.fromkeys(names.get(u, "host") for u in uu))
+        b["hosts"] = hosts[:30] if a.get("klass") == "machine" else hosts
+        priv = [u for u in (a.pop("priv_uuids", None) or []) if u in scope]
+        b.pop("priv_uuids", None)
+        uset = set(uu)
+        fl = []
+        for f in a.get("flags") or []:
+            if f == "privileged":
+                if not priv:
+                    continue
+            elif f in HOST_FLAGS:
+                if not (uset & hs_set.get(f, set())):
+                    continue
+            fl.append(f)
+        b["flags"] = fl
+        if "privileged" in fl:
+            b["privileged_hosts"] = len(priv)
+        else:
+            b.pop("privileged_hosts", None)
+            b.pop("privilege", None)
+        if a.get("reuse_uuids") is not None:
+            b["reuse_uuids"] = [u for u in a["reuse_uuids"] if u in scope]
+            if not b["reuse_uuids"]:
+                b.pop("reuse_uuids")
+        if a.get("scan_credential"):
+            b["scan_credential"] = dict(a["scan_credential"],
+                                        hosts=len(scan_uu.get(_bare(a["user"]), set()) & uset))
+        accounts.append(b)
+
+    def _risky(a):
+        return [f for f in a["flags"] if f not in INFO_FLAGS]
+
+    def _is_reused(a):
+        return any(f.startswith("account reuse") for f in a["flags"])
+    reused_hosts = {u for a in accounts for u in (a.get("reuse_uuids") or [])}
+    counts = {"total": len(accounts),
+              "nhi": sum(1 for a in accounts if a["klass"] == "nhi"),
+              "human": sum(1 for a in accounts if a["klass"] == "human"),
+              "service": sum(1 for a in accounts if a["klass"] == "service"),
+              "machine": sum(1 for a in accounts if a["klass"] == "machine"),
+              "flagged": sum(1 for a in accounts if _risky(a)),
+              "scan_creds": sum(1 for a in accounts if a.get("scan_credential")),
+              "reused": sum(1 for a in accounts if _is_reused(a)),
+              "reused_hosts": len(reused_hosts)}
+    blind_set = set(hs.get("uncredentialed") or [])
+    cred = {u for u in (keep.get("cred") or []) if u in scope}
+    scan_creds = []
+    for s in res.get("scan_creds") or []:
+        n = len(scan_uu.get(_bare(s.get("user") or ""), set()) & scope)
+        if n:
+            scan_creds.append(dict(s, hosts=n))
+    scan_creds.sort(key=lambda x: -x["hosts"])
+    out = dict(res)
+    out.update({"accounts": accounts, "counts": counts, "blind": len(blind_set),
+                "sshHosts": len(hs.get("ssh password auth") or []), "weakHosts": len(hs.get("weak pw policy") or []),
+                "kevHostN": len(hs.get("on KEV host") or []), "critHostN": len(hs.get("on critical host") or []),
+                "dcHosts": len(hs.get("default/blank cred") or []), "adHosts": len(hs.get("AD attack path") or []),
+                "scan_creds": scan_creds, "host_sets": hs, "credentialed": len(cred - blind_set),
+                "identity_hosts": len({u for a in accounts for u in a["asset_uuids"]})})
+    return out
 
 
 _HI_USER = re.compile(r"^\s*User(?:name)?\s*[:=]\s*([A-Za-z_][A-Za-z0-9_.\-\$]{1,31})", re.I)

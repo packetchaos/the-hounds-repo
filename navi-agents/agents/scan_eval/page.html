@@ -47,7 +47,7 @@
 
   <section class="card" id="secScanners" data-nav="Scanners" data-nav-icon="📡">
     <div class="toolbar" style="margin:0"><h2 style="margin:0">Scanners <span class="sub" id="scnCount"></span></h2><button class="btn ghost sm" id="scnCsv" style="margin-left:auto">⬇ CSV</button></div>
-    <p class="sub">Uneven load is the signal: a scanner well above the average time per asset (<b>⚠</b>, &gt; 1.5×) is a bottleneck. <b>Feed</b> is the newest plugin feed the scanner used; more than <span id="lagN">7</span> days behind the newest feed in navi.db means it's missing recent checks.</p>
+    <p class="sub">Uneven load is the signal: a scanner well above the average time per asset<span id="avgPop"></span> (<b>⚠</b>, &gt; 1.5×) is a bottleneck. <b>Feed</b> is the newest plugin feed the scanner used; more than <span id="lagN">7</span> days behind the newest feed <span id="feedPop">in navi.db</span> means it's missing recent checks.</p>
     <table id="scnTbl" class="nocsv"><thead><tr><th>Scanner</th><th>Assets</th><th>Load</th><th>Avg / asset</th><th>Max</th><th>Credentialed</th><th>Nessus · plugin feed</th><th>Last scan</th><th></th></tr></thead><tbody></tbody></table>
   </section>
 
@@ -104,19 +104,21 @@ const FILTERS={
   agent:['Scanned by a Nessus Agent',x=>x.type==='Agent',[]], network:['Scanned over the network',x=>x.type==='Network',[]] };
 const KEYVAL={'status:failed':'Cred Failure','status:insufficient':'Insufficient Privilege','status:intermittent':'Intermittent Auth','status:uncredentialed':'Uncredentialed',
   'patch:failed':'Patch Assessment Failed','fresh:31-90':'Stale Scan 30d+','fresh:90+':'Stale Scan 90d+','fresh:never':'Never Scanned','slow':'Slow Scan','crown:blind':'Crown Jewel Blind Spot'};
+/* build 489 — tag filter: population-relative wording reads right in a tag view */
+const AVG=()=>tagScope()?"this tag's average":'the overall average';
 const host=(u,h)=>u?`<a class="plink" href="/agents/argos/page.html?target=${encodeURIComponent(u)}">${esc(h)}</a>`:esc(h);
 
 async function run(){
   const b=document.getElementById('run'); b.disabled=true;
-  flash('flash','<span class="spin"></span> evaluating scan coverage, credentials and performance from navi.db…','run');
+  flash('flash','<span class="spin"></span> evaluating scan coverage, credentials and performance from navi.db'+esc(tagScopeNote())+'…','run');
   let o; try{ o=await API.post('run'); }catch(e){ o={ok:false,error:e.message}; }
   b.disabled=false;
   if(!o||!o.ok||!o.result){ flash('flash','✗ '+esc((o&&(o.error||o.message))||'failed'),'crit'); return; }
   DATA=o.result; FILTER=null; STF='all'; RUN=(o.drill&&o.drill.run)||null; FIRST=o;
   ['scnTbl','polTbl','scaTbl','slowTbl'].forEach(hPageReset);
   const m=DATA.metrics||{};
-  if(!m.assets) flash('flash','No assets in navi.db.','warn');
-  else if(!m.scanned) flash('flash','No Nessus Scan Information (plugin 19506) in navi.db — run a navi update that includes vulns.','warn');
+  if(!m.assets) flash('flash',tagScope()?'No assets carry the tag '+esc(tagScopeLabel())+' in navi.db.':'No assets in navi.db.','warn');
+  else if(!m.scanned) flash('flash','No Nessus Scan Information (plugin 19506) in navi.db'+esc(tagScopeNote(' for the assets tagged '))+' — run a navi update that includes vulns.','warn');
   else flashClear('flash');
   render();
   // evidence deep link (On the Scent): ?view=blind → the asset table filtered to it
@@ -141,7 +143,7 @@ async function gated(btn,label,call,okMsg,ask){   /* ask: plain-text question na
 }
 async function tagKeys(keys,btn,n){
   if(!keys.length) return;
-  const ask=()=>`Tag ${keys.map(k=>tagCat('Scan Health')+' : '+KEYVAL[k]).join(' + ')} on ${n!=null?N(n)+' asset(s)':'the matching assets'}${keys.length>1?` (${keys.length} selectors)`:''}?`;
+  const ask=()=>`Tag ${keys.map(k=>tagCat('Scan Health')+' : '+KEYVAL[k]).join(' + ')} on ${n!=null?N(n)+' asset(s)':'the matching assets'}${keys.length>1?` (${keys.length} selectors)`:''}${tagScopeNote()}?`;
   if(keys.length===1) return gated(btn,`queuing Scan Health : ${KEYVAL[keys[0]]}`,()=>API.post('tag',{key:keys[0],confirm:true}),
     o=>`queued <span class="tagval">Scan Health : ${esc(o.value)}</span> on ${N(o.count)} asset(s)`,ask);
   return gated(btn,'queuing '+keys.length+' Scan Health tags',async()=>{ let n=0,a=0,last=null;
@@ -153,7 +155,7 @@ function tagDim(kind,name,btn){
   const K=kind[0].toUpperCase()+kind.slice(1), x=((DATA&&DATA[{scanner:'scanners',policy:'policies',scan:'scans'}[kind]])||[]).find(y=>String(y.key)===String(name));
   return gated(btn,`queuing Scan Health : ${K} : ${esc(name)}`,()=>API.post('tag',{key:kind,name,confirm:true}),
     o=>`queued <span class="tagval">Scan Health : ${esc(o.value)}</span> on ${N(o.count)} asset(s)`,
-    ()=>`Tag ${tagCat('Scan Health')} : ${K} : ${name} on ${x&&x.assets!=null?N(x.assets)+' asset(s)':'its assets'}?`);
+    ()=>`Tag ${tagCat('Scan Health')} : ${K} : ${name} on ${x&&x.assets!=null?N(x.assets)+' asset(s)':'its assets'}${tagScopeNote()}?`);
 }
 
 /* 📊 At a glance — the shared renderGlance template; a filter number narrows the asset list */
@@ -167,7 +169,7 @@ function renderMetrics(){
   el.innerHTML='<p class="sub" style="margin:2px 0 0">Click a number to filter the asset list.</p><div id="glxScan"></div>';
   renderGlance('glxScan', [
     {title:'Coverage',
-     hero:{v:N(m.scanned), l:'assets with scan results'+(sp!=null?' · '+sp+'%':''), u:`of ${N(m.assets)} assets in navi.db`, sev:'info', zero:false},
+     hero:{v:N(m.scanned), l:'assets with scan results'+(sp!=null?' · '+sp+'%':''), u:tagScope()?`of ${N(m.assets)} assets tagged ${tagScopeLabel()}`:`of ${N(m.assets)} assets in navi.db`, sev:'info', zero:false},
      chips:[{v:N(m.never), l:'never scanned', u:'in navi.db but no Nessus Scan Information (19506)', filter:'never'},
             {v:N(fr['0-7']), l:'scanned in the last 7 days', u:`${N(fr['8-30'])} more within 30 days`, sev:'ok', zero:false},
             {v:`${N(m.network)} / ${N(m.agent)}`, l:'network / agent scanned', u:'by the latest scan of each asset', sev:'info', filter:m.agent?'agent':'network',
@@ -189,10 +191,10 @@ function renderMetrics(){
             {v:N(m.crown), l:'crown jewels', u:'ACR ≥ 7', sev:'info', filter:'crown'}]},
     {title:'Performance and scanners', t:'Assets per scanner; an asset scanned by several counts for each.',
      hero:{v:dur(m.overall_avg_sec), l:'average scan time per asset', u:`${N(m.slow)} asset(s) over 1 hour`, sev:'high', filter:'slow', zero:false},
-     chips:[{v:N(m.slow_scanners), l:'slow scanners', u:`of ${N(m.scanner_count)} · busiest carries ${m.top_scanner_share!=null?m.top_scanner_share+'%':'—'} of the load`, sev:'high', href:'#secScanners',
-             t:`slow scanners of ${N(m.scanner_count)} · busiest carries ${m.top_scanner_share!=null?m.top_scanner_share+'%':'—'} of the load — avg time per asset > 1.5× the overall average`},
-            {v:`${N(m.slow_policies)} / ${N(m.slow_scans)}`, l:'slow policies / scans', u:'avg > 1.5× the overall average', sev:'high', href:'#secPolicies', zero:!m.slow_policies&&!m.slow_scans},
-            {v:N(m.outdated_scanners), l:'scanners on an old plugin feed', u:m.newest_feed?`> ${DATA.feed_lag_days} days behind ${m.newest_feed} · ${N(m.versions)} Nessus version(s) in use`:'no feed version in 19506 output', sev:'crit', href:'#secScanners'},
+     chips:[{v:N(m.slow_scanners), l:'slow scanners', u:`of ${N(m.scanner_count)} · busiest carries ${m.top_scanner_share!=null?m.top_scanner_share+'%':'—'} of ${tagScope()?"this tag's":'the'} load`, sev:'high', href:'#secScanners',
+             t:`slow scanners of ${N(m.scanner_count)} · busiest carries ${m.top_scanner_share!=null?m.top_scanner_share+'%':'—'} of ${tagScope()?"this tag's":'the'} load — avg time per asset > 1.5× ${AVG()}`},
+            {v:`${N(m.slow_policies)} / ${N(m.slow_scans)}`, l:'slow policies / scans', u:'avg > 1.5× '+AVG(), sev:'high', href:'#secPolicies', zero:!m.slow_policies&&!m.slow_scans},
+            {v:N(m.outdated_scanners), l:'scanners on an old plugin feed', u:m.newest_feed?`> ${DATA.feed_lag_days} days behind ${m.newest_feed}${tagScope()?' (newest feed on this tag)':''} · ${N(m.versions)} Nessus version(s) in use`:'no feed version in 19506 output', sev:'crit', href:'#secScanners'},
             {v:N(m.safe_off), l:'assets scanned with safe checks off', u:'can disrupt fragile services', sev:'high', href:'#secPolicies'}],
      ranked:has?{title:'Scanner load', items:top.map(x=>({label:x.key, value:x.assets, sev:'info', href:'#secScanners'})).concat(rest?[{label:'Other', value:rest, sev:'none', href:'#secScanners'}]:[])}:null}
   ], {active:FILTER, onFilter:(f,_el,on)=>{ FILTER=on?f:null; STF='all'; renderMetrics(); renderAssets();
@@ -242,6 +244,8 @@ function dimTable(tbl,list,kind,cells,secId,countId){
 }
 function renderDims(){
   document.getElementById('lagN').textContent=DATA.feed_lag_days||7;
+  document.getElementById('feedPop').textContent=tagScope()?'seen on the assets of this tag':'in navi.db';
+  document.getElementById('avgPop').textContent=tagScope()?" of this tag's assets":'';
   dimTable('scnTbl',DATA.scanners||[],'scanner',x=>`<td>${N(x.assets)}</td><td>${x.share_pct}%</td><td class="${x.problematic?'prob':''}">${dur(x.avg_sec)}</td><td class="mono">${dur(x.max_sec)}</td>`+
     `<td>${pct(x.cred_pct)}</td><td><span class="mono" style="font-size:12px">${esc((x.versions||[]).join(', ')||'—')}</span>`+
     `<div style="font-size:11.5px">${x.feed?`<span class="mono${x.outdated?' prob':''}">${esc(x.feed)}</span>${x.feed_lag_days?` <span class="${x.outdated?'prob':'sub'}">${N(x.feed_lag_days)}d behind</span>`:''}`:'<span class="sub">no feed info</span>'}</div></td>`+
@@ -275,6 +279,7 @@ document.getElementById('tagSlow').onclick=function(){ tagKeys(['slow'],this,((D
 function render(){ if(!DATA) return; renderMetrics(); renderAssets(); renderDims(); renderSlow(); }
 document.getElementById('run').onclick=run;
 mountAgentHeader({id:'scan_eval',icon:'📈',name:'Scan Evaluations',sub:'Chronos · credential health · freshness · scanner performance'});
+mountTagScope({agent:'scan_eval', note:"each asset's credential state and freshness are the same as in the whole estate; scanner, policy and scan averages, load shares and feed lag are of this tag's assets"});
 mountSectionNav();
 try{ hMailAuto(); }catch(e){}
 jget('/api/health').then(h=>{WRITES=!!h.writes_enabled;}).catch(()=>{});

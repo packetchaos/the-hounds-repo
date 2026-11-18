@@ -359,13 +359,26 @@ def signal_predicate(vcols):
     return "(%s) OR (%s)" % (w3, w4)
 
 
-def scan(db_path=None, fp=None, allow=None):
+def scan(db_path=None, fp=None, allow=None, scope=None):
     """Discover + classify AI/ML assets. fp = suppression map {assets,fw,gfw};
     allow = egress allowlist (defaults to ALLOW_DEFAULT).
+    scope = (tag_key, tag_value) — build 489: only the assets carrying that tag (read from
+    navi.db's tags table here). Every per-asset value is computed exactly as for the whole
+    estate — each step reads only that asset's own rows — so a scoped run is the estate's
+    AI assets that carry the tag. None / (None, None) = the whole estate, unchanged.
     A step stopped by its time budget no longer vanishes silently: the result says which
     steps are partial (`partial`), and a user's cancel stops the whole scan."""
     allow = allow or ALLOW_DEFAULT
     partial = []
+    from core import tagscope
+    sk, sv = (scope if isinstance(scope, (tuple, list)) and len(scope) == 2 else (None, None))
+    if not (sk and sv):
+        sk = sv = None
+    # SQL fragments for the big tables (vulns / cpes / assets); the set guards add_ev (software
+    # rows can hold a bracketed uuid list, so they are filtered in Python).
+    sfr, sargs = tagscope.sql(sk, sv, "asset_uuid")
+    afr, aargs = tagscope.sql(sk, sv, "uuid")
+    in_scope = tagscope.uuids(sk, sv, path=db_path) if sk else None
 
     def _soft(e, step):
         if isinstance(e, db.QueryCancelled):
@@ -376,7 +389,7 @@ def scan(db_path=None, fp=None, allow=None):
     acols = _cols("assets")
     amap = {}
     for a in db.query("SELECT uuid, hostname, ip_address" + (", url" if "url" in acols else "") +
-                      " FROM assets", path=db_path):
+                      " FROM assets" + ((" WHERE 1=1" + afr) if afr else ""), aargs, path=db_path):
         amap[a["uuid"]] = {"host": (a.get("hostname") or a.get("ip_address") or "").strip() or "(none)",
                            "ip": a.get("ip_address") or "", "url": a.get("url") if "url" in a else ""}
     by = {}
@@ -386,6 +399,8 @@ def scan(db_path=None, fp=None, allow=None):
 
     def add_ev(u, ev):
         if not u or _fp_has(fp, u, ev.get("term")):
+            return
+        if in_scope is not None and u not in in_scope:
             return
         slot(u)["evidence"].append(ev)
 
@@ -397,11 +412,13 @@ def scan(db_path=None, fp=None, allow=None):
                 # Phase 1: family is a plugin attribute — resolve it on hx_plugin and read only those
                 # plugins' findings (hx_v_plugin); rowid order keeps the evidence order of the scan.
                 rws = db.query("SELECT rowid AS _rid, asset_uuid, plugin_id, plugin_name" + ucol + " FROM vulns WHERE "
-                               + hx_summary.plugins_where("family LIKE '%Artificial Intelligence%'"), path=db_path)
+                               + hx_summary.plugins_where("family LIKE '%Artificial Intelligence%'") + sfr, sargs,
+                               path=db_path)
                 rws.sort(key=lambda r: r.pop("_rid"))
             else:
                 rws = db.query("SELECT asset_uuid, plugin_id, plugin_name" + ucol +
-                               " FROM vulns WHERE plugin_family LIKE '%Artificial Intelligence%'", path=db_path)
+                               " FROM vulns WHERE plugin_family LIKE '%Artificial Intelligence%'" + sfr, sargs,
+                               path=db_path)
             for r in rws:
                 u = r.get("asset_uuid")
                 if not u:
@@ -494,7 +511,8 @@ def scan(db_path=None, fp=None, allow=None):
             hits = ""
         try:
             for r in db.iter(f"SELECT asset_uuid, plugin_id, plugin_name, output, {pcol}, ({where3}) AS m3, "
-                             f"({where4}) AS m4 FROM vulns WHERE {hits}(({where3}) OR ({where4}))", path=db_path):
+                             f"({where4}) AS m4 FROM vulns WHERE {hits}(({where3}) OR ({where4})){sfr}", sargs,
+                             path=db_path):
                 if r.get("m3"):
                     step3(r)
                 if r.get("m4"):
@@ -509,7 +527,8 @@ def scan(db_path=None, fp=None, allow=None):
         try:
             where = " OR ".join(f"cpe_string LIKE '%:{_lit(e[0])}%'" for e in CPE_ALL)
             seen = set()
-            for r in db.query(f"SELECT asset_uuid, cpe_string FROM cpes WHERE {where}", path=db_path):
+            for r in db.query((f"SELECT asset_uuid, cpe_string FROM cpes WHERE ({where}){sfr}" if sfr
+                              else f"SELECT asset_uuid, cpe_string FROM cpes WHERE {where}"), sargs, path=db_path):
                 u = r.get("asset_uuid")
                 if not u:
                     continue

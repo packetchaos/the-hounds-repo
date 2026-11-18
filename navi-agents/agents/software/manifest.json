@@ -20,5 +20,9 @@
     "tag",
     "run_sql"
   ],
-  "codename": "Mimir"
+  "codename": "Mimir",
+  "tag_scope": {
+    "actions": ["run", "inventory", "drill", "product", "eol_plan", "lifecycle", "crown", "risk", "tag"],
+    "ignore": ["nl_query", "nl_translate", "run_sql"]
+  }
 }

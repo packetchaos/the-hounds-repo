@@ -165,11 +165,25 @@ _CTRL_AGG = (
     "FROM compliance GROUP BY check_id")
 
 
-def overview(path=None):
+def _scope_sql(scope):
+    """(fragment, params) narrowing compliance.asset_uuid to one tag's assets (build 489).
+    scope = (tag_key, tag_value) or None; ('', ()) for the whole estate."""
+    from core import tagscope
+    k, v = scope if (isinstance(scope, (tuple, list)) and len(scope) == 2) else (None, None)
+    return tagscope.sql(k, v, "asset_uuid")
+
+
+def overview(path=None, scope=None):
+    """The Minos dashboard. scope=(tag_key, tag_value) (build 489) rebuilds every number over
+    the compliance rows of that tag's assets only — per-asset rows are unchanged, the
+    population shrinks. scope=None runs exactly the whole-estate SQL it always did."""
     st = status(path)
     if not st["ready"]:
         return {"available": False,
                 "reason": "no compliance data in navi.db — run navi config update compliance"}
+    frag, sargs = _scope_sql(scope)
+    if frag:
+        return _overview_scoped(path, frag, sargs)
     srows = db.query("SELECT status, COUNT(*) AS n FROM compliance GROUP BY status", path=path)
     by_status = {s: 0 for s in STATUSES}
     for r in srows:
@@ -211,6 +225,61 @@ def overview(path=None):
         a["pass_pct"] = round(100.0 * p / (p + f), 1) if (p + f) else None
 
     return {"available": True, "assets": st["assets"], "checks": st["checks"], "results": total,
+            "by_status": by_status, "passed": passed, "failed": failed, "warning": warning,
+            "pass_pct": round(100.0 * passed / (passed + failed), 1) if (passed + failed) else None,
+            "failed_controls": failed_controls, "top_failing": top_failing,
+            "frameworks": frameworks, "audit_files": audit_files, "assets_rows": arows}
+
+
+def _overview_scoped(path, frag, sargs):
+    """overview() over one tag's assets: the same queries, each with the tag fragment."""
+    w = " WHERE 1=1" + frag                       # for queries that had no WHERE
+    assets = int(db.scalar("SELECT count(DISTINCT asset_uuid) FROM compliance" + w, sargs, path=path) or 0)
+    if not assets:
+        return {"available": False, "scoped_empty": True,
+                "reason": "none of the assets carrying this tag have compliance results in navi.db"}
+    checks = int(db.scalar("SELECT count(DISTINCT check_id) FROM compliance" + w, sargs, path=path) or 0)
+    srows = db.query("SELECT status, COUNT(*) AS n FROM compliance" + w + " GROUP BY status", sargs, path=path)
+    by_status = {s: 0 for s in STATUSES}
+    for r in srows:
+        by_status[_norm_status(r["status"])] += int(r["n"] or 0)
+    total = sum(by_status.values())
+    passed, failed, warning = by_status["passed"], by_status["failed"], by_status["warning"]
+
+    ctrl = _CTRL_AGG.replace("FROM compliance GROUP BY check_id", "FROM compliance" + w + " GROUP BY check_id")
+    controls = [dict(c) for c in db.query(ctrl + " ORDER BY failed DESC, warning DESC, passed DESC",
+                                          sargs, path=path)]
+    top_failing = [c for c in controls if int(c["failed"] or 0) > 0][:30]
+    failed_controls = sum(1 for c in controls if int(c["failed"] or 0) > 0)
+
+    fw = {}
+    for r in db.query("SELECT reference FROM compliance WHERE upper(status) LIKE 'FAIL%'" + frag, sargs, path=path):
+        for ref in parse_reference(r.get("reference")):
+            fw[ref["framework"]] = fw.get(ref["framework"], 0) + 1
+    frameworks = sorted(({"framework": k, "failed": v} for k, v in fw.items()),
+                        key=lambda x: (-x["failed"], x["framework"]))[:20]
+
+    audit_files = [dict(r) for r in db.query(
+        "SELECT audit_file, COUNT(DISTINCT check_id) AS checks, COUNT(DISTINCT asset_uuid) AS assets, "
+        " SUM(CASE WHEN upper(status) LIKE 'FAIL%' THEN 1 ELSE 0 END) AS failed, "
+        " SUM(CASE WHEN upper(status) LIKE 'PASS%' THEN 1 ELSE 0 END) AS passed "
+        "FROM compliance" + w + " GROUP BY audit_file ORDER BY failed DESC", sargs, path=path)]
+
+    arows = [dict(r) for r in db.query(
+        "SELECT asset_uuid, COUNT(*) AS total, "
+        " SUM(CASE WHEN upper(status) LIKE 'FAIL%' THEN 1 ELSE 0 END) AS failed, "
+        " SUM(CASE WHEN upper(status) LIKE 'PASS%' THEN 1 ELSE 0 END) AS passed, "
+        " SUM(CASE WHEN upper(status) LIKE 'WARN%' THEN 1 ELSE 0 END) AS warning "
+        "FROM compliance WHERE asset_uuid IS NOT NULL AND asset_uuid<>''" + frag
+        + " GROUP BY asset_uuid ORDER BY failed DESC, warning DESC", sargs, path=path)]
+    idents = _identities(path, [a["asset_uuid"] for a in arows])
+    for a in arows:
+        idn = idents.get(a["asset_uuid"], {})
+        a["hostname"], a["ip"] = idn.get("hostname") or "", idn.get("ip") or ""
+        p, f = int(a["passed"] or 0), int(a["failed"] or 0)
+        a["pass_pct"] = round(100.0 * p / (p + f), 1) if (p + f) else None
+
+    return {"available": True, "assets": assets, "checks": checks, "results": total,
             "by_status": by_status, "passed": passed, "failed": failed, "warning": warning,
             "pass_pct": round(100.0 * passed / (passed + failed), 1) if (passed + failed) else None,
             "failed_controls": failed_controls, "top_failing": top_failing,
@@ -450,19 +519,21 @@ def control_query(check_id, failed_only=True):
     return q + (" AND upper(status) LIKE 'FAIL%'" if failed_only else "")
 
 
-def control_targets(path=None, check_id=None, failed_only=True):
-    """asset_uuids that FAIL (default) a given control — the assets an Audit Owner owns."""
+def control_targets(path=None, check_id=None, failed_only=True, scope=None):
+    """asset_uuids that FAIL (default) a given control — the assets an Audit Owner owns.
+    scope=(tag_key, tag_value) (build 489): only those of that tag's assets, read from navi.db."""
     cid = check_id or ""                      # verbatim: a check_id may carry spaces
     if not cid.strip():
         return None
     cond = "check_id=?"
     if failed_only:
         cond += " AND upper(status) LIKE 'FAIL%'"
-    rows = db.query("SELECT DISTINCT asset_uuid FROM compliance WHERE " + cond, (cid,), path=path)
+    frag, sargs = _scope_sql(scope)
+    rows = db.query("SELECT DISTINCT asset_uuid FROM compliance WHERE " + cond + frag, (cid,) + tuple(sargs), path=path)
     uuids = [r["asset_uuid"] for r in rows if r.get("asset_uuid")]
     name = db.scalar("SELECT check_name FROM compliance WHERE check_id=? LIMIT 1", (cid,), path=path) or ""
     return {"check_id": cid, "check_name": name, "uuids": uuids,
-            "query": control_query(cid, failed_only)}
+            "query": "" if frag else control_query(cid, failed_only)}   # a scoped set has no estate-wide query
 
 
 def correlation_targets(path=None, asset_uuid=None):
